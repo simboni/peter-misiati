@@ -1,0 +1,8 @@
+# Copy to .dev.vars for local development (.dev.vars is gitignored).
+# Generate a strong secret, e.g.: openssl rand -base64 32
+BETTER_AUTH_SECRET="dev-secret-change-me-please-32chars-min"
+BETTER_AUTH_URL="http://localhost:3000"
+
+# Optional — email delivery of documents. Leave unset to use copy-link/WhatsApp/mailto.
+# RESEND_API_KEY="re_xxx"
+# RESEND_FROM="Your Business <billing@yourdomain.co.ke>"

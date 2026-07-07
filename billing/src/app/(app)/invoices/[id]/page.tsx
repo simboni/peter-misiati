@@ -1,0 +1,30 @@
+import { notFound } from "next/navigation";
+import { requireOrg } from "@/server/org";
+import { loadInvoice } from "@/server/queries";
+import { InvoiceDetail } from "@/components/invoice-detail";
+
+export const metadata = { title: "Invoice" };
+
+export default async function InvoicePage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ error?: string }>;
+}) {
+  const { id } = await params;
+  const { error } = await searchParams;
+  const { db, organizationId } = await requireOrg();
+  const doc = await loadInvoice(db, organizationId, id);
+  if (!doc || doc.invoice.type !== "invoice") notFound();
+
+  return (
+    <InvoiceDetail
+      invoice={doc.invoice}
+      lines={doc.lines}
+      client={doc.client}
+      payments={doc.payments}
+      error={error}
+    />
+  );
+}

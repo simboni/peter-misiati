@@ -1,0 +1,21 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "billing-platform",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-07-07",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "billing-db",
+      // Replace with your real D1 database id before deploying (see README).
+      // `wrangler d1 create billing-db` prints it. For local dev any value works.
+      "database_id": "local-placeholder-id",
+      "migrations_dir": "drizzle"
+    }
+  ]
+}
