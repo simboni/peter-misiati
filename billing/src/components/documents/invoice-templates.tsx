@@ -1,6 +1,8 @@
 /* eslint-disable @next/next/no-img-element */
 import { formatMoney, formatQty, formatRate } from "@/server/money";
 import { fmtDate } from "@/server/queries";
+import { isPro } from "@/lib/plan";
+import { DEFAULT_TEMPLATE, DEFAULT_ACCENT } from "@/lib/doc-style";
 import type { Invoice, InvoiceLine, Client, OrgProfile } from "@/server/db/schema";
 
 type Issuer = { name: string; profile: OrgProfile | null };
@@ -10,14 +12,18 @@ const cssVar = (accent: string) => ({ ["--ac"]: accent }) as React.CSSProperties
 function buildVM(issuer: Issuer, invoice: Invoice, lines: InvoiceLine[], client: Client | null, payUrl?: string | null) {
   const p = issuer.profile;
   const cur = invoice.currency;
+  // Custom look (logo, template, accent) is a Pro feature. On the free plan the
+  // document renders the default Tally look and carries a "Powered by Tally" mark.
+  const pro = isPro(p?.plan);
   return {
-    accent: p?.accentColor || "#0e9f6e",
-    template: p?.invoiceTemplate || "column",
+    poweredByTally: !pro,
+    accent: pro ? p?.accentColor || DEFAULT_ACCENT : DEFAULT_ACCENT,
+    template: pro ? p?.invoiceTemplate || DEFAULT_TEMPLATE : DEFAULT_TEMPLATE,
     issuerName: p?.legalName || issuer.name,
     tradeName: issuer.name,
     issuerAddr: [p?.addressLine1, p?.addressLine2, [p?.city, p?.country].filter(Boolean).join(", "), p?.phone, p?.email].filter(Boolean) as string[],
     kraPin: p?.kraPin || null,
-    logoUrl: p?.logoUrl || null,
+    logoUrl: pro ? p?.logoUrl || null : null,
     bank: p?.bankDetails || null,
     footer: invoice.notes || invoice.terms || p?.invoiceFooter || null,
     isQuote: invoice.type === "quotation",
@@ -347,7 +353,27 @@ const DOC_CSS = `
 .boutique .tot{margin:16px 0 0 auto;width:50%;font-family:ui-sans-serif,system-ui,Arial}
 .boutique .tot .grand{border-top:1px solid var(--ac);color:#1c1917}
 .boutique .iv-foot{font-family:ui-sans-serif,system-ui,Arial}
+
+/* Powered by Tally (free plan) */
+.iv-tally{max-width:820px;margin:10px auto 0;display:flex;align-items:center;justify-content:center;gap:7px;
+  color:#94a3b8;font-size:11px;font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif}
+.iv-tally svg{display:block}
+.iv-tally b{color:#0f172a;font-weight:800;letter-spacing:-.01em}
+.iv-tally b i{color:#0e9f6e;font-style:normal}
 `;
+
+function PoweredByTally() {
+  return (
+    <div className="iv-tally">
+      <svg width="15" height="15" viewBox="0 0 64 64" fill="none" stroke="#0e9f6e" strokeWidth="7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <line x1="16" y1="20" x2="16" y2="44" />
+        <line x1="26" y1="20" x2="26" y2="44" />
+        <path d="M34 35 L42 44 L54 20" />
+      </svg>
+      <span>Powered by <b>Ta<i>ll</i>y</b> — free invoicing for Kenya</span>
+    </div>
+  );
+}
 
 export function InvoiceDocument(props: {
   issuer: Issuer;
@@ -367,6 +393,7 @@ export function InvoiceDocument(props: {
     <>
       <style dangerouslySetInnerHTML={{ __html: DOC_CSS }} />
       <T vm={vm} />
+      {vm.poweredByTally && <PoweredByTally />}
     </>
   );
 }

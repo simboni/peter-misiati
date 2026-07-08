@@ -140,8 +140,14 @@ export const orgProfile = sqliteTable("org_profile", {
   bankDetails: text("bank_details"),
   invoiceFooter: text("invoice_footer"),
   // Document look: which layout + accent colour the vendor's documents use.
+  // Only applied on the paid (white-label) plan; free documents render the
+  // default Tally look and carry a "Powered by Tally" mark.
   invoiceTemplate: text("invoice_template").notNull().default("column"),
   accentColor: text("accent_color").notNull().default("#0e9f6e"),
+  // Subscription plan. "free" = Tally-branded, customization locked.
+  // "pro" = white-label: own logo, template & colour, no Tally mark.
+  plan: text("plan").notNull().default("free"),
+  planRequestedAt: integer("plan_requested_at", { mode: "timestamp" }),
   // Per-vendor M-Pesa (Kopo Kopo). Secrets are stored AES-GCM encrypted.
   // When disabled/empty, the platform-level env credentials are used instead.
   kopokopoEnabled: integer("kopokopo_enabled", { mode: "boolean" }).notNull().default(false),

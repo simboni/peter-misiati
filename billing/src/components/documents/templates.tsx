@@ -1,12 +1,17 @@
 /* eslint-disable @next/next/no-img-element */
 import { formatMoney, formatQty } from "@/server/money";
 import { fmtDate } from "@/server/queries";
+import { isPro } from "@/lib/plan";
+import { DEFAULT_ACCENT } from "@/lib/doc-style";
 import type { Invoice, Client, Payment, OrgProfile, DeliveryNote } from "@/server/db/schema";
 
 // The multi-layout invoice/quotation renderer lives in its own module.
 export { InvoiceDocument } from "./invoice-templates";
 
 type Issuer = { name: string; profile: OrgProfile | null };
+
+// Custom accent & logo are Pro-only; the free plan uses the default Tally look.
+const proOf = (issuer: Issuer) => isPro(issuer.profile?.plan);
 
 const METHOD_LABELS: Record<string, string> = {
   mpesa: "M-Pesa",
@@ -17,13 +22,13 @@ const METHOD_LABELS: Record<string, string> = {
   other: "Other",
 };
 
-const accentOf = (issuer: Issuer) => issuer.profile?.accentColor || "#047857";
+const accentOf = (issuer: Issuer) => (proOf(issuer) ? issuer.profile?.accentColor || DEFAULT_ACCENT : DEFAULT_ACCENT);
 
 function IssuerBlock({ issuer }: { issuer: Issuer }) {
   const p = issuer.profile;
   return (
     <div className="flex items-start gap-3">
-      {p?.logoUrl ? (
+      {proOf(issuer) && p?.logoUrl ? (
         <img src={p.logoUrl} alt="" className="h-14 w-14 rounded object-contain" />
       ) : null}
       <div>
@@ -75,6 +80,18 @@ function DocumentShell({
         </div>
       </div>
       {children}
+      {!proOf(issuer) && (
+        <div className="mt-8 flex items-center justify-center gap-2 text-[11px] text-muted">
+          <svg width="15" height="15" viewBox="0 0 64 64" fill="none" stroke="#0e9f6e" strokeWidth="7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <line x1="16" y1="20" x2="16" y2="44" />
+            <line x1="26" y1="20" x2="26" y2="44" />
+            <path d="M34 35 L42 44 L54 20" />
+          </svg>
+          <span>
+            Powered by <b className="font-extrabold text-ink">Ta<span className="text-brand-600">ll</span>y</b> — free invoicing for Kenya
+          </span>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { requireOrg, getOrg, getOrgProfile } from "@/server/org";
 import { kopokopoConfig } from "@/server/config";
+import { isPro } from "@/lib/plan";
 import { PageHeader } from "@/components/page-header";
 import { SettingsForm } from "@/components/settings-form";
 import { PaymentSettingsForm } from "@/components/payment-settings-form";
@@ -26,7 +27,7 @@ export default async function SettingsPage() {
   return (
     <div className="max-w-3xl space-y-6">
       <PageHeader title="Settings" subtitle="Your business details appear on every document." />
-      <SettingsForm orgName={org?.name ?? ""} profile={profile} />
+      <SettingsForm orgName={org?.name ?? ""} profile={profile} pro={isPro(profile.plan)} />
       <PaymentSettingsForm
         enabled={profile.kopokopoEnabled}
         baseUrl={profile.kopokopoBaseUrl}

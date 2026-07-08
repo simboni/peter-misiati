@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState, useState } from "react";
 import { SubmitButton } from "./submit-button";
 import { saveSettingsAction, type FormState } from "@/server/actions/settings";
@@ -13,9 +14,11 @@ const CURRENCIES = ["KES", "USD", "EUR", "GBP", "UGX", "TZS"];
 export function SettingsForm({
   orgName,
   profile,
+  pro,
 }: {
   orgName: string;
   profile: OrgProfile;
+  pro: boolean;
 }) {
   const [state, formAction] = useActionState<FormState, FormData>(saveSettingsAction, {});
   const [vatRegistered, setVatRegistered] = useState(profile.vatRegistered);
@@ -57,7 +60,7 @@ export function SettingsForm({
             </div>
             <div>
               <label className="label" htmlFor="logoUrl">
-                Logo URL (optional)
+                Logo URL (optional){!pro && <span className="ml-1 text-brand-600">· Pro</span>}
               </label>
               <input
                 id="logoUrl"
@@ -66,6 +69,9 @@ export function SettingsForm({
                 placeholder="https://…/logo.png"
                 defaultValue={profile.logoUrl ?? ""}
               />
+              {!pro && (
+                <p className="mt-1 text-xs text-muted">Shown on documents once you upgrade to Pro.</p>
+              )}
             </div>
           </div>
         </div>
@@ -211,60 +217,87 @@ export function SettingsForm({
       </section>
 
       <section className="card p-6">
-        <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-muted">
-          Invoice template &amp; colour
-        </h2>
+        <div className="mb-1 flex items-center gap-2">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">
+            Invoice template &amp; colour
+          </h2>
+          {!pro && (
+            <span className="rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-semibold text-brand-700">
+              Pro
+            </span>
+          )}
+        </div>
         <p className="mb-4 text-sm text-muted">
           The look of your invoices, quotations and receipts. Applies to every document.
         </p>
+
+        {!pro && (
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand-200 bg-brand-50 px-4 py-3">
+            <p className="text-sm text-brand-800">
+              On the free plan your documents use the default Tally look and carry a{" "}
+              <b>Powered by Tally</b> mark. Upgrade to use your own logo, template and colour.
+            </p>
+            <Link href="/upgrade" className="btn-primary btn-sm whitespace-nowrap">
+              Make it yours →
+            </Link>
+          </div>
+        )}
+
+        {/* Selections are kept even on Free, so they apply the moment you upgrade. */}
         <input type="hidden" name="invoiceTemplate" value={template} />
         <input type="hidden" name="accentColor" value={accent} />
 
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {TEMPLATES.map((t) => {
-            const active = template === t.id;
-            return (
-              <button
-                type="button"
-                key={t.id}
-                onClick={() => setTemplate(t.id)}
-                aria-pressed={active}
-                className={`rounded-xl border p-2 text-left transition-colors ${
-                  active ? "border-brand-500 ring-2 ring-brand-100" : "border-line hover:bg-canvas"
-                }`}
-              >
-                <TemplateThumb id={t.id} accent={accent} />
-                <span className="mt-2 flex items-center gap-2 px-1">
-                  <span
-                    className={`inline-block h-3.5 w-3.5 flex-none rounded-full border ${active ? "" : "border-line"}`}
-                    style={active ? { background: accent, borderColor: accent } : {}}
-                  />
-                  <span className="text-sm font-semibold text-ink">{t.name}</span>
-                </span>
-                <span className="mt-0.5 block px-1 text-xs text-muted">{t.desc}</span>
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="mt-5">
-          <label className="label">Accent colour</label>
-          <div className="flex flex-wrap gap-2">
-            {ACCENTS.map((a) => (
-              <button
-                type="button"
-                key={a.hex}
-                onClick={() => setAccent(a.hex)}
-                title={a.name}
-                aria-label={a.name}
-                className={`h-8 w-8 rounded-full border-2 transition-transform ${
-                  accent === a.hex ? "scale-110 border-ink" : "border-white"
-                }`}
-                style={{ background: a.hex, boxShadow: "0 0 0 1px var(--color-line)" }}
-              />
-            ))}
+        <fieldset
+          disabled={!pro}
+          className={!pro ? "pointer-events-none select-none opacity-60" : undefined}
+          aria-hidden={!pro}
+        >
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {TEMPLATES.map((t) => {
+              const active = template === t.id;
+              return (
+                <button
+                  type="button"
+                  key={t.id}
+                  onClick={() => setTemplate(t.id)}
+                  aria-pressed={active}
+                  className={`rounded-xl border p-2 text-left transition-colors ${
+                    active ? "border-brand-500 ring-2 ring-brand-100" : "border-line hover:bg-canvas"
+                  }`}
+                >
+                  <TemplateThumb id={t.id} accent={accent} />
+                  <span className="mt-2 flex items-center gap-2 px-1">
+                    <span
+                      className={`inline-block h-3.5 w-3.5 flex-none rounded-full border ${active ? "" : "border-line"}`}
+                      style={active ? { background: accent, borderColor: accent } : {}}
+                    />
+                    <span className="text-sm font-semibold text-ink">{t.name}</span>
+                  </span>
+                  <span className="mt-0.5 block px-1 text-xs text-muted">{t.desc}</span>
+                </button>
+              );
+            })}
           </div>
-        </div>
+
+          <div className="mt-5">
+            <label className="label">Accent colour</label>
+            <div className="flex flex-wrap gap-2">
+              {ACCENTS.map((a) => (
+                <button
+                  type="button"
+                  key={a.hex}
+                  onClick={() => setAccent(a.hex)}
+                  title={a.name}
+                  aria-label={a.name}
+                  className={`h-8 w-8 rounded-full border-2 transition-transform ${
+                    accent === a.hex ? "scale-110 border-ink" : "border-white"
+                  }`}
+                  style={{ background: a.hex, boxShadow: "0 0 0 1px var(--color-line)" }}
+                />
+              ))}
+            </div>
+          </div>
+        </fieldset>
       </section>
 
       {state.error && (

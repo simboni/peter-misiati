@@ -1,12 +1,18 @@
 export const dynamic = "force-dynamic";
+import Link from "next/link";
 import { Brand } from "@/components/brand";
 import { SidebarNav } from "@/components/sidebar-nav";
-import { requireOrg, getOrg } from "@/server/org";
+import { requireOrg, getOrg, getOrgProfile } from "@/server/org";
+import { isPro } from "@/lib/plan";
 import { signOutAction } from "@/server/actions/auth";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const { db, organizationId, user } = await requireOrg();
-  const org = await getOrg(db, organizationId);
+  const [org, profile] = await Promise.all([
+    getOrg(db, organizationId),
+    getOrgProfile(db, organizationId),
+  ]);
+  const pro = isPro(profile?.plan);
 
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[260px_1fr]">
@@ -16,7 +22,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <Brand href="/dashboard" />
         </div>
         <div className="flex-1 overflow-y-auto p-3">
-          <SidebarNav />
+          <SidebarNav pro={pro} />
         </div>
         <div className="border-t border-line p-4">
           <p className="truncate text-sm font-semibold text-ink">{org?.name ?? "Workspace"}</p>
@@ -36,12 +42,26 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       </div>
       <div className="no-print overflow-x-auto border-b border-line bg-white px-2 py-2 lg:hidden">
         <div className="min-w-max">
-          <SidebarNav />
+          <SidebarNav pro={pro} />
         </div>
       </div>
 
       {/* Main */}
-      <main className="min-w-0 p-4 sm:p-6 lg:p-8">{children}</main>
+      <main className="min-w-0 p-4 sm:p-6 lg:p-8">
+        {!pro && (
+          <Link
+            href="/upgrade"
+            className="no-print mb-5 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 transition-colors hover:bg-brand-100/70"
+          >
+            <span className="text-sm text-brand-800">
+              <b>You’re on the free plan.</b> Your invoices carry Tally branding — upgrade to make
+              the app your own.
+            </span>
+            <span className="btn-primary btn-sm whitespace-nowrap">Make it yours →</span>
+          </Link>
+        )}
+        {children}
+      </main>
     </div>
   );
 }

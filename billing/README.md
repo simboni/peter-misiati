@@ -143,6 +143,31 @@ under **Settings → M-Pesa collection**, so payments land in their account. Tho
 confirmation webhook is verified with **their own** API key. When a vendor hasn't set their own,
 the platform account is used as the fallback.
 
+## Plans & branding (free vs Pro white-label)
+
+Tally is **free and multi-vendor** — anyone signs up and runs their whole billing cycle at no
+cost. Free documents render the **default Tally look** and carry a small **"Powered by Tally"**
+mark; the vendor's own logo, invoice template and accent colour are held but not applied.
+
+The paid **Pro** plan is **white-label**: the vendor's own logo, a choice of 5 templates and an
+accent colour, the "Powered by Tally" mark removed — so the app reads as their own. Pro is
+priced **per user / month** (`PRICE_PER_SEAT_KES`, default KES 1,000, in `src/lib/plan.ts`); the
+**Upgrade** page multiplies it by the workspace's seat count.
+
+Upgrading is a **request → activate** flow (pilot-friendly, no payment wiring yet):
+
+1. A vendor opens **Upgrade** and clicks **Upgrade to Pro** — this records the request
+   (`org_profile.plan_requested_at`).
+2. The platform owner activates it. Two ways:
+   - Set `OWNER_EMAILS` (comma-separated) to the operator's login email(s). Those users then see
+     **Owner controls** on the Upgrade page to flip a workspace to Pro / back to Free.
+   - Or directly in the database:
+     `UPDATE org_profile SET plan='pro', plan_requested_at=NULL WHERE organization_id='…';`
+     (`wrangler d1 execute billing-db --remote --command "…"`).
+
+`plan` is a column on `org_profile` (`free` | `pro`, default `free`). When real subscription
+billing lands, the request action in `src/server/actions/plan.ts` is where checkout would start.
+
 ## What's included
 
 Clients · service/product catalogue · quotations → invoices · invoices with **deposit +
@@ -156,4 +181,5 @@ delivery notes · print/share document views · **email a pay link to clients (R
 
 Multi-currency books · withholding tax/VAT · expenses & overheads · P&L, VAT and
 receivables-aging reports · team members per workspace · recurring/retainer invoices ·
-subscription tiers.
+automated Pro subscription billing (the free/Pro plan split and request→activate flow are
+already in place).

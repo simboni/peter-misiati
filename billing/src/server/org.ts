@@ -76,6 +76,15 @@ export async function getOrgProfile(db: DB, organizationId: string) {
   return rows[0] ?? null;
 }
 
+/** Count seats (members) in an org — used for per-user Pro pricing. */
+export async function countSeats(db: DB, organizationId: string): Promise<number> {
+  const rows = await db
+    .select({ id: schema.member.id })
+    .from(schema.member)
+    .where(eq(schema.member.organizationId, organizationId));
+  return Math.max(1, rows.length);
+}
+
 /** Load org name from the organization table. */
 export async function getOrg(db: DB, organizationId: string) {
   const rows = await db
