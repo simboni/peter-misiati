@@ -8,6 +8,7 @@ import {
   type FormState,
   type TestState,
 } from "@/server/actions/payment-settings";
+import { MPESA_PAYMENTS_ENABLED } from "@/lib/flags";
 
 export function PaymentSettingsForm({
   enabled,
@@ -42,6 +43,14 @@ export function PaymentSettingsForm({
           into <strong>your own</strong> Kopo Kopo account instead.
         </p>
       </div>
+
+      {!MPESA_PAYMENTS_ENABLED && (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          Online M-Pesa collection is temporarily switched off, so the “Pay by M-Pesa” button won’t
+          appear on shared invoices yet. Your settings here are still saved and will take effect once
+          it’s switched back on.
+        </p>
+      )}
 
       <label className="flex items-center gap-2 text-sm text-ink">
         <input

@@ -5,6 +5,7 @@ import { getDb, schema } from "@/server/db";
 import { getOrg, getOrgProfile } from "@/server/org";
 import { browserEnabled, appBaseUrl } from "@/server/config";
 import { kopokopoConfigForOrg } from "@/server/payments-config";
+import { MPESA_PAYMENTS_ENABLED } from "@/lib/flags";
 import { PrintBar } from "@/components/documents/print-bar";
 import { PayPanel } from "@/components/pay-panel";
 import { formatMoney } from "@/server/money";
@@ -53,6 +54,7 @@ export default async function PublicDocumentPage({
     ]);
     const client = clientRows[0] ?? null;
     const canPay =
+      MPESA_PAYMENTS_ENABLED &&
       invoice.type === "invoice" &&
       invoice.status !== "void" &&
       invoice.balanceDue > 0 &&
