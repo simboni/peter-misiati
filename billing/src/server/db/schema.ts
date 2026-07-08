@@ -139,6 +139,9 @@ export const orgProfile = sqliteTable("org_profile", {
   logoUrl: text("logo_url"),
   bankDetails: text("bank_details"),
   invoiceFooter: text("invoice_footer"),
+  // Document look: which layout + accent colour the vendor's documents use.
+  invoiceTemplate: text("invoice_template").notNull().default("column"),
+  accentColor: text("accent_color").notNull().default("#0e9f6e"),
   // Per-vendor M-Pesa (Kopo Kopo). Secrets are stored AES-GCM encrypted.
   // When disabled/empty, the platform-level env credentials are used instead.
   kopokopoEnabled: integer("kopokopo_enabled", { mode: "boolean" }).notNull().default(false),

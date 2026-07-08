@@ -43,6 +43,8 @@ export async function saveSettingsAction(_prev: FormState, fd: FormData): Promis
       logoUrl: str(fd, "logoUrl"),
       bankDetails: str(fd, "bankDetails"),
       invoiceFooter: str(fd, "invoiceFooter"),
+      invoiceTemplate: str(fd, "invoiceTemplate") ?? "column",
+      accentColor: str(fd, "accentColor") ?? "#0e9f6e",
     })
     .where(eq(schema.orgProfile.organizationId, organizationId));
 
