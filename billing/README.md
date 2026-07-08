@@ -58,7 +58,8 @@ npm test
    ```bash
    npx wrangler secret put BETTER_AUTH_SECRET     # a long random string
    npx wrangler secret put BETTER_AUTH_URL        # e.g. https://app.yourdomain.co.ke
-   # optional email delivery (see below)
+   npx wrangler secret put OWNER_EMAILS           # your login email → super-admin (see Admin console)
+   # optional email delivery (see below) — or manage it from Admin → Platform settings
    npx wrangler secret put RESEND_API_KEY
    npx wrangler secret put RESEND_FROM
    ```
@@ -167,6 +168,39 @@ Upgrading is a **request → activate** flow (pilot-friendly, no payment wiring 
 
 `plan` is a column on `org_profile` (`free` | `pro`, default `free`). When real subscription
 billing lands, the request action in `src/server/actions/plan.ts` is where checkout would start.
+
+## Admin console (`/admin`)
+
+A cross-tenant operations console so the platform can be run entirely from the browser — no
+terminal, no manual database edits. It sits above the vendor workspaces and is reached at
+`/admin` (a link also appears in the vendor sidebar for admins).
+
+**Access model — two tiers, bootstrapped from env, then self-service:**
+
+- Set `OWNER_EMAILS` (comma-separated) to your login email. On your next sign-in you're
+  auto-promoted to **super-admin** — this is the only step that needs env/terminal.
+- **Super-admin** (you): appoint/remove admins, change money settings (pricing, per-vendor price
+  overrides, platform M-Pesa & email), disable users — everything.
+- **Platform admin**: day-to-day ops (activate plans, suspend workspaces, monitor payments) but
+  not role changes or money-settings. Super-admins create admins from **Users & admins**.
+
+**What it does:**
+
+- **Overview** — platform KPIs (vendors, Pro vs free, MRR, GMV, collected, pending requests) and
+  live system-health tiles (M-Pesa / email / PDF configured?).
+- **Vendors** — every workspace with plan, seats, invoices, GMV; drill in to **activate/revert
+  Pro**, **suspend/restore**, set a **custom per-seat price**, read members & recent activity, and
+  leave internal notes.
+- **Upgrade requests** — the queue of vendors who asked for Pro; activate in one click.
+- **Payments** — every recorded payment and every M-Pesa attempt across all tenants, with failed
+  intents surfaced.
+- **Users & admins** — all users; grant/revoke admin & super-admin (with a last-super-admin
+  lockout guard); disable accounts.
+- **Platform settings** — pricing, the platform-fallback **Kopo Kopo** account, and **Resend** key,
+  all stored (encrypted) in D1 and editable in the UI. Env values are used only as a fallback.
+- **Audit log** — every admin action is recorded (who, what, when, target).
+
+Suspended workspaces are blocked at `requireOrg()` and shown a friendly `/suspended` page.
 
 ## What's included
 

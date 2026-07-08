@@ -3,14 +3,16 @@ import Link from "next/link";
 import { Brand } from "@/components/brand";
 import { SidebarNav } from "@/components/sidebar-nav";
 import { requireOrg, getOrg, getOrgProfile } from "@/server/org";
+import { getAdminContext } from "@/server/admin";
 import { isPro } from "@/lib/plan";
 import { signOutAction } from "@/server/actions/auth";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const { db, organizationId, user } = await requireOrg();
-  const [org, profile] = await Promise.all([
+  const [org, profile, admin] = await Promise.all([
     getOrg(db, organizationId),
     getOrgProfile(db, organizationId),
+    getAdminContext(),
   ]);
   const pro = isPro(profile?.plan);
 
@@ -27,7 +29,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <div className="border-t border-line p-4">
           <p className="truncate text-sm font-semibold text-ink">{org?.name ?? "Workspace"}</p>
           <p className="truncate text-xs text-muted">{user.email}</p>
-          <form action={signOutAction} className="mt-3">
+          {admin && (
+            <Link
+              href="/admin"
+              className="mt-3 flex items-center justify-center gap-2 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800"
+            >
+              ◆ Admin console
+            </Link>
+          )}
+          <form action={signOutAction} className="mt-2">
             <button className="btn-ghost btn-sm w-full">Sign out</button>
           </form>
         </div>

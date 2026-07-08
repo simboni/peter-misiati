@@ -57,6 +57,14 @@ export async function requireOrg(): Promise<OrgContext> {
   const active =
     (activeId && memberships.find((m) => m.organizationId === activeId)) || memberships[0];
 
+  // Block access to a workspace an admin has suspended.
+  const susp = await db
+    .select({ suspended: schema.orgProfile.suspended })
+    .from(schema.orgProfile)
+    .where(eq(schema.orgProfile.organizationId, active.organizationId))
+    .limit(1);
+  if (susp[0]?.suspended) redirect("/suspended");
+
   return {
     db,
     userId: user.id,

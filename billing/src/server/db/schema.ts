@@ -27,6 +27,12 @@ export const user = sqliteTable("user", {
   email: text("email").notNull().unique(),
   emailVerified: integer("email_verified", { mode: "boolean" }).notNull().default(false),
   image: text("image"),
+  // Platform (cross-tenant) admin flags. Regular vendors have both false.
+  // superAdmin can appoint/remove admins and change platform money settings;
+  // platformAdmin can run day-to-day ops. Bootstrapped from OWNER_EMAILS.
+  isPlatformAdmin: integer("is_platform_admin", { mode: "boolean" }).notNull().default(false),
+  isSuperAdmin: integer("is_super_admin", { mode: "boolean" }).notNull().default(false),
+  disabled: integer("disabled", { mode: "boolean" }).notNull().default(false),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
 });
@@ -148,6 +154,12 @@ export const orgProfile = sqliteTable("org_profile", {
   // "pro" = white-label: own logo, template & colour, no Tally mark.
   plan: text("plan").notNull().default("free"),
   planRequestedAt: integer("plan_requested_at", { mode: "timestamp" }),
+  planActivatedAt: integer("plan_activated_at", { mode: "timestamp" }),
+  // Optional per-seat price override (whole KES) set by an admin for this vendor.
+  planPriceOverrideKes: integer("plan_price_override_kes"),
+  // Admin-controlled account state. A suspended workspace is blocked from the app.
+  suspended: integer("suspended", { mode: "boolean" }).notNull().default(false),
+  adminNote: text("admin_note"),
   // Per-vendor M-Pesa (Kopo Kopo). Secrets are stored AES-GCM encrypted.
   // When disabled/empty, the platform-level env credentials are used instead.
   kopokopoEnabled: integer("kopokopo_enabled", { mode: "boolean" }).notNull().default(false),
@@ -394,11 +406,59 @@ export const deliveryNoteLine = sqliteTable(
   (t) => [index("dn_line_dn_idx").on(t.deliveryNoteId)],
 );
 
+// ------------------------------------------------------------- platform admin
+
+/**
+ * Single-row platform configuration, editable from the admin console. Secrets
+ * are AES-GCM encrypted. Env values are used only as a fallback when a field
+ * here is unset, so the app can run with everything managed from the UI.
+ */
+export const platformSettings = sqliteTable("platform_settings", {
+  id: text("id").primaryKey().default("singleton"),
+  // Pricing for the Pro (white-label) plan.
+  pricePerSeatKes: integer("price_per_seat_kes").notNull().default(1000),
+  currency: text("currency").notNull().default("KES"),
+  // Platform-fallback M-Pesa (Kopo Kopo) account. Used when a vendor hasn't set
+  // their own. Secrets encrypted at rest.
+  kopokopoEnabled: integer("kopokopo_enabled", { mode: "boolean" }).notNull().default(false),
+  kopokopoBaseUrl: text("kopokopo_base_url"),
+  kopokopoTill: text("kopokopo_till"),
+  kopokopoClientId: text("kopokopo_client_id"),
+  kopokopoClientSecretEnc: text("kopokopo_client_secret_enc"),
+  kopokopoApiKeyEnc: text("kopokopo_api_key_enc"),
+  // Email (Resend).
+  resendApiKeyEnc: text("resend_api_key_enc"),
+  resendFrom: text("resend_from"),
+  updatedAt: updatedAt(),
+});
+
+/** Append-only log of admin actions, for accountability. */
+export const adminAuditLog = sqliteTable(
+  "admin_audit_log",
+  {
+    id: id(),
+    actorUserId: text("actor_user_id").notNull(),
+    actorEmail: text("actor_email").notNull(),
+    action: text("action").notNull(), // e.g. plan.activate, admin.promote, config.update
+    targetType: text("target_type"), // organization | user | settings
+    targetId: text("target_id"),
+    targetLabel: text("target_label"),
+    detail: text("detail"), // short human-readable summary
+    createdAt: createdAt(),
+  },
+  (t) => [index("audit_created_idx").on(t.createdAt)],
+);
+
 // Convenience row types
 export type Invoice = typeof invoice.$inferSelect;
 export type InvoiceLine = typeof invoiceLine.$inferSelect;
 export type Client = typeof client.$inferSelect;
 export type Item = typeof item.$inferSelect;
 export type Payment = typeof payment.$inferSelect;
+export type PaymentIntent = typeof paymentIntent.$inferSelect;
 export type DeliveryNote = typeof deliveryNote.$inferSelect;
 export type OrgProfile = typeof orgProfile.$inferSelect;
+export type User = typeof user.$inferSelect;
+export type Organization = typeof organization.$inferSelect;
+export type PlatformSettings = typeof platformSettings.$inferSelect;
+export type AdminAuditLog = typeof adminAuditLog.$inferSelect;

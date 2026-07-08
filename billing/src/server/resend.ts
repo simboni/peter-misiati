@@ -1,4 +1,5 @@
-import { resendConfig } from "./config";
+import { getDb } from "./db";
+import { platformResendConfig } from "./platform";
 
 /** Send a transactional email via Resend. No-op-safe when no key is configured. */
 export async function sendEmail(opts: {
@@ -7,7 +8,7 @@ export async function sendEmail(opts: {
   html: string;
   replyTo?: string | null;
 }): Promise<{ ok: boolean; error?: string }> {
-  const cfg = await resendConfig();
+  const cfg = await platformResendConfig(await getDb());
   if (!cfg) return { ok: false, error: "Email delivery isn't set up yet (no Resend key)." };
 
   const res = await fetch("https://api.resend.com/emails", {

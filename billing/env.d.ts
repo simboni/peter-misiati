@@ -18,6 +18,8 @@ declare global {
     KOPOKOPO_CLIENT_SECRET?: string;
     KOPOKOPO_API_KEY?: string; // used to verify webhook signatures
     KOPOKOPO_TILL_NUMBER?: string;
+    // Comma-separated emails that bootstrap as platform super-admins on login.
+    OWNER_EMAILS?: string;
   }
 }
 

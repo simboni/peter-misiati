@@ -1,5 +1,5 @@
 import { requireOrg, getOrg, getOrgProfile } from "@/server/org";
-import { kopokopoConfig } from "@/server/config";
+import { platformKopokopoConfig } from "@/server/platform";
 import { isPro } from "@/lib/plan";
 import { PageHeader } from "@/components/page-header";
 import { SettingsForm } from "@/components/settings-form";
@@ -12,7 +12,7 @@ export default async function SettingsPage() {
   const [org, profile, platformCfg] = await Promise.all([
     getOrg(db, organizationId),
     getOrgProfile(db, organizationId),
-    kopokopoConfig(),
+    platformKopokopoConfig(db),
   ]);
 
   if (!profile) {

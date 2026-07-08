@@ -53,3 +53,19 @@ export async function browserEnabled(): Promise<boolean> {
   const env = await getEnv();
   return Boolean(env.BROWSER);
 }
+
+/** App secret used to derive the AES-GCM key for encrypting stored secrets. */
+export async function appSecret(): Promise<string> {
+  const env = await getEnv();
+  return env.BETTER_AUTH_SECRET || "dev-secret-please-change-in-production";
+}
+
+/** Emails (lowercased) that bootstrap as platform super-admins on login. */
+export async function ownerEmails(): Promise<string[]> {
+  const env = await getEnv();
+  const raw = env.OWNER_EMAILS ?? process.env.OWNER_EMAILS ?? "";
+  return raw
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+}

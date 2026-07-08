@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { schema, type DB } from "./db";
-import { kopokopoConfig, getEnv, type KopoKopoConfig } from "./config";
+import { getEnv, type KopoKopoConfig } from "./config";
+import { platformKopokopoConfig } from "./platform";
 import { decryptSecret } from "./crypto";
 
 /**
@@ -45,6 +46,6 @@ export async function kopokopoConfigForOrg(
     }
   }
 
-  // Fall back to platform-level credentials (the pilot company's till).
-  return kopokopoConfig();
+  // Fall back to the platform-level account (DB-managed first, else env).
+  return platformKopokopoConfig(db);
 }

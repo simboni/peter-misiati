@@ -1,34 +1,29 @@
 export const dynamic = "force-dynamic";
 import { requireOrg, getOrg, getOrgProfile, countSeats } from "@/server/org";
+import { getAdminContext } from "@/server/admin";
+import { platformPricePerSeatKes } from "@/server/platform";
 import { PageHeader } from "@/components/page-header";
 import { SubmitButton } from "@/components/submit-button";
-import { requestUpgradeAction, activatePlanAction } from "@/server/actions/plan";
-import {
-  isPro,
-  monthlyPriceKes,
-  formatKes,
-  PRICE_PER_SEAT_KES,
-  PRO_FEATURES,
-} from "@/lib/plan";
+import { requestUpgradeAction } from "@/server/actions/plan";
+import { isPro, formatKes, PRO_FEATURES } from "@/lib/plan";
+import Link from "next/link";
 
 export const metadata = { title: "Upgrade" };
 
 export default async function UpgradePage() {
   const { db, organizationId, user } = await requireOrg();
-  const [org, profile, seats] = await Promise.all([
+  const [org, profile, seats, perSeat, admin] = await Promise.all([
     getOrg(db, organizationId),
     getOrgProfile(db, organizationId),
     countSeats(db, organizationId),
+    platformPricePerSeatKes(db),
+    getAdminContext(),
   ]);
 
   const pro = isPro(profile?.plan);
   const requested = Boolean(profile?.planRequestedAt);
-  const price = monthlyPriceKes(seats);
-  const owners = (process.env.OWNER_EMAILS ?? "")
-    .split(",")
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean);
-  const isOwner = owners.includes(user.email.toLowerCase());
+  const unit = profile?.planPriceOverrideKes ?? perSeat;
+  const price = Math.max(1, seats) * unit;
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -37,14 +32,11 @@ export default async function UpgradePage() {
         subtitle="Tally is free to use. Upgrade to make it your own."
       />
 
-      {/* Current plan */}
       <section className="card p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-sm text-muted">Current plan</p>
-            <p className="mt-1 text-xl font-bold text-ink">
-              {pro ? "Pro — white-label" : "Free"}
-            </p>
+            <p className="mt-1 text-xl font-bold text-ink">{pro ? "Pro — white-label" : "Free"}</p>
           </div>
           <span
             className={`rounded-full px-3 py-1 text-sm font-semibold ${
@@ -56,14 +48,13 @@ export default async function UpgradePage() {
         </div>
         {!pro && (
           <p className="mt-3 text-sm text-muted">
-            Your documents currently carry a small <b className="text-ink">Powered by Tally</b>{" "}
-            mark and use the default Tally look. Everything works — invoicing, M-Pesa,
-            receipts — at no cost.
+            Your documents currently carry a small <b className="text-ink">Powered by Tally</b> mark
+            and use the default Tally look. Everything works — invoicing, M-Pesa, receipts — at no
+            cost.
           </p>
         )}
       </section>
 
-      {/* Pro offer */}
       <section className="card overflow-hidden">
         <div className="border-b border-line bg-brand-50/60 p-6">
           <div className="flex flex-wrap items-end justify-between gap-3">
@@ -72,7 +63,7 @@ export default async function UpgradePage() {
                 Pro — white-label
               </p>
               <p className="mt-2 text-3xl font-extrabold text-ink">
-                {formatKes(PRICE_PER_SEAT_KES)}
+                {formatKes(unit)}
                 <span className="text-base font-medium text-muted"> / user / month</span>
               </p>
             </div>
@@ -128,26 +119,14 @@ export default async function UpgradePage() {
         </div>
       </section>
 
-      {/* Owner-only activation (guarded by OWNER_EMAILS) */}
-      {isOwner && (
-        <section className="card p-6">
-          <p className="text-sm font-semibold uppercase tracking-wide text-muted">
-            Owner controls
-          </p>
-          <p className="mt-1 text-sm text-muted">
-            You’re a platform owner. Activate or revert this workspace’s plan.
-          </p>
-          <div className="mt-4 flex gap-3">
-            <form action={activatePlanAction}>
-              <input type="hidden" name="plan" value="pro" />
-              <SubmitButton className="btn-primary btn-sm">Activate Pro</SubmitButton>
-            </form>
-            <form action={activatePlanAction}>
-              <input type="hidden" name="plan" value="free" />
-              <SubmitButton className="btn-ghost btn-sm">Revert to Free</SubmitButton>
-            </form>
-          </div>
-        </section>
+      {admin && (
+        <p className="text-sm text-muted">
+          You’re a platform admin —{" "}
+          <Link href={`/admin/vendors/${organizationId}`} className="font-semibold text-brand-700 underline">
+            manage this workspace in the admin console
+          </Link>
+          .
+        </p>
       )}
     </div>
   );

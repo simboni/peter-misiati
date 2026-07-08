@@ -37,3 +37,14 @@ export function fmtDate(d?: Date | null): string {
     year: "numeric",
   });
 }
+
+export function fmtDateTime(d?: Date | null): string {
+  if (!d) return "—";
+  return new Date(d).toLocaleString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
