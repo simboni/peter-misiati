@@ -7,3 +7,12 @@
  * the "Pay by M-Pesa" panel on public invoices.
  */
 export const MPESA_PAYMENTS_ENABLED = false;
+
+/**
+ * Server-side PDF generation (Cloudflare Browser Rendering). OFF until the
+ * binding is reliably provisioned — while off, documents hide the "Download
+ * PDF" button and users use the browser's rock-solid "Print / Save as PDF"
+ * (which produces the same A4 document). Set to `true` once Browser Rendering
+ * is enabled on the Worker.
+ */
+export const SERVER_PDF_ENABLED = false;

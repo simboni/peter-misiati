@@ -105,7 +105,7 @@ function Totals({ vm }: { vm: VM }) {
       <div className="row"><span>Subtotal</span><span className="num">{vm.subtotal}</span></div>
       {vm.discount && <div className="row"><span>Discount</span><span className="num">− {vm.discount}</span></div>}
       <div className="row"><span>VAT</span><span className="num">{vm.vat}</span></div>
-      <div className="row grand"><span>Total ({vm.cur})</span><span className="num">{vm.total}</span></div>
+      <div className="row grand"><span>Total</span><span className="num">{vm.total}</span></div>
       {vm.amountPaid && <div className="row"><span>Paid</span><span className="num">{vm.amountPaid}</span></div>}
       {vm.balance && <div className="row bal"><span>Balance due</span><span className="num">{vm.balance}</span></div>}
     </>
@@ -272,7 +272,10 @@ const DOC_CSS = `
 .iv-doc .iv-name{font-weight:800;margin:3px 0 0}
 .iv-doc .ln-desc{color:#64748b;font-size:11px;font-weight:400;margin-top:2px;line-height:1.4}
 .iv-doc table{width:100%;border-collapse:collapse}
-.iv-doc .tot .row{display:flex;justify-content:space-between;padding:5px 0;color:#475569}
+.iv-doc .tot .row{display:flex;justify-content:space-between;gap:16px;padding:5px 0;color:#475569}
+.iv-doc .tot .row>span:first-child{flex:1;min-width:0}
+.iv-doc .tot .row .num{white-space:nowrap}
+.iv-doc th,.iv-doc td{word-break:break-word}
 .iv-doc .tot .grand{border-top:2px solid #0f172a;margin-top:6px;padding-top:9px;color:#0f172a;font-weight:800;font-size:17px}
 .iv-doc .tot .grand .num{color:var(--ac)}
 .iv-doc .tot .bal{font-weight:700;color:#0f172a}.iv-doc .tot .bal .num{color:var(--ac)}
@@ -366,7 +369,36 @@ const DOC_CSS = `
 .iv-tally svg{display:block}
 .iv-tally b{color:#0f172a;font-weight:800;letter-spacing:-.01em}
 .iv-tally b i{color:#059669;font-style:normal}
-`;
+
+/* ---- Mobile: reflow every template to a single, readable column ---- */
+@media (max-width:640px){
+  .iv-doc{font-size:12.5px}
+  .iv-doc.aria{padding:22px 18px 24px}
+  .iv-doc.boutique{padding:24px 18px}
+  .aria .top{flex-direction:column;gap:14px}
+  .aria .r,.aria .meta{text-align:left}
+  .aria .big,.vertex .big,.boutique .big{font-size:24px}
+  .aria .tot,.meridian .tot,.vertex .tot,.boutique .tot{width:100%;margin-left:0}
+  .meridian .band{flex-direction:column;gap:12px;padding:22px 18px}
+  .meridian .band .num{text-align:left}
+  .meridian .big{font-size:20px}
+  .meridian .body{padding:20px 18px 26px}
+  .meridian .parties{flex-direction:column;gap:12px}
+  .vertex .hero{padding:24px 18px}
+  .vertex .hero .top{flex-direction:column;gap:12px}
+  .vertex .hero .num{text-align:left}
+  .vertex .hero .meta{flex-wrap:wrap;gap:14px 24px}
+  .vertex .body{padding:20px 18px 26px}
+  .vertex .split{flex-direction:column;align-items:stretch;gap:14px}
+  .boutique .meta{flex-direction:column;gap:12px}
+  .boutique .meta .r{text-align:left}
+  /* Column template: stack the coloured sidebar on top of the items */
+  .iv-doc.column{flex-direction:column}
+  .column .side{width:auto;padding:24px 20px}
+  .column .side h4{font-size:22px}
+  .column .side .tot{margin-top:18px}
+  .column .main{padding:22px 20px}
+}`;
 
 function PoweredByTally() {
   return (
