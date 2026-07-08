@@ -40,6 +40,11 @@ npm test
 
 ## Deploying to Cloudflare
 
+> **Going live on your own domain?** Follow the ordered, domain-first checklist in
+> [`DEPLOYMENT.md`](DEPLOYMENT.md) — it covers DNS, the three required secrets, the
+> custom-domain step, first-login super-admin, and the M-Pesa/email setup. The steps
+> below are the quick reference.
+
 1. **Create the D1 database** and copy the printed `database_id` into
    [`wrangler.jsonc`](wrangler.jsonc) (`d1_databases[0].database_id`):
 
