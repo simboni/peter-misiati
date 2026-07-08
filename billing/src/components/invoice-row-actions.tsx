@@ -24,16 +24,34 @@ export function InvoiceRowActions({
   const menuRef = useRef<HTMLDivElement>(null);
   const base = kind === "quotation" ? "/quotations" : "/invoices";
 
-  // Position the menu just under the trigger, right-aligned, in viewport coords.
+  // Position the menu next to the trigger in viewport coords. Opens downward,
+  // but flips upward when there isn't room below (e.g. rows near the page
+  // bottom on mobile), and is clamped so it never runs off-screen.
   const place = useCallback(() => {
     const b = btnRef.current?.getBoundingClientRect();
     if (!b) return;
-    const left = Math.max(8, Math.min(b.right - MENU_W, window.innerWidth - MENU_W - 8));
-    setCoords({ top: b.bottom + 6, left });
+    const vh = window.innerHeight;
+    const margin = 8;
+    const gap = 6;
+    const menuH = menuRef.current?.offsetHeight || 260; // measured once mounted, else estimate
+    const left = Math.max(margin, Math.min(b.right - MENU_W, window.innerWidth - MENU_W - margin));
+
+    const spaceBelow = vh - b.bottom - margin;
+    const spaceAbove = b.top - margin;
+    const openUp = spaceBelow < menuH && spaceAbove > spaceBelow;
+
+    let top = openUp ? b.top - menuH - gap : b.bottom + gap;
+    top = Math.max(margin, Math.min(top, vh - menuH - margin));
+    setCoords({ top, left });
   }, []);
 
+  // Place after the menu mounts (so we can measure its real height), then again
+  // on the next frame in case content/layout settled.
   useLayoutEffect(() => {
-    if (open) place();
+    if (!open) return;
+    place();
+    const r = requestAnimationFrame(place);
+    return () => cancelAnimationFrame(r);
   }, [open, place]);
 
   useEffect(() => {
@@ -81,7 +99,14 @@ export function InvoiceRowActions({
           <div
             ref={menuRef}
             role="menu"
-            style={{ position: "fixed", top: coords.top, left: coords.left, width: MENU_W }}
+            style={{
+              position: "fixed",
+              top: coords.top,
+              left: coords.left,
+              width: MENU_W,
+              maxHeight: "calc(100vh - 16px)",
+              overflowY: "auto",
+            }}
             className="z-[70] overflow-hidden rounded-xl border border-line bg-white py-1 shadow-xl"
           >
             <Link href={`${base}/${id}`} className={item} onClick={() => setOpen(false)}>
