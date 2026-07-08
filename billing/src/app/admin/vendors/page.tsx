@@ -4,7 +4,10 @@ import { requireAdmin } from "@/server/admin";
 import { listVendors } from "@/server/admin-queries";
 import { formatMoney } from "@/server/money";
 import { fmtDate } from "@/server/queries";
+import { isPro } from "@/lib/plan";
 import { PlanBadge } from "@/components/admin/ui";
+import { SubmitButton } from "@/components/submit-button";
+import { setVendorPlanAction } from "@/server/actions/admin";
 
 export const metadata = { title: "Vendors · Admin" };
 
@@ -20,7 +23,7 @@ export default async function AdminVendors() {
       </div>
 
       <div className="card overflow-x-auto">
-        <table className="w-full min-w-[820px] border-collapse text-sm">
+        <table className="w-full min-w-[980px] border-collapse text-sm">
           <thead>
             <tr className="border-b border-line">
               <th className="th">Workspace</th>
@@ -30,6 +33,7 @@ export default async function AdminVendors() {
               <th className="th text-right">Invoiced</th>
               <th className="th text-right">Collected</th>
               <th className="th">Joined</th>
+              <th className="th text-right">Manual upgrade</th>
             </tr>
           </thead>
           <tbody>
@@ -52,11 +56,26 @@ export default async function AdminVendors() {
                 <td className="td text-right tabular-nums">{formatMoney(v.gmv)}</td>
                 <td className="td text-right tabular-nums">{formatMoney(v.collected)}</td>
                 <td className="td text-xs text-muted">{fmtDate(v.createdAt)}</td>
+                <td className="td text-right">
+                  {isPro(v.plan) ? (
+                    <form action={setVendorPlanAction} className="inline">
+                      <input type="hidden" name="orgId" value={v.orgId} />
+                      <input type="hidden" name="plan" value="free" />
+                      <SubmitButton className="btn-ghost btn-sm">Revert to Free</SubmitButton>
+                    </form>
+                  ) : (
+                    <form action={setVendorPlanAction} className="inline">
+                      <input type="hidden" name="orgId" value={v.orgId} />
+                      <input type="hidden" name="plan" value="pro" />
+                      <SubmitButton className="btn-primary btn-sm">Activate Pro</SubmitButton>
+                    </form>
+                  )}
+                </td>
               </tr>
             ))}
             {vendors.length === 0 && (
               <tr>
-                <td className="td text-muted" colSpan={7}>
+                <td className="td text-muted" colSpan={8}>
                   No vendors yet.
                 </td>
               </tr>
