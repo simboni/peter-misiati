@@ -139,6 +139,14 @@ export const orgProfile = sqliteTable("org_profile", {
   logoUrl: text("logo_url"),
   bankDetails: text("bank_details"),
   invoiceFooter: text("invoice_footer"),
+  // Per-vendor M-Pesa (Kopo Kopo). Secrets are stored AES-GCM encrypted.
+  // When disabled/empty, the platform-level env credentials are used instead.
+  kopokopoEnabled: integer("kopokopo_enabled", { mode: "boolean" }).notNull().default(false),
+  kopokopoBaseUrl: text("kopokopo_base_url"),
+  kopokopoTill: text("kopokopo_till"),
+  kopokopoClientId: text("kopokopo_client_id"),
+  kopokopoClientSecretEnc: text("kopokopo_client_secret_enc"),
+  kopokopoApiKeyEnc: text("kopokopo_api_key_enc"),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
