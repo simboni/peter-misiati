@@ -4,6 +4,7 @@ import { requireOrg } from "@/server/org";
 import { schema } from "@/server/db";
 import { PageHeader, EmptyState } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
+import { InvoiceRowActions } from "@/components/invoice-row-actions";
 import { formatMoney } from "@/server/money";
 import { fmtDate } from "@/server/queries";
 
@@ -20,6 +21,7 @@ export default async function InvoicesPage() {
       total: schema.invoice.total,
       balanceDue: schema.invoice.balanceDue,
       currency: schema.invoice.currency,
+      shareToken: schema.invoice.shareToken,
       clientName: schema.client.name,
     })
     .from(schema.invoice)
@@ -51,6 +53,7 @@ export default async function InvoicesPage() {
                 <th className="th">Status</th>
                 <th className="th text-right">Total</th>
                 <th className="th text-right">Balance</th>
+                <th className="th w-12 text-right"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
@@ -69,6 +72,13 @@ export default async function InvoicesPage() {
                   <td className="td text-right tabular-nums">{formatMoney(r.total, r.currency)}</td>
                   <td className="td text-right tabular-nums">
                     {r.balanceDue > 0 ? formatMoney(r.balanceDue, r.currency) : "—"}
+                  </td>
+                  <td className="td">
+                    <InvoiceRowActions
+                      id={r.id}
+                      shareToken={r.shareToken}
+                      canPay={r.balanceDue > 0 && r.status !== "void"}
+                    />
                   </td>
                 </tr>
               ))}

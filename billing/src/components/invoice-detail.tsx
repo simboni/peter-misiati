@@ -218,7 +218,7 @@ export function InvoiceDetail({
             )}
 
             {invoice.status !== "void" && invoice.balanceDue > 0 && (
-              <div className="card p-5">
+              <div id="record-payment" className="card scroll-mt-24 p-5">
                 <p className="mb-3 text-sm font-semibold text-ink">Record a payment</p>
                 <RecordPaymentForm
                   invoiceId={invoice.id}
