@@ -47,3 +47,9 @@ export async function appBaseUrl(): Promise<string> {
   const env = await getEnv();
   return (env.BETTER_AUTH_URL || "http://localhost:3000").replace(/\/$/, "");
 }
+
+/** Whether the Cloudflare Browser Rendering binding is available (PDF export). */
+export async function browserEnabled(): Promise<boolean> {
+  const env = await getEnv();
+  return Boolean(env.BROWSER);
+}

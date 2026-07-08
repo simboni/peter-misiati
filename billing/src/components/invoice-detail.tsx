@@ -28,6 +28,7 @@ export function InvoiceDetail({
   payments,
   error,
   sent,
+  pdfEnabled,
 }: {
   invoice: Invoice;
   lines: InvoiceLine[];
@@ -35,6 +36,7 @@ export function InvoiceDetail({
   payments: Payment[];
   error?: string;
   sent?: boolean;
+  pdfEnabled?: boolean;
 }) {
   const isQuote = invoice.type === "quotation";
   const cur = invoice.currency;
@@ -53,6 +55,11 @@ export function InvoiceDetail({
           <Link href={`/d/${invoice.shareToken}`} className="btn-ghost btn-sm" target="_blank">
             View / Print
           </Link>
+          {pdfEnabled && (
+            <a href={`/d/${invoice.shareToken}/pdf`} className="btn-ghost btn-sm" target="_blank" rel="noreferrer">
+              Download PDF
+            </a>
+          )}
           <form action={emailInvoiceAction}>
             <input type="hidden" name="id" value={invoice.id} />
             <button className="btn-ghost btn-sm">Email to client</button>

@@ -6,10 +6,12 @@ export function PrintBar({
   docLabel,
   clientEmail,
   clientPhone,
+  pdfHref,
 }: {
   docLabel: string;
   clientEmail?: string | null;
   clientPhone?: string | null;
+  pdfHref?: string | null;
 }) {
   const [copied, setCopied] = useState(false);
   // Set on the client after mount to avoid a hydration mismatch.
@@ -37,6 +39,11 @@ export function PrintBar({
       <button onClick={() => window.print()} className="btn-primary btn-sm">
         Print / Save as PDF
       </button>
+      {pdfHref && (
+        <a href={pdfHref} className="btn-ghost btn-sm" target="_blank" rel="noreferrer">
+          Download PDF
+        </a>
+      )}
       <button onClick={copy} className="btn-ghost btn-sm">
         {copied ? "Link copied ✓" : "Copy link"}
       </button>

@@ -17,5 +17,10 @@
       "database_id": "local-placeholder-id",
       "migrations_dir": "drizzle"
     }
-  ]
+  ],
+  // Cloudflare Browser Rendering — powers the downloadable PDF (/d/<token>/pdf).
+  // Optional: if omitted, the app simply hides the "Download PDF" button.
+  "browser": {
+    "binding": "BROWSER"
+  }
 }

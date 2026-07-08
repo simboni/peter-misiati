@@ -16,6 +16,7 @@
     "cf:deploy": "opennextjs-cloudflare deploy"
   },
   "dependencies": {
+    "@cloudflare/puppeteer": "^1.1.0",
     "better-auth": "^1.2.7",
     "drizzle-orm": "^0.45.2",
     "next": "16.2.10",

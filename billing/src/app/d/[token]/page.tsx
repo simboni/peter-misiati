@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { and, eq, lt } from "drizzle-orm";
 import { getDb, schema } from "@/server/db";
 import { getOrg, getOrgProfile } from "@/server/org";
-import { kopokopoConfig } from "@/server/config";
+import { kopokopoConfig, browserEnabled, appBaseUrl } from "@/server/config";
 import { PrintBar } from "@/components/documents/print-bar";
 import { PayPanel } from "@/components/pay-panel";
 import { formatMoney } from "@/server/money";
@@ -30,6 +30,7 @@ export default async function PublicDocumentPage({
 }) {
   const { token } = await params;
   const db = await getDb();
+  const pdfHref = (await browserEnabled()) ? `/d/${token}/pdf` : null;
 
   // 1) Invoice or quotation
   const invRows = await db
@@ -51,12 +52,14 @@ export default async function PublicDocumentPage({
     const client = clientRows[0] ?? null;
     const canPay =
       invoice.type === "invoice" && invoice.status !== "void" && invoice.balanceDue > 0 && (await kopokopoConfig()) !== null;
+    const payUrl = canPay ? `${await appBaseUrl()}/d/${invoice.shareToken}` : null;
     return (
       <>
         <PrintBar
           docLabel={`${invoice.type === "quotation" ? "quotation" : "invoice"} ${invoice.number}`}
           clientEmail={client?.email}
           clientPhone={client?.phone}
+          pdfHref={pdfHref}
         />
         {canPay && (
           <div className="no-print mx-auto mt-4 max-w-[820px] px-4">
@@ -79,7 +82,7 @@ export default async function PublicDocumentPage({
           </div>
         )}
         <div className="p-4 print:p-0">
-          <InvoiceDocument issuer={issuer} invoice={invoice} lines={lines} client={client} />
+          <InvoiceDocument issuer={issuer} invoice={invoice} lines={lines} client={client} payUrl={payUrl} />
         </div>
       </>
     );
@@ -107,7 +110,7 @@ export default async function PublicDocumentPage({
     const client = clientRows[0] ?? null;
     return (
       <>
-        <PrintBar docLabel={`receipt ${payment.number}`} clientEmail={client?.email} clientPhone={client?.phone} />
+        <PrintBar docLabel={`receipt ${payment.number}`} clientEmail={client?.email} clientPhone={client?.phone} pdfHref={pdfHref} />
         <div className="p-4 print:p-0">
           <ReceiptDocument
             issuer={issuer}
@@ -148,7 +151,7 @@ export default async function PublicDocumentPage({
     const client = clientRows[0] ?? null;
     return (
       <>
-        <PrintBar docLabel={`delivery note ${note.number}`} clientEmail={client?.email} clientPhone={client?.phone} />
+        <PrintBar docLabel={`delivery note ${note.number}`} clientEmail={client?.email} clientPhone={client?.phone} pdfHref={pdfHref} />
         <div className="p-4 print:p-0">
           <DeliveryNoteDocument
             issuer={issuer}

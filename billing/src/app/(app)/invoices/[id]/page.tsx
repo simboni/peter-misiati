@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { requireOrg } from "@/server/org";
+import { browserEnabled } from "@/server/config";
 import { loadInvoice } from "@/server/queries";
 import { InvoiceDetail } from "@/components/invoice-detail";
 
@@ -26,6 +27,7 @@ export default async function InvoicePage({
       payments={doc.payments}
       error={error}
       sent={sent === "1"}
+      pdfEnabled={await browserEnabled()}
     />
   );
 }

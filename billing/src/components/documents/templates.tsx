@@ -97,11 +97,13 @@ export function InvoiceDocument({
   invoice,
   lines,
   client,
+  payUrl,
 }: {
   issuer: Issuer;
   invoice: Invoice;
   lines: InvoiceLine[];
   client: Client | null;
+  payUrl?: string | null;
 }) {
   const cur = invoice.currency;
   const isQuote = invoice.type === "quotation";
@@ -166,6 +168,28 @@ export function InvoiceDocument({
           )}
         </dl>
       </div>
+
+      {payUrl && (
+        <div className="print-only" style={{ marginTop: "18px" }}>
+          <a
+            href={payUrl}
+            style={{
+              display: "inline-block",
+              background: "#059669",
+              color: "#ffffff",
+              textDecoration: "none",
+              fontWeight: 700,
+              padding: "10px 18px",
+              borderRadius: "8px",
+            }}
+          >
+            Pay this invoice online →
+          </a>
+          <p className="text-xs text-muted" style={{ marginTop: "6px" }}>
+            {payUrl}
+          </p>
+        </div>
+      )}
 
       <DocFooter invoice={invoice} issuer={issuer} />
     </DocumentShell>

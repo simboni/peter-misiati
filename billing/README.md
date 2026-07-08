@@ -83,6 +83,14 @@ a verified sender) and the **Email to client** button on an invoice/quotation se
 a branded email — pulling their address from the client record — with a button that opens the
 document (and, for unpaid invoices, the Pay button). Without a key, use copy-link / WhatsApp.
 
+**Downloadable PDF (Cloudflare Browser Rendering).** Every share page has an instant
+**Print / Save as PDF**. In addition, when the `BROWSER` binding (declared in `wrangler.jsonc`)
+is enabled on your account, a **Download PDF** button appears that renders a true A4 PDF at
+`/d/<token>/pdf`. For unpaid invoices the PDF includes a **clickable "Pay this invoice online →"**
+link that opens the pay page — so a forwarded PDF can still be paid by M-Pesa. If the binding
+isn't enabled the button is simply hidden (and the route returns 501). Enable Browser Rendering
+for your Worker in the Cloudflare dashboard; no code change needed.
+
 ## Collecting money by M-Pesa (Kopo Kopo STK push)
 
 When Kopo Kopo secrets are set, the shared invoice page shows a **Pay with M-Pesa** button.
