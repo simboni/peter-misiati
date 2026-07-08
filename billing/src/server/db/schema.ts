@@ -434,6 +434,71 @@ export const expense = sqliteTable(
   (t) => [index("expense_org_idx").on(t.organizationId), index("expense_date_idx").on(t.expenseDate)],
 );
 
+// ---------------------------------------------------------- recurring invoices
+
+/**
+ * A recurring-invoice schedule (a.k.a. retainer / subscription template). It is
+ * NOT itself an invoice — on each due date it spawns a real `invoice` row from
+ * its stored template + lines, then advances `nextRunDate`. Generation is a
+ * catch-up run (see server/recurring.ts) triggered when the vendor opens the app.
+ */
+export const recurringInvoice = sqliteTable(
+  "recurring_invoice",
+  {
+    id: id(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    clientId: text("client_id")
+      .notNull()
+      .references(() => client.id),
+    title: text("title"), // optional label, e.g. "Monthly retainer"
+    frequency: text("frequency").notNull().default("monthly"), // weekly|monthly|quarterly|yearly
+    interval: integer("interval").notNull().default(1), // every N frequency units
+    startDate: integer("start_date", { mode: "timestamp_ms" }).notNull(),
+    nextRunDate: integer("next_run_date", { mode: "timestamp_ms" }).notNull(),
+    endDate: integer("end_date", { mode: "timestamp_ms" }), // optional stop date
+    maxOccurrences: integer("max_occurrences"), // optional stop after N
+    occurrences: integer("occurrences").notNull().default(0), // generated so far
+    dueDays: integer("due_days").notNull().default(0), // invoice due N days after issue
+    autoSend: integer("auto_send", { mode: "boolean" }).notNull().default(false),
+    status: text("status").notNull().default("active"), // active|paused|ended
+    // Invoice template fields (mirror the invoice row).
+    currency: text("currency").notNull().default("KES"),
+    notes: text("notes"),
+    terms: text("terms"),
+    discountType: text("discount_type"),
+    discountValue: integer("discount_value").notNull().default(0),
+    depositType: text("deposit_type").notNull().default("none"),
+    depositValue: integer("deposit_value").notNull().default(0),
+    lastRunAt: integer("last_run_at", { mode: "timestamp_ms" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    index("recur_org_idx").on(t.organizationId),
+    index("recur_next_idx").on(t.nextRunDate),
+  ],
+);
+
+export const recurringInvoiceLine = sqliteTable(
+  "recurring_invoice_line",
+  {
+    id: id(),
+    recurringInvoiceId: text("recurring_invoice_id")
+      .notNull()
+      .references(() => recurringInvoice.id, { onDelete: "cascade" }),
+    itemId: text("item_id").references(() => item.id),
+    title: text("title"),
+    description: text("description").notNull(),
+    quantityMilli: integer("quantity_milli").notNull().default(1000),
+    unitPrice: integer("unit_price").notNull().default(0),
+    taxRateBps: integer("tax_rate_bps").notNull().default(0),
+    sortOrder: integer("sort_order").notNull().default(0),
+  },
+  (t) => [index("recur_line_idx").on(t.recurringInvoiceId)],
+);
+
 // ------------------------------------------------------------- platform admin
 
 /**
@@ -486,6 +551,8 @@ export type Payment = typeof payment.$inferSelect;
 export type PaymentIntent = typeof paymentIntent.$inferSelect;
 export type DeliveryNote = typeof deliveryNote.$inferSelect;
 export type Expense = typeof expense.$inferSelect;
+export type RecurringInvoice = typeof recurringInvoice.$inferSelect;
+export type RecurringInvoiceLine = typeof recurringInvoiceLine.$inferSelect;
 export type OrgProfile = typeof orgProfile.$inferSelect;
 export type User = typeof user.$inferSelect;
 export type Organization = typeof organization.$inferSelect;

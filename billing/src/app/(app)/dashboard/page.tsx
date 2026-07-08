@@ -6,11 +6,16 @@ import { formatMoney } from "@/server/money";
 import { fmtDate } from "@/server/queries";
 import { StatusBadge } from "@/components/status-badge";
 import { EmptyState } from "@/components/page-header";
+import { runDueRecurring } from "@/server/recurring";
 
 export const metadata = { title: "Dashboard" };
 
 export default async function DashboardPage() {
   const { db, organizationId } = await requireOrg();
+
+  // Generate any recurring invoices that have come due since the last visit.
+  await runDueRecurring(db, organizationId);
+
   const [org, profile] = await Promise.all([
     getOrg(db, organizationId),
     getOrgProfile(db, organizationId),

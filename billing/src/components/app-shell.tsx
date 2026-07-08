@@ -10,6 +10,7 @@ type NavItem = { href: string; label: string; icon: keyof typeof ICONS; exact?: 
 const NAV: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: "grid", exact: true },
   { href: "/invoices", label: "Invoices", icon: "invoice" },
+  { href: "/recurring", label: "Recurring", icon: "repeat" },
   { href: "/quotations", label: "Quotations", icon: "quote" },
   { href: "/receipts", label: "Receipts", icon: "receipt" },
   { href: "/expenses", label: "Expenses", icon: "wallet" },
@@ -27,6 +28,7 @@ const ICONS = {
   receipt: "M5 3h14v18l-2.5-1.6L14 21l-2-1.4L10 21l-2.5-1.6L5 21zM8.5 8h7M8.5 12h7",
   wallet: "M3 7a2 2 0 012-2h12a2 2 0 012 2v2M3 7v10a2 2 0 002 2h14a2 2 0 002-2v-4M21 13h-4a2 2 0 010-4h4z",
   chart: "M3 3v18h18M8 15v3M13 10v8M18 6v12",
+  repeat: "M17 2l4 4-4 4M3 11V9a4 4 0 014-4h14M7 22l-4-4 4-4M21 13v2a4 4 0 01-4 4H3",
   users: "M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zM22 21v-2a4 4 0 00-3-3.87M16 3.13A4 4 0 0116 11",
   box: "M21 8l-9-5-9 5 9 5 9-5zM3 8v8l9 5 9-5V8M12 13v8",
   truck: "M1 4h13v10H1zM14 8h4l3 3v3h-7zM5.5 18a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM18.5 18a1.5 1.5 0 100-3 1.5 1.5 0 000 3z",

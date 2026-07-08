@@ -57,6 +57,13 @@
       "when": 1783541573745,
       "tag": "0007_greedy_swordsman",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1783542211688,
+      "tag": "0008_violet_roland_deschain",
+      "breakpoints": true
     }
   ]
 }
