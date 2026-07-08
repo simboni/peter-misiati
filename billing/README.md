@@ -72,6 +72,23 @@ npm test
    Add your custom domain (e.g. `app.yourdomain.co.ke`) to the Worker in the
    Cloudflare dashboard and set `BETTER_AUTH_URL` to match.
 
+## Continuous deploy (GitHub Actions)
+
+`.github/workflows/deploy-billing.yml` builds and deploys this app on every push that
+touches `billing/` — so after a one-time setup you get a fresh live URL automatically.
+
+1. Do steps 1–3 above **once** (create the D1 database + paste its id into `wrangler.jsonc`,
+   and set the Worker secrets). The workflow reuses those.
+2. Add two **repository** secrets (GitHub → Settings → Secrets and variables → Actions):
+   - `CLOUDFLARE_API_TOKEN` — a token with *Workers Scripts: Edit*, *D1: Edit*, *Workers KV/R2*
+     as needed (the "Edit Cloudflare Workers" template works).
+   - `CLOUDFLARE_ACCOUNT_ID` — your account id (Cloudflare dashboard → Workers & Pages).
+3. Push. The workflow runs the tests, applies D1 migrations (`--remote`), then builds and
+   deploys. Your live URL is `https://billing-platform.<account>.workers.dev` (shown in the
+   deploy step's logs). Set `BETTER_AUTH_URL` to that URL once and everything resolves.
+
+You can also trigger it manually from the **Actions** tab (Run workflow).
+
 ## Sending documents to clients
 
 Every invoice, quotation, receipt and delivery note has a **public share link**
