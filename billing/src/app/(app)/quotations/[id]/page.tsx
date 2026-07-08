@@ -10,10 +10,10 @@ export default async function QuotationPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; sent?: string }>;
 }) {
   const { id } = await params;
-  const { error } = await searchParams;
+  const { error, sent } = await searchParams;
   const { db, organizationId } = await requireOrg();
   const doc = await loadInvoice(db, organizationId, id);
   if (!doc || doc.invoice.type !== "quotation") notFound();
@@ -25,6 +25,7 @@ export default async function QuotationPage({
       client={doc.client}
       payments={doc.payments}
       error={error}
+      sent={sent === "1"}
     />
   );
 }

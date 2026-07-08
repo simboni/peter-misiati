@@ -288,6 +288,9 @@ export const payment = sqliteTable(
     paidAt: integer("paid_at", { mode: "timestamp_ms" }).notNull(),
     kind: text("kind").notNull().default("partial"), // deposit|partial|balance|full
     note: text("note"),
+    // provenance: null = recorded manually; "kopokopo" = collected via M-Pesa STK push
+    provider: text("provider"),
+    providerRef: text("provider_ref"),
     shareToken: text("share_token").notNull().unique(),
     createdAt: createdAt(),
   },
@@ -295,6 +298,40 @@ export const payment = sqliteTable(
     index("payment_org_idx").on(t.organizationId),
     index("payment_invoice_idx").on(t.invoiceId),
     uniqueIndex("payment_org_number_idx").on(t.organizationId, t.number),
+  ],
+);
+
+// Online payment attempt (M-Pesa STK push). Kept separate from `payment` so the
+// ledger only ever counts money actually received: an intent becomes a real
+// payment (receipt) once the provider confirms success.
+export const paymentIntent = sqliteTable(
+  "payment_intent",
+  {
+    id: id(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    invoiceId: text("invoice_id")
+      .notNull()
+      .references(() => invoice.id, { onDelete: "cascade" }),
+    clientId: text("client_id")
+      .notNull()
+      .references(() => client.id),
+    amount: integer("amount").notNull(), // minor units requested
+    phone: text("phone").notNull(),
+    provider: text("provider").notNull().default("kopokopo"),
+    providerRef: text("provider_ref"), // provider resource id / status URL
+    status: text("status").notNull().default("pending"), // pending|success|failed|canceled
+    errorMessage: text("error_message"),
+    paymentId: text("payment_id"), // the payment created on success
+    mpesaReference: text("mpesa_reference"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    index("pi_org_idx").on(t.organizationId),
+    index("pi_invoice_idx").on(t.invoiceId),
+    index("pi_provider_ref_idx").on(t.providerRef),
   ],
 );
 

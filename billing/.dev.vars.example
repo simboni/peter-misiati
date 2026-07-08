@@ -6,3 +6,12 @@ BETTER_AUTH_URL="http://localhost:3000"
 # Optional — email delivery of documents. Leave unset to use copy-link/WhatsApp/mailto.
 # RESEND_API_KEY="re_xxx"
 # RESEND_FROM="Your Business <billing@yourdomain.co.ke>"
+
+# Optional — M-Pesa STK push via Kopo Kopo. Leave unset to hide the "Pay with
+# M-Pesa" button (clients still pay offline; you record it). Use the sandbox
+# base URL while testing.
+# KOPOKOPO_BASE_URL="https://sandbox.kopokopo.com"
+# KOPOKOPO_CLIENT_ID="your_client_id"
+# KOPOKOPO_CLIENT_SECRET="your_client_secret"
+# KOPOKOPO_API_KEY="your_api_key"          # used to verify the result webhook
+# KOPOKOPO_TILL_NUMBER="K000000"

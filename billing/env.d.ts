@@ -8,6 +8,12 @@ declare global {
     BETTER_AUTH_URL?: string;
     RESEND_API_KEY?: string;
     RESEND_FROM?: string;
+    // Kopo Kopo (M-Pesa STK push) — platform-level for the pilot
+    KOPOKOPO_BASE_URL?: string; // default https://sandbox.kopokopo.com
+    KOPOKOPO_CLIENT_ID?: string;
+    KOPOKOPO_CLIENT_SECRET?: string;
+    KOPOKOPO_API_KEY?: string; // used to verify webhook signatures
+    KOPOKOPO_TILL_NUMBER?: string;
   }
 }
 

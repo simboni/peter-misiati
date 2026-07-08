@@ -9,6 +9,7 @@ import {
   deleteInvoiceAction,
 } from "@/server/actions/invoices";
 import { deletePaymentAction } from "@/server/actions/payments";
+import { emailInvoiceAction } from "@/server/actions/email";
 import type { Invoice, InvoiceLine, Client, Payment } from "@/server/db/schema";
 
 const METHOD_LABELS: Record<string, string> = {
@@ -26,12 +27,14 @@ export function InvoiceDetail({
   client,
   payments,
   error,
+  sent,
 }: {
   invoice: Invoice;
   lines: InvoiceLine[];
   client: Client | null;
   payments: Payment[];
   error?: string;
+  sent?: boolean;
 }) {
   const isQuote = invoice.type === "quotation";
   const cur = invoice.currency;
@@ -50,6 +53,10 @@ export function InvoiceDetail({
           <Link href={`/d/${invoice.shareToken}`} className="btn-ghost btn-sm" target="_blank">
             View / Print
           </Link>
+          <form action={emailInvoiceAction}>
+            <input type="hidden" name="id" value={invoice.id} />
+            <button className="btn-ghost btn-sm">Email to client</button>
+          </form>
           {invoice.amountPaid === 0 && (
             <Link href={`/${base}/${invoice.id}/edit`} className="btn-ghost btn-sm">
               Edit
@@ -89,6 +96,19 @@ export function InvoiceDetail({
         <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
           Paid documents can’t be deleted — void it instead to keep your records intact.
         </p>
+      )}
+      {sent && (
+        <p className="rounded-lg bg-brand-50 px-3 py-2 text-sm text-brand-700">
+          Emailed to {client?.email ?? "the client"}.
+        </p>
+      )}
+      {error === "no-email" && (
+        <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          This client has no email address. Add one on the client record, or share the link / WhatsApp instead.
+        </p>
+      )}
+      {error && !["cannot-delete", "no-email"].includes(error) && (
+        <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
       )}
 
       <div className="grid gap-6 lg:grid-cols-[1fr_320px]">

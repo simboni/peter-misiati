@@ -78,20 +78,52 @@ Every invoice, quotation, receipt and delivery note has a **public share link**
 (`/d/<token>`) with a clean, A4 **Print / Save as PDF** view. From that page you can also
 **Copy link**, send via **WhatsApp**, or open your **email** client — no setup required.
 
-*Server-side email (optional):* set `RESEND_API_KEY` + `RESEND_FROM` to enable transactional
-email via [Resend](https://resend.com) (requires a verified sending domain). Hook points are
-noted in the code; this is the recommended first enhancement.
+**Email a link automatically (Resend).** Set `RESEND_API_KEY` (and optionally `RESEND_FROM`,
+a verified sender) and the **Email to client** button on an invoice/quotation sends the client
+a branded email — pulling their address from the client record — with a button that opens the
+document (and, for unpaid invoices, the Pay button). Without a key, use copy-link / WhatsApp.
 
-## What's included (first release)
+## Collecting money by M-Pesa (Kopo Kopo STK push)
+
+When Kopo Kopo secrets are set, the shared invoice page shows a **Pay with M-Pesa** button.
+The client enters an amount (full or partial) and their phone; an STK prompt pops on their
+phone; on approval Kopo Kopo calls our webhook, we record the payment and issue a numbered
+**receipt**, and the page flips to **Paid ✓**. If a client pays offline instead, you record it
+on the Tally side exactly as before — both routes land in the same ledger.
+
+Set these secrets (use the **sandbox** first):
+
+```bash
+npx wrangler secret put KOPOKOPO_BASE_URL      # https://sandbox.kopokopo.com  (prod: https://api.kopokopo.com)
+npx wrangler secret put KOPOKOPO_CLIENT_ID
+npx wrangler secret put KOPOKOPO_CLIENT_SECRET
+npx wrangler secret put KOPOKOPO_API_KEY        # used to verify the result webhook signature
+npx wrangler secret put KOPOKOPO_TILL_NUMBER    # your till / online account number
+```
+
+The **result webhook URL** to register (or that we pass as the callback) is:
+
+```
+https://<your-app-domain>/api/mpesa/kopokopo
+```
+
+Webhook calls are rejected unless the `X-KopoKopo-Signature` (HMAC-SHA256 of the raw body with
+your API key) matches. A polling fallback (`/api/payments/status`) also reconciles the payment
+if the webhook can't reach the app. For the pilot these are **platform-level** credentials
+(one till); per-vendor Kopo Kopo accounts can be added later.
+
+## What's included
 
 Clients · service/product catalogue · quotations → invoices · invoices with **deposit +
 running balance**, discounts and **16% VAT** · receipts (deposit / partial / balance / full) ·
-delivery notes · print/share document views · money **dashboard** (invoiced / received /
-outstanding / overdue / month revenue / top clients) · business settings (KRA PIN, VAT,
-numbering, bank details, branding).
+delivery notes · print/share document views · **email a pay link to clients (Resend)** ·
+**M-Pesa STK push collection (Kopo Kopo)** with automatic receipting · money **dashboard**
+(invoiced / received / outstanding / overdue / month revenue / top clients) · business settings
+(KRA PIN, VAT, numbering, bank details, branding).
 
 ## Designed-in for later
 
-M-Pesa STK-push (Daraja) · multi-currency books · withholding tax/VAT · expenses & overheads ·
-P&L, VAT and receivables-aging reports · team members per workspace · recurring/retainer
-invoices · subscription tiers.
+Per-vendor Kopo Kopo accounts · downloadable PDF with embedded pay link (Cloudflare Browser
+Rendering) · multi-currency books · withholding tax/VAT · expenses & overheads · P&L, VAT and
+receivables-aging reports · team members per workspace · recurring/retainer invoices ·
+subscription tiers.

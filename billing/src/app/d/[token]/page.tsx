@@ -3,7 +3,10 @@ import { notFound } from "next/navigation";
 import { and, eq, lt } from "drizzle-orm";
 import { getDb, schema } from "@/server/db";
 import { getOrg, getOrgProfile } from "@/server/org";
+import { kopokopoConfig } from "@/server/config";
 import { PrintBar } from "@/components/documents/print-bar";
+import { PayPanel } from "@/components/pay-panel";
+import { formatMoney } from "@/server/money";
 import {
   InvoiceDocument,
   ReceiptDocument,
@@ -46,6 +49,8 @@ export default async function PublicDocumentPage({
       issuerFor(db, invoice.organizationId),
     ]);
     const client = clientRows[0] ?? null;
+    const canPay =
+      invoice.type === "invoice" && invoice.status !== "void" && invoice.balanceDue > 0 && (await kopokopoConfig()) !== null;
     return (
       <>
         <PrintBar
@@ -53,6 +58,26 @@ export default async function PublicDocumentPage({
           clientEmail={client?.email}
           clientPhone={client?.phone}
         />
+        {canPay && (
+          <div className="no-print mx-auto mt-4 max-w-[820px] px-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand-200 bg-brand-50 p-4">
+              <div>
+                <p className="text-sm font-semibold text-ink">
+                  Balance due: {formatMoney(invoice.balanceDue, invoice.currency)}
+                </p>
+                <p className="text-xs text-muted">Pay securely by M-Pesa — in full or part.</p>
+              </div>
+              <div className="w-full sm:w-64">
+                <PayPanel
+                  token={invoice.shareToken}
+                  balanceDue={invoice.balanceDue}
+                  currency={invoice.currency}
+                  clientPhone={client?.phone}
+                />
+              </div>
+            </div>
+          </div>
+        )}
         <div className="p-4 print:p-0">
           <InvoiceDocument issuer={issuer} invoice={invoice} lines={lines} client={client} />
         </div>
