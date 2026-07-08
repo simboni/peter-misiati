@@ -53,14 +53,15 @@ export async function verifySignature(
 }
 
 async function getToken(cfg: KopoKopoConfig): Promise<string> {
+  // Kopo Kopo's OAuth token endpoint expects application/x-www-form-urlencoded.
   const res = await fetch(`${cfg.baseUrl}/oauth/token`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({
+    headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+    body: new URLSearchParams({
       client_id: cfg.clientId,
       client_secret: cfg.clientSecret,
       grant_type: "client_credentials",
-    }),
+    }).toString(),
   });
   if (!res.ok) throw new Error(`kopokopo auth ${res.status}`);
   const j = (await res.json()) as { access_token?: string };
@@ -78,10 +79,14 @@ export async function testConnection(cfg: KopoKopoConfig): Promise<{ ok: boolean
     return { ok: true };
   } catch (e) {
     const msg = e instanceof Error ? e.message : "unknown error";
-    if (msg.includes("401") || msg.includes("no token")) {
-      return { ok: false, error: "Kopo Kopo rejected these credentials (check Client ID / Secret and Sandbox vs Production)." };
+    if (msg.includes("401") || msg.includes("400") || msg.includes("no token")) {
+      return { ok: false, error: "Kopo Kopo rejected these credentials (check Client ID / Secret and that Sandbox vs Production matches your keys)." };
     }
-    return { ok: false, error: "Couldn't reach Kopo Kopo. Check the environment (Sandbox vs Production) and try again." };
+    if (msg.includes("404")) {
+      return { ok: false, error: "Kopo Kopo endpoint not found — the environment URL looks wrong (Sandbox vs Production)." };
+    }
+    const status = msg.replace(/^kopokopo auth\s*/, "");
+    return { ok: false, error: `Couldn't reach Kopo Kopo (${status || "network error"}). Check the environment and try again.` };
   }
 }
 
