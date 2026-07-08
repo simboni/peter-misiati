@@ -45,6 +45,11 @@ export default async function DashboardPage() {
     .from(schema.payment)
     .where(eq(schema.payment.organizationId, organizationId));
 
+  const expenses = await db
+    .select({ amount: schema.expense.amount, date: schema.expense.expenseDate })
+    .from(schema.expense)
+    .where(eq(schema.expense.organizationId, organizationId));
+
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
@@ -61,6 +66,10 @@ export default async function DashboardPage() {
   const monthRevenue = payments
     .filter((p) => new Date(p.paidAt) >= monthStart)
     .reduce((a, p) => a + p.amount, 0);
+  const monthExpenses = expenses
+    .filter((e) => new Date(e.date) >= monthStart)
+    .reduce((a, e) => a + e.amount, 0);
+  const monthNet = monthRevenue - monthExpenses;
 
   // Top clients by invoiced value
   const byClient = new Map<string, { name: string; total: number }>();
@@ -105,18 +114,25 @@ export default async function DashboardPage() {
         ))}
       </div>
 
-      <div className="card flex items-center justify-between p-5">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted">Revenue this month</p>
-          <p className="mt-1 text-xl font-bold text-brand-700">{formatMoney(monthRevenue, cur)}</p>
+      <div className="card flex flex-wrap items-center justify-between gap-4 p-5">
+        <div className="flex flex-wrap gap-6">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted">Received this month</p>
+            <p className="mt-1 text-xl font-bold text-brand-700">{formatMoney(monthRevenue, cur)}</p>
+          </div>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted">Expenses this month</p>
+            <p className="mt-1 text-xl font-bold text-ink">{formatMoney(monthExpenses, cur)}</p>
+          </div>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted">Net this month</p>
+            <p className={`mt-1 text-xl font-bold ${monthNet >= 0 ? "text-brand-700" : "text-red-600"}`}>{formatMoney(monthNet, cur)}</p>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <Link href="/invoices/new" className="btn-primary btn-sm">
-            New invoice
-          </Link>
-          <Link href="/quotations/new" className="btn-ghost btn-sm">
-            New quotation
-          </Link>
+        <div className="flex flex-wrap gap-2">
+          <Link href="/invoices/new" className="btn-primary btn-sm">New invoice</Link>
+          <Link href="/expenses/new" className="btn-ghost btn-sm">Add expense</Link>
+          <Link href="/reports" className="btn-ghost btn-sm">Reports</Link>
         </div>
       </div>
 

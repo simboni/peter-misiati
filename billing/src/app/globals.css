@@ -80,6 +80,49 @@ body {
   .td {
     @apply px-4 py-3 text-sm text-ink;
   }
+
+  /* Skeleton block — a soft shimmering placeholder used while data loads. */
+  .skeleton {
+    @apply rounded-md;
+    background: linear-gradient(
+      100deg,
+      var(--color-canvas) 30%,
+      rgba(0, 0, 0, 0.06) 50%,
+      var(--color-canvas) 70%
+    );
+    background-size: 200% 100%;
+    animation: tp-shimmer 1.25s ease-in-out infinite;
+  }
+}
+
+@keyframes tp-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Top navigation progress bar (shown while a route/action is pending). */
+.route-progress {
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: 3px;
+  z-index: 60;
+  background: linear-gradient(90deg, var(--color-brand-500), var(--color-brand-700));
+  transform-origin: left;
+  animation: tp-progress 1.4s ease-out forwards;
+  box-shadow: 0 0 8px color-mix(in srgb, var(--color-brand-500) 60%, transparent);
+}
+@keyframes tp-progress {
+  0% { transform: scaleX(0); opacity: 1; }
+  60% { transform: scaleX(0.75); opacity: 1; }
+  100% { transform: scaleX(1); opacity: 0; }
+}
+
+.nav-pending {
+  animation: tp-pulse 0.9s ease-in-out infinite;
+}
+@keyframes tp-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
 }
 
 /* Print: A4 documents. Hide app chrome, show only the document. */

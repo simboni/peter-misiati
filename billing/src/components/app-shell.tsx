@@ -1,9 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
+import { Suspense, useEffect, useState } from "react";
+import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
 import { Brand, BrandMark } from "./brand";
+import { RouteProgress } from "./route-progress";
+
+/** Small spinner shown on a nav item while its route is loading. */
+function NavPending({ collapsed }: { collapsed: boolean }) {
+  const { pending } = useLinkStatus();
+  if (!pending) return null;
+  return (
+    <span
+      className={`${collapsed ? "absolute right-1 top-1" : "ml-auto"} h-3.5 w-3.5 flex-none animate-spin rounded-full border-2 border-current border-r-transparent opacity-70`}
+      aria-hidden
+    />
+  );
+}
 
 type NavItem = { href: string; label: string; icon: keyof typeof ICONS; exact?: boolean };
 
@@ -97,7 +110,7 @@ export function AppShell({
             key={it.href}
             href={it.href}
             title={collapsed ? it.label : undefined}
-            className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+            className={`relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
               active
                 ? "bg-brand-50 text-brand-800"
                 : isUpgrade && !pro
@@ -107,6 +120,7 @@ export function AppShell({
           >
             <Icon name={it.icon} className="h-5 w-5 flex-none" />
             {!collapsed && <span className="truncate">{it.label}</span>}
+            <NavPending collapsed={collapsed} />
           </Link>
         );
       })}
@@ -140,6 +154,9 @@ export function AppShell({
 
   return (
     <div className="min-h-screen bg-canvas">
+      <Suspense fallback={null}>
+        <RouteProgress />
+      </Suspense>
       {/* ---------- Desktop sidebar (fixed, collapsible) ---------- */}
       <aside
         className={`no-print fixed inset-y-0 left-0 z-30 hidden flex-col border-r border-line bg-white transition-[width] duration-200 lg:flex ${

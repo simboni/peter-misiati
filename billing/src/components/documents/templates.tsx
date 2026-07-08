@@ -190,6 +190,92 @@ export function ReceiptDocument({
 
 const REFUND_LABELS = METHOD_LABELS;
 
+type StatementEntryVM = {
+  date: Date;
+  doc: string;
+  kind: string;
+  description: string;
+  debit: number;
+  credit: number;
+  balance: number;
+};
+
+export function StatementDocument({
+  issuer,
+  client,
+  entries,
+  totalDebit,
+  totalCredit,
+  closingBalance,
+  currency,
+  asOf,
+}: {
+  issuer: Issuer;
+  client: Client | null;
+  entries: StatementEntryVM[];
+  totalDebit: number;
+  totalCredit: number;
+  closingBalance: number;
+  currency: string;
+  asOf: Date;
+}) {
+  const accent = accentOf(issuer);
+  return (
+    <DocumentShell
+      issuer={issuer}
+      title="Statement"
+      number={client?.name ?? ""}
+      meta={[{ label: "As of", value: fmtDate(asOf) }]}
+    >
+      <div className="mt-6">
+        <PartyBlock title="Statement for" client={client} />
+      </div>
+
+      <div className="mt-6 rounded-lg border px-5 py-4" style={{ background: accent + "12", borderColor: accent + "55" }}>
+        <p className="text-sm" style={{ color: accent }}>Balance due</p>
+        <p className="text-3xl font-extrabold" style={{ color: accent }}>{formatMoney(Math.max(closingBalance, 0), currency)}</p>
+      </div>
+
+      <table className="mt-6 w-full border-collapse text-sm">
+        <thead>
+          <tr className="border-y border-line bg-canvas">
+            <th className="px-3 py-2 text-left font-semibold">Date</th>
+            <th className="px-3 py-2 text-left font-semibold">Document</th>
+            <th className="px-3 py-2 text-left font-semibold">Details</th>
+            <th className="px-3 py-2 text-right font-semibold">Charge</th>
+            <th className="px-3 py-2 text-right font-semibold">Paid / credit</th>
+            <th className="px-3 py-2 text-right font-semibold">Balance</th>
+          </tr>
+        </thead>
+        <tbody>
+          {entries.length === 0 ? (
+            <tr><td className="px-3 py-4 text-center text-muted" colSpan={6}>No activity yet.</td></tr>
+          ) : (
+            entries.map((e, i) => (
+              <tr key={i} className="border-b border-line">
+                <td className="whitespace-nowrap px-3 py-2 text-muted">{fmtDate(e.date)}</td>
+                <td className="px-3 py-2">{e.doc}</td>
+                <td className="px-3 py-2 text-muted">{e.description}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{e.debit ? formatMoney(e.debit, currency) : "—"}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{e.credit ? formatMoney(e.credit, currency) : "—"}</td>
+                <td className="px-3 py-2 text-right font-medium tabular-nums">{formatMoney(e.balance, currency)}</td>
+              </tr>
+            ))
+          )}
+        </tbody>
+        <tfoot>
+          <tr className="border-t-2 border-line font-bold">
+            <td className="px-3 py-2" colSpan={3}>Totals</td>
+            <td className="px-3 py-2 text-right tabular-nums">{formatMoney(totalDebit, currency)}</td>
+            <td className="px-3 py-2 text-right tabular-nums">{formatMoney(totalCredit, currency)}</td>
+            <td className="px-3 py-2 text-right tabular-nums" style={{ color: accent }}>{formatMoney(Math.max(closingBalance, 0), currency)}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </DocumentShell>
+  );
+}
+
 export function CreditNoteDocument({
   issuer,
   creditNote,

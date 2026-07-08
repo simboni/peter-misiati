@@ -54,6 +54,7 @@ export function ClientListView({ rows }: { rows: Row[] }) {
                 <td className="td text-muted">{c.currency}</td>
                 <td className="td">
                   <div className="flex items-center justify-end gap-1">
+                    <Link href={`/clients/${c.id}/statement`} className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-canvas hover:text-ink">Statement</Link>
                     <Link href={`/clients/${c.id}`} className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-canvas hover:text-ink">Edit</Link>
                     <form action={deleteClientAction} onSubmit={(e) => { if (!confirm("Delete this client?")) e.preventDefault(); }}>
                       <input type="hidden" name="id" value={c.id} />
