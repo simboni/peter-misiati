@@ -21,7 +21,7 @@ function toDateInput(d?: Date | null) {
   return d ? new Date(d).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
 }
 
-export function ExpenseForm({ expense }: { expense?: Expense }) {
+export function ExpenseForm({ expense, currency = "KES" }: { expense?: Expense; currency?: string }) {
   const [state, formAction] = useActionState<FormState, FormData>(saveExpenseAction, {});
   const [method, setMethod] = useState(expense?.method ?? "cash");
 
@@ -38,7 +38,7 @@ export function ExpenseForm({ expense }: { expense?: Expense }) {
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
-            <label className="label" htmlFor="amount">Amount (KES) *</label>
+            <label className="label" htmlFor="amount">Amount ({currency}) *</label>
             <input id="amount" name="amount" className="input text-lg font-semibold tabular-nums" inputMode="decimal" placeholder="0.00"
               defaultValue={expense ? formatAmount(expense.amount) : ""} required />
           </div>

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { eq, desc } from "drizzle-orm";
-import { requireOrg } from "@/server/org";
+import { requireOrg, getOrgProfile } from "@/server/org";
 import { schema } from "@/server/db";
 import { PageHeader, EmptyState } from "@/components/page-header";
 import { formatMoney, formatRate } from "@/server/money";
@@ -9,11 +9,15 @@ export const metadata = { title: "Items & Services" };
 
 export default async function ItemsPage() {
   const { db, organizationId } = await requireOrg();
-  const items = await db
-    .select()
-    .from(schema.item)
-    .where(eq(schema.item.organizationId, organizationId))
-    .orderBy(desc(schema.item.createdAt));
+  const [items, profile] = await Promise.all([
+    db
+      .select()
+      .from(schema.item)
+      .where(eq(schema.item.organizationId, organizationId))
+      .orderBy(desc(schema.item.createdAt)),
+    getOrgProfile(db, organizationId),
+  ]);
+  const cur = profile?.currency ?? "KES";
 
   return (
     <div>
@@ -54,7 +58,7 @@ export default async function ItemsPage() {
                     )}
                   </td>
                   <td className="td capitalize text-muted">{it.kind}</td>
-                  <td className="td text-right">{formatMoney(it.unitPrice, "KES")}</td>
+                  <td className="td text-right">{formatMoney(it.unitPrice, cur)}</td>
                   <td className="td text-right text-muted">{formatRate(it.taxRateBps)}%</td>
                   <td className="td text-muted">per {it.unit}</td>
                   <td className="td text-right">
