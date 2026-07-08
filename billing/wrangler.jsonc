@@ -13,9 +13,9 @@
     {
       "binding": "DB",
       "database_name": "billing-db",
-      // Replace with your real D1 database id before deploying (see README).
-      // `wrangler d1 create billing-db` prints it. For local dev any value works.
-      "database_id": "local-placeholder-id",
+      // Real D1 database id (Cloudflare account dc39d55a…). Local dev uses --local
+      // and ignores this value.
+      "database_id": "9c647f9a-70c4-48ad-ba68-84774abd8aea",
       "migrations_dir": "drizzle"
     }
   ],
