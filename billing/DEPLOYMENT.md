@@ -1,4 +1,4 @@
-# Go-live guide — Tally on your own domain
+# Go-live guide — TallyPay on your own domain
 
 A single, ordered checklist to take the billing app from the repo to
 `https://app.yourdomain.co.ke`. Do these once; after that, every `git push`
@@ -85,7 +85,7 @@ In the Cloudflare dashboard → **Workers & Pages → `billing-platform` → Set
 → Domains & Routes → Add → Custom domain**, enter `<DOMAIN>`. Cloudflare creates
 the DNS record and TLS certificate automatically (a minute or two).
 
-Confirm `https://<DOMAIN>` loads the Tally landing page.
+Confirm `https://<DOMAIN>` loads the TallyPay landing page.
 
 > If you deployed *before* setting `BETTER_AUTH_URL`, set it now (step 2) and
 > redeploy — auth and share links must match the live host.
@@ -137,9 +137,9 @@ WhatsApp / mailto.
 
 - [ ] `https://<DOMAIN>` loads; sign up + log in works.
 - [ ] Create a client → an item → an invoice with a deposit + 16% VAT; totals look right.
-- [ ] Open the invoice's public share link; it shows the **Powered by Tally** mark (free plan).
+- [ ] Open the invoice's public share link; it shows the **Powered by TallyPay** mark (free plan).
 - [ ] Record a payment → a numbered receipt is produced; balance updates.
-- [ ] `/admin` shows your workspace; activate **Pro** on it → the share link's Tally mark disappears and your template/colour/logo apply.
+- [ ] `/admin` shows your workspace; activate **Pro** on it → the share link's TallyPay mark disappears and your template/colour/logo apply.
 - [ ] (If M-Pesa live) a small **Pay with M-Pesa** test settles and auto-creates a receipt.
 
 ---

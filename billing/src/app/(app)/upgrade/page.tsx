@@ -29,7 +29,7 @@ export default async function UpgradePage() {
     <div className="max-w-3xl space-y-6">
       <PageHeader
         title="Plan & branding"
-        subtitle="Tally is free to use. Upgrade to make it your own."
+        subtitle="TallyPay is free to use. Upgrade to make it your own."
       />
 
       <section className="card p-6">
@@ -43,14 +43,14 @@ export default async function UpgradePage() {
               pro ? "bg-brand-50 text-brand-700" : "bg-canvas text-muted"
             }`}
           >
-            {pro ? "Active" : "Tally-branded"}
+            {pro ? "Active" : "TallyPay-branded"}
           </span>
         </div>
         {!pro && (
           <p className="mt-3 text-sm text-muted">
-            Your documents currently carry a small <b className="text-ink">Powered by Tally</b> mark
-            and use the default Tally look. Everything works — invoicing, M-Pesa, receipts — at no
-            cost.
+            Your documents currently carry a small <b className="text-ink">Powered by TallyPay</b>{" "}
+            mark and use the default TallyPay look. Everything works — invoicing, M-Pesa, receipts —
+            at no cost.
           </p>
         )}
       </section>

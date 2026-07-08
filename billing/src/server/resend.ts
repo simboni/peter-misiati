@@ -48,7 +48,7 @@ export function documentEmailHtml(opts: {
       <p style="margin:16px 0 0;font-size:13px;color:#64748b">Or open this link: <a href="${opts.url}" style="color:#047857">${opts.url}</a></p>
       ${opts.footer ? `<p style="margin:20px 0 0;padding-top:16px;border-top:1px solid #e2e8f0;font-size:12px;color:#94a3b8;white-space:pre-line">${escape(opts.footer)}</p>` : ""}
     </div>
-    <p style="text-align:center;margin:16px 0 0;font-size:12px;color:#94a3b8">Sent via Tally</p>
+    <p style="text-align:center;margin:16px 0 0;font-size:12px;color:#94a3b8">Sent via TallyPay</p>
   </div></body></html>`;
 }
 

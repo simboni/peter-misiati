@@ -5,7 +5,7 @@ import { AdminNav } from "@/components/admin/admin-nav";
 import { BrandMark, Wordmark } from "@/components/brand";
 import { signOutAction } from "@/server/actions/auth";
 
-export const metadata = { title: "Admin · Tally" };
+export const metadata = { title: "Admin · TallyPay" };
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const { user, isSuper } = await requireAdmin();

@@ -359,18 +359,21 @@ const DOC_CSS = `
   color:#94a3b8;font-size:11px;font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif}
 .iv-tally svg{display:block}
 .iv-tally b{color:#0f172a;font-weight:800;letter-spacing:-.01em}
-.iv-tally b i{color:#0e9f6e;font-style:normal}
+.iv-tally b i{color:#059669;font-style:normal}
 `;
 
 function PoweredByTally() {
   return (
     <div className="iv-tally">
-      <svg width="15" height="15" viewBox="0 0 64 64" fill="none" stroke="#0e9f6e" strokeWidth="7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-        <line x1="16" y1="20" x2="16" y2="44" />
-        <line x1="26" y1="20" x2="26" y2="44" />
-        <path d="M34 35 L42 44 L54 20" />
+      <svg width="16" height="16" viewBox="0 0 64 64" aria-hidden>
+        <rect width="64" height="64" rx="17" fill="#059669" />
+        <g fill="none" stroke="#fff" strokeWidth="6.5" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="20" y1="22" x2="20" y2="42" />
+          <line x1="29" y1="22" x2="29" y2="42" />
+          <path d="M36 34 L43 42 L52 22" />
+        </g>
       </svg>
-      <span>Powered by <b>Ta<i>ll</i>y</b> — free invoicing for Kenya</span>
+      <span>Powered by <b>Tally<i>Pay</i></b> — free invoicing for Kenya</span>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-# Tally — Multi-vendor Billing & Invoicing Platform
+# TallyPay — Multi-vendor Billing & Invoicing Platform
 
 A simple, multi-tenant (SaaS) billing app for freelancers and small businesses.
 Each business signs up, gets an isolated workspace, and runs its whole money-and-delivery
@@ -120,7 +120,7 @@ When Kopo Kopo secrets are set, the shared invoice page shows a **Pay with M-Pes
 The client enters an amount (full or partial) and their phone; an STK prompt pops on their
 phone; on approval Kopo Kopo calls our webhook, we record the payment and issue a numbered
 **receipt**, and the page flips to **Paid ✓**. If a client pays offline instead, you record it
-on the Tally side exactly as before — both routes land in the same ledger.
+on the TallyPay side exactly as before — both routes land in the same ledger.
 
 Set these secrets (use the **sandbox** first):
 
@@ -151,12 +151,12 @@ the platform account is used as the fallback.
 
 ## Plans & branding (free vs Pro white-label)
 
-Tally is **free and multi-vendor** — anyone signs up and runs their whole billing cycle at no
-cost. Free documents render the **default Tally look** and carry a small **"Powered by Tally"**
+TallyPay is **free and multi-vendor** — anyone signs up and runs their whole billing cycle at no
+cost. Free documents render the **default TallyPay look** and carry a small **"Powered by TallyPay"**
 mark; the vendor's own logo, invoice template and accent colour are held but not applied.
 
 The paid **Pro** plan is **white-label**: the vendor's own logo, a choice of 5 templates and an
-accent colour, the "Powered by Tally" mark removed — so the app reads as their own. Pro is
+accent colour, the "Powered by TallyPay" mark removed — so the app reads as their own. Pro is
 priced **per user / month** (`PRICE_PER_SEAT_KES`, default KES 1,000, in `src/lib/plan.ts`); the
 **Upgrade** page multiplies it by the workspace's seat count.
 

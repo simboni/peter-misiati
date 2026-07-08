@@ -83,7 +83,7 @@ export function PlatformSettingsForm(p: Props) {
           </div>
           <div>
             <label className="label" htmlFor="resendFrom">From address</label>
-            <input id="resendFrom" name="resendFrom" className="input" placeholder="Tally <billing@yourdomain.com>" defaultValue={p.resendFrom ?? ""} />
+            <input id="resendFrom" name="resendFrom" className="input" placeholder="TallyPay <billing@yourdomain.com>" defaultValue={p.resendFrom ?? ""} />
           </div>
         </div>
       </section>

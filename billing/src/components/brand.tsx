@@ -1,42 +1,40 @@
 import Link from "next/link";
 
-export const APP_NAME = "Tally";
-export const APP_TAGLINE = "Invoicing & billing, made simple.";
+export const APP_NAME = "TallyPay";
+export const APP_TAGLINE = "Invoicing & M-Pesa payments, made simple.";
+
+// The theme emerald (brand-600). Hard-coded on the mark so the badge renders
+// identically everywhere — app chrome, print, PDF and email — regardless of CSS.
+const BRAND_EMERALD = "#059669";
 
 /**
- * The Tally mark: two tally strokes resolving into a checkmark — "counted → paid".
- * Container-less emerald glyph; pairs with the wordmark's emerald "ll".
+ * The TallyPay mark: two tally strokes resolving into a checkmark
+ * ("counted → paid"), set in white on a rounded emerald badge — the same tile
+ * as the favicon, so the icon reads consistently at every size and on any
+ * background (light or dark).
  */
 export function BrandMark({ size = 32 }: { size?: number }) {
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 64 64"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={7}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="text-brand-600"
-      aria-hidden
-    >
-      <line x1="16" y1="20" x2="16" y2="44" />
-      <line x1="26" y1="20" x2="26" y2="44" />
-      <path d="M34 35 L42 44 L54 20" />
+    <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden>
+      <rect width="64" height="64" rx="17" fill={BRAND_EMERALD} />
+      <g fill="none" stroke="#fff" strokeWidth={6.5} strokeLinecap="round" strokeLinejoin="round">
+        <line x1="20" y1="22" x2="20" y2="42" />
+        <line x1="29" y1="22" x2="29" y2="42" />
+        <path d="M36 34 L43 42 L52 22" />
+      </g>
     </svg>
   );
 }
 
 /**
- * Wordmark: the "ll" picks up the mark's emerald, echoing the tally strokes.
- * The base letters inherit `currentColor`, so it reads correctly on light and
- * dark backgrounds alike — set the colour on the parent (e.g. text-ink / text-white).
+ * Wordmark: "Tally" in the surrounding ink/white, "Pay" in the theme emerald —
+ * a two-tone lockup that ties the wordmark to the badge. The base letters
+ * inherit `currentColor`, so set the colour on the parent (text-ink / text-white).
  */
 export function Wordmark({ className = "" }: { className?: string }) {
   return (
     <span className={`font-bold tracking-tight ${className}`}>
-      Ta<span className="text-brand-600">ll</span>y
+      Tally<span className="text-brand-600">Pay</span>
     </span>
   );
 }

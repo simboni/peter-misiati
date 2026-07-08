@@ -28,7 +28,7 @@ export function formatKes(whole: number): string {
 /** What upgrading to Pro unlocks — shown on the upgrade page. */
 export const PRO_FEATURES: string[] = [
   "Your own logo on every document",
-  "Remove the “Powered by Tally” mark",
+  "Remove the “Powered by TallyPay” mark",
   "Choose from 5 invoice templates",
   "Pick your brand accent colour",
   "Fully white-label — the app looks like yours",

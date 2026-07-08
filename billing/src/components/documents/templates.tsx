@@ -82,13 +82,16 @@ function DocumentShell({
       {children}
       {!proOf(issuer) && (
         <div className="mt-8 flex items-center justify-center gap-2 text-[11px] text-muted">
-          <svg width="15" height="15" viewBox="0 0 64 64" fill="none" stroke="#0e9f6e" strokeWidth="7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-            <line x1="16" y1="20" x2="16" y2="44" />
-            <line x1="26" y1="20" x2="26" y2="44" />
-            <path d="M34 35 L42 44 L54 20" />
+          <svg width="16" height="16" viewBox="0 0 64 64" aria-hidden>
+            <rect width="64" height="64" rx="17" fill="#059669" />
+            <g fill="none" stroke="#fff" strokeWidth="6.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="20" y1="22" x2="20" y2="42" />
+              <line x1="29" y1="22" x2="29" y2="42" />
+              <path d="M36 34 L43 42 L52 22" />
+            </g>
           </svg>
           <span>
-            Powered by <b className="font-extrabold text-ink">Ta<span className="text-brand-600">ll</span>y</b> — free invoicing for Kenya
+            Powered by <b className="font-extrabold text-ink">Tally<span className="text-brand-600">Pay</span></b> — free invoicing for Kenya
           </span>
         </div>
       )}

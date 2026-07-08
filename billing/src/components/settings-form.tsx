@@ -234,8 +234,8 @@ export function SettingsForm({
         {!pro && (
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand-200 bg-brand-50 px-4 py-3">
             <p className="text-sm text-brand-800">
-              On the free plan your documents use the default Tally look and carry a{" "}
-              <b>Powered by Tally</b> mark. Upgrade to use your own logo, template and colour.
+              On the free plan your documents use the default TallyPay look and carry a{" "}
+              <b>Powered by TallyPay</b> mark. Upgrade to use your own logo, template and colour.
             </p>
             <Link href="/upgrade" className="btn-primary btn-sm whitespace-nowrap">
               Make it yours →

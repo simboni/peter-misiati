@@ -111,7 +111,7 @@ export default async function VendorDetail({ params }: { params: Promise<{ orgId
           <p className="text-sm text-muted">
             {suspended
               ? "This workspace is suspended and cannot access the app."
-              : "Active — the workspace can sign in and use Tally."}
+              : "Active — the workspace can sign in and use TallyPay."}
           </p>
           <form action={setVendorSuspendedAction}>
             <input type="hidden" name="orgId" value={orgId} />
