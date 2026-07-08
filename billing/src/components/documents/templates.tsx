@@ -3,7 +3,7 @@ import { formatMoney, formatQty } from "@/server/money";
 import { fmtDate } from "@/server/queries";
 import { isPro } from "@/lib/plan";
 import { DEFAULT_ACCENT } from "@/lib/doc-style";
-import type { Invoice, Client, Payment, OrgProfile, DeliveryNote } from "@/server/db/schema";
+import type { Invoice, Client, Payment, OrgProfile, DeliveryNote, CreditNote } from "@/server/db/schema";
 
 // The multi-layout invoice/quotation renderer lives in its own module.
 export { InvoiceDocument } from "./invoice-templates";
@@ -184,6 +184,104 @@ export function ReceiptDocument({
 
       {payment.note && <p className="mt-4 text-sm text-muted">{payment.note}</p>}
       <p className="mt-10 text-xs text-muted">This is a computer-generated receipt.</p>
+    </DocumentShell>
+  );
+}
+
+const REFUND_LABELS = METHOD_LABELS;
+
+export function CreditNoteDocument({
+  issuer,
+  creditNote,
+  lines,
+  client,
+  invoiceNumber,
+}: {
+  issuer: Issuer;
+  creditNote: CreditNote;
+  lines: { id: string; title: string | null; description: string; quantityMilli: number; unitPrice: number; taxRateBps: number; lineSubtotal: number; taxAmount: number }[];
+  client: Client | null;
+  invoiceNumber?: string | null;
+}) {
+  const cur = creditNote.currency;
+  const accent = accentOf(issuer);
+  return (
+    <DocumentShell
+      issuer={issuer}
+      title="Credit Note"
+      number={creditNote.number}
+      meta={[
+        { label: "Date", value: fmtDate(creditNote.issueDate) },
+        ...(invoiceNumber ? [{ label: "Against", value: invoiceNumber }] : []),
+      ]}
+    >
+      <div className="mt-6">
+        <PartyBlock title="Credit to" client={client} />
+      </div>
+
+      {creditNote.reason && (
+        <p className="mt-6 text-sm text-ink">
+          <span className="font-semibold">Reason:</span> {creditNote.reason}
+        </p>
+      )}
+
+      <table className="mt-6 w-full border-collapse text-sm">
+        <thead>
+          <tr className="border-y border-line bg-canvas">
+            <th className="px-3 py-2 text-left font-semibold">Description</th>
+            <th className="px-3 py-2 text-right font-semibold">Qty</th>
+            <th className="px-3 py-2 text-right font-semibold">Rate</th>
+            <th className="px-3 py-2 text-right font-semibold">VAT</th>
+            <th className="px-3 py-2 text-right font-semibold">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          {lines.map((l) => (
+            <tr key={l.id} className="border-b border-line align-top">
+              <td className="px-3 py-2">
+                <div className="font-medium text-ink">{l.title || l.description}</div>
+                {l.title && l.description && <div className="text-xs text-muted">{l.description}</div>}
+              </td>
+              <td className="px-3 py-2 text-right tabular-nums">{formatQty(l.quantityMilli)}</td>
+              <td className="px-3 py-2 text-right tabular-nums">{formatMoney(l.unitPrice, cur)}</td>
+              <td className="px-3 py-2 text-right tabular-nums">{(l.taxRateBps / 100).toFixed(0)}%</td>
+              <td className="px-3 py-2 text-right tabular-nums">{formatMoney(l.lineSubtotal, cur)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      <div className="mt-4 flex justify-end">
+        <table className="w-full max-w-xs text-sm">
+          <tbody>
+            <tr>
+              <td className="px-3 py-1.5 text-muted">Subtotal</td>
+              <td className="px-3 py-1.5 text-right tabular-nums">{formatMoney(creditNote.subtotal, cur)}</td>
+            </tr>
+            <tr>
+              <td className="px-3 py-1.5 text-muted">VAT</td>
+              <td className="px-3 py-1.5 text-right tabular-nums">{formatMoney(creditNote.taxTotal, cur)}</td>
+            </tr>
+            <tr className="border-t border-line font-bold" style={{ color: accent }}>
+              <td className="px-3 py-2">Total credit</td>
+              <td className="px-3 py-2 text-right tabular-nums">− {formatMoney(creditNote.total, cur)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {creditNote.refunded && (
+        <p className="mt-4 text-sm text-ink">
+          Refund of {formatMoney(creditNote.total, cur)} paid by{" "}
+          {REFUND_LABELS[creditNote.refundMethod ?? "other"] ?? creditNote.refundMethod}
+          {creditNote.refundReference ? ` (ref ${creditNote.refundReference})` : ""}.
+        </p>
+      )}
+      {creditNote.appliedToInvoice && invoiceNumber && (
+        <p className="mt-2 text-sm text-muted">Applied to invoice {invoiceNumber} — reduces the balance owed.</p>
+      )}
+      {creditNote.notes && <p className="mt-4 text-sm text-muted">{creditNote.notes}</p>}
+      <p className="mt-10 text-xs text-muted">This is a computer-generated credit note.</p>
     </DocumentShell>
   );
 }

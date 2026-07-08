@@ -263,6 +263,8 @@ export const invoice = sqliteTable(
     taxTotal: integer("tax_total").notNull().default(0),
     total: integer("total").notNull().default(0),
     amountPaid: integer("amount_paid").notNull().default(0),
+    // Total of credit notes applied against this invoice (reduces what is owed).
+    creditedAmount: integer("credited_amount").notNull().default(0),
     balanceDue: integer("balance_due").notNull().default(0),
     shareToken: text("share_token").notNull().unique(),
     convertedFromId: text("converted_from_id"), // quotation this invoice was created from
@@ -434,6 +436,72 @@ export const expense = sqliteTable(
   (t) => [index("expense_org_idx").on(t.organizationId), index("expense_date_idx").on(t.expenseDate)],
 );
 
+// --------------------------------------------------------------- credit notes
+
+/**
+ * A credit note reduces what a client owes — for returned goods, an overcharge,
+ * a cancellation or a correction. It carries VAT-aware line items (so output VAT
+ * is reversed correctly) and its own numbering (CN-####). When applied to an
+ * invoice it lowers that invoice's balance; it can also record that cash was
+ * refunded to the client.
+ */
+export const creditNote = sqliteTable(
+  "credit_note",
+  {
+    id: id(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    clientId: text("client_id")
+      .notNull()
+      .references(() => client.id),
+    invoiceId: text("invoice_id").references(() => invoice.id), // optional link
+    number: text("number").notNull(),
+    issueDate: integer("issue_date", { mode: "timestamp_ms" }).notNull(),
+    currency: text("currency").notNull().default("KES"),
+    reason: text("reason"),
+    notes: text("notes"),
+    // computed money (minor units)
+    subtotal: integer("subtotal").notNull().default(0),
+    taxTotal: integer("tax_total").notNull().default(0),
+    total: integer("total").notNull().default(0),
+    // whether this credit reduced the linked invoice's balance
+    appliedToInvoice: integer("applied_to_invoice", { mode: "boolean" }).notNull().default(false),
+    // optional cash refund record
+    refunded: integer("refunded", { mode: "boolean" }).notNull().default(false),
+    refundMethod: text("refund_method"), // cash|mpesa|bank|cheque|card|other
+    refundReference: text("refund_reference"),
+    shareToken: text("share_token").notNull().unique(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    index("cn_org_idx").on(t.organizationId),
+    index("cn_invoice_idx").on(t.invoiceId),
+    uniqueIndex("cn_org_number_idx").on(t.organizationId, t.number),
+  ],
+);
+
+export const creditNoteLine = sqliteTable(
+  "credit_note_line",
+  {
+    id: id(),
+    creditNoteId: text("credit_note_id")
+      .notNull()
+      .references(() => creditNote.id, { onDelete: "cascade" }),
+    title: text("title"),
+    description: text("description").notNull(),
+    quantityMilli: integer("quantity_milli").notNull().default(1000),
+    unitPrice: integer("unit_price").notNull().default(0),
+    taxRateBps: integer("tax_rate_bps").notNull().default(0),
+    lineSubtotal: integer("line_subtotal").notNull().default(0),
+    taxAmount: integer("tax_amount").notNull().default(0),
+    lineTotal: integer("line_total").notNull().default(0),
+    sortOrder: integer("sort_order").notNull().default(0),
+  },
+  (t) => [index("cn_line_idx").on(t.creditNoteId)],
+);
+
 // ---------------------------------------------------------- recurring invoices
 
 /**
@@ -553,6 +621,8 @@ export type DeliveryNote = typeof deliveryNote.$inferSelect;
 export type Expense = typeof expense.$inferSelect;
 export type RecurringInvoice = typeof recurringInvoice.$inferSelect;
 export type RecurringInvoiceLine = typeof recurringInvoiceLine.$inferSelect;
+export type CreditNote = typeof creditNote.$inferSelect;
+export type CreditNoteLine = typeof creditNoteLine.$inferSelect;
 export type OrgProfile = typeof orgProfile.$inferSelect;
 export type User = typeof user.$inferSelect;
 export type Organization = typeof organization.$inferSelect;

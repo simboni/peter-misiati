@@ -7,34 +7,9 @@ import { requireOrg } from "@/server/org";
 import { schema } from "@/server/db";
 import { allocateNumber } from "@/server/sequence";
 import { parseAmount } from "@/server/money";
-import { deriveInvoiceStatus } from "@/server/totals";
+import { recomputeInvoice } from "@/server/invoice-ledger";
 
 export type FormState = { error?: string };
-
-async function recomputeInvoice(
-  db: Awaited<ReturnType<typeof requireOrg>>["db"],
-  invoiceId: string,
-) {
-  const rows = await db.select().from(schema.invoice).where(eq(schema.invoice.id, invoiceId)).limit(1);
-  const inv = rows[0];
-  if (!inv) return;
-  const pays = await db
-    .select({ amount: schema.payment.amount })
-    .from(schema.payment)
-    .where(eq(schema.payment.invoiceId, invoiceId));
-  const amountPaid = pays.reduce((a, p) => a + p.amount, 0);
-  const status = deriveInvoiceStatus({
-    type: inv.type as "invoice" | "quotation",
-    currentStatus: inv.status,
-    total: inv.total,
-    amountPaid,
-    dueDate: inv.dueDate,
-  });
-  await db
-    .update(schema.invoice)
-    .set({ amountPaid, balanceDue: inv.total - amountPaid, status })
-    .where(eq(schema.invoice.id, invoiceId));
-}
 
 export async function recordPaymentAction(_prev: FormState, fd: FormData): Promise<FormState> {
   const { db, organizationId } = await requireOrg();

@@ -12,6 +12,7 @@ import {
   InvoiceDocument,
   ReceiptDocument,
   DeliveryNoteDocument,
+  CreditNoteDocument,
 } from "@/components/documents/templates";
 
 export const metadata = { title: "Document" };
@@ -164,6 +165,37 @@ export default async function PublicDocumentPage({
             client={client}
             invoiceNumber={invRows3[0]?.number ?? null}
           />
+        </div>
+      </>
+    );
+  }
+
+  // 4) Credit note
+  const cnRows = await db
+    .select()
+    .from(schema.creditNote)
+    .where(eq(schema.creditNote.shareToken, token))
+    .limit(1);
+  if (cnRows.length > 0) {
+    const cn = cnRows[0];
+    const [lines, clientRows, issuer, invRows4] = await Promise.all([
+      db
+        .select()
+        .from(schema.creditNoteLine)
+        .where(eq(schema.creditNoteLine.creditNoteId, cn.id))
+        .orderBy(schema.creditNoteLine.sortOrder),
+      db.select().from(schema.client).where(eq(schema.client.id, cn.clientId)).limit(1),
+      issuerFor(db, cn.organizationId),
+      cn.invoiceId
+        ? db.select({ number: schema.invoice.number }).from(schema.invoice).where(eq(schema.invoice.id, cn.invoiceId)).limit(1)
+        : Promise.resolve([]),
+    ]);
+    const client = clientRows[0] ?? null;
+    return (
+      <>
+        <PrintBar docLabel={`credit note ${cn.number}`} clientEmail={client?.email} clientPhone={client?.phone} pdfHref={pdfHref} />
+        <div className="p-4 print:p-0">
+          <CreditNoteDocument issuer={issuer} creditNote={cn} lines={lines} client={client} invoiceNumber={invRows4[0]?.number ?? null} />
         </div>
       </>
     );

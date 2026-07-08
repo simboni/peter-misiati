@@ -64,6 +64,13 @@
       "when": 1783542211688,
       "tag": "0008_violet_roland_deschain",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1783542827896,
+      "tag": "0009_dashing_smasher",
+      "breakpoints": true
     }
   ]
 }

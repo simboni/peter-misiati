@@ -34,3 +34,20 @@ export async function loadEditorData({ db, organizationId }: OrgContext) {
     defaultTerms: profile?.invoiceFooter ?? "",
   };
 }
+
+/** Editor data for credit notes: clients, items and this org's invoices to link. */
+export async function loadCreditNoteEditorData(ctx: OrgContext) {
+  const base = await loadEditorData(ctx);
+  const invoices = await ctx.db
+    .select({
+      id: schema.invoice.id,
+      number: schema.invoice.number,
+      clientId: schema.invoice.clientId,
+      total: schema.invoice.total,
+      currency: schema.invoice.currency,
+    })
+    .from(schema.invoice)
+    .where(and(eq(schema.invoice.organizationId, ctx.organizationId), eq(schema.invoice.type, "invoice")))
+    .orderBy(desc(schema.invoice.createdAt));
+  return { ...base, invoices };
+}
