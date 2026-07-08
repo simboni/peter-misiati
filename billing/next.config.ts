@@ -15,6 +15,9 @@ const nextConfig: NextConfig = {
         "www.tallypay.co.ke",
         "billing-platform.misiatipeter.workers.dev",
       ],
+      // Logo + signature are embedded as data URLs in the settings form, which
+      // can exceed the default 1MB body limit and make the save silently fail.
+      bodySizeLimit: "5mb",
     },
   },
 };
