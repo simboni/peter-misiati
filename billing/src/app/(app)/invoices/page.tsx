@@ -1,11 +1,8 @@
-import Link from "next/link";
 import { and, eq, desc } from "drizzle-orm";
 import { requireOrg } from "@/server/org";
 import { schema } from "@/server/db";
 import { PageHeader, EmptyState } from "@/components/page-header";
-import { StatusBadge } from "@/components/status-badge";
-import { InvoiceRowActions } from "@/components/invoice-row-actions";
-import { formatMoney } from "@/server/money";
+import { InvoiceListView } from "@/components/invoice-list-view";
 import { fmtDate } from "@/server/queries";
 
 export const metadata = { title: "Invoices" };
@@ -18,8 +15,10 @@ export default async function InvoicesPage() {
       number: schema.invoice.number,
       status: schema.invoice.status,
       issueDate: schema.invoice.issueDate,
+      dueDate: schema.invoice.dueDate,
       total: schema.invoice.total,
       balanceDue: schema.invoice.balanceDue,
+      amountPaid: schema.invoice.amountPaid,
       currency: schema.invoice.currency,
       shareToken: schema.invoice.shareToken,
       clientName: schema.client.name,
@@ -29,6 +28,20 @@ export default async function InvoicesPage() {
     .where(and(eq(schema.invoice.organizationId, organizationId), eq(schema.invoice.type, "invoice")))
     .orderBy(desc(schema.invoice.createdAt));
 
+  const shaped = rows.map((r) => ({
+    id: r.id,
+    number: r.number,
+    client: r.clientName ?? "—",
+    date: fmtDate(r.issueDate),
+    issueMs: r.issueDate ? new Date(r.issueDate).getTime() : 0,
+    status: r.status,
+    total: r.total,
+    balance: r.balanceDue,
+    received: r.amountPaid,
+    currency: r.currency,
+    shareToken: r.shareToken,
+  }));
+
   return (
     <div>
       <PageHeader
@@ -36,55 +49,14 @@ export default async function InvoicesPage() {
         subtitle="Bill clients, track deposits and balances."
         action={{ href: "/invoices/new", label: "New invoice" }}
       />
-      {rows.length === 0 ? (
+      {shaped.length === 0 ? (
         <EmptyState
           title="No invoices yet"
           body="Create your first invoice — add a deposit if the client pays a downpayment upfront."
           action={{ href: "/invoices/new", label: "New invoice" }}
         />
       ) : (
-        <div className="card overflow-x-auto">
-          <table className="w-full">
-            <thead className="border-b border-line">
-              <tr>
-                <th className="th">Number</th>
-                <th className="th">Client</th>
-                <th className="th">Date</th>
-                <th className="th">Status</th>
-                <th className="th text-right">Total</th>
-                <th className="th text-right">Balance</th>
-                <th className="th w-12 text-right"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
-              {rows.map((r) => (
-                <tr key={r.id} className="hover:bg-canvas">
-                  <td className="td font-medium">
-                    <Link href={`/invoices/${r.id}`} className="hover:text-brand-700">
-                      {r.number}
-                    </Link>
-                  </td>
-                  <td className="td">{r.clientName ?? "—"}</td>
-                  <td className="td text-muted">{fmtDate(r.issueDate)}</td>
-                  <td className="td">
-                    <StatusBadge status={r.status} />
-                  </td>
-                  <td className="td text-right tabular-nums">{formatMoney(r.total, r.currency)}</td>
-                  <td className="td text-right tabular-nums">
-                    {r.balanceDue > 0 ? formatMoney(r.balanceDue, r.currency) : "—"}
-                  </td>
-                  <td className="td">
-                    <InvoiceRowActions
-                      id={r.id}
-                      shareToken={r.shareToken}
-                      canPay={r.balanceDue > 0 && r.status !== "void"}
-                    />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <InvoiceListView rows={shaped} />
       )}
     </div>
   );
