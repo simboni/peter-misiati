@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 import Link from "next/link";
 import { requireAdmin } from "@/server/admin";
 import { AdminNav } from "@/components/admin/admin-nav";
+import { BrandMark, Wordmark } from "@/components/brand";
 import { signOutAction } from "@/server/actions/auth";
 
 export const metadata = { title: "Admin · Tally" };
@@ -13,11 +14,11 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     <div className="min-h-screen bg-canvas lg:grid lg:grid-cols-[248px_1fr]">
       <aside className="hidden bg-slate-900 text-white lg:flex lg:flex-col">
         <div className="border-b border-slate-800 px-5 py-4">
-          <Link href="/admin" className="flex items-center gap-2">
-            <span className="grid h-8 w-8 place-items-center rounded-lg bg-brand-500 font-extrabold text-slate-900">
-              T
+          <Link href="/admin" className="flex items-center gap-2 text-white">
+            <BrandMark size={26} />
+            <span className="font-bold tracking-tight">
+              <Wordmark /> <span className="font-medium text-slate-400">Admin</span>
             </span>
-            <span className="font-bold tracking-tight">Tally Admin</span>
           </Link>
           <p className="mt-1 text-[11px] uppercase tracking-wider text-slate-400">
             {isSuper ? "Super admin" : "Platform admin"}
@@ -44,11 +45,11 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
       {/* Mobile top bar */}
       <div className="flex items-center justify-between bg-slate-900 px-4 py-3 text-white lg:hidden">
-        <Link href="/admin" className="flex items-center gap-2 font-bold">
-          <span className="grid h-7 w-7 place-items-center rounded-md bg-brand-500 text-sm font-extrabold text-slate-900">
-            T
+        <Link href="/admin" className="flex items-center gap-2 font-bold text-white">
+          <BrandMark size={22} />
+          <span>
+            <Wordmark /> <span className="font-medium text-slate-400">Admin</span>
           </span>
-          Tally Admin
         </Link>
         <Link href="/dashboard" className="text-sm text-slate-300">
           Workspace

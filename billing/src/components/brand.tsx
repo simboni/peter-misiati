@@ -28,18 +28,30 @@ export function BrandMark({ size = 32 }: { size?: number }) {
   );
 }
 
-/** Wordmark: the "ll" picks up the mark's emerald, echoing the tally strokes. */
+/**
+ * Wordmark: the "ll" picks up the mark's emerald, echoing the tally strokes.
+ * The base letters inherit `currentColor`, so it reads correctly on light and
+ * dark backgrounds alike — set the colour on the parent (e.g. text-ink / text-white).
+ */
 export function Wordmark({ className = "" }: { className?: string }) {
   return (
-    <span className={`font-bold tracking-tight text-ink ${className}`}>
+    <span className={`font-bold tracking-tight ${className}`}>
       Ta<span className="text-brand-600">ll</span>y
     </span>
   );
 }
 
-export function Brand({ href = "/", size = 30 }: { href?: string; size?: number }) {
+export function Brand({
+  href = "/",
+  size = 30,
+  className = "text-ink",
+}: {
+  href?: string;
+  size?: number;
+  className?: string;
+}) {
   return (
-    <Link href={href} className="inline-flex items-center gap-2">
+    <Link href={href} className={`inline-flex items-center gap-2 ${className}`}>
       <BrandMark size={size} />
       <Wordmark className="text-lg" />
     </Link>
