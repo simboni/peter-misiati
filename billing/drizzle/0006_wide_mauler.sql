@@ -1,0 +1,1 @@
+ALTER TABLE `invoice_line` ADD `title` text;

@@ -285,7 +285,10 @@ export const invoiceLine = sqliteTable(
       .notNull()
       .references(() => invoice.id, { onDelete: "cascade" }),
     itemId: text("item_id").references(() => item.id),
-    description: text("description").notNull(),
+    // Item/service name (the line's headline). Nullable for pre-existing rows,
+    // where the description doubled as the name.
+    title: text("title"),
+    description: text("description").notNull(), // optional detail beneath the name
     quantityMilli: integer("quantity_milli").notNull().default(1000), // thousandths
     unitPrice: integer("unit_price").notNull().default(0), // minor units
     taxRateBps: integer("tax_rate_bps").notNull().default(0),

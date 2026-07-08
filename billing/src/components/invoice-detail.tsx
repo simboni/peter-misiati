@@ -155,7 +155,12 @@ export function InvoiceDetail({
               <tbody className="divide-y divide-line">
                 {lines.map((l) => (
                   <tr key={l.id}>
-                    <td className="td">{l.description}</td>
+                    <td className="td">
+                      <div className="font-medium text-ink">{l.title || l.description}</div>
+                      {l.title && l.description ? (
+                        <div className="text-xs text-muted">{l.description}</div>
+                      ) : null}
+                    </td>
                     <td className="td text-right tabular-nums">{formatQty(l.quantityMilli)}</td>
                     <td className="td text-right tabular-nums">{formatMoney(l.unitPrice, cur)}</td>
                     <td className="td text-right text-muted">{formatRate(l.taxRateBps)}%</td>

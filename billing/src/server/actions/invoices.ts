@@ -13,6 +13,7 @@ export type FormState = { error?: string };
 
 type LinePayload = {
   itemId?: string | null;
+  title?: string | null;
   description: string;
   quantity: string | number;
   unitPrice: string | number;
@@ -50,13 +51,15 @@ export async function saveInvoiceAction(_prev: FormState, fd: FormData): Promise
   const cleaned = rawLines
     .map((l) => ({
       itemId: l.itemId || null,
+      title: String(l.title ?? "").trim() || null,
       description: String(l.description ?? "").trim(),
       quantityMilli: parseQty(l.quantity),
       unitPrice: parseAmount(l.unitPrice),
       taxRateBps: parseRate(l.taxRate),
     }))
-    .filter((l) => l.description !== "" && (l.quantityMilli !== 0 || l.unitPrice !== 0));
-  if (cleaned.length === 0) return { error: "Add at least one line item with a description." };
+    // A line is valid when it has a name (title or description) and some value.
+    .filter((l) => (l.title || l.description) !== "" && (l.quantityMilli !== 0 || l.unitPrice !== 0));
+  if (cleaned.length === 0) return { error: "Add at least one item with a name and a price." };
 
   const discountType = (String(fd.get("discountType") ?? "") || null) as DiscountType;
   const discountValue =
@@ -147,6 +150,7 @@ export async function saveInvoiceAction(_prev: FormState, fd: FormData): Promise
     t.lines.map((l, i) => ({
       invoiceId: invoiceId!,
       itemId: cleaned[i].itemId,
+      title: cleaned[i].title,
       description: cleaned[i].description,
       quantityMilli: l.quantityMilli,
       unitPrice: l.unitPrice,
@@ -243,6 +247,7 @@ export async function convertQuotationAction(fd: FormData): Promise<void> {
       lines.map((l) => ({
         invoiceId: newId,
         itemId: l.itemId,
+        title: l.title,
         description: l.description,
         quantityMilli: l.quantityMilli,
         unitPrice: l.unitPrice,

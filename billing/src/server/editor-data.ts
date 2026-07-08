@@ -14,6 +14,7 @@ export async function loadEditorData({ db, organizationId }: OrgContext) {
       .select({
         id: schema.item.id,
         name: schema.item.name,
+        description: schema.item.description,
         unitPrice: schema.item.unitPrice,
         taxRateBps: schema.item.taxRateBps,
         unit: schema.item.unit,

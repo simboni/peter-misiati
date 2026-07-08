@@ -11,6 +11,7 @@ import type { Client, Item, Invoice, InvoiceLine } from "@/server/db/schema";
 type EditorLine = {
   key: string;
   itemId: string;
+  title: string;
   description: string;
   quantity: string;
   unitPrice: string;
@@ -19,6 +20,15 @@ type EditorLine = {
 
 let counter = 0;
 const newKey = () => `l${counter++}`;
+const emptyLine = (vatBps: number): EditorLine => ({
+  key: newKey(),
+  itemId: "",
+  title: "",
+  description: "",
+  quantity: "1",
+  unitPrice: "",
+  taxRate: String(vatBps / 100),
+});
 
 function toDateInput(d?: Date | null): string {
   if (!d) return "";
@@ -37,7 +47,7 @@ export function InvoiceEditor({
 }: {
   type: "invoice" | "quotation";
   clients: Pick<Client, "id" | "name" | "currency">[];
-  items: Pick<Item, "id" | "name" | "unitPrice" | "taxRateBps" | "unit">[];
+  items: Pick<Item, "id" | "name" | "description" | "unitPrice" | "taxRateBps" | "unit">[];
   defaultCurrency: string;
   defaultVatRateBps: number;
   defaultTerms: string;
@@ -51,21 +61,13 @@ export function InvoiceEditor({
       ? existingLines.map((l) => ({
           key: newKey(),
           itemId: l.itemId ?? "",
-          description: l.description,
+          title: l.title ?? l.description, // legacy rows kept the name in description
+          description: l.title ? l.description : "",
           quantity: String(l.quantityMilli / 1000),
           unitPrice: (l.unitPrice / 100).toFixed(2),
           taxRate: String(l.taxRateBps / 100),
         }))
-      : [
-          {
-            key: newKey(),
-            itemId: "",
-            description: "",
-            quantity: "1",
-            unitPrice: "",
-            taxRate: String(defaultVatRateBps / 100),
-          },
-        ],
+      : [emptyLine(defaultVatRateBps)],
   );
 
   const [discountType, setDiscountType] = useState<string>(invoice?.discountType ?? "");
@@ -97,16 +99,13 @@ export function InvoiceEditor({
     }
     updateLine(key, {
       itemId,
-      description: it.name,
+      title: it.name,
+      description: it.description ?? "",
       unitPrice: (it.unitPrice / 100).toFixed(2),
       taxRate: String(it.taxRateBps / 100),
     });
   }
-  const addLine = () =>
-    setLines((ls) => [
-      ...ls,
-      { key: newKey(), itemId: "", description: "", quantity: "1", unitPrice: "", taxRate: String(defaultVatRateBps / 100) },
-    ]);
+  const addLine = () => setLines((ls) => [...ls, emptyLine(defaultVatRateBps)]);
   const removeLine = (key: string) => setLines((ls) => (ls.length > 1 ? ls.filter((l) => l.key !== key) : ls));
 
   const totals = useMemo(
@@ -128,6 +127,7 @@ export function InvoiceEditor({
   const linesJson = JSON.stringify(
     lines.map((l) => ({
       itemId: l.itemId || null,
+      title: l.title,
       description: l.description,
       quantity: l.quantity,
       unitPrice: l.unitPrice,
@@ -230,94 +230,106 @@ export function InvoiceEditor({
         )}
       </section>
 
-      {/* Lines */}
-      <section className="card overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px]">
-            <thead className="border-b border-line bg-canvas">
-              <tr>
-                <th className="th">Item / description</th>
-                <th className="th w-24 text-right">Qty</th>
-                <th className="th w-32 text-right">Unit price</th>
-                <th className="th w-20 text-right">VAT %</th>
-                <th className="th w-32 text-right">Amount</th>
-                <th className="th w-8"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
-              {lines.map((l) => {
-                const amount = parseAmount(l.unitPrice) * (parseQty(l.quantity) / 1000);
-                return (
-                  <tr key={l.key} className="align-top">
-                    <td className="td">
-                      {items.length > 0 && (
-                        <select
-                          className="input mb-1 text-xs"
-                          value={l.itemId}
-                          onChange={(e) => pickItem(l.key, e.target.value)}
-                        >
-                          <option value="">— pick a saved item —</option>
-                          {items.map((it) => (
-                            <option key={it.id} value={it.id}>
-                              {it.name}
-                            </option>
-                          ))}
-                        </select>
-                      )}
-                      <input
-                        className="input"
-                        placeholder="Description"
-                        value={l.description}
-                        onChange={(e) => updateLine(l.key, { description: e.target.value })}
-                      />
-                    </td>
-                    <td className="td">
-                      <input
-                        className="input text-right"
-                        inputMode="decimal"
-                        value={l.quantity}
-                        onChange={(e) => updateLine(l.key, { quantity: e.target.value })}
-                      />
-                    </td>
-                    <td className="td">
-                      <input
-                        className="input text-right"
-                        inputMode="decimal"
-                        placeholder="0.00"
-                        value={l.unitPrice}
-                        onChange={(e) => updateLine(l.key, { unitPrice: e.target.value })}
-                      />
-                    </td>
-                    <td className="td">
-                      <input
-                        className="input text-right"
-                        inputMode="decimal"
-                        value={l.taxRate}
-                        onChange={(e) => updateLine(l.key, { taxRate: e.target.value })}
-                      />
-                    </td>
-                    <td className="td text-right tabular-nums">{formatMoney(Math.round(amount), currency)}</td>
-                    <td className="td">
-                      <button
-                        type="button"
-                        onClick={() => removeLine(l.key)}
-                        className="text-muted hover:text-red-600"
-                        aria-label="Remove line"
-                      >
-                        ✕
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+      {/* Lines — one interactive card per item (mobile friendly) */}
+      <section className="space-y-3">
+        <div className="flex items-center justify-between px-1">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">Items &amp; services</h2>
+          <span className="text-xs text-muted">{lines.length} line{lines.length === 1 ? "" : "s"}</span>
         </div>
-        <div className="border-t border-line p-3">
-          <button type="button" onClick={addLine} className="btn-ghost btn-sm">
-            + Add line
-          </button>
-        </div>
+
+        {lines.map((l, idx) => {
+          const amount = parseAmount(l.unitPrice) * (parseQty(l.quantity) / 1000);
+          return (
+            <div key={l.key} className="card p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <span className="text-xs font-semibold text-muted">Item {idx + 1}</span>
+                <button
+                  type="button"
+                  onClick={() => removeLine(l.key)}
+                  disabled={lines.length === 1}
+                  className="text-xs font-medium text-muted hover:text-red-600 disabled:opacity-40"
+                >
+                  Remove
+                </button>
+              </div>
+
+              {items.length > 0 && (
+                <select
+                  className="input mb-2 text-sm"
+                  value={l.itemId}
+                  onChange={(e) => pickItem(l.key, e.target.value)}
+                  aria-label="Pick a saved item"
+                >
+                  <option value="">＋ Pick a saved item (autofills below)</option>
+                  {items.map((it) => (
+                    <option key={it.id} value={it.id}>
+                      {it.name} — {formatMoney(it.unitPrice, currency)}
+                    </option>
+                  ))}
+                </select>
+              )}
+
+              <input
+                className="input font-medium"
+                placeholder="Product / service name *"
+                value={l.title}
+                onChange={(e) => updateLine(l.key, { title: e.target.value, itemId: "" })}
+              />
+              <input
+                className="input mt-2 text-sm"
+                placeholder="Description (optional)"
+                value={l.description}
+                onChange={(e) => updateLine(l.key, { description: e.target.value })}
+              />
+
+              <div className="mt-3 grid grid-cols-3 gap-2">
+                <label className="block">
+                  <span className="mb-1 block text-[11px] font-medium text-muted">Qty</span>
+                  <input
+                    className="input text-right"
+                    inputMode="decimal"
+                    value={l.quantity}
+                    onChange={(e) => updateLine(l.key, { quantity: e.target.value })}
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-[11px] font-medium text-muted">Rate</span>
+                  <input
+                    className="input text-right"
+                    inputMode="decimal"
+                    placeholder="0.00"
+                    value={l.unitPrice}
+                    onChange={(e) => updateLine(l.key, { unitPrice: e.target.value })}
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-[11px] font-medium text-muted">VAT %</span>
+                  <input
+                    className="input text-right"
+                    inputMode="decimal"
+                    value={l.taxRate}
+                    onChange={(e) => updateLine(l.key, { taxRate: e.target.value })}
+                  />
+                </label>
+              </div>
+
+              <div className="mt-3 flex items-center justify-between border-t border-line pt-3">
+                <span className="text-xs text-muted">Line amount</span>
+                <span className="font-semibold tabular-nums text-ink">
+                  {formatMoney(Math.round(amount), currency)}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+
+        <button
+          type="button"
+          onClick={addLine}
+          className="w-full rounded-xl border-2 border-dashed border-line py-3 text-sm font-semibold text-brand-700 transition-colors hover:border-brand-300 hover:bg-brand-50"
+        >
+          ＋ Add another item
+        </button>
       </section>
 
       {/* Totals + deposit + notes */}
