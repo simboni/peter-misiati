@@ -1,23 +1,18 @@
 import { and, eq } from "drizzle-orm";
 import { getDb, schema } from "@/server/db";
-import { kopokopoConfig } from "@/server/config";
 import { verifySignature, parseWebhook, normalizeStatus } from "@/server/kopokopo";
+import { kopokopoConfigForOrg } from "@/server/payments-config";
 import { settleIntent } from "@/server/settle";
 
 export const dynamic = "force-dynamic";
 
-// Kopo Kopo posts the STK-push result here. We verify the HMAC signature, then
-// settle the matching intent into a payment/receipt. Always 200 once verified
-// so Kopo Kopo doesn't retry a message we've accepted.
+// Kopo Kopo posts the STK-push result here. Because each vendor may use their
+// own API key, we identify the intent from the (untrusted) body first, resolve
+// that org's config, and only then verify the HMAC signature with its key and
+// settle. Nothing is acted on until the signature checks out.
 export async function POST(req: Request) {
-  const cfg = await kopokopoConfig();
-  if (!cfg) return new Response("ok", { status: 200 }); // not configured — ignore
-
   const raw = await req.text();
   const signature = req.headers.get("x-kopokopo-signature") || "";
-  if (!(await verifySignature(raw, signature, cfg.apiKey))) {
-    return new Response("invalid signature", { status: 401 });
-  }
 
   let body: unknown;
   try {
@@ -27,7 +22,6 @@ export async function POST(req: Request) {
   }
 
   const { status, reference, ref } = parseWebhook(body);
-  // Prefer our own intentId from metadata; fall back to the provider resource id.
   const b = body as Record<string, unknown>;
   const data = (b?.data ?? b) as Record<string, unknown>;
   const attributes = (data?.attributes ?? data) as Record<string, unknown>;
@@ -48,7 +42,14 @@ export async function POST(req: Request) {
       .limit(1);
     intent = r[0] ?? null;
   }
+  // Unknown intent — ack so Kopo Kopo stops retrying, but do nothing.
   if (!intent) return new Response("ok", { status: 200 });
+
+  // Verify with the API key of the account this intent belongs to.
+  const cfg = await kopokopoConfigForOrg(db, intent.organizationId);
+  if (!cfg || !(await verifySignature(raw, signature, cfg.apiKey))) {
+    return new Response("invalid signature", { status: 401 });
+  }
 
   const norm = normalizeStatus(status);
   if (norm === "success") {

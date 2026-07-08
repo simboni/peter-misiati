@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/server/db";
 import { queryStatus, normalizeStatus } from "@/server/kopokopo";
+import { kopokopoConfigForOrg } from "@/server/payments-config";
 import { settleIntent } from "@/server/settle";
 
 export const dynamic = "force-dynamic";
@@ -40,7 +41,8 @@ export async function GET(req: Request) {
 
   // Still pending — ask Kopo Kopo directly (webhook fallback).
   if (intent.providerRef) {
-    const s = await queryStatus(intent.providerRef);
+    const cfg = await kopokopoConfigForOrg(db, intent.organizationId);
+    const s = cfg ? await queryStatus(cfg, intent.providerRef) : null;
     if (s) {
       const norm = normalizeStatus(s.status);
       if (norm === "success") {

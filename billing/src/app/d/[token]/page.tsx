@@ -3,7 +3,8 @@ import { notFound } from "next/navigation";
 import { and, eq, lt } from "drizzle-orm";
 import { getDb, schema } from "@/server/db";
 import { getOrg, getOrgProfile } from "@/server/org";
-import { kopokopoConfig, browserEnabled, appBaseUrl } from "@/server/config";
+import { browserEnabled, appBaseUrl } from "@/server/config";
+import { kopokopoConfigForOrg } from "@/server/payments-config";
 import { PrintBar } from "@/components/documents/print-bar";
 import { PayPanel } from "@/components/pay-panel";
 import { formatMoney } from "@/server/money";
@@ -51,7 +52,10 @@ export default async function PublicDocumentPage({
     ]);
     const client = clientRows[0] ?? null;
     const canPay =
-      invoice.type === "invoice" && invoice.status !== "void" && invoice.balanceDue > 0 && (await kopokopoConfig()) !== null;
+      invoice.type === "invoice" &&
+      invoice.status !== "void" &&
+      invoice.balanceDue > 0 &&
+      (await kopokopoConfigForOrg(db, invoice.organizationId)) !== null;
     const payUrl = canPay ? `${await appBaseUrl()}/d/${invoice.shareToken}` : null;
     return (
       <>

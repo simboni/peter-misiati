@@ -117,8 +117,14 @@ https://<your-app-domain>/api/mpesa/kopokopo
 
 Webhook calls are rejected unless the `X-KopoKopo-Signature` (HMAC-SHA256 of the raw body with
 your API key) matches. A polling fallback (`/api/payments/status`) also reconciles the payment
-if the webhook can't reach the app. For the pilot these are **platform-level** credentials
-(one till); per-vendor Kopo Kopo accounts can be added later.
+if the webhook can't reach the app.
+
+**Platform vs. per-vendor accounts.** The secrets above are the **platform-level** account (one
+till — ideal for a pilot). In addition, each vendor can enter **their own** Kopo Kopo credentials
+under **Settings → M-Pesa collection**, so payments land in their account. Those secrets are
+**encrypted at rest** (AES-GCM, key derived from `BETTER_AUTH_SECRET`) and each vendor's
+confirmation webhook is verified with **their own** API key. When a vendor hasn't set their own,
+the platform account is used as the fallback.
 
 ## What's included
 
@@ -131,7 +137,6 @@ delivery notes · print/share document views · **email a pay link to clients (R
 
 ## Designed-in for later
 
-Per-vendor Kopo Kopo accounts · downloadable PDF with embedded pay link (Cloudflare Browser
-Rendering) · multi-currency books · withholding tax/VAT · expenses & overheads · P&L, VAT and
+Multi-currency books · withholding tax/VAT · expenses & overheads · P&L, VAT and
 receivables-aging reports · team members per workspace · recurring/retainer invoices ·
 subscription tiers.

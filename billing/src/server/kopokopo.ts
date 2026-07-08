@@ -1,4 +1,4 @@
-import { kopokopoConfig, type KopoKopoConfig } from "./config";
+import type { KopoKopoConfig } from "./config";
 
 // ---------------------------------------------------------------------------
 // Kopo Kopo M-Pesa STK-push client.
@@ -70,19 +70,19 @@ async function getToken(cfg: KopoKopoConfig): Promise<string> {
 
 export type StkResult = { ok: true; location: string } | { ok: false; error: string };
 
-/** Send an STK push. `amountKes` is whole shillings. */
-export async function initiateStkPush(params: {
-  amountKes: number;
-  phone: string; // already normalised (+2547…)
-  callbackUrl: string;
-  firstName?: string;
-  lastName?: string;
-  email?: string | null;
-  metadata?: Record<string, string>;
-}): Promise<StkResult> {
-  const cfg = await kopokopoConfig();
-  if (!cfg) return { ok: false, error: "M-Pesa payments are not set up yet." };
-
+/** Send an STK push using the given (per-vendor or platform) config. */
+export async function initiateStkPush(
+  cfg: KopoKopoConfig,
+  params: {
+    amountKes: number;
+    phone: string; // already normalised (+2547…)
+    callbackUrl: string;
+    firstName?: string;
+    lastName?: string;
+    email?: string | null;
+    metadata?: Record<string, string>;
+  },
+): Promise<StkResult> {
   let token: string;
   try {
     token = await getToken(cfg);
@@ -119,10 +119,10 @@ export async function initiateStkPush(params: {
 
 /** Poll an incoming payment's status (fallback when the webhook can't reach us). */
 export async function queryStatus(
+  cfg: KopoKopoConfig,
   location: string,
 ): Promise<{ status: string; reference?: string } | null> {
-  const cfg = await kopokopoConfig();
-  if (!cfg || !location) return null;
+  if (!location) return null;
   let token: string;
   try {
     token = await getToken(cfg);

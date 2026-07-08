@@ -2,7 +2,8 @@
 
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/server/db";
-import { kopokopoConfig, appBaseUrl } from "@/server/config";
+import { appBaseUrl } from "@/server/config";
+import { kopokopoConfigForOrg } from "@/server/payments-config";
 import { initiateStkPush, normalizePhone } from "@/server/kopokopo";
 
 export type PayState = { error?: string; intentId?: string; ok?: boolean };
@@ -17,15 +18,15 @@ export async function startInvoicePaymentAction(_prev: PayState, fd: FormData): 
   const amountKesRaw = String(fd.get("amount") ?? "");
   if (!token) return { error: "Missing invoice." };
 
-  const cfg = await kopokopoConfig();
-  if (!cfg) return { error: "M-Pesa payment isn't available for this invoice yet." };
-
   const db = await getDb();
   const rows = await db.select().from(schema.invoice).where(eq(schema.invoice.shareToken, token)).limit(1);
   const inv = rows[0];
   if (!inv || inv.type !== "invoice") return { error: "Invoice not found." };
   if (inv.status === "void") return { error: "This invoice has been voided." };
   if (inv.balanceDue <= 0) return { error: "This invoice is already fully paid." };
+
+  const cfg = await kopokopoConfigForOrg(db, inv.organizationId);
+  if (!cfg) return { error: "M-Pesa payment isn't available for this invoice yet." };
 
   const phone = normalizePhone(phoneRaw);
   if (!phone) return { error: "Enter a valid Safaricom number, e.g. 0712 345 678." };
@@ -53,7 +54,7 @@ export async function startInvoicePaymentAction(_prev: PayState, fd: FormData): 
 
   const base = await appBaseUrl();
   const first = (client?.name || "Customer").split(" ")[0];
-  const result = await initiateStkPush({
+  const result = await initiateStkPush(cfg, {
     amountKes,
     phone,
     callbackUrl: `${base}/api/mpesa/kopokopo`,
