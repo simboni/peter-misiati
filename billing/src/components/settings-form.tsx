@@ -7,6 +7,7 @@ import { saveSettingsAction, type FormState } from "@/server/actions/settings";
 import { formatRate } from "@/server/money";
 import { TEMPLATES, ACCENTS } from "@/lib/doc-style";
 import { TemplateThumb } from "./template-thumb";
+import { ImageUploadField } from "./image-upload-field";
 import type { OrgProfile } from "@/server/db/schema";
 
 const CURRENCIES = ["KES", "USD", "EUR", "GBP", "UGX", "TZS"];
@@ -24,6 +25,10 @@ export function SettingsForm({
   const [vatRegistered, setVatRegistered] = useState(profile.vatRegistered);
   const [template, setTemplate] = useState(profile.invoiceTemplate || "column");
   const [accent, setAccent] = useState(profile.accentColor || "#0e9f6e");
+  const [showSignature, setShowSignature] = useState(profile.showSignature);
+  const [signatureAlign, setSignatureAlign] = useState<"left" | "center" | "right">(
+    (profile.signatureAlign as "left" | "center" | "right") || "right",
+  );
 
   return (
     <form action={formAction} className="space-y-6">
@@ -59,19 +64,12 @@ export function SettingsForm({
               <input id="kraPin" name="kraPin" className="input" defaultValue={profile.kraPin ?? ""} />
             </div>
             <div>
-              <label className="label" htmlFor="logoUrl">
-                Logo URL (optional){!pro && <span className="ml-1 text-brand-600">· Pro</span>}
-              </label>
-              <input
-                id="logoUrl"
+              <ImageUploadField
                 name="logoUrl"
-                className="input"
-                placeholder="https://…/logo.png"
-                defaultValue={profile.logoUrl ?? ""}
+                initial={profile.logoUrl}
+                label={`Logo${!pro ? " · Pro" : ""}`}
+                hint={pro ? "PNG or JPG, under 500KB. Shown on your documents." : "Shown on documents once you upgrade to Pro."}
               />
-              {!pro && (
-                <p className="mt-1 text-xs text-muted">Shown on documents once you upgrade to Pro.</p>
-              )}
             </div>
           </div>
         </div>
@@ -298,6 +296,63 @@ export function SettingsForm({
             </div>
           </div>
         </fieldset>
+      </section>
+
+      <section className="card p-6">
+        <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-muted">Signature</h2>
+        <p className="mb-4 text-sm text-muted">
+          Add an authorised signature to your invoices, receipts and other shared documents for credibility.
+        </p>
+
+        <input type="hidden" name="signatureAlign" value={signatureAlign} />
+        <label className="mb-4 flex items-center gap-2.5">
+          <input
+            type="checkbox"
+            name="showSignature"
+            checked={showSignature}
+            onChange={(e) => setShowSignature(e.target.checked)}
+            className="h-4 w-4 rounded border-line text-brand-600"
+          />
+          <span className="text-sm text-ink">Show my signature on documents</span>
+        </label>
+
+        <div className="space-y-4">
+          <ImageUploadField
+            name="signatureUrl"
+            initial={profile.signatureUrl}
+            label="Signature image"
+            hint="A PNG with a transparent background works best. Under 500KB."
+            previewClass="h-16"
+            previewBg="bg-white"
+          />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="label" htmlFor="signatureName">Name under signature</label>
+              <input id="signatureName" name="signatureName" className="input" placeholder="e.g. Peter Misiati" defaultValue={profile.signatureName ?? ""} />
+            </div>
+            <div>
+              <label className="label" htmlFor="signatureTitle">Title <span className="font-normal text-muted">(optional)</span></label>
+              <input id="signatureTitle" name="signatureTitle" className="input" placeholder="e.g. Director" defaultValue={profile.signatureTitle ?? ""} />
+            </div>
+          </div>
+          <div>
+            <span className="label">Position on document</span>
+            <div className="flex gap-2">
+              {(["left", "center", "right"] as const).map((a) => (
+                <button
+                  type="button"
+                  key={a}
+                  onClick={() => setSignatureAlign(a)}
+                  className={`rounded-lg border px-3 py-1.5 text-sm font-medium capitalize transition-colors ${
+                    signatureAlign === a ? "border-brand-500 bg-brand-50 text-brand-700" : "border-line text-ink hover:bg-canvas"
+                  }`}
+                >
+                  {a}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
       </section>
 
       {state.error && (

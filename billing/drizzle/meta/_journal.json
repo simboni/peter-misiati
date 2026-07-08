@@ -71,6 +71,13 @@
       "when": 1783542827896,
       "tag": "0009_dashing_smasher",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1783544701280,
+      "tag": "0010_red_black_queen",
+      "breakpoints": true
     }
   ]
 }

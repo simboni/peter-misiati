@@ -45,6 +45,13 @@ export async function saveSettingsAction(_prev: FormState, fd: FormData): Promis
       invoiceFooter: str(fd, "invoiceFooter"),
       invoiceTemplate: str(fd, "invoiceTemplate") ?? "column",
       accentColor: str(fd, "accentColor") ?? "#0e9f6e",
+      signatureUrl: str(fd, "signatureUrl"),
+      signatureName: str(fd, "signatureName"),
+      signatureTitle: str(fd, "signatureTitle"),
+      signatureAlign: ["left", "center", "right"].includes(String(fd.get("signatureAlign")))
+        ? String(fd.get("signatureAlign"))
+        : "right",
+      showSignature: fd.get("showSignature") === "on",
     })
     .where(eq(schema.orgProfile.organizationId, organizationId));
 

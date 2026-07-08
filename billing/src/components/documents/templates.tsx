@@ -4,6 +4,7 @@ import { fmtDate } from "@/server/queries";
 import { isPro } from "@/lib/plan";
 import { DEFAULT_ACCENT } from "@/lib/doc-style";
 import type { Invoice, Client, Payment, OrgProfile, DeliveryNote, CreditNote } from "@/server/db/schema";
+import { DocSignature } from "./signature";
 
 // The multi-layout invoice/quotation renderer lives in its own module.
 export { InvoiceDocument } from "./invoice-templates";
@@ -80,6 +81,7 @@ function DocumentShell({
         </div>
       </div>
       {children}
+      <DocSignature profile={issuer.profile} />
       {!proOf(issuer) && (
         <div className="mt-8 flex items-center justify-center gap-2 text-[11px] text-muted">
           <svg width="16" height="16" viewBox="0 0 64 64" aria-hidden>

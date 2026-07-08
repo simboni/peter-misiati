@@ -145,6 +145,13 @@ export const orgProfile = sqliteTable("org_profile", {
   logoUrl: text("logo_url"),
   bankDetails: text("bank_details"),
   invoiceFooter: text("invoice_footer"),
+  // Authorised signature shown on documents for credibility. The image is
+  // stored inline (data URL) so no external hosting is needed.
+  signatureUrl: text("signature_url"),
+  signatureName: text("signature_name"),
+  signatureTitle: text("signature_title"),
+  signatureAlign: text("signature_align").notNull().default("right"), // left|center|right
+  showSignature: integer("show_signature", { mode: "boolean" }).notNull().default(false),
   // Document look: which layout + accent colour the vendor's documents use.
   // Only applied on the paid (white-label) plan; free documents render the
   // default Tally look and carry a "Powered by Tally" mark.

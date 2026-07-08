@@ -3,6 +3,7 @@ import { formatMoney, formatQty, formatRate } from "@/server/money";
 import { fmtDate } from "@/server/queries";
 import { isPro } from "@/lib/plan";
 import { DEFAULT_TEMPLATE, DEFAULT_ACCENT } from "@/lib/doc-style";
+import { DocSignature } from "./signature";
 import type { Invoice, InvoiceLine, Client, OrgProfile } from "@/server/db/schema";
 
 type Issuer = { name: string; profile: OrgProfile | null };
@@ -401,6 +402,9 @@ export function InvoiceDocument(props: {
     <>
       <style dangerouslySetInnerHTML={{ __html: DOC_CSS }} />
       <T vm={vm} />
+      <div style={{ maxWidth: 820, margin: "0 auto", padding: "0 8px" }}>
+        <DocSignature profile={props.issuer.profile} />
+      </div>
       {vm.poweredByTally && <PoweredByTally />}
     </>
   );
