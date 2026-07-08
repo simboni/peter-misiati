@@ -1,6 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "billing-platform",
+  "account_id": "dc39d55aacd54d46748d7802b4764948",
   "main": ".open-next/worker.js",
   "compatibility_date": "2026-07-07",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
