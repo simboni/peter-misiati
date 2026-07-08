@@ -16,6 +16,9 @@ export default async function AuthLayout({ children }: { children: React.ReactNo
       <p className="mt-6 text-center text-xs text-muted">
         Built for freelancers &amp; small businesses in Kenya — VAT &amp; KRA PIN ready.
       </p>
+      <p className="mt-2 text-center text-xs text-muted">
+        Designed by <span className="font-semibold text-ink">SMP Developers Ltd</span>
+      </p>
     </div>
   );
 }

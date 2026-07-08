@@ -217,6 +217,10 @@ export default function LandingPage() {
             <Link href="/signup" className="hover:text-ink">Get started</Link>
           </div>
         </div>
+        <div className="border-t border-line py-4 text-center text-xs text-muted">
+          Designed by{" "}
+          <span className="font-semibold text-ink">SMP Developers Ltd</span>
+        </div>
       </footer>
     </div>
   );

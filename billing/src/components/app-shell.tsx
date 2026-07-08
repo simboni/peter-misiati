@@ -240,6 +240,9 @@ export function AppShell({
           )}
           {children}
         </main>
+        <footer className="no-print px-4 pb-6 pt-2 text-center text-xs text-muted sm:px-6 lg:px-8">
+          Designed by <span className="font-semibold text-ink">SMP Developers Ltd</span>
+        </footer>
       </div>
     </div>
   );

@@ -6,8 +6,11 @@ import { requireOrg } from "@/server/org";
 import { getEnv } from "@/server/config";
 import { schema } from "@/server/db";
 import { encryptSecret } from "@/server/crypto";
+import { kopokopoConfigForOrg } from "@/server/payments-config";
+import { testConnection } from "@/server/kopokopo";
 
 export type FormState = { error?: string; ok?: boolean };
+export type TestState = { error?: string; message?: string };
 
 function str(fd: FormData, key: string): string {
   return String(fd.get(key) ?? "").trim();
@@ -64,4 +67,23 @@ export async function savePaymentSettingsAction(_prev: FormState, fd: FormData):
 
   revalidatePath("/settings");
   return { ok: true };
+}
+
+/**
+ * Verify the saved Kopo Kopo credentials by performing the OAuth handshake only.
+ * Uses whatever config currently applies to this org (own account if enabled,
+ * else the platform account). No STK push, no money moved. Save before testing.
+ */
+export async function testPaymentConnectionAction(_prev: TestState): Promise<TestState> {
+  const { db, organizationId } = await requireOrg();
+  const cfg = await kopokopoConfigForOrg(db, organizationId);
+  if (!cfg) {
+    return { error: "No M-Pesa account is configured yet. Fill in the details, save, then test." };
+  }
+  const env = cfg.baseUrl.includes("sandbox") ? "Sandbox" : "Production";
+  const res = await testConnection(cfg);
+  if (res.ok) {
+    return { message: `Connected to Kopo Kopo (${env}) successfully — till ${cfg.tillNumber}. M-Pesa is ready.` };
+  }
+  return { error: res.error ?? "Connection failed." };
 }

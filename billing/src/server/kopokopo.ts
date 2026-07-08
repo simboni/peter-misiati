@@ -68,6 +68,23 @@ async function getToken(cfg: KopoKopoConfig): Promise<string> {
   return j.access_token;
 }
 
+/**
+ * Check that the credentials + environment are valid by doing only the OAuth
+ * handshake — no STK push, no money moved. Safe to run against a live account.
+ */
+export async function testConnection(cfg: KopoKopoConfig): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await getToken(cfg);
+    return { ok: true };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "unknown error";
+    if (msg.includes("401") || msg.includes("no token")) {
+      return { ok: false, error: "Kopo Kopo rejected these credentials (check Client ID / Secret and Sandbox vs Production)." };
+    }
+    return { ok: false, error: "Couldn't reach Kopo Kopo. Check the environment (Sandbox vs Production) and try again." };
+  }
+}
+
 export type StkResult = { ok: true; location: string } | { ok: false; error: string };
 
 /** Send an STK push using the given (per-vendor or platform) config. */

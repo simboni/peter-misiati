@@ -2,7 +2,12 @@
 
 import { useActionState, useState } from "react";
 import { SubmitButton } from "./submit-button";
-import { savePaymentSettingsAction, type FormState } from "@/server/actions/payment-settings";
+import {
+  savePaymentSettingsAction,
+  testPaymentConnectionAction,
+  type FormState,
+  type TestState,
+} from "@/server/actions/payment-settings";
 
 export function PaymentSettingsForm({
   enabled,
@@ -22,6 +27,7 @@ export function PaymentSettingsForm({
   platformConfigured: boolean;
 }) {
   const [state, formAction] = useActionState<FormState, FormData>(savePaymentSettingsAction, {});
+  const [testState, testAction, testing] = useActionState<TestState, FormData>(testPaymentConnectionAction, {});
   const [on, setOn] = useState(enabled);
 
   return (
@@ -134,7 +140,25 @@ export function PaymentSettingsForm({
         </p>
       )}
 
-      <SubmitButton>Save M-Pesa settings</SubmitButton>
+      {testState.message && (
+        <p className="rounded-lg bg-brand-50 px-3 py-2 text-sm text-brand-700">✓ {testState.message}</p>
+      )}
+      {testState.error && (
+        <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{testState.error}</p>
+      )}
+
+      <div className="flex flex-wrap items-center gap-3">
+        <SubmitButton>Save M-Pesa settings</SubmitButton>
+        <button
+          type="submit"
+          formAction={testAction}
+          disabled={testing}
+          className="btn-ghost disabled:opacity-50"
+        >
+          {testing ? "Testing…" : "Test connection"}
+        </button>
+        <span className="text-xs text-muted">Save first, then test — checks your keys without moving money.</span>
+      </div>
     </form>
   );
 }
