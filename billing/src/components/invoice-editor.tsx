@@ -93,6 +93,9 @@ export function InvoiceEditor({
   const [showMore, setShowMore] = useState<boolean>(
     Boolean(invoice?.discountType) || (invoice?.depositType && invoice.depositType !== "none") || Boolean(invoice?.notes) || Boolean(invoice?.terms),
   );
+  // Only one item card is expanded at a time; earlier ones collapse to a
+  // compact row so the form stays short as more items are added.
+  const [expandedKey, setExpandedKey] = useState<string>(() => lines[lines.length - 1]?.key ?? "");
 
   function updateLine(key: string, patch: Partial<EditorLine>) {
     setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
@@ -108,8 +111,18 @@ export function InvoiceEditor({
       taxRate: String(it.taxRateBps / 100),
     });
   }
-  const addLine = () => setLines((ls) => [...ls, emptyLine(defaultVatRateBps)]);
-  const removeLine = (key: string) => setLines((ls) => (ls.length > 1 ? ls.filter((l) => l.key !== key) : ls));
+  const addLine = () => {
+    const l = emptyLine(defaultVatRateBps);
+    setLines((ls) => [...ls, l]);
+    setExpandedKey(l.key);
+  };
+  const removeLine = (key: string) =>
+    setLines((ls) => {
+      if (ls.length <= 1) return ls;
+      const next = ls.filter((l) => l.key !== key);
+      if (key === expandedKey) setExpandedKey(next[next.length - 1].key);
+      return next;
+    });
 
   const totals = useMemo(
     () =>
@@ -218,10 +231,27 @@ export function InvoiceEditor({
 
             {lines.map((l, idx) => {
               const amount = parseAmount(l.unitPrice) * (parseQty(l.quantity) / 1000);
+              const collapsed = l.key !== expandedKey;
+              if (collapsed) {
+                return (
+                  <div key={l.key} className="card flex items-center gap-3 p-3">
+                    <span className="grid h-6 w-6 flex-none place-items-center rounded-full bg-brand-50 text-xs font-bold text-brand-700">{idx + 1}</span>
+                    <button type="button" onClick={() => setExpandedKey(l.key)} className="min-w-0 flex-1 text-left">
+                      <span className="block truncate text-sm font-medium text-ink">{l.title || l.description || "Untitled item"}</span>
+                      <span className="block truncate text-xs text-muted">{parseQty(l.quantity) / 1000} × {money(parseAmount(l.unitPrice))}</span>
+                    </button>
+                    <span className="flex-none text-sm font-semibold tabular-nums text-ink">{money(Math.round(amount))}</span>
+                    <button type="button" onClick={() => setExpandedKey(l.key)} aria-label="Edit item"
+                      className="flex-none rounded-lg px-2 py-1 text-xs font-medium text-brand-700 hover:bg-brand-50">Edit</button>
+                    <button type="button" onClick={() => removeLine(l.key)} disabled={lines.length === 1} aria-label="Remove item"
+                      className="flex-none rounded-lg px-2 py-1 text-xs font-medium text-muted hover:text-red-600 disabled:opacity-40">✕</button>
+                  </div>
+                );
+              }
               return (
-                <div key={l.key} className="card p-4">
+                <div key={l.key} className="card p-4 ring-1 ring-brand-100">
                   <div className="mb-3 flex items-center justify-between">
-                    <span className="grid h-6 w-6 place-items-center rounded-full bg-brand-50 text-xs font-bold text-brand-700">{idx + 1}</span>
+                    <span className="grid h-6 w-6 place-items-center rounded-full bg-brand-600 text-xs font-bold text-white">{idx + 1}</span>
                     <button type="button" onClick={() => removeLine(l.key)} disabled={lines.length === 1}
                       className="text-xs font-medium text-muted hover:text-red-600 disabled:opacity-40">Remove</button>
                   </div>
