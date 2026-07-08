@@ -5,6 +5,7 @@ import { SubmitButton } from "./submit-button";
 import { saveSettingsAction, type FormState } from "@/server/actions/settings";
 import { formatRate } from "@/server/money";
 import { TEMPLATES, ACCENTS } from "@/lib/doc-style";
+import { TemplateThumb } from "./template-thumb";
 import type { OrgProfile } from "@/server/db/schema";
 
 const CURRENCIES = ["KES", "USD", "EUR", "GBP", "UGX", "TZS"];
@@ -219,7 +220,7 @@ export function SettingsForm({
         <input type="hidden" name="invoiceTemplate" value={template} />
         <input type="hidden" name="accentColor" value={accent} />
 
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {TEMPLATES.map((t) => {
             const active = template === t.id;
             return (
@@ -227,18 +228,20 @@ export function SettingsForm({
                 type="button"
                 key={t.id}
                 onClick={() => setTemplate(t.id)}
-                className={`rounded-xl border p-3 text-left transition-colors ${
+                aria-pressed={active}
+                className={`rounded-xl border p-2 text-left transition-colors ${
                   active ? "border-brand-500 ring-2 ring-brand-100" : "border-line hover:bg-canvas"
                 }`}
               >
-                <span className="flex items-center gap-2">
+                <TemplateThumb id={t.id} accent={accent} />
+                <span className="mt-2 flex items-center gap-2 px-1">
                   <span
-                    className="inline-block h-4 w-4 rounded-full border border-line"
-                    style={{ background: active ? accent : "transparent" }}
+                    className={`inline-block h-3.5 w-3.5 flex-none rounded-full border ${active ? "" : "border-line"}`}
+                    style={active ? { background: accent, borderColor: accent } : {}}
                   />
-                  <span className="font-semibold text-ink">{t.name}</span>
+                  <span className="text-sm font-semibold text-ink">{t.name}</span>
                 </span>
-                <span className="mt-1 block text-xs text-muted">{t.desc}</span>
+                <span className="mt-0.5 block px-1 text-xs text-muted">{t.desc}</span>
               </button>
             );
           })}
