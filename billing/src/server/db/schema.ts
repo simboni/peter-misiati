@@ -409,6 +409,31 @@ export const deliveryNoteLine = sqliteTable(
   (t) => [index("dn_line_dn_idx").on(t.deliveryNoteId)],
 );
 
+// ---------------------------------------------------------------- expenses
+
+/** Business costs — the spend side of the books, for P&L reporting. */
+export const expense = sqliteTable(
+  "expense",
+  {
+    id: id(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    expenseDate: integer("expense_date", { mode: "timestamp_ms" }).notNull(),
+    category: text("category"), // Rent, Transport, Supplies, Salaries…
+    payee: text("payee"), // supplier / who it was paid to
+    description: text("description").notNull(),
+    amount: integer("amount").notNull().default(0), // gross, minor units
+    taxAmount: integer("tax_amount").notNull().default(0), // input VAT, minor units
+    method: text("method").notNull().default("cash"), // cash|mpesa|bank|cheque|card|other
+    reference: text("reference"),
+    notes: text("notes"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("expense_org_idx").on(t.organizationId), index("expense_date_idx").on(t.expenseDate)],
+);
+
 // ------------------------------------------------------------- platform admin
 
 /**
@@ -460,6 +485,7 @@ export type Item = typeof item.$inferSelect;
 export type Payment = typeof payment.$inferSelect;
 export type PaymentIntent = typeof paymentIntent.$inferSelect;
 export type DeliveryNote = typeof deliveryNote.$inferSelect;
+export type Expense = typeof expense.$inferSelect;
 export type OrgProfile = typeof orgProfile.$inferSelect;
 export type User = typeof user.$inferSelect;
 export type Organization = typeof organization.$inferSelect;
