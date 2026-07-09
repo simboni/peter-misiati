@@ -6,6 +6,7 @@ import { SubmitButton } from "./submit-button";
 import { saveCreditNoteAction, type FormState } from "@/server/actions/credit-notes";
 import { calcTotals } from "@/server/totals";
 import { parseAmount, parseQty, parseRate, formatMoney } from "@/server/money";
+import { AutoTextarea } from "./auto-textarea";
 import type { Client, Item, CreditNote, CreditNoteLine } from "@/server/db/schema";
 
 type EditorLine = {
@@ -205,8 +206,8 @@ export function CreditNoteEditor({
                   )}
                   <input className="input font-medium" placeholder="Item / reason name *" value={l.title}
                     onChange={(e) => updateLine(l.key, { title: e.target.value, itemId: "" })} />
-                  <input className="input mt-2 text-sm" placeholder="Description (optional)" value={l.description}
-                    onChange={(e) => updateLine(l.key, { description: e.target.value })} />
+                  <AutoTextarea className="input mt-2 text-sm" placeholder="Description — press Enter for a new line" value={l.description}
+                    onChange={(v) => updateLine(l.key, { description: v })} />
                   <div className="mt-3 grid grid-cols-3 gap-2">
                     <Field label="Qty">
                       <input className="input text-right" inputMode="decimal" value={l.quantity} onChange={(e) => updateLine(l.key, { quantity: e.target.value })} />

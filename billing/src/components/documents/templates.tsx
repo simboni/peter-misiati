@@ -332,7 +332,7 @@ export function CreditNoteDocument({
             <tr key={l.id} className="border-b border-line align-top">
               <td className="px-3 py-2">
                 <div className="font-medium text-ink">{l.title || l.description}</div>
-                {l.title && l.description && <div className="text-xs text-muted">{l.description}</div>}
+                {l.title && l.description && <div className="whitespace-pre-line text-xs text-muted">{l.description}</div>}
               </td>
               <td className="px-3 py-2 text-right tabular-nums">{formatQty(l.quantityMilli)}</td>
               <td className="px-3 py-2 text-right tabular-nums">{formatMoney(l.unitPrice, cur)}</td>

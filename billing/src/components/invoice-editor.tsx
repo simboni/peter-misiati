@@ -6,6 +6,7 @@ import { SubmitButton } from "./submit-button";
 import { saveInvoiceAction, type FormState } from "@/server/actions/invoices";
 import { calcTotals } from "@/server/totals";
 import { parseAmount, parseQty, parseRate, formatMoney } from "@/server/money";
+import { AutoTextarea } from "./auto-textarea";
 import type { Client, Item, Invoice, InvoiceLine } from "@/server/db/schema";
 
 type EditorLine = {
@@ -267,8 +268,8 @@ export function InvoiceEditor({
 
                   <input className="input font-medium" placeholder="Product / service name *" value={l.title}
                     onChange={(e) => updateLine(l.key, { title: e.target.value, itemId: "" })} />
-                  <input className="input mt-2 text-sm" placeholder="Description (optional)" value={l.description}
-                    onChange={(e) => updateLine(l.key, { description: e.target.value })} />
+                  <AutoTextarea className="input mt-2 text-sm" placeholder="Description — press Enter for a new line" value={l.description}
+                    onChange={(v) => updateLine(l.key, { description: v })} />
 
                   <div className="mt-3 grid grid-cols-3 gap-2">
                     <Field label="Qty">

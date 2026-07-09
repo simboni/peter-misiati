@@ -270,7 +270,7 @@ const DOC_CSS = `
 .iv-doc .brand{display:flex;align-items:center;gap:9px;font-weight:800;font-size:16px}
 .iv-doc .brand img{height:40px;width:auto;max-width:200px;object-fit:contain;border-radius:4px}
 .iv-doc .iv-name{font-weight:800;margin:3px 0 0}
-.iv-doc .ln-desc{color:#64748b;font-size:11px;font-weight:400;margin-top:2px;line-height:1.4}
+.iv-doc .ln-desc{color:#64748b;font-size:11px;font-weight:400;margin-top:2px;line-height:1.4;white-space:pre-line}
 .iv-doc table{width:100%;border-collapse:collapse}
 .iv-doc .tot .row{display:flex;justify-content:space-between;gap:16px;padding:5px 0;color:#475569}
 .iv-doc .tot .row>span:first-child{flex:1;min-width:0}
