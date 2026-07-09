@@ -52,7 +52,7 @@ export function ImageUploadField({
       <span className="label">{label}</span>
       <input type="hidden" name={name} value={value} />
       <div className="flex items-center gap-4">
-        <div className={`grid ${previewClass} w-28 place-items-center overflow-hidden rounded-lg border border-line ${previewBg}`}>
+        <div className={`grid ${previewClass} w-44 place-items-center overflow-hidden rounded-lg border border-line ${previewBg}`}>
           {value ? (
             <img src={value} alt="" className="max-h-full max-w-full object-contain p-1" />
           ) : (

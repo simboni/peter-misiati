@@ -30,7 +30,7 @@ function IssuerBlock({ issuer }: { issuer: Issuer }) {
   return (
     <div className="flex items-start gap-3">
       {proOf(issuer) && p?.logoUrl ? (
-        <img src={p.logoUrl} alt="" className="h-14 w-14 rounded object-contain" />
+        <img src={p.logoUrl} alt="" className="h-14 w-auto max-w-[200px] rounded object-contain" />
       ) : null}
       <div>
         <p className="text-lg font-bold text-ink">{p?.legalName || issuer.name}</p>
