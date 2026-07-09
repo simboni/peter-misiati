@@ -1,7 +1,8 @@
-// NOTE: imported ONLY by client components, so pdf-lib is bundled as a browser
-// chunk (static asset) and never enters the Cloudflare Worker — the Worker has a
-// 3 MiB size limit that pdf-lib would blow past if bundled server-side.
-import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
+// NOTE: imported ONLY by client components. jspdf ships to the browser as a
+// static chunk and never enters the Cloudflare Worker (which has a 3 MiB size
+// limit). We deliberately use jspdf here rather than pdf-lib — pdf-lib bundles
+// far larger and, even behind a dynamic import, ended up in the Worker bundle
+// and blew the size limit.
 import { formatMoney, formatQty } from "@/server/money";
 import { isPro } from "@/lib/plan";
 import type { Invoice, InvoiceLine, Client, OrgProfile } from "@/server/db/schema";
@@ -10,82 +11,82 @@ import type { Invoice, InvoiceLine, Client, OrgProfile } from "@/server/db/schem
 export type PdfIssuer = { name: string; profile: Partial<OrgProfile> | null };
 type Issuer = PdfIssuer;
 
+type RGB = [number, number, number];
+
 /** Date formatter (client-safe; mirrors the server fmtDate). */
 function fmtDate(d?: Date | null): string {
   if (!d) return "—";
   return new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 }
 
+// A4 in points (jspdf top-left origin, y grows downward).
 const A4 = { w: 595.28, h: 841.89 };
 const M = 42; // page margin
-const INK = rgb(0.09, 0.1, 0.2);
-const MUTED = rgb(0.42, 0.45, 0.55);
-const LINE = rgb(0.89, 0.9, 0.94);
+const INK: RGB = [23, 26, 51];
+const MUTED: RGB = [107, 115, 140];
+const LINE: RGB = [227, 230, 240];
 
-function hexToRgb(hex: string) {
+function hexToRgb(hex: string): RGB {
   const h = hex.replace("#", "");
   const n = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
-  const r = parseInt(n.slice(0, 2), 16) / 255;
-  const g = parseInt(n.slice(2, 4), 16) / 255;
-  const b = parseInt(n.slice(4, 6), 16) / 255;
-  return rgb(Number.isFinite(r) ? r : 0.02, Number.isFinite(g) ? g : 0.6, Number.isFinite(b) ? b : 0.4);
+  const r = parseInt(n.slice(0, 2), 16);
+  const g = parseInt(n.slice(2, 4), 16);
+  const b = parseInt(n.slice(4, 6), 16);
+  return [Number.isFinite(r) ? r : 14, Number.isFinite(g) ? g : 159, Number.isFinite(b) ? b : 110];
 }
 
-function wrap(text: string, font: PDFFont, size: number, maxWidth: number): string[] {
-  const out: string[] = [];
-  for (const raw of String(text).split("\n")) {
-    const words = raw.split(/\s+/);
-    let cur = "";
-    for (const w of words) {
-      const trial = cur ? `${cur} ${w}` : w;
-      if (font.widthOfTextAtSize(trial, size) > maxWidth && cur) {
-        out.push(cur);
-        cur = w;
-      } else {
-        cur = trial;
-      }
-    }
-    out.push(cur);
-  }
-  return out;
-}
-
-/** Generate a clean A4 invoice/quotation/receipt-style PDF from the row data. */
+/** Generate a clean A4 invoice/quotation-style PDF from the row data. */
 export async function buildInvoicePdf(
   issuer: Issuer,
   invoice: Invoice,
   lines: InvoiceLine[],
   client: Client | null,
 ): Promise<Uint8Array> {
+  const { jsPDF } = await import("jspdf");
   const p = issuer.profile;
   const pro = isPro(p?.plan);
-  const accent = pro && p?.accentColor ? hexToRgb(p.accentColor) : hexToRgb("#0e9f6e");
+  const accent: RGB = pro && p?.accentColor ? hexToRgb(p.accentColor) : hexToRgb("#0e9f6e");
   const cur = invoice.currency;
   const isQuote = invoice.type === "quotation";
 
-  const doc = await PDFDocument.create();
-  const reg = await doc.embedFont(StandardFonts.Helvetica);
-  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
-
-  let page: PDFPage = doc.addPage([A4.w, A4.h]);
-  let y = A4.h - M;
+  const doc = new jsPDF({ unit: "pt", format: "a4" });
   const right = A4.w - M;
 
-  const text = (s: string, x: number, size: number, font = reg, color = INK) =>
-    page.drawText(s, { x, y, size, font, color });
-  const textRight = (s: string, x: number, size: number, font = reg, color = INK) =>
-    page.drawText(s, { x: x - font.widthOfTextAtSize(s, size), y, size, font, color });
+  // ---- low-level helpers (jspdf is stateful: set font before measuring/drawing) ----
+  const setFont = (size: number, style: "normal" | "bold" = "normal", color: RGB = INK) => {
+    doc.setFont("helvetica", style);
+    doc.setFontSize(size);
+    doc.setTextColor(color[0], color[1], color[2]);
+  };
+  const text = (s: string, x: number, y: number, size: number, style: "normal" | "bold" = "normal", color: RGB = INK) => {
+    setFont(size, style, color);
+    doc.text(s, x, y, { baseline: "alphabetic" });
+  };
+  const textRight = (s: string, xRight: number, y: number, size: number, style: "normal" | "bold" = "normal", color: RGB = INK) => {
+    setFont(size, style, color);
+    doc.text(s, xRight, y, { align: "right", baseline: "alphabetic" });
+  };
+  const rule = (x1: number, y: number, x2: number, thickness: number, color: RGB) => {
+    doc.setDrawColor(color[0], color[1], color[2]);
+    doc.setLineWidth(thickness);
+    doc.line(x1, y, x2, y);
+  };
+  const wrap = (s: string, size: number, style: "normal" | "bold", maxWidth: number): string[] => {
+    setFont(size, style);
+    return doc.splitTextToSize(String(s), maxWidth);
+  };
+
+  let y = M + 14; // first baseline
+  const topY = y;
   const ensure = (need: number) => {
-    if (y - need < M + 40) {
-      page = doc.addPage([A4.w, A4.h]);
-      y = A4.h - M;
+    if (y + need > A4.h - M - 30) {
+      doc.addPage();
+      y = M + 14;
     }
   };
 
   // ---- Header: issuer (left) + document meta (right) ----
-  const topY = y;
-  text(p?.legalName || issuer.name, M, 17, bold);
-  y -= 16;
+  text(p?.legalName || issuer.name, M, y, 17, "bold");
   const issuerLines = [
     p?.addressLine1,
     p?.addressLine2,
@@ -94,91 +95,96 @@ export async function buildInvoicePdf(
     p?.email,
     p?.kraPin ? `KRA PIN: ${p.kraPin}` : null,
   ].filter(Boolean) as string[];
+  let ly = y + 16;
   for (const l of issuerLines) {
-    y -= 12;
-    text(l, M, 9.5, reg, MUTED);
+    ly += 12;
+    text(l, M, ly, 9.5, "normal", MUTED);
   }
 
   // right column
-  y = topY;
   const title = (isQuote ? "QUOTATION" : "INVOICE").toUpperCase();
-  page.drawText(title, { x: right - bold.widthOfTextAtSize(title, 22), y: y - 4, size: 22, font: bold, color: accent });
-  y -= 22;
-  y -= 14;
-  textRight(invoice.number, right, 11, bold);
+  textRight(title, right, topY, 22, "bold", accent);
+  let ry = topY + 36;
+  textRight(invoice.number, right, ry, 11, "bold");
   const meta: string[] = [`Issued ${fmtDate(invoice.issueDate)}`];
   if (!isQuote && invoice.dueDate) meta.push(`Due ${fmtDate(invoice.dueDate)}`);
   for (const m of meta) {
-    y -= 13;
-    textRight(m, right, 9.5, reg, MUTED);
+    ry += 13;
+    textRight(m, right, ry, 9.5, "normal", MUTED);
   }
 
   // move below whichever column is lower
-  y = topY - Math.max(16 + issuerLines.length * 12, 22 + 14 + meta.length * 13) - 18;
-  page.drawLine({ start: { x: M, y }, end: { x: right, y }, thickness: 1, color: LINE });
-  y -= 22;
+  y = topY + Math.max(16 + issuerLines.length * 12, 36 + meta.length * 13) + 20;
+  rule(M, y, right, 1, LINE);
+  y += 22;
 
   // ---- Bill to ----
-  text(isQuote ? "QUOTATION FOR" : "BILLED TO", M, 8.5, bold, MUTED);
-  y -= 15;
-  text(client?.name ?? "—", M, 12, bold);
-  const clientLines = [client?.addressLine1, client?.city, client?.email, client?.phone, client?.kraPin ? `KRA PIN: ${client.kraPin}` : null].filter(Boolean) as string[];
+  text(isQuote ? "QUOTATION FOR" : "BILLED TO", M, y, 8.5, "bold", MUTED);
+  y += 15;
+  text(client?.name ?? "—", M, y, 12, "bold");
+  const clientLines = [
+    client?.addressLine1,
+    client?.city,
+    client?.email,
+    client?.phone,
+    client?.kraPin ? `KRA PIN: ${client.kraPin}` : null,
+  ].filter(Boolean) as string[];
   for (const l of clientLines) {
-    y -= 12;
-    text(l, M, 9.5, reg, MUTED);
+    y += 12;
+    text(l, M, y, 9.5, "normal", MUTED);
   }
-  y -= 24;
+  y += 26;
 
   // ---- Items table ----
   const cols = { desc: M, qty: 360, rate: 452, amount: right };
-  page.drawRectangle({ x: M, y: y - 4, width: right - M, height: 20, color: rgb(0.97, 0.98, 0.99) });
-  text("DESCRIPTION", cols.desc + 6, 8.5, bold, MUTED);
-  textRight("QTY", cols.qty, 8.5, bold, MUTED);
-  textRight("RATE", cols.rate, 8.5, bold, MUTED);
-  textRight("AMOUNT", cols.amount - 6, 8.5, bold, MUTED);
-  y -= 22;
+  doc.setFillColor(247, 250, 252);
+  doc.rect(M, y - 11, right - M, 18, "F");
+  text("DESCRIPTION", cols.desc + 6, y, 8.5, "bold", MUTED);
+  textRight("QTY", cols.qty, y, 8.5, "bold", MUTED);
+  textRight("RATE", cols.rate, y, 8.5, "bold", MUTED);
+  textRight("AMOUNT", cols.amount - 6, y, 8.5, "bold", MUTED);
+  y += 22;
 
   for (const l of lines) {
     const name = l.title || l.description || "Item";
-    const descLines = l.title && l.description ? wrap(l.description, reg, 8.5, cols.qty - cols.desc - 60) : [];
+    const descLines = l.title && l.description ? wrap(l.description, 8.5, "normal", cols.qty - cols.desc - 60) : [];
     const rowH = 16 + descLines.length * 11;
     ensure(rowH + 8);
-    // amounts on the name row
-    text(name, cols.desc + 6, 10, bold);
-    textRight(formatQty(l.quantityMilli), cols.qty, 9.5);
-    textRight(formatMoney(l.unitPrice, cur), cols.rate, 9.5);
-    textRight(formatMoney(l.lineSubtotal, cur), cols.amount - 6, 9.5);
+    text(name, cols.desc + 6, y, 10, "bold");
+    textRight(formatQty(l.quantityMilli), cols.qty, y, 9.5);
+    textRight(formatMoney(l.unitPrice, cur), cols.rate, y, 9.5);
+    textRight(formatMoney(l.lineSubtotal, cur), cols.amount - 6, y, 9.5);
     for (const dl of descLines) {
-      y -= 11;
-      text(dl, cols.desc + 6, 8.5, reg, MUTED);
+      y += 11;
+      text(dl, cols.desc + 6, y, 8.5, "normal", MUTED);
     }
-    y -= 14;
-    page.drawLine({ start: { x: M, y: y + 4 }, end: { x: right, y: y + 4 }, thickness: 0.5, color: LINE });
+    y += 14;
+    rule(M, y - 4, right, 0.5, LINE);
   }
 
   // ---- Totals ----
-  y -= 12;
+  y += 14;
   const tlx = 360; // label left
-  const row = (label: string, value: string, opts: { bold?: boolean; color?: typeof INK; size?: number } = {}) => {
+  const totalRow = (label: string, value: string, opts: { bold?: boolean; color?: RGB; size?: number } = {}) => {
     ensure(18);
-    const f = opts.bold ? bold : reg;
+    const style = opts.bold ? "bold" : "normal";
     const size = opts.size ?? 10;
-    page.drawText(label, { x: tlx, y, size, font: f, color: opts.color ?? MUTED });
-    page.drawText(value, { x: right - f.widthOfTextAtSize(value, size), y, size, font: f, color: opts.color ?? INK });
-    y -= size + 8;
+    text(label, tlx, y, size, style, opts.color ?? MUTED);
+    textRight(value, right, y, size, style, opts.color ?? INK);
+    y += size + 8;
   };
-  row("Subtotal", formatMoney(invoice.subtotal, cur));
-  if (invoice.discountAmount > 0) row("Discount", `- ${formatMoney(invoice.discountAmount, cur)}`);
-  row("VAT", formatMoney(invoice.taxTotal, cur));
-  page.drawLine({ start: { x: tlx, y: y + 6 }, end: { x: right, y: y + 6 }, thickness: 1, color: INK });
-  y -= 4;
-  row("Total", formatMoney(invoice.total, cur), { bold: true, size: 13, color: INK });
+  totalRow("Subtotal", formatMoney(invoice.subtotal, cur));
+  if (invoice.discountAmount > 0) totalRow("Discount", `- ${formatMoney(invoice.discountAmount, cur)}`);
+  totalRow("VAT", formatMoney(invoice.taxTotal, cur));
+  rule(tlx, y - 6, right, 1, INK);
+  y += 2;
+  totalRow("Total", formatMoney(invoice.total, cur), { bold: true, size: 13, color: INK });
   if (!isQuote) {
-    if (invoice.amountPaid > 0) row("Paid", formatMoney(invoice.amountPaid, cur));
-    if (invoice.balanceDue > 0) row("Balance due", formatMoney(invoice.balanceDue, cur), { bold: true, color: accent });
+    if (invoice.amountPaid > 0) totalRow("Paid", formatMoney(invoice.amountPaid, cur));
+    if (invoice.balanceDue > 0) totalRow("Balance due", formatMoney(invoice.balanceDue, cur), { bold: true, color: accent });
   }
   if (!isQuote && invoice.depositAmount > 0 && invoice.amountPaid < invoice.depositAmount) {
-    row("Deposit due now", formatMoney(invoice.depositAmount, cur), { color: accent });
+    totalRow("Deposit due now", formatMoney(invoice.depositAmount, cur), { color: accent });
   }
 
   // ---- Notes / bank / footer ----
@@ -189,24 +195,25 @@ export async function buildInvoicePdf(
     p?.invoiceFooter && !invoice.notes && !invoice.terms ? p.invoiceFooter : null,
   ].filter(Boolean) as string[];
   if (footerBits.length) {
-    y -= 14;
-    page.drawLine({ start: { x: M, y: y + 6 }, end: { x: right, y: y + 6 }, thickness: 0.5, color: LINE });
-    y -= 6;
+    y += 14;
+    rule(M, y - 6, right, 0.5, LINE);
+    y += 6;
     for (const b of footerBits) {
-      for (const bl of wrap(b, reg, 8.5, right - M)) {
+      for (const bl of wrap(b, 8.5, "normal", right - M)) {
         ensure(12);
-        text(bl, M, 8.5, reg, MUTED);
-        y -= 12;
+        text(bl, M, y, 8.5, "normal", MUTED);
+        y += 12;
       }
-      y -= 4;
+      y += 4;
     }
   }
 
   if (!pro) {
-    text("Powered by TallyPay — free invoicing for Kenya", M, 8, reg, MUTED);
+    ensure(12);
+    text("Powered by TallyPay — free invoicing for Kenya", M, y, 8, "normal", MUTED);
   }
 
-  return doc.save();
+  return new Uint8Array(doc.output("arraybuffer"));
 }
 
 /** Base64-encode PDF bytes for an email attachment (chunked; Worker-safe). */
