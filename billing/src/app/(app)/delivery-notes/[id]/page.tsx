@@ -7,8 +7,19 @@ import { StatusBadge } from "@/components/status-badge";
 import { formatQty } from "@/server/money";
 import { fmtDate } from "@/server/queries";
 import { deleteDeliveryNoteAction } from "@/server/actions/delivery-notes";
+import type { Metadata } from "next";
 
-export const metadata = { title: "Delivery note" };
+// "Save as PDF" → "Delivery Note DN-0003.pdf" (absolute drops "· TallyPay").
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await params;
+  const { db, organizationId } = await requireOrg();
+  const rows = await db
+    .select({ number: schema.deliveryNote.number })
+    .from(schema.deliveryNote)
+    .where(and(eq(schema.deliveryNote.id, id), eq(schema.deliveryNote.organizationId, organizationId)))
+    .limit(1);
+  return { title: { absolute: rows[0] ? `Delivery Note ${rows[0].number}` : "Delivery note" } };
+}
 
 export default async function DeliveryNotePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;

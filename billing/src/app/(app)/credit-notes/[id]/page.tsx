@@ -5,8 +5,19 @@ import { requireOrg, getOrg, getOrgProfile } from "@/server/org";
 import { schema } from "@/server/db";
 import { CreditNoteDocument } from "@/components/documents/templates";
 import { deleteCreditNoteAction } from "@/server/actions/credit-notes";
+import type { Metadata } from "next";
 
-export const metadata = { title: "Credit note" };
+// "Save as PDF" → "Credit Note CN-0002.pdf" (absolute drops "· TallyPay").
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await params;
+  const { db, organizationId } = await requireOrg();
+  const rows = await db
+    .select({ number: schema.creditNote.number })
+    .from(schema.creditNote)
+    .where(and(eq(schema.creditNote.id, id), eq(schema.creditNote.organizationId, organizationId)))
+    .limit(1);
+  return { title: { absolute: rows[0] ? `Credit Note ${rows[0].number}` : "Credit note" } };
+}
 
 export default async function CreditNotePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
