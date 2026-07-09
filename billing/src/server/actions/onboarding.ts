@@ -69,6 +69,10 @@ export async function createOrganizationAction(
     addressLine1,
     city,
     country: "Kenya",
+    // New workspaces start on Pro (white-label). An admin can switch a vendor
+    // back to Free (or re-activate Pro) from Admin → Vendors at any time.
+    plan: "pro",
+    planActivatedAt: new Date(),
   });
   await seedSequences(db, organizationId);
 

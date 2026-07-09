@@ -1,10 +1,9 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
 import { Brand, BrandMark } from "./brand";
-import { RouteProgress } from "./route-progress";
 
 /** Small spinner shown on a nav item while its route is loading. */
 function NavPending({ collapsed }: { collapsed: boolean }) {
@@ -154,9 +153,6 @@ export function AppShell({
 
   return (
     <div className="min-h-screen bg-canvas">
-      <Suspense fallback={null}>
-        <RouteProgress />
-      </Suspense>
       {/* ---------- Desktop sidebar (fixed, collapsible) ---------- */}
       <aside
         className={`no-print fixed inset-y-0 left-0 z-30 hidden flex-col border-r border-line bg-white transition-[width] duration-200 lg:flex ${

@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import "./globals.css";
+import { RouteProgress } from "@/components/route-progress";
 
 const SITE_URL = process.env.BETTER_AUTH_URL ?? "https://tallypay.co.ke";
 
@@ -28,7 +30,12 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <Suspense fallback={null}>
+          <RouteProgress />
+        </Suspense>
+        {children}
+      </body>
     </html>
   );
 }
