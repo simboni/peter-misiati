@@ -21,14 +21,15 @@ type EditorLine = {
 
 let counter = 0;
 const newKey = () => `l${counter++}`;
-const emptyLine = (vatBps: number): EditorLine => ({
+// VAT starts blank — the user enters a rate only if the line is taxable.
+const emptyLine = (): EditorLine => ({
   key: newKey(),
   itemId: "",
   title: "",
   description: "",
   quantity: "1",
   unitPrice: "",
-  taxRate: String(vatBps / 100),
+  taxRate: "",
 });
 
 function toDateInput(d?: Date | null): string {
@@ -70,7 +71,7 @@ export function InvoiceEditor({
           unitPrice: (l.unitPrice / 100).toFixed(2),
           taxRate: String(l.taxRateBps / 100),
         }))
-      : [emptyLine(defaultVatRateBps)],
+      : [emptyLine()],
   );
 
   const [discountType, setDiscountType] = useState<string>(invoice?.discountType ?? "");
@@ -113,7 +114,7 @@ export function InvoiceEditor({
     });
   }
   const addLine = () => {
-    const l = emptyLine(defaultVatRateBps);
+    const l = emptyLine();
     setLines((ls) => [...ls, l]);
     setExpandedKey(l.key);
   };
@@ -282,6 +283,7 @@ export function InvoiceEditor({
                     </Field>
                     <Field label="VAT %">
                       <input className="input text-right" inputMode="decimal" value={l.taxRate}
+                        placeholder={defaultVatRateBps ? String(defaultVatRateBps / 100) : "0"}
                         onChange={(e) => updateLine(l.key, { taxRate: e.target.value })} />
                     </Field>
                   </div>

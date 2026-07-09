@@ -21,14 +21,15 @@ type EditorLine = {
 
 let counter = 0;
 const newKey = () => `r${counter++}`;
-const emptyLine = (vatBps: number): EditorLine => ({
+// VAT starts blank — the user enters a rate only if the line is taxable.
+const emptyLine = (): EditorLine => ({
   key: newKey(),
   itemId: "",
   title: "",
   description: "",
   quantity: "1",
   unitPrice: "",
-  taxRate: String(vatBps / 100),
+  taxRate: "",
 });
 
 function toDateInput(d?: Date | null): string {
@@ -73,7 +74,7 @@ export function RecurringEditor({
           unitPrice: (l.unitPrice / 100).toFixed(2),
           taxRate: String(l.taxRateBps / 100),
         }))
-      : [emptyLine(defaultVatRateBps)],
+      : [emptyLine()],
   );
 
   const [clientId, setClientId] = useState<string>(schedule?.clientId ?? "");
@@ -120,7 +121,7 @@ export function RecurringEditor({
       taxRate: String(it.taxRateBps / 100),
     });
   }
-  const addLine = () => setLines((ls) => [...ls, emptyLine(defaultVatRateBps)]);
+  const addLine = () => setLines((ls) => [...ls, emptyLine()]);
   const removeLine = (key: string) => setLines((ls) => (ls.length > 1 ? ls.filter((l) => l.key !== key) : ls));
 
   const totals = useMemo(
@@ -274,7 +275,7 @@ export function RecurringEditor({
                       <input className="input text-right" inputMode="decimal" placeholder="0.00" value={l.unitPrice} onChange={(e) => updateLine(l.key, { unitPrice: e.target.value })} />
                     </Field>
                     <Field label="VAT %">
-                      <input className="input text-right" inputMode="decimal" value={l.taxRate} onChange={(e) => updateLine(l.key, { taxRate: e.target.value })} />
+                      <input className="input text-right" inputMode="decimal" value={l.taxRate} placeholder={defaultVatRateBps ? String(defaultVatRateBps / 100) : "0"} onChange={(e) => updateLine(l.key, { taxRate: e.target.value })} />
                     </Field>
                   </div>
                   <div className="mt-3 flex items-center justify-between border-t border-line pt-3">
