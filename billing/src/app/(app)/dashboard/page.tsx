@@ -150,25 +150,32 @@ export default async function DashboardPage() {
             {recent.length === 0 ? (
               <p className="px-5 py-8 text-center text-sm text-muted">No invoices yet.</p>
             ) : (
-              <table className="w-full">
-                <tbody className="divide-y divide-line">
-                  {recent.map((r) => (
-                    <tr key={r.id} className="hover:bg-canvas">
-                      <td className="td">
-                        <Link href={`/invoices/${r.id}`} className="font-medium hover:text-brand-700">
-                          {r.number}
-                        </Link>
-                        <span className="ml-2 text-muted">{r.clientName}</span>
-                      </td>
-                      <td className="td text-muted">{fmtDate(r.issueDate)}</td>
-                      <td className="td">
-                        <StatusBadge status={r.status} />
-                      </td>
-                      <td className="td text-right tabular-nums">{formatMoney(r.total, cur)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              // A reflowing row rather than a table: on a narrow phone the
+              // number + status sit on top, the client · date truncates, and
+              // the amount stays pinned to the right so it's never clipped.
+              <ul className="divide-y divide-line">
+                {recent.map((r) => (
+                  <li key={r.id}>
+                    <Link
+                      href={`/invoices/${r.id}`}
+                      className="flex items-center justify-between gap-3 px-5 py-3 hover:bg-canvas"
+                    >
+                      <span className="min-w-0">
+                        <span className="flex items-center gap-2">
+                          <span className="font-medium text-ink">{r.number}</span>
+                          <StatusBadge status={r.status} />
+                        </span>
+                        <span className="mt-0.5 block truncate text-sm text-muted">
+                          {r.clientName ?? "—"} · {fmtDate(r.issueDate)}
+                        </span>
+                      </span>
+                      <span className="shrink-0 whitespace-nowrap font-semibold tabular-nums text-ink">
+                        {formatMoney(r.total, cur)}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
             )}
           </div>
 
