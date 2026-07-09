@@ -3,15 +3,30 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { organization } from "better-auth/plugins/organization";
 import { nextCookies } from "better-auth/next-js";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { cache } from "react";
 import { getDb, schema } from "./db";
 
-/**
- * better-auth instance. The D1 binding and secrets only exist inside the
- * Cloudflare request context, so it's built there — but memoised per request
- * (React cache) so we don't rebuild the whole instance on every helper call.
- */
-export const getAuth = cache(async () => {
+// Building a better-auth instance is EXPENSIVE — it compiles every auth route
+// and initialises the Drizzle adapter + organization plugin. Its inputs (the
+// D1 binding, the secret, the base URL) are identical for every request and
+// every tenant, so we build it exactly once per V8 isolate and reuse it. A
+// per-request React cache() only dedupes within a single request and left the
+// full construction cost on the critical path of every page load — including
+// onboarding — which is what made the app feel slow.
+// Inferred from buildAuth() so the organization plugin's augmented API
+// (createOrganization, setActiveOrganization, …) is preserved for callers.
+let authPromise: ReturnType<typeof buildAuth> | null = null;
+
+/** The shared, isolate-wide better-auth instance (built lazily, once). */
+export function getAuth() {
+  // If construction fails (e.g. binding not ready), clear the cache so the
+  // next request retries instead of being stuck with a rejected promise.
+  return (authPromise ??= buildAuth().catch((err) => {
+    authPromise = null;
+    throw err;
+  }));
+}
+
+async function buildAuth() {
   const { env } = await getCloudflareContext({ async: true });
   const db = await getDb();
 
@@ -46,6 +61,6 @@ export const getAuth = cache(async () => {
     // Set-Cookie headers from Server Actions are applied.
     plugins: [organization(), nextCookies()],
   });
-});
+}
 
 export type Auth = Awaited<ReturnType<typeof getAuth>>;
