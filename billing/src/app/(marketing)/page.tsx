@@ -156,6 +156,43 @@ export default function LandingPage() {
           </div>
         </section>
 
+        {/* AI feature spotlight */}
+        <section className="mx-auto max-w-6xl px-6 pb-4 pt-8">
+          <div className="relative overflow-hidden rounded-3xl border border-brand-200 bg-brand-50/60 p-8 sm:p-12">
+            <div className="grid items-center gap-8 lg:grid-cols-2">
+              <div>
+                <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-bold uppercase tracking-wide text-brand-700 ring-1 ring-brand-200">
+                  ✨ Pro · Coming soon
+                </span>
+                <h2 className="mt-4 text-3xl font-extrabold tracking-tight sm:text-4xl">
+                  Create invoices with <span className="text-brand-700">AI</span>
+                </h2>
+                <p className="mt-3 max-w-md text-lg text-muted">
+                  Type the job in plain language and TallyPay drafts the whole invoice — line items,
+                  VAT and totals — ready to review and send. Invoicing in seconds, not minutes.
+                </p>
+                <Link href="/signup" className="btn-primary mt-6 inline-flex px-6 py-3">Get on Pro early</Link>
+              </div>
+              {/* Prompt → invoice mock */}
+              <div className="rounded-2xl border border-line bg-white p-5 shadow-sm">
+                <div className="rounded-xl bg-canvas px-4 py-3 text-sm text-ink">
+                  <span className="text-muted">You:</span> “Website design + 1yr hosting for Acme Ltd, 50% deposit”
+                </div>
+                <div className="mt-3 flex items-center gap-2 text-xs font-semibold text-brand-700">
+                  <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-brand-500" /> TallyPay drafted your invoice
+                </div>
+                <div className="mt-3 space-y-2 text-sm">
+                  <div className="flex justify-between"><span>Website design &amp; build</span><span className="tabular-nums">KES 80,000</span></div>
+                  <div className="flex justify-between"><span>1-year hosting</span><span className="tabular-nums">KES 24,000</span></div>
+                  <div className="flex justify-between text-muted"><span>VAT (16%)</span><span className="tabular-nums">KES 16,640</span></div>
+                  <div className="flex justify-between border-t border-line pt-2 font-bold"><span>Total</span><span className="tabular-nums text-brand-700">KES 120,640</span></div>
+                  <div className="flex justify-between text-xs text-muted"><span>Deposit due (50%)</span><span className="tabular-nums">KES 60,320</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
         {/* Pricing */}
         <section className="mx-auto max-w-6xl px-6 py-16 sm:py-20">
           <div className="mx-auto max-w-2xl text-center">
@@ -180,6 +217,7 @@ export default function LandingPage() {
               <p className="mt-2 text-4xl font-extrabold">KES 1,000<span className="text-base font-medium text-muted"> / user / mo</span></p>
               <ul className="mt-6 space-y-3 text-sm">
                 <Li>Everything in Free, plus…</Li>
+                <Li><b>AI invoice creation</b> — describe it, done <span className="ml-1 rounded-full bg-brand-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-brand-700">Soon</span></Li>
                 <Li>Your own logo on every document</Li>
                 <Li>5 invoice templates &amp; brand colours</Li>
                 <Li>Remove the “Powered by TallyPay” mark</Li>

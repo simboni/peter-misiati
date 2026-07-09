@@ -5,7 +5,7 @@ import { platformPricePerSeatKes } from "@/server/platform";
 import { PageHeader } from "@/components/page-header";
 import { SubmitButton } from "@/components/submit-button";
 import { requestUpgradeAction } from "@/server/actions/plan";
-import { isPro, formatKes, PRO_FEATURES } from "@/lib/plan";
+import { isPro, formatKes, PRO_FEATURES, PRO_HERO_FEATURE } from "@/lib/plan";
 import Link from "next/link";
 
 export const metadata = { title: "Upgrade" };
@@ -53,6 +53,23 @@ export default async function UpgradePage() {
             at no cost.
           </p>
         )}
+      </section>
+
+      {/* AI feature spotlight */}
+      <section className="card overflow-hidden border-brand-200">
+        <div className="grid gap-5 p-6 sm:grid-cols-[1fr_auto] sm:items-center">
+          <div>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-50 px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-brand-700">
+              ✨ {PRO_HERO_FEATURE.badge}
+            </span>
+            <h2 className="mt-2 text-xl font-extrabold text-ink">{PRO_HERO_FEATURE.title}</h2>
+            <p className="mt-1 max-w-lg text-sm text-muted">{PRO_HERO_FEATURE.blurb}</p>
+          </div>
+          <div className="rounded-xl bg-canvas px-4 py-3 text-xs text-ink sm:w-64">
+            <span className="text-muted">You:</span> “Website + 1yr hosting for Acme, 50% deposit” →{" "}
+            <b className="text-brand-700">full invoice drafted</b>
+          </div>
+        </div>
       </section>
 
       <section className="card overflow-hidden">
