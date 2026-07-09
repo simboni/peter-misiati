@@ -27,19 +27,20 @@ const accentOf = (issuer: Issuer) => (proOf(issuer) ? issuer.profile?.accentColo
 
 function IssuerBlock({ issuer }: { issuer: Issuer }) {
   const p = issuer.profile;
+  const cityCountry = [p?.city, p?.country].filter(Boolean).join(", ");
   return (
-    <div className="flex items-start gap-3">
+    <div className="min-w-0">
       {proOf(issuer) && p?.logoUrl ? (
-        <img src={p.logoUrl} alt="" className="h-14 w-auto max-w-[200px] rounded object-contain" />
+        <img src={p.logoUrl} alt="" className="mb-3 block h-11 w-auto max-w-[220px] object-contain sm:h-14" />
       ) : null}
-      <div>
-        <p className="text-lg font-bold text-ink">{p?.legalName || issuer.name}</p>
-        {p?.addressLine1 && <p className="text-sm text-muted">{p.addressLine1}</p>}
-        {p?.addressLine2 && <p className="text-sm text-muted">{p.addressLine2}</p>}
-        <p className="text-sm text-muted">{[p?.city, p?.country].filter(Boolean).join(", ")}</p>
-        {p?.phone && <p className="text-sm text-muted">{p.phone}</p>}
-        {p?.email && <p className="text-sm text-muted">{p.email}</p>}
-        {p?.kraPin && <p className="text-sm font-medium text-ink">KRA PIN: {p.kraPin}</p>}
+      <p className="text-base font-bold leading-tight text-ink sm:text-lg">{p?.legalName || issuer.name}</p>
+      <div className="mt-1 space-y-0.5 text-sm text-muted">
+        {p?.addressLine1 && <p className="break-words">{p.addressLine1}</p>}
+        {p?.addressLine2 && <p className="break-words">{p.addressLine2}</p>}
+        {cityCountry && <p>{cityCountry}</p>}
+        {p?.phone && <p>{p.phone}</p>}
+        {p?.email && <p className="break-all">{p.email}</p>}
+        {p?.kraPin && <p className="font-medium text-ink">KRA PIN: {p.kraPin}</p>}
       </div>
     </div>
   );
@@ -60,21 +61,21 @@ function DocumentShell({
 }) {
   return (
     <div className="mx-auto max-w-[820px] bg-white p-5 text-ink shadow-sm sm:p-8 print:max-w-none print:p-0 print:shadow-none">
-      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-line pb-6">
+      <div className="flex flex-col gap-6 border-b border-line pb-6 sm:flex-row sm:items-start sm:justify-between">
         <IssuerBlock issuer={issuer} />
-        <div className="text-right">
+        <div className="sm:shrink-0 sm:text-right">
           <h1
-            className="text-2xl font-extrabold uppercase tracking-wide"
+            className="text-2xl font-extrabold uppercase tracking-wide sm:text-[26px]"
             style={{ color: accentOf(issuer) }}
           >
             {title}
           </h1>
           <p className="mt-1 text-sm font-semibold text-ink">{number}</p>
-          <dl className="mt-3 space-y-0.5 text-sm">
+          <dl className="mt-3 space-y-1 text-sm">
             {meta.map((m) => (
-              <div key={m.label} className="flex justify-end gap-2">
+              <div key={m.label} className="flex gap-2 sm:justify-end">
                 <dt className="text-muted">{m.label}:</dt>
-                <dd className="min-w-[90px] text-ink">{m.value}</dd>
+                <dd className="font-medium text-ink">{m.value}</dd>
               </div>
             ))}
           </dl>
@@ -238,7 +239,8 @@ export function StatementDocument({
         <p className="text-3xl font-extrabold" style={{ color: accent }}>{formatMoney(Math.max(closingBalance, 0), currency)}</p>
       </div>
 
-      <table className="mt-6 w-full border-collapse text-sm">
+      <div className="mt-6 overflow-x-auto">
+      <table className="w-full min-w-[560px] border-collapse text-sm">
         <thead>
           <tr className="border-y border-line bg-canvas">
             <th className="px-3 py-2 text-left font-semibold">Date</th>
@@ -274,6 +276,7 @@ export function StatementDocument({
           </tr>
         </tfoot>
       </table>
+      </div>
     </DocumentShell>
   );
 }
@@ -313,7 +316,8 @@ export function CreditNoteDocument({
         </p>
       )}
 
-      <table className="mt-6 w-full border-collapse text-sm">
+      <div className="mt-6 overflow-x-auto">
+      <table className="w-full min-w-[460px] border-collapse text-sm">
         <thead>
           <tr className="border-y border-line bg-canvas">
             <th className="px-3 py-2 text-left font-semibold">Description</th>
@@ -338,6 +342,7 @@ export function CreditNoteDocument({
           ))}
         </tbody>
       </table>
+      </div>
 
       <div className="mt-4 flex justify-end">
         <table className="w-full max-w-xs text-sm">

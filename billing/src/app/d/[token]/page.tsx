@@ -88,7 +88,7 @@ export default async function PublicDocumentPage({
             </div>
           </div>
         )}
-        <div className="p-4 print:p-0">
+        <div id="tp-doc" className="p-4 print:p-0">
           <InvoiceDocument issuer={issuer} invoice={invoice} lines={lines} client={client} payUrl={payUrl} />
         </div>
       </>
@@ -118,7 +118,7 @@ export default async function PublicDocumentPage({
     return (
       <>
         <PrintBar docLabel={`receipt ${payment.number}`} clientEmail={client?.email} clientPhone={client?.phone} pdfHref={pdfHref} />
-        <div className="p-4 print:p-0">
+        <div id="tp-doc" className="p-4 print:p-0">
           <ReceiptDocument
             issuer={issuer}
             payment={payment}
@@ -159,7 +159,7 @@ export default async function PublicDocumentPage({
     return (
       <>
         <PrintBar docLabel={`delivery note ${note.number}`} clientEmail={client?.email} clientPhone={client?.phone} pdfHref={pdfHref} />
-        <div className="p-4 print:p-0">
+        <div id="tp-doc" className="p-4 print:p-0">
           <DeliveryNoteDocument
             issuer={issuer}
             note={note}
@@ -196,7 +196,7 @@ export default async function PublicDocumentPage({
     return (
       <>
         <PrintBar docLabel={`credit note ${cn.number}`} clientEmail={client?.email} clientPhone={client?.phone} pdfHref={pdfHref} />
-        <div className="p-4 print:p-0">
+        <div id="tp-doc" className="p-4 print:p-0">
           <CreditNoteDocument issuer={issuer} creditNote={cn} lines={lines} client={client} invoiceNumber={invRows4[0]?.number ?? null} />
         </div>
       </>
