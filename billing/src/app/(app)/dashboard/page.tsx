@@ -16,39 +16,38 @@ export default async function DashboardPage() {
   // Generate any recurring invoices that have come due since the last visit.
   await runDueRecurring(db, organizationId);
 
-  const [org, profile] = await Promise.all([
+  // Fetch everything the dashboard needs in one parallel batch (one D1
+  // round-trip's worth of latency instead of five sequential ones).
+  const [org, profile, invoices, payments, expenses] = await Promise.all([
     getOrg(db, organizationId),
     getOrgProfile(db, organizationId),
+    db
+      .select({
+        id: schema.invoice.id,
+        number: schema.invoice.number,
+        status: schema.invoice.status,
+        total: schema.invoice.total,
+        balanceDue: schema.invoice.balanceDue,
+        dueDate: schema.invoice.dueDate,
+        issueDate: schema.invoice.issueDate,
+        createdAt: schema.invoice.createdAt,
+        clientId: schema.invoice.clientId,
+        clientName: schema.client.name,
+      })
+      .from(schema.invoice)
+      .leftJoin(schema.client, eq(schema.client.id, schema.invoice.clientId))
+      .where(and(eq(schema.invoice.organizationId, organizationId), eq(schema.invoice.type, "invoice")))
+      .orderBy(desc(schema.invoice.createdAt)),
+    db
+      .select({ amount: schema.payment.amount, paidAt: schema.payment.paidAt })
+      .from(schema.payment)
+      .where(eq(schema.payment.organizationId, organizationId)),
+    db
+      .select({ amount: schema.expense.amount, date: schema.expense.expenseDate })
+      .from(schema.expense)
+      .where(eq(schema.expense.organizationId, organizationId)),
   ]);
   const cur = profile?.currency ?? "KES";
-
-  const invoices = await db
-    .select({
-      id: schema.invoice.id,
-      number: schema.invoice.number,
-      status: schema.invoice.status,
-      total: schema.invoice.total,
-      balanceDue: schema.invoice.balanceDue,
-      dueDate: schema.invoice.dueDate,
-      issueDate: schema.invoice.issueDate,
-      createdAt: schema.invoice.createdAt,
-      clientId: schema.invoice.clientId,
-      clientName: schema.client.name,
-    })
-    .from(schema.invoice)
-    .leftJoin(schema.client, eq(schema.client.id, schema.invoice.clientId))
-    .where(and(eq(schema.invoice.organizationId, organizationId), eq(schema.invoice.type, "invoice")))
-    .orderBy(desc(schema.invoice.createdAt));
-
-  const payments = await db
-    .select({ amount: schema.payment.amount, paidAt: schema.payment.paidAt })
-    .from(schema.payment)
-    .where(eq(schema.payment.organizationId, organizationId));
-
-  const expenses = await db
-    .select({ amount: schema.expense.amount, date: schema.expense.expenseDate })
-    .from(schema.expense)
-    .where(eq(schema.expense.organizationId, organizationId));
 
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);

@@ -41,7 +41,7 @@ export type OrgContext = {
  * Org is resolved from the `member` table (never trusting client input), using
  * the session's active org when set, else the user's first membership.
  */
-export async function requireOrg(): Promise<OrgContext> {
+export const requireOrg = cache(async (): Promise<OrgContext> => {
   const session = await getSession();
   if (!session?.user) redirect("/login");
   const user = session.user as SessionUser;
@@ -57,13 +57,10 @@ export async function requireOrg(): Promise<OrgContext> {
   const active =
     (activeId && memberships.find((m) => m.organizationId === activeId)) || memberships[0];
 
-  // Block access to a workspace an admin has suspended.
-  const susp = await db
-    .select({ suspended: schema.orgProfile.suspended })
-    .from(schema.orgProfile)
-    .where(eq(schema.orgProfile.organizationId, active.organizationId))
-    .limit(1);
-  if (susp[0]?.suspended) redirect("/suspended");
+  // Block access to a workspace an admin has suspended. Reuse the (cached)
+  // profile fetch so we don't issue a separate round-trip just for this.
+  const profile = await orgProfileById(active.organizationId);
+  if (profile?.suspended) redirect("/suspended");
 
   return {
     db,
@@ -72,16 +69,23 @@ export async function requireOrg(): Promise<OrgContext> {
     organizationId: active.organizationId,
     role: active.role,
   };
-}
+});
 
-/** Load the org's accounting profile (name, KRA PIN, VAT settings, branding). */
-export async function getOrgProfile(db: DB, organizationId: string) {
+// Request-cached by orgId so the layout, the page, and requireOrg's suspended
+// check all share a single query instead of re-fetching the profile 3×.
+const orgProfileById = cache(async (organizationId: string) => {
+  const db = await getDb();
   const rows = await db
     .select()
     .from(schema.orgProfile)
     .where(eq(schema.orgProfile.organizationId, organizationId))
     .limit(1);
   return rows[0] ?? null;
+});
+
+/** Load the org's accounting profile (name, KRA PIN, VAT settings, branding). */
+export async function getOrgProfile(_db: DB, organizationId: string) {
+  return orgProfileById(organizationId);
 }
 
 /** Count seats (members) in an org — used for per-user Pro pricing. */
@@ -93,14 +97,20 @@ export async function countSeats(db: DB, organizationId: string): Promise<number
   return Math.max(1, rows.length);
 }
 
-/** Load org name from the organization table. */
-export async function getOrg(db: DB, organizationId: string) {
+// Request-cached by orgId so the layout and page don't both fetch it.
+const orgById = cache(async (organizationId: string) => {
+  const db = await getDb();
   const rows = await db
     .select()
     .from(schema.organization)
     .where(eq(schema.organization.id, organizationId))
     .limit(1);
   return rows[0] ?? null;
+});
+
+/** Load org name from the organization table. */
+export async function getOrg(_db: DB, organizationId: string) {
+  return orgById(organizationId);
 }
 
 export { and, eq };
