@@ -1,7 +1,8 @@
 import { notFound } from "next/navigation";
-import { requireOrg } from "@/server/org";
+import { requireOrg, getOrgProfile } from "@/server/org";
 import { browserEnabled } from "@/server/config";
 import { SERVER_PDF_ENABLED } from "@/lib/flags";
+import { isPro } from "@/lib/plan";
 import { loadInvoice } from "@/server/queries";
 import { InvoiceDetail } from "@/components/invoice-detail";
 
@@ -17,7 +18,7 @@ export default async function QuotationPage({
   const { id } = await params;
   const { error, sent } = await searchParams;
   const { db, organizationId } = await requireOrg();
-  const doc = await loadInvoice(db, organizationId, id);
+  const [doc, profile] = await Promise.all([loadInvoice(db, organizationId, id), getOrgProfile(db, organizationId)]);
   if (!doc || doc.invoice.type !== "quotation") notFound();
 
   return (
@@ -29,6 +30,7 @@ export default async function QuotationPage({
       error={error}
       sent={sent === "1"}
       pdfEnabled={SERVER_PDF_ENABLED && (await browserEnabled())}
+      pro={isPro(profile?.plan)}
     />
   );
 }

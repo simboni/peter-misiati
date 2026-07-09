@@ -10,6 +10,7 @@ import {
 } from "@/server/actions/invoices";
 import { deletePaymentAction } from "@/server/actions/payments";
 import { emailInvoiceAction } from "@/server/actions/email";
+import { SUPPORT_EMAIL } from "@/lib/flags";
 import type { Invoice, InvoiceLine, Client, Payment } from "@/server/db/schema";
 
 const METHOD_LABELS: Record<string, string> = {
@@ -29,6 +30,7 @@ export function InvoiceDetail({
   error,
   sent,
   pdfEnabled,
+  pro,
 }: {
   invoice: Invoice;
   lines: InvoiceLine[];
@@ -37,14 +39,26 @@ export function InvoiceDetail({
   error?: string;
   sent?: boolean;
   pdfEnabled?: boolean;
+  pro?: boolean;
 }) {
   const isQuote = invoice.type === "quotation";
   const cur = invoice.currency;
   const base = isQuote ? "quotations" : "invoices";
   const depositMet = invoice.amountPaid >= invoice.depositAmount && invoice.depositAmount > 0;
+  const noun = isQuote ? "quotation" : "invoice";
+  const mailto = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("Custom branding for my invoices")}`;
 
   return (
     <div className="space-y-6">
+      {/* Free-plan branding notice — vendor-only, never on the document itself */}
+      {!pro && (
+        <div className="no-print rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-800">
+          <b>TallyPay is free forever.</b> Before you send, note that this {noun} and its email carry
+          TallyPay branding. Want your own company branding on invoices and emails instead?{" "}
+          <a href={mailto} className="font-semibold text-brand-800 underline">Contact us</a> to set it up.
+        </div>
+      )}
+
       {/* Action bar */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
@@ -62,7 +76,7 @@ export function InvoiceDetail({
           )}
           <form action={emailInvoiceAction}>
             <input type="hidden" name="id" value={invoice.id} />
-            <button className="btn-ghost btn-sm">Email to client</button>
+            <button className="btn-ghost btn-sm">Email PDF to client</button>
           </form>
           {invoice.amountPaid === 0 && (
             <Link href={`/${base}/${invoice.id}/edit`} className="btn-ghost btn-sm">

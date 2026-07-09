@@ -7,6 +7,7 @@ export async function sendEmail(opts: {
   subject: string;
   html: string;
   replyTo?: string | null;
+  attachments?: { filename: string; content: string }[]; // content = base64
 }): Promise<{ ok: boolean; error?: string }> {
   const cfg = await platformResendConfig(await getDb());
   if (!cfg) return { ok: false, error: "Email delivery isn't set up yet (no Resend key)." };
@@ -20,10 +21,35 @@ export async function sendEmail(opts: {
       subject: opts.subject,
       html: opts.html,
       ...(opts.replyTo ? { reply_to: opts.replyTo } : {}),
+      ...(opts.attachments?.length ? { attachments: opts.attachments } : {}),
     }),
   });
   if (!res.ok) return { ok: false, error: `Email failed to send (${res.status}).` };
   return { ok: true };
+}
+
+/** Branded HTML for a document email that carries the PDF as an attachment
+ *  (no link — the invoice travels as a file). */
+export function pdfEmailHtml(opts: {
+  businessName: string;
+  docLabel: string;
+  clientName: string;
+  amountLine: string;
+  fileName: string;
+  footer?: string | null;
+}): string {
+  return `<!doctype html><html><body style="margin:0;background:#f4f6f8;font-family:Arial,Helvetica,sans-serif;color:#0f172a">
+  <div style="max-width:560px;margin:0 auto;padding:28px 20px">
+    <div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:14px;padding:28px">
+      <p style="margin:0 0 4px;font-size:13px;color:#64748b">${escape(opts.businessName)}</p>
+      <h1 style="margin:0 0 14px;font-size:20px">${escape(opts.docLabel)}</h1>
+      <p style="margin:0 0 8px;font-size:15px">Hi ${escape(opts.clientName)},</p>
+      <p style="margin:0 0 16px;font-size:15px;line-height:1.5">Please find your ${escape(opts.docLabel.toLowerCase())} attached as a PDF. <strong>${escape(opts.amountLine)}</strong></p>
+      <p style="margin:0;font-size:14px;color:#334155">📎 ${escape(opts.fileName)}</p>
+      ${opts.footer ? `<p style="margin:20px 0 0;padding-top:16px;border-top:1px solid #e2e8f0;font-size:12px;color:#94a3b8;white-space:pre-line">${escape(opts.footer)}</p>` : ""}
+    </div>
+    <p style="text-align:center;margin:16px 0 0;font-size:12px;color:#94a3b8">Sent via TallyPay</p>
+  </div></body></html>`;
 }
 
 /** Branded HTML for a shared document email. */

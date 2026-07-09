@@ -5,15 +5,14 @@ import { revalidatePath } from "next/cache";
 import { and, eq } from "drizzle-orm";
 import { requireOrg, getOrg, getOrgProfile } from "@/server/org";
 import { schema } from "@/server/db";
-import { appBaseUrl } from "@/server/config";
-import { sendEmail, documentEmailHtml } from "@/server/resend";
+import { sendEmail, pdfEmailHtml } from "@/server/resend";
+import { buildInvoicePdf, bytesToBase64 } from "@/server/invoice-pdf";
 import { formatMoney } from "@/server/money";
 
-/** Email the shared invoice/quotation link to the client (address from their record). */
+/** Email the invoice/quotation to the client as a PDF attachment (no link). */
 export async function emailInvoiceAction(fd: FormData): Promise<void> {
   const { db, organizationId } = await requireOrg();
   const id = String(fd.get("id") ?? "");
-  const base = `/invoices/${id}`;
   if (!id) redirect("/invoices");
 
   const rows = await db
@@ -25,35 +24,39 @@ export async function emailInvoiceAction(fd: FormData): Promise<void> {
   if (!inv) redirect("/invoices");
   const path = `/${inv.type === "quotation" ? "quotations" : "invoices"}/${id}`;
 
-  const clientRows = await db.select().from(schema.client).where(eq(schema.client.id, inv.clientId)).limit(1);
-  const client = clientRows[0];
-  if (!client?.email) redirect(`${path}?error=no-email`);
-
-  const [org, profile] = await Promise.all([
+  const [clientRows, lines, org, profile] = await Promise.all([
+    db.select().from(schema.client).where(eq(schema.client.id, inv.clientId)).limit(1),
+    db.select().from(schema.invoiceLine).where(eq(schema.invoiceLine.invoiceId, id)).orderBy(schema.invoiceLine.sortOrder),
     getOrg(db, organizationId),
     getOrgProfile(db, organizationId),
   ]);
+  const client = clientRows[0];
+  if (!client?.email) redirect(`${path}?error=no-email`);
+
   const businessName = org?.name ?? "Your business";
   const label = `${inv.type === "quotation" ? "Quotation" : "Invoice"} ${inv.number}`;
   const amountLine =
     inv.type === "quotation"
       ? `Total: ${formatMoney(inv.total, inv.currency)}`
       : `Balance due: ${formatMoney(inv.balanceDue, inv.currency)}`;
-  const url = `${await appBaseUrl()}/d/${inv.shareToken}`;
+  const fileName = `${label.replace(/\s+/g, "-")}.pdf`;
+
+  // Build the PDF in the Worker and attach it — the invoice travels as a file.
+  const pdfBytes = await buildInvoicePdf({ name: businessName, profile }, inv, lines, client);
 
   const result = await sendEmail({
     to: client.email,
     replyTo: profile?.email ?? null,
     subject: `${label} from ${businessName}`,
-    html: documentEmailHtml({
+    html: pdfEmailHtml({
       businessName,
       docLabel: label,
       clientName: client.name,
       amountLine,
-      url,
-      canPay: inv.type === "invoice" && inv.balanceDue > 0,
+      fileName,
       footer: profile?.invoiceFooter ?? null,
     }),
+    attachments: [{ filename: fileName, content: bytesToBase64(pdfBytes) }],
   });
 
   if (!result.ok) {

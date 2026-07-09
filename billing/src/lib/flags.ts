@@ -16,3 +16,9 @@ export const MPESA_PAYMENTS_ENABLED = false;
  * is enabled on the Worker.
  */
 export const SERVER_PDF_ENABLED = false;
+
+/**
+ * Where free-plan vendors are pointed to arrange their own branding
+ * (white-label) on invoices and emails. Change to your real support inbox.
+ */
+export const SUPPORT_EMAIL = "support@tallypay.co.ke";
