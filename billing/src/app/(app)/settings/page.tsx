@@ -4,6 +4,7 @@ import { isPro } from "@/lib/plan";
 import { PageHeader } from "@/components/page-header";
 import { SettingsForm } from "@/components/settings-form";
 import { PaymentSettingsForm } from "@/components/payment-settings-form";
+import { DangerZone } from "@/components/danger-zone";
 
 export const metadata = { title: "Settings" };
 
@@ -37,6 +38,7 @@ export default async function SettingsPage() {
         hasApiKey={Boolean(profile.kopokopoApiKeyEnc)}
         platformConfigured={platformCfg !== null}
       />
+      <DangerZone />
     </div>
   );
 }
