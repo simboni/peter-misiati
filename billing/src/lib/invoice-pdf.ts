@@ -1,10 +1,20 @@
+// NOTE: imported ONLY by client components, so pdf-lib is bundled as a browser
+// chunk (static asset) and never enters the Cloudflare Worker — the Worker has a
+// 3 MiB size limit that pdf-lib would blow past if bundled server-side.
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
-import { formatMoney, formatQty, formatRate } from "./money";
-import { fmtDate } from "./queries";
+import { formatMoney, formatQty } from "@/server/money";
 import { isPro } from "@/lib/plan";
-import type { Invoice, InvoiceLine, Client, OrgProfile } from "./db/schema";
+import type { Invoice, InvoiceLine, Client, OrgProfile } from "@/server/db/schema";
 
-type Issuer = { name: string; profile: OrgProfile | null };
+// Only the display fields the PDF needs — never the vendor's encrypted secrets.
+export type PdfIssuer = { name: string; profile: Partial<OrgProfile> | null };
+type Issuer = PdfIssuer;
+
+/** Date formatter (client-safe; mirrors the server fmtDate). */
+function fmtDate(d?: Date | null): string {
+  if (!d) return "—";
+  return new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+}
 
 const A4 = { w: 595.28, h: 841.89 };
 const M = 42; // page margin

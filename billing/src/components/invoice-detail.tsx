@@ -9,8 +9,9 @@ import {
   deleteInvoiceAction,
 } from "@/server/actions/invoices";
 import { deletePaymentAction } from "@/server/actions/payments";
-import { emailInvoiceAction } from "@/server/actions/email";
+import { EmailPdfButton } from "./email-pdf-button";
 import { SUPPORT_EMAIL } from "@/lib/flags";
+import type { PdfIssuer } from "@/lib/invoice-pdf";
 import type { Invoice, InvoiceLine, Client, Payment } from "@/server/db/schema";
 
 const METHOD_LABELS: Record<string, string> = {
@@ -31,6 +32,7 @@ export function InvoiceDetail({
   sent,
   pdfEnabled,
   pro,
+  issuer,
 }: {
   invoice: Invoice;
   lines: InvoiceLine[];
@@ -40,6 +42,7 @@ export function InvoiceDetail({
   sent?: boolean;
   pdfEnabled?: boolean;
   pro?: boolean;
+  issuer: PdfIssuer;
 }) {
   const isQuote = invoice.type === "quotation";
   const cur = invoice.currency;
@@ -74,10 +77,7 @@ export function InvoiceDetail({
               Download PDF
             </a>
           )}
-          <form action={emailInvoiceAction}>
-            <input type="hidden" name="id" value={invoice.id} />
-            <button className="btn-ghost btn-sm">Email PDF to client</button>
-          </form>
+          <EmailPdfButton invoice={invoice} lines={lines} client={client} issuer={issuer} />
           {invoice.amountPaid === 0 && (
             <Link href={`/${base}/${invoice.id}/edit`} className="btn-ghost btn-sm">
               Edit

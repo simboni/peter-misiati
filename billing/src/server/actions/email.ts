@@ -6,13 +6,17 @@ import { and, eq } from "drizzle-orm";
 import { requireOrg, getOrg, getOrgProfile } from "@/server/org";
 import { schema } from "@/server/db";
 import { sendEmail, pdfEmailHtml } from "@/server/resend";
-import { buildInvoicePdf, bytesToBase64 } from "@/server/invoice-pdf";
 import { formatMoney } from "@/server/money";
 
-/** Email the invoice/quotation to the client as a PDF attachment (no link). */
+/**
+ * Email the invoice/quotation to the client as a PDF attachment (no link).
+ * The PDF is built in the vendor's browser (keeps the heavy PDF library out of
+ * the Worker) and posted here as base64; we attach it and send via Resend.
+ */
 export async function emailInvoiceAction(fd: FormData): Promise<void> {
   const { db, organizationId } = await requireOrg();
   const id = String(fd.get("id") ?? "");
+  const pdfBase64 = String(fd.get("pdf") ?? "");
   if (!id) redirect("/invoices");
 
   const rows = await db
@@ -23,10 +27,10 @@ export async function emailInvoiceAction(fd: FormData): Promise<void> {
   const inv = rows[0];
   if (!inv) redirect("/invoices");
   const path = `/${inv.type === "quotation" ? "quotations" : "invoices"}/${id}`;
+  if (!pdfBase64) redirect(`${path}?error=${encodeURIComponent("Could not prepare the PDF. Please try again.")}`);
 
-  const [clientRows, lines, org, profile] = await Promise.all([
+  const [clientRows, org, profile] = await Promise.all([
     db.select().from(schema.client).where(eq(schema.client.id, inv.clientId)).limit(1),
-    db.select().from(schema.invoiceLine).where(eq(schema.invoiceLine.invoiceId, id)).orderBy(schema.invoiceLine.sortOrder),
     getOrg(db, organizationId),
     getOrgProfile(db, organizationId),
   ]);
@@ -41,9 +45,6 @@ export async function emailInvoiceAction(fd: FormData): Promise<void> {
       : `Balance due: ${formatMoney(inv.balanceDue, inv.currency)}`;
   const fileName = `${label.replace(/\s+/g, "-")}.pdf`;
 
-  // Build the PDF in the Worker and attach it — the invoice travels as a file.
-  const pdfBytes = await buildInvoicePdf({ name: businessName, profile }, inv, lines, client);
-
   const result = await sendEmail({
     to: client.email,
     replyTo: profile?.email ?? null,
@@ -56,7 +57,7 @@ export async function emailInvoiceAction(fd: FormData): Promise<void> {
       fileName,
       footer: profile?.invoiceFooter ?? null,
     }),
-    attachments: [{ filename: fileName, content: bytesToBase64(pdfBytes) }],
+    attachments: [{ filename: fileName, content: pdfBase64 }],
   });
 
   if (!result.ok) {
