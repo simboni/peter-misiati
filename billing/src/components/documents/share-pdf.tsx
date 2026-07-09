@@ -10,7 +10,6 @@ import { useState } from "react";
  */
 export function SharePdf({ fileBase, docLabel }: { fileBase: string; docLabel: string }) {
   const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState("");
 
   async function makePdfBlob(): Promise<Blob> {
     const el = document.getElementById("tp-doc");
@@ -19,7 +18,13 @@ export function SharePdf({ fileBase, docLabel }: { fileBase: string; docLabel: s
       import("html2canvas-pro"),
       import("jspdf"),
     ]);
-    const canvas = await html2canvas(el, { scale: 2, backgroundColor: "#ffffff", useCORS: true, logging: false });
+    const canvas = await html2canvas(el, {
+      scale: 2,
+      backgroundColor: "#ffffff",
+      useCORS: true,
+      allowTaint: true,
+      logging: false,
+    });
     const img = canvas.toDataURL("image/jpeg", 0.92);
 
     const pdf = new jsPDF({ unit: "pt", format: "a4" });
@@ -47,7 +52,6 @@ export function SharePdf({ fileBase, docLabel }: { fileBase: string; docLabel: s
   }
 
   async function onShare() {
-    setErr("");
     setBusy(true);
     try {
       const blob = await makePdfBlob();
@@ -65,9 +69,14 @@ export function SharePdf({ fileBase, docLabel }: { fileBase: string; docLabel: s
         URL.revokeObjectURL(url);
       }
     } catch (e) {
-      // A user cancelling the share sheet throws AbortError — ignore that.
-      if (!(e instanceof DOMException && e.name === "AbortError")) {
-        setErr("Couldn't prepare the PDF. Use “Print / Save as PDF” instead.");
+      // User cancelled the share sheet — do nothing.
+      if (e instanceof DOMException && e.name === "AbortError") return;
+      // Anything else (a browser that can't rasterize the page): fall back to
+      // the native Save as PDF so the user still ends up with a PDF.
+      try {
+        window.print();
+      } catch {
+        /* ignore */
       }
     } finally {
       setBusy(false);
@@ -75,11 +84,8 @@ export function SharePdf({ fileBase, docLabel }: { fileBase: string; docLabel: s
   }
 
   return (
-    <>
-      <button onClick={onShare} disabled={busy} className="btn-primary btn-sm">
-        {busy ? "Preparing PDF…" : "Share PDF"}
-      </button>
-      {err && <span className="w-full text-center text-xs text-red-600">{err}</span>}
-    </>
+    <button onClick={onShare} disabled={busy} className="btn-primary btn-sm">
+      {busy ? "Preparing PDF…" : "Share PDF"}
+    </button>
   );
 }

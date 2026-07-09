@@ -428,13 +428,25 @@ export function DeliveryNoteDocument({
 
       {note.notes && <p className="mt-4 text-sm text-muted">{note.notes}</p>}
 
-      <div className="mt-12 grid grid-cols-2 gap-8 text-sm">
+      <div className="mt-14 grid grid-cols-1 gap-10 text-sm sm:grid-cols-2 sm:gap-8">
         <div>
-          <div className="border-t border-ink pt-1">Delivered by</div>
+          <div className="h-14" aria-hidden />
+          <div className="border-t border-ink pt-1 font-semibold text-ink">Delivered by</div>
+          <div className="mt-1 text-xs text-muted">Name &amp; signature</div>
+          <div className="mt-4 flex items-end gap-2 text-xs text-muted">
+            <span>Date:</span>
+            <span className="min-w-[120px] flex-1 border-b border-ink" />
+          </div>
         </div>
         <div>
-          <div className="border-t border-ink pt-1">
+          <div className="h-14" aria-hidden />
+          <div className="border-t border-ink pt-1 font-semibold text-ink">
             Received by{note.receivedBy ? `: ${note.receivedBy}` : ""}
+          </div>
+          <div className="mt-1 text-xs text-muted">Name &amp; signature</div>
+          <div className="mt-4 flex items-end gap-2 text-xs text-muted">
+            <span>Date:</span>
+            <span className="min-w-[120px] flex-1 border-b border-ink" />
           </div>
         </div>
       </div>
