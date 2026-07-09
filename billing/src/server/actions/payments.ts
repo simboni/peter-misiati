@@ -50,6 +50,7 @@ export async function recordPaymentAction(_prev: FormState, fd: FormData): Promi
   }
 
   const number = await allocateNumber(db, organizationId, "receipt");
+  const shareToken = crypto.randomUUID();
   await db.insert(schema.payment).values({
     organizationId,
     invoiceId,
@@ -61,14 +62,15 @@ export async function recordPaymentAction(_prev: FormState, fd: FormData): Promi
     paidAt: isNaN(paidAt.getTime()) ? new Date() : paidAt,
     kind,
     note,
-    shareToken: crypto.randomUUID(),
+    shareToken,
   });
 
   await recomputeInvoice(db, invoiceId);
   revalidatePath(`/invoices/${invoiceId}`);
   revalidatePath("/invoices");
   revalidatePath("/receipts");
-  return {};
+  // Close the loop: land on the receipt's share page so the vendor can send it.
+  redirect(`/d/${shareToken}`);
 }
 
 export async function deletePaymentAction(fd: FormData): Promise<void> {
