@@ -16,7 +16,28 @@ import {
   CreditNoteDocument,
 } from "@/components/documents/templates";
 
-export const metadata = { title: "Document" };
+import type { Metadata } from "next";
+
+// Name the browser tab (and therefore the "Save as PDF" filename) after the
+// actual document — "Invoice INV-0001", "Receipt RCP-0002" — not "Document".
+// `absolute` skips the "· TallyPay" template so the filename stays purpose-only.
+async function labelForToken(db: Awaited<ReturnType<typeof getDb>>, token: string): Promise<string | null> {
+  const inv = await db.select({ number: schema.invoice.number, type: schema.invoice.type }).from(schema.invoice).where(eq(schema.invoice.shareToken, token)).limit(1);
+  if (inv[0]) return `${inv[0].type === "quotation" ? "Quotation" : "Invoice"} ${inv[0].number}`;
+  const pay = await db.select({ number: schema.payment.number }).from(schema.payment).where(eq(schema.payment.shareToken, token)).limit(1);
+  if (pay[0]) return `Receipt ${pay[0].number}`;
+  const dn = await db.select({ number: schema.deliveryNote.number }).from(schema.deliveryNote).where(eq(schema.deliveryNote.shareToken, token)).limit(1);
+  if (dn[0]) return `Delivery Note ${dn[0].number}`;
+  const cn = await db.select({ number: schema.creditNote.number }).from(schema.creditNote).where(eq(schema.creditNote.shareToken, token)).limit(1);
+  if (cn[0]) return `Credit Note ${cn[0].number}`;
+  return null;
+}
+
+export async function generateMetadata({ params }: { params: Promise<{ token: string }> }): Promise<Metadata> {
+  const { token } = await params;
+  const label = await labelForToken(await getDb(), token);
+  return { title: label ? { absolute: label } : "Document" };
+}
 
 async function issuerFor(db: Awaited<ReturnType<typeof getDb>>, organizationId: string) {
   const [org, profile] = await Promise.all([

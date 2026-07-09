@@ -8,7 +8,19 @@ import { buildStatement } from "@/server/statement";
 import { StatementDocument } from "@/components/documents/templates";
 import { PrintBar } from "@/components/documents/print-bar";
 
-export const metadata = { title: "Statement of account" };
+import type { Metadata } from "next";
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await params;
+  const { db, organizationId } = await requireOrg();
+  const rows = await db
+    .select({ name: schema.client.name })
+    .from(schema.client)
+    .where(and(eq(schema.client.id, id), eq(schema.client.organizationId, organizationId)))
+    .limit(1);
+  const name = rows[0]?.name;
+  return { title: name ? { absolute: `Statement - ${name}` } : "Statement" };
+}
 
 export default async function ClientStatementPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
