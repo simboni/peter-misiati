@@ -1,0 +1,14 @@
+# Render Blueprint — deploys the static export as a Render Static Site.
+# In Render: New + → Blueprint → connect this repo, or create a Static Site
+# manually with the same build command and publish path.
+services:
+  - type: web
+    runtime: static
+    name: canossian-sisters-neafrica
+    buildCommand: npm ci && npm run build
+    staticPublishPath: out
+    pullRequestPreviewsEnabled: true
+    headers:
+      - path: /images/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
