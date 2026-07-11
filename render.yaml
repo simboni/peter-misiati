@@ -1,0 +1,34 @@
+# Render Blueprint — deploys the COSDEP site as a static site.
+# In Render: New → Blueprint → connect this repo. Render reads this file and
+# provisions the service below. Static export (`output: 'export'`) is published
+# from ./out, so there is no server to run.
+#
+# Preview first: this points at the redesign branch so you get a live
+# *.onrender.com URL to review before pointing the real domain at it. Once
+# you're happy, either merge to your default branch and change `branch` below,
+# or add your custom domain to this same service in the Render dashboard.
+services:
+  - type: web
+    name: cosdep-website
+    runtime: static
+    branch: claude/ngo-website-redesign-jzthjv
+    buildCommand: npm ci && npm run build
+    staticPublishPath: ./out
+    # Preview deploys for every pull request.
+    pullRequestPreviewsEnabled: true
+    envVars:
+      # Match the Node version the site is built and tested with.
+      - key: NODE_VERSION
+        value: "22"
+      # IMPORTANT: do NOT set PAGES_BASE_PATH here. That variable only exists for
+      # GitHub Pages sub-path hosting; on Render the site serves from the root.
+    headers:
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: X-Frame-Options
+        value: SAMEORIGIN
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
