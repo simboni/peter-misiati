@@ -50,7 +50,7 @@ export function SiteHeader() {
             : "border-transparent bg-cream-50/70 backdrop-blur-sm"
         }`}
       >
-        <div className="container-page flex h-18 items-center justify-between py-3">
+        <div className="container-page flex h-18 items-center justify-between sm:h-20">
           <Logo uid="hdr" />
 
           <nav className="hidden items-center gap-1 text-sm font-medium lg:flex">
@@ -95,7 +95,7 @@ export function SiteHeader() {
         <div className="fixed inset-0 top-0 z-40 lg:hidden">
           <div className="absolute inset-0 bg-ink-900/40" onClick={closeMenu} />
           <div className="absolute inset-x-0 top-0 origin-top bg-cream-50 shadow-xl">
-            <div className="container-page flex h-18 items-center justify-between py-3">
+            <div className="container-page flex h-18 items-center justify-between sm:h-20">
               <Logo uid="mob" />
               <button
                 type="button"

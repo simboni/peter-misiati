@@ -1,31 +1,43 @@
 import Link from "next/link";
 
 /**
- * Canossian crest-inspired mark: a gold shield bearing the Sacred Heart and a
- * cross — the heart of the congregation's charism — paired with a serif
- * wordmark. `uid` keeps gradient ids unique when multiple logos render.
+ * Official congregation lockup — the Canossian crest with "Figlie della
+ * Carità Canossiane". The PNG has a transparent background, so it sits
+ * directly on the cream header; on dark surfaces (`invert`) it is placed on
+ * a light rounded chip so the black lettering stays legible. Explicit
+ * width/height prevent layout shift; sizes stay compact on small screens.
  */
 export function Logo({
-  uid = "logo",
   className = "",
   invert = false,
 }: {
+  /** kept for API compatibility with earlier call sites */
   uid?: string;
   className?: string;
   invert?: boolean;
 }) {
-  const wordColor = invert ? "text-cream-50" : "text-ink-900";
-  const subColor = invert ? "text-cream-200/80" : "text-terra-500";
   return (
-    <Link href="/" className={`group inline-flex items-center gap-3 ${className}`} aria-label="Canossian Sisters — home">
-      <Mark uid={uid} />
-      <span className="flex flex-col leading-none">
-        <span className={`font-display text-[1.15rem] font-semibold tracking-tight ${wordColor}`}>
-          Canossian Sisters
-        </span>
-        <span className={`mt-1 text-[0.62rem] font-semibold uppercase tracking-[0.22em] ${subColor}`}>
-          North East Africa
-        </span>
+    <Link
+      href="/"
+      className={`group inline-flex shrink-0 items-center ${className}`}
+      aria-label="Canossian Sisters — Figlie della Carità Canossiane — home"
+    >
+      <span
+        className={
+          invert
+            ? "inline-flex items-center rounded-xl bg-cream-50 px-3 py-1.5 shadow-sm"
+            : "inline-flex items-center"
+        }
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/images/logo.png"
+          alt="Figlie della Carità Canossiane"
+          width={417}
+          height={230}
+          decoding="async"
+          className="h-12 w-auto max-w-full select-none transition-transform duration-300 group-hover:-translate-y-0.5 sm:h-14"
+        />
       </span>
     </Link>
   );
