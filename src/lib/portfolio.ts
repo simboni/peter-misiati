@@ -441,6 +441,42 @@ export const projects: Project[] = [
     media: [{ src: "/mockups/misiati-associates.jpg", alt: "Misiati & Associates — home" }],
   },
   {
+    // PLACEHOLDER — awaiting product details, final domain and a screenshot.
+    slug: "facilitator",
+    title: "Facilitator",
+    summary:
+      "A web platform designed and built end to end — currently live in preview on Render while the final domain is set up.",
+    type: "Web platform",
+    year: "2026",
+    role: "Design & full-stack development",
+    stack: ["Next.js", "React", "TypeScript", "Tailwind CSS"],
+    tags: ["Web App", "Business"],
+    featured: false,
+    cover: { from: "from-green-600", to: "to-ink-950", initials: "FA" },
+    logoBg: "#ffffff",
+    category: "Business",
+    links: { live: "https://facilitator-misiati.onrender.com" },
+    problem:
+      "The goal was a modern, reliable web platform — replacing manual, scattered workflows with something fast, clear and easy to use.",
+    approach:
+      "I designed and developed the product end to end on a modern web stack, with a clean, fast, mobile-first experience deployed to a managed host ahead of the final domain launch.",
+    architecture: [
+      "Modern, component-driven front end on a fast web stack.",
+      "Responsive, mobile-first UI throughout.",
+      "Deployed to a managed host (Render) as a live preview ahead of the final domain.",
+    ],
+    highlights: [
+      "Designed and built end to end.",
+      "Fast, responsive and mobile-first.",
+      "Live in preview ahead of launch.",
+    ],
+    impact: [
+      { value: "Live", label: "In preview" },
+      { value: "End-to-end", label: "Design & build" },
+    ],
+    media: [],
+  },
+  {
     slug: "cosdep-kenya",
     title: "COSDEP Kenya",
     summary:
