@@ -1,351 +1,285 @@
+import Link from "next/link";
 import {
-  profile,
-  about,
-  skills,
-  experience,
-  featuredProjects,
+  org,
+  figures,
+  programs,
+  projects,
   testimonials,
-} from "@/lib/portfolio";
-import { Button, Section, SectionHeading, Eyebrow } from "@/components/ui";
+  gallery,
+  involve,
+  site,
+} from "@/lib/cosdep";
+import { Hero } from "@/components/hero";
+import { Section, SectionHeading, Button, Eyebrow, Pill } from "@/components/ui";
 import { Reveal } from "@/components/reveal";
 import { CountUp } from "@/components/count-up";
-import { ProjectCard, Chip } from "@/components/project-card";
-import { ReviewCard } from "@/components/review-card";
+import { ProgramCard } from "@/components/program-card";
+import { ProjectCard } from "@/components/project-card";
+import { TestimonialCard } from "@/components/testimonial-card";
 import {
-  ServiceIcon,
-  GitHubIcon,
-  LinkedInIcon,
-  MailIcon,
-  DownloadIcon,
-  CheckIcon,
+  ArrowRightIcon,
+  LeafIcon,
+  HeartIcon,
+  HandshakeIcon,
 } from "@/components/icons";
 
+const involveIcons = [HeartIcon, LeafIcon, HandshakeIcon];
+
 export default function HomePage() {
+  const featured = projects.filter((p) => p.featured);
+
   return (
     <>
-      {/* ============================= HERO ============================= */}
-      <section className="relative overflow-hidden border-b border-ink-700 bg-grid glow-bg">
-        <div className="hero-orb left-[-6%] top-[6%] h-72 w-72 bg-green-500/20" />
-        <div className="container-page relative py-16 sm:py-20 lg:py-28">
-          <div className="grid items-center gap-12 lg:grid-cols-12">
-            {/* Intro */}
-            <div className="hero-stagger min-w-0 lg:col-span-7">
-              <span className="inline-flex items-center gap-2 font-mono text-sm text-green-400">
-                <span className="relative flex h-2 w-2">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-green-400" />
-                </span>
-                {profile.availability}
-              </span>
+      <Hero />
 
-              <h1 className="mt-5 bg-gradient-to-br from-mist-100 via-mist-100 to-green-300 bg-clip-text font-display text-4xl font-bold leading-[1.05] tracking-tight text-transparent text-balance sm:text-6xl">
-                {profile.name}
-              </h1>
-              <p className="mt-3 font-mono text-lg text-green-400 sm:text-xl">
-                {profile.role}
-              </p>
-
-              <p className="mt-6 max-w-xl leading-relaxed text-mist-400">
-                {profile.valueProp}
-              </p>
-
-              <div className="mt-8 flex flex-wrap gap-3">
-                <Button href="/work" variant="gold" size="lg" withArrow>
-                  view my work
-                </Button>
-                <Button href="/contact" variant="outline" size="lg">
-                  get in touch
-                </Button>
+      {/* --------------------------- Welcome / intro --------------------------- */}
+      <Section>
+        <div className="grid items-center gap-12 lg:grid-cols-2 lg:gap-16">
+          <Reveal variant="right">
+            <div className="relative">
+              <div className="overflow-hidden rounded-[1.75rem] shadow-lift">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/images/cosdep-signboard.jpg"
+                  alt="A COSDEP signboard standing in a thriving kitchen garden"
+                  className="aspect-[4/3] w-full object-cover"
+                />
               </div>
-
-              <div className="mt-8 flex items-center gap-2.5">
-                {profile.socials.github && (
-                  <HeroSocial href={profile.socials.github} label="GitHub">
-                    <GitHubIcon className="h-5 w-5" />
-                  </HeroSocial>
-                )}
-                {profile.socials.linkedin && (
-                  <HeroSocial href={profile.socials.linkedin} label="LinkedIn">
-                    <LinkedInIcon className="h-5 w-5" />
-                  </HeroSocial>
-                )}
-                <HeroSocial href={`mailto:${profile.email}`} label="Email">
-                  <MailIcon className="h-5 w-5" />
-                </HeroSocial>
-                {profile.resumeUrl && (
-                  <a
-                    href={profile.resumeUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 rounded-md border border-ink-600 px-4 py-2 font-mono text-sm text-mist-300 transition-colors hover:border-green-400/60 hover:text-green-300"
-                  >
-                    <DownloadIcon className="h-4 w-4" /> résumé
-                  </a>
-                )}
+              {/* Floating figure chip */}
+              <div className="absolute -bottom-6 -right-4 hidden rounded-2xl bg-forest-600 px-6 py-4 text-white shadow-lift sm:block">
+                <p className="font-display text-3xl font-extrabold">
+                  {new Date().getFullYear() - site.established}+
+                </p>
+                <p className="text-xs font-medium text-forest-100">
+                  years growing rural resilience
+                </p>
               </div>
             </div>
+          </Reveal>
 
-            {/* Code window */}
-            <div className="hero-fade-in min-w-0 lg:col-span-5">
-              <CodeWindow />
-            </div>
-          </div>
-        </div>
-
-        {/* Stat strip */}
-        <div className="border-t border-ink-700 bg-ink-950/40">
-          <div className="container-page grid grid-cols-2 gap-6 py-8 sm:grid-cols-4">
-            {profile.stats.map((s) => (
-              <div key={s.label}>
-                <div className="font-display text-3xl font-bold text-green-400 sm:text-4xl">
-                  <CountUp end={s.value} suffix={s.suffix} />
+          <Reveal variant="left">
+            <Eyebrow>{org.welcome}</Eyebrow>
+            <h2 className="mt-4 font-display text-3xl font-bold leading-tight tracking-tight text-ink-900 text-balance sm:text-4xl">
+              {org.headline}
+            </h2>
+            <p className="mt-5 text-lg leading-relaxed text-ink-600 text-pretty">
+              {org.intro}
+            </p>
+            <div className="mt-6 grid gap-3 sm:grid-cols-2">
+              {org.approach.slice(0, 4).map((a) => (
+                <div
+                  key={a.title}
+                  className="flex items-start gap-2.5 rounded-xl bg-sand-50 p-3.5"
+                >
+                  <LeafIcon className="mt-0.5 h-5 w-5 shrink-0 text-forest-500" />
+                  <span className="text-sm font-medium text-ink-700">
+                    {a.title}
+                  </span>
                 </div>
-                <div className="mt-1 font-mono text-xs text-mist-500">{s.label}</div>
-              </div>
+              ))}
+            </div>
+            <div className="mt-8">
+              <Button href="/about" variant="primary" withArrow>
+                Read our story
+              </Button>
+            </div>
+          </Reveal>
+        </div>
+      </Section>
+
+      {/* ------------------------------ Key figures ---------------------------- */}
+      <section className="relative overflow-hidden bg-forest-900 py-16 sm:py-20">
+        <div className="absolute inset-0 bg-dots opacity-[0.15]" />
+        <div className="container-page relative">
+          <div className="mb-10 text-center">
+            <Eyebrow center className="!text-leaf-400 justify-center">
+              Our impact so far
+            </Eyebrow>
+            <h2 className="mt-3 font-display text-3xl font-bold text-white sm:text-4xl">
+              Measurable change in the field
+            </h2>
+          </div>
+          <div className="grid gap-8 sm:grid-cols-3">
+            {figures.map((f) => (
+              <Reveal key={f.label} variant="up">
+                <div className="text-center">
+                  <p className="font-display text-5xl font-extrabold tracking-tight text-leaf-400 sm:text-6xl">
+                    <CountUp end={f.value} suffix={f.suffix} />
+                  </p>
+                  <p className="mt-2 text-base font-medium text-forest-100/85">
+                    {f.label}
+                  </p>
+                </div>
+              </Reveal>
             ))}
           </div>
         </div>
       </section>
 
-      {/* ========================= FEATURED WORK ======================= */}
-      <Section id="work">
-        <div className="flex flex-wrap items-end justify-between gap-4">
+      {/* ------------------------------ Programmes ----------------------------- */}
+      <Section>
+        <div className="flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
           <SectionHeading
-            eyebrow="selected work"
-            title="Things I've designed & shipped"
-            intro="A directory of builds — each one a full case study: the problem, the approach, and the result."
+            eyebrow="What we do"
+            title="Three pillars, one healthy future"
+            intro="Every project we run grows out of three connected programme areas — food on the table, forests on the hills, and income in the household."
           />
-          <Button href="/work" variant="outline" withArrow className="shrink-0">
-            all projects
+          <Button href="/programs" variant="outline" withArrow className="shrink-0">
+            All programmes
           </Button>
         </div>
         <div className="mt-12 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {featuredProjects.map((p, i) => (
-            <Reveal key={p.slug} delay={i * 70}>
+          {programs.map((p, i) => (
+            <Reveal key={p.slug} variant="up" delay={i * 80}>
+              <ProgramCard program={p} />
+            </Reveal>
+          ))}
+        </div>
+      </Section>
+
+      {/* --------------------------- COSDEP in Action -------------------------- */}
+      <Section className="bg-sand-50">
+        <SectionHeading
+          align="center"
+          eyebrow="COSDEP in action"
+          title="Real people, real fields, real change"
+          intro="A glimpse of our work with farmers, schoolchildren and communities across Kiambu and beyond."
+          className="mx-auto text-center"
+        />
+        <div className="mt-12 grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3">
+          {gallery.map((g, i) => (
+            <Reveal
+              key={g.src}
+              variant="scale"
+              delay={i * 60}
+              className={
+                i === 0 ? "col-span-2 row-span-2 min-h-[16rem] md:col-span-2" : ""
+              }
+            >
+              <div className="group h-full overflow-hidden rounded-2xl shadow-soft">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={g.src}
+                  alt={g.alt}
+                  className={`w-full object-cover transition-transform duration-500 group-hover:scale-105 ${
+                    i === 0 ? "h-full min-h-[16rem]" : "aspect-square"
+                  }`}
+                  loading="lazy"
+                />
+              </div>
+            </Reveal>
+          ))}
+        </div>
+      </Section>
+
+      {/* ------------------------------- Projects ------------------------------ */}
+      <Section>
+        <div className="flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
+          <SectionHeading
+            eyebrow="Our recent projects"
+            title="Where the work is happening"
+            intro="From watershed restoration in the Aberdares to organic market outlets in Githunguri — here is a selection of our current and upcoming projects."
+          />
+          <Button href="/projects" variant="outline" withArrow className="shrink-0">
+            All projects
+          </Button>
+        </div>
+        <div className="mt-12 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+          {featured.map((p, i) => (
+            <Reveal key={p.slug} variant="up" delay={i * 80}>
               <ProjectCard project={p} />
             </Reveal>
           ))}
         </div>
       </Section>
 
-      {/* ============================ SKILLS =========================== */}
-      <Section id="skills" className="border-y border-ink-700 bg-ink-850">
+      {/* ----------------------------- Testimonials ---------------------------- */}
+      <Section className="bg-sand-50">
         <SectionHeading
-          eyebrow="stack"
-          title="What I build with"
-          intro="A modern, TypeScript-first toolkit — plus the WordPress, mobile and fintech range to back it up."
+          align="center"
+          eyebrow="What farmers say"
+          title="Hope, harvest and confidence"
+          className="mx-auto text-center"
         />
-        <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {skills.map((group, i) => (
-            <Reveal key={group.title} delay={i * 50}>
-              <div className="h-full rounded-xl border border-ink-600 bg-ink-800 p-5 transition-colors hover:border-green-400/40">
-                <div className="flex items-center gap-2.5">
-                  <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-green-400/10 text-green-400">
-                    <ServiceIcon name={group.icon} className="h-5 w-5" />
-                  </span>
-                  <h3 className="font-display font-semibold text-mist-100">{group.title}</h3>
-                </div>
-                <div className="mt-4 flex flex-wrap gap-1.5">
-                  {group.items.map((item) => (
-                    <Chip key={item}>{item}</Chip>
-                  ))}
-                </div>
-              </div>
+        <div className="mx-auto mt-12 grid max-w-5xl gap-6 md:grid-cols-2">
+          {testimonials.map((t, i) => (
+            <Reveal key={t.name} variant="up" delay={i * 80}>
+              <TestimonialCard testimonial={t} />
             </Reveal>
           ))}
         </div>
       </Section>
 
-      {/* ========================== EXPERIENCE ========================= */}
+      {/* ------------------------------ Get involved --------------------------- */}
       <Section>
-        <SectionHeading eyebrow="experience" title="Where I've been building" />
-        <div className="mt-12 space-y-4">
-          {experience.map((job, i) => (
-            <Reveal key={`${job.company}-${i}`} delay={i * 60}>
-              <div className="grid gap-4 rounded-xl border border-ink-600 bg-ink-800 p-6 sm:grid-cols-12 sm:p-7">
-                <div className="sm:col-span-4">
-                  <div className="font-mono text-xs text-green-400">{job.period}</div>
-                  <h3 className="mt-1 font-display text-lg font-semibold text-mist-100">
-                    {job.role}
+        <SectionHeading
+          align="center"
+          eyebrow="Get involved"
+          title="Grow this future with us"
+          intro="COSDEP's work is powered by people who believe rural communities can feed themselves and heal the land. Here's how you can help."
+          className="mx-auto text-center"
+        />
+        <div className="mt-12 grid gap-6 md:grid-cols-3">
+          {involve.map((item, i) => {
+            const Icon = involveIcons[i] ?? HeartIcon;
+            return (
+              <Reveal key={item.title} variant="up" delay={i * 80}>
+                <Link
+                  href={item.href}
+                  className="group card flex h-full flex-col p-7 transition-all duration-300 hover:-translate-y-1 hover:shadow-lift"
+                >
+                  <span className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-forest-50 text-forest-600">
+                    <Icon className="h-6 w-6" />
+                  </span>
+                  <h3 className="mt-5 font-display text-xl font-bold text-ink-900">
+                    {item.title}
                   </h3>
-                  <div className="text-sm text-mist-400">{job.company}</div>
-                  {job.location && (
-                    <div className="mt-1 font-mono text-xs text-mist-600">{job.location}</div>
-                  )}
-                </div>
-                <div className="sm:col-span-8">
-                  <p className="text-sm leading-relaxed text-mist-400">{job.summary}</p>
-                  <ul className="mt-3 space-y-2">
-                    {job.highlights.map((h) => (
-                      <li key={h} className="flex gap-2.5 text-sm text-mist-300">
-                        <CheckIcon className="mt-0.5 h-4 w-4 shrink-0 text-green-400" />
-                        <span>{h}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            </Reveal>
-          ))}
-        </div>
-      </Section>
-
-      {/* =========================== ABOUT ============================= */}
-      <Section className="border-y border-ink-700 bg-ink-850">
-        <div className="grid gap-12 lg:grid-cols-12">
-          <div className="lg:col-span-5">
-            <Eyebrow>about</Eyebrow>
-            <h2 className="mt-4 font-display text-3xl font-bold leading-tight tracking-tight text-mist-100 text-balance sm:text-4xl">
-              Engineer, builder, and relentless finisher.
-            </h2>
-            <p className="mt-5 leading-relaxed text-mist-400">{about.paragraphs[0]}</p>
-            <Button href="/about" variant="outline" withArrow className="mt-7">
-              more about me
-            </Button>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:col-span-7">
-            {about.principles.map((p, i) => (
-              <Reveal key={p.title} delay={i * 50}>
-                <div className="h-full rounded-xl border border-ink-600 bg-ink-800 p-5">
-                  <h3 className="font-display font-semibold text-green-300">{p.title}</h3>
-                  <p className="mt-2 text-sm leading-relaxed text-mist-400">{p.body}</p>
-                </div>
+                  <p className="mt-2 flex-1 text-sm leading-relaxed text-ink-500">
+                    {item.body}
+                  </p>
+                  <span className="mt-5 inline-flex items-center gap-1.5 text-sm font-semibold text-forest-600">
+                    {item.cta}
+                    <ArrowRightIcon className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" />
+                  </span>
+                </Link>
               </Reveal>
-            ))}
-          </div>
+            );
+          })}
         </div>
       </Section>
 
-      {/* ========================= TESTIMONIALS ======================== */}
-      {testimonials.length > 0 && (
-        <Section>
-          <SectionHeading
-            eyebrow="reviews"
-            title="What clients say"
-            align="center"
-            className="mx-auto"
+      {/* -------------------------------- CTA band ----------------------------- */}
+      <section className="relative isolate overflow-hidden bg-forest-800">
+        <div className="absolute inset-0 -z-10">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/images/school-tree-planting.jpg"
+            alt=""
+            className="h-full w-full object-cover opacity-25"
           />
-          <div
-            className={`mx-auto mt-12 grid gap-6 ${
-              testimonials.length === 1
-                ? "max-w-2xl"
-                : "sm:grid-cols-2 lg:grid-cols-3"
-            }`}
-          >
-            {testimonials.map((review, i) => (
-              <Reveal key={review.author + i} delay={i * 80} className="h-full">
-                <ReviewCard review={review} />
-              </Reveal>
-            ))}
-          </div>
-        </Section>
-      )}
-
-      {/* ============================= CTA ============================= */}
-      <section className="relative overflow-hidden border-t border-ink-700 bg-grid glow-bg">
-        <div className="container-page py-20 text-center">
-          <p className="font-mono text-sm text-green-400">{"// let's build"}</p>
-          <h2 className="mx-auto mt-4 max-w-2xl font-display text-3xl font-bold leading-tight tracking-tight text-mist-100 text-balance sm:text-4xl">
-            Have a project in mind? Let&rsquo;s ship it.
+          <div className="absolute inset-0 bg-gradient-to-r from-forest-900/95 to-forest-800/80" />
+        </div>
+        <div className="container-page py-20 text-center sm:py-24">
+          <Pill tone="white" className="mb-6">
+            <HeartIcon className="h-3.5 w-3.5" /> Every gift plants a future
+          </Pill>
+          <h2 className="mx-auto max-w-2xl font-display text-3xl font-extrabold leading-tight text-white text-balance sm:text-4xl lg:text-5xl">
+            Help a farmer secure their future today
           </h2>
-          <p className="mx-auto mt-4 max-w-xl text-mist-400">
-            A new product, a rescue mission, or a role on your team — I&rsquo;d love to hear about it.
+          <p className="mx-auto mt-5 max-w-xl text-lg text-forest-100/85 text-pretty">
+            Your support funds seedlings, training and tools that put safe food
+            on rural tables and forests back on the hills.
           </p>
-          <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
-            <Button href="/contact" variant="gold" size="lg" withArrow>
-              start a conversation
+          <div className="mt-8 flex flex-wrap justify-center gap-3">
+            <Button href="/get-involved#donate" variant="leaf" size="lg" withArrow>
+              Donate now
             </Button>
-            <Button href={`mailto:${profile.email}`} variant="outline" size="lg">
-              <MailIcon className="h-5 w-5" /> {profile.email}
+            <Button href="/contact" variant="white" size="lg">
+              Talk to us
             </Button>
           </div>
         </div>
       </section>
     </>
-  );
-}
-
-/* ----------------------------- Code window ---------------------------- */
-
-function CodeWindow() {
-  return (
-    <div className="win min-w-0 max-w-full overflow-hidden">
-      <div className="flex items-center gap-2 border-b border-ink-600 px-4 py-2.5">
-        <span className="h-3 w-3 rounded-full bg-[#ff5f56]" />
-        <span className="h-3 w-3 rounded-full bg-[#ffbd2e]" />
-        <span className="h-3 w-3 rounded-full bg-green-400" />
-        <span className="ml-2 font-mono text-xs text-mist-600">~/simboni — engineer.ts</span>
-      </div>
-      <pre className="overflow-x-auto p-5 font-mono text-[0.8rem] leading-relaxed">
-        <code>
-          <span className="text-[#c792ea]">const</span>{" "}
-          <span className="text-green-400">engineer</span>{" "}
-          <span className="text-mist-500">=</span>{" "}
-          <span className="text-mist-300">{"{"}</span>
-          {"\n"}
-          {"  "}<span className="text-mist-400">name</span>
-          <span className="text-mist-500">:</span>{" "}
-          <span className="text-green-300">&quot;Simboni Misiati Peter&quot;</span>
-          <span className="text-mist-500">,</span>
-          {"\n"}
-          {"  "}<span className="text-mist-400">role</span>
-          <span className="text-mist-500">:</span>{" "}
-          <span className="text-green-300">&quot;Software Engineer&quot;</span>
-          <span className="text-mist-500">,</span>
-          {"\n"}
-          {"  "}<span className="text-mist-400">stack</span>
-          <span className="text-mist-500">:</span>{" "}
-          <span className="text-mist-300">[</span>
-          <span className="text-green-300">&quot;Next.js&quot;</span>
-          <span className="text-mist-500">, </span>
-          <span className="text-green-300">&quot;TypeScript&quot;</span>
-          <span className="text-mist-500">, </span>
-          <span className="text-green-300">&quot;React&quot;</span>
-          <span className="text-mist-300">]</span>
-          <span className="text-mist-500">,</span>
-          {"\n"}
-          {"  "}<span className="text-mist-400">builds</span>
-          <span className="text-mist-500">:</span>{" "}
-          <span className="text-mist-300">[</span>
-          <span className="text-green-300">&quot;web apps&quot;</span>
-          <span className="text-mist-500">, </span>
-          <span className="text-green-300">&quot;fintech&quot;</span>
-          <span className="text-mist-500">, </span>
-          <span className="text-green-300">&quot;systems&quot;</span>
-          <span className="text-mist-300">]</span>
-          <span className="text-mist-500">,</span>
-          {"\n"}
-          {"  "}<span className="text-mist-400">available</span>
-          <span className="text-mist-500">:</span>{" "}
-          <span className="text-[#f78c6c]">true</span>
-          <span className="text-mist-500">,</span>
-          {"\n"}
-          <span className="text-mist-300">{"}"}</span>
-          <span className="cursor align-middle" />
-        </code>
-      </pre>
-    </div>
-  );
-}
-
-function HeroSocial({
-  href,
-  label,
-  children,
-}: {
-  href: string;
-  label: string;
-  children: React.ReactNode;
-}) {
-  const external = href.startsWith("http");
-  return (
-    <a
-      href={href}
-      aria-label={label}
-      {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-      className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-ink-600 bg-ink-800 text-mist-300 transition-colors hover:border-green-400/50 hover:text-green-400"
-    >
-      {children}
-    </a>
   );
 }

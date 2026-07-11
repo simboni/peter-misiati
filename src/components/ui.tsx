@@ -3,30 +3,30 @@ import type { ComponentPropsWithoutRef, ReactNode } from "react";
 import { ArrowRightIcon } from "@/components/icons";
 
 /* ------------------------------- Button ------------------------------- */
-/* Variant names are kept stable across the app; the palette is emerald/ink. */
 
-type ButtonVariant = "primary" | "gold" | "outline" | "ghost" | "white";
+type ButtonVariant = "primary" | "leaf" | "outline" | "ghost" | "white";
 type ButtonSize = "md" | "lg";
 
 const buttonBase =
-  "inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-400 focus-visible:ring-offset-2 focus-visible:ring-offset-ink-900 disabled:opacity-60 disabled:pointer-events-none";
+  "inline-flex items-center justify-center gap-2 rounded-full font-semibold transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest-400 focus-visible:ring-offset-2";
 
 const buttonVariants: Record<ButtonVariant, string> = {
-  // primary emerald CTA
-  gold: "bg-green-400 text-ink-950 font-semibold hover:bg-green-300 shadow-[0_0_34px_-6px_rgba(46,232,138,0.75)]",
-  // solid dark
-  primary: "bg-ink-700 text-mist-100 border border-ink-600 hover:border-green-500 hover:text-green-300",
-  // outline
+  // primary forest-green CTA
+  primary:
+    "bg-forest-600 text-white hover:bg-forest-700 shadow-[0_10px_24px_-10px_rgba(29,107,57,0.7)]",
+  // vivid leaf CTA (donate)
+  leaf: "bg-leaf-500 text-forest-900 hover:bg-leaf-400 shadow-[0_10px_24px_-10px_rgba(119,205,56,0.75)]",
+  // outline on light
   outline:
-    "border border-ink-600 text-mist-200 hover:border-green-400 hover:text-green-300 hover:bg-green-400/5",
-  ghost: "text-mist-300 hover:text-green-300",
-  // light-ish secondary on dark
-  white: "border border-ink-500 text-mist-100 hover:border-green-400 hover:text-green-300",
+    "border border-forest-200 text-forest-700 hover:border-forest-400 hover:bg-forest-50",
+  ghost: "text-forest-700 hover:text-forest-800 hover:bg-forest-50",
+  // for dark / photo backgrounds
+  white: "bg-white text-forest-800 hover:bg-sand-50 shadow-lift",
 };
 
 const buttonSizes: Record<ButtonSize, string> = {
   md: "px-5 py-2.5 text-sm",
-  lg: "px-6 py-3 text-base",
+  lg: "px-7 py-3.5 text-base",
 };
 
 type ButtonProps = {
@@ -99,27 +99,25 @@ export function Section({
   id?: string;
 }) {
   return (
-    <section id={id} className={`py-16 sm:py-20 lg:py-24 ${className}`}>
+    <section id={id} className={`py-16 sm:py-20 lg:py-28 ${className}`}>
       <div className="container-page">{children}</div>
     </section>
   );
 }
 
 /* --------------------------- Kicker / Eyebrow ------------------------- */
-/* A code-comment style label: // selected work */
 
 export function Eyebrow({
   children,
+  center = false,
   className = "",
 }: {
   children: ReactNode;
+  center?: boolean;
   className?: string;
-  /** kept for API compatibility; the design is single-theme */
-  light?: boolean;
 }) {
   return (
-    <span className={`kicker inline-flex items-center gap-1.5 ${className}`}>
-      <span className="text-mist-600">{"//"}</span>
+    <span className={`kicker ${center ? "kicker-center" : ""} ${className}`}>
       {children}
     </span>
   );
@@ -138,19 +136,47 @@ export function SectionHeading({
   title: ReactNode;
   intro?: ReactNode;
   align?: "left" | "center";
-  light?: boolean;
   className?: string;
 }) {
-  const alignCls = align === "center" ? "items-center text-center mx-auto" : "items-start";
+  const alignCls =
+    align === "center" ? "items-center text-center mx-auto" : "items-start";
   return (
     <div className={`flex max-w-2xl flex-col gap-4 ${alignCls} ${className}`}>
-      {eyebrow && <Eyebrow>{eyebrow}</Eyebrow>}
-      <h2 className="font-display text-3xl font-bold leading-tight tracking-tight text-mist-100 text-balance sm:text-4xl">
+      {eyebrow && <Eyebrow center={align === "center"}>{eyebrow}</Eyebrow>}
+      <h2 className="font-display text-3xl font-bold leading-[1.12] tracking-tight text-ink-900 text-balance sm:text-4xl lg:text-[2.6rem]">
         {title}
       </h2>
       {intro && (
-        <p className="text-base leading-relaxed text-mist-400 sm:text-lg">{intro}</p>
+        <p className="text-base leading-relaxed text-ink-500 text-pretty sm:text-lg">
+          {intro}
+        </p>
       )}
     </div>
+  );
+}
+
+/* ------------------------------- Pill --------------------------------- */
+
+export function Pill({
+  children,
+  tone = "forest",
+  className = "",
+}: {
+  children: ReactNode;
+  tone?: "forest" | "leaf" | "sand" | "white";
+  className?: string;
+}) {
+  const tones = {
+    forest: "bg-forest-50 text-forest-700 ring-1 ring-forest-100",
+    leaf: "bg-leaf-500/15 text-leaf-600 ring-1 ring-leaf-500/25",
+    sand: "bg-sand-100 text-soil-700 ring-1 ring-sand-200",
+    white: "bg-white/15 text-white ring-1 ring-white/25 backdrop-blur",
+  } as const;
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${tones[tone]} ${className}`}
+    >
+      {children}
+    </span>
   );
 }

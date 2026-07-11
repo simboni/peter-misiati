@@ -1,18 +1,18 @@
 import type { Metadata } from "next";
-import { Inter, JetBrains_Mono, Space_Grotesk } from "next/font/google";
+import { Inter, Poppins } from "next/font/google";
 import "./globals.css";
-import { profile, site } from "@/lib/portfolio";
+import { site, contact } from "@/lib/cosdep";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 
-const inter = Inter({ variable: "--font-inter", subsets: ["latin"], display: "swap" });
-const space = Space_Grotesk({
-  variable: "--font-space",
+const inter = Inter({
+  variable: "--font-inter",
   subsets: ["latin"],
   display: "swap",
 });
-const jetbrains = JetBrains_Mono({
-  variable: "--font-jetbrains",
+const poppins = Poppins({
+  variable: "--font-poppins",
+  weight: ["500", "600", "700", "800"],
   subsets: ["latin"],
   display: "swap",
 });
@@ -23,50 +23,58 @@ export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
     default: site.title,
-    template: `%s | ${profile.name}`,
+    template: `%s | ${site.name}`,
   },
   description: site.description,
   keywords: [
-    "Simboni Misiati Peter",
-    "SMP",
-    "SMP Developers",
-    "software engineer Kenya",
-    "web developer Kenya",
-    "WordPress developer",
-    "Laravel developer",
-    "tech consultant",
-    "microfinance software",
-    "Nairobi software engineer",
+    "COSDEP",
+    "Community Sustainable Development Empowerment Programme",
+    "agroecology Kenya",
+    "organic farming Kenya",
+    "food security",
+    "tree planting Kenya",
+    "smallholder farmers",
+    "Kiambu NGO",
+    "sustainable agriculture",
+    "watershed conservation",
   ],
-  authors: [{ name: profile.name }],
-  creator: profile.name,
+  authors: [{ name: site.fullName }],
+  creator: site.fullName,
   openGraph: {
     type: "website",
-    locale: "en_US",
+    locale: "en_KE",
     url: siteUrl,
-    siteName: profile.name,
+    siteName: site.name,
     title: site.title,
     description: site.description,
+    images: [{ url: "/images/farmers-vegetables.jpg" }],
   },
   twitter: {
     card: "summary_large_image",
     title: site.title,
     description: site.description,
+    images: ["/images/farmers-vegetables.jpg"],
   },
   robots: { index: true, follow: true },
 };
 
-const personSchema = {
+const orgSchema = {
   "@context": "https://schema.org",
-  "@type": "Person",
-  name: profile.name,
-  jobTitle: profile.role,
-  email: `mailto:${profile.email}`,
+  "@type": "NGO",
+  name: site.fullName,
+  alternateName: site.name,
   url: siteUrl,
-  description: profile.valueProp,
-  sameAs: [profile.socials.github, profile.socials.linkedin, profile.socials.x].filter(
-    Boolean,
-  ),
+  description: site.description,
+  email: contact.email,
+  telephone: contact.phone,
+  foundingDate: String(site.established),
+  address: {
+    "@type": "PostalAddress",
+    addressCountry: "KE",
+    addressRegion: "Kiambu County",
+  },
+  areaServed: "Kenya",
+  sameAs: Object.values(contact.socials),
 };
 
 export default function RootLayout({
@@ -75,12 +83,12 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${inter.variable} ${space.variable} ${jetbrains.variable} h-full antialiased`}
+      className={`${inter.variable} ${poppins.variable} h-full antialiased`}
     >
-      <body className="flex min-h-full flex-col bg-ink-900">
+      <body className="flex min-h-full flex-col bg-canvas">
         <script
           type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(personSchema) }}
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(orgSchema) }}
         />
         <SiteHeader />
         <main className="flex-1">{children}</main>

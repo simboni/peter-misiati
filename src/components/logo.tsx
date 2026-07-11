@@ -1,91 +1,50 @@
 import Link from "next/link";
-import { profile } from "@/lib/portfolio";
+import { site } from "@/lib/cosdep";
 
 /**
- * SMP brand mark — a code-tag monogram in emerald green.
- *   <LogoMark>  the "</>" glyph in a green-ringed tile (also the avatar/favicon)
- *   <Logo>      the full lockup: mark + name + ~/smp-developers, links home
+ * COSDEP wordmark — the real circular logo alongside the acronym and a short
+ * descriptor. `compact` drops the descriptor (used in tight footers).
  */
-
-export function LogoMark({
-  className = "",
-  uid = "smp",
-}: {
-  className?: string;
-  /** Unique suffix for the gradient ids — override when several marks share a page. */
-  uid?: string;
-}) {
-  const ring = `${uid}-ring`;
-  const glyph = `${uid}-glyph`;
-  return (
-    <svg
-      viewBox="0 0 100 100"
-      className={className}
-      role="img"
-      aria-label={`${profile.name} logo`}
-    >
-      <defs>
-        <linearGradient id={ring} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#3ff59a" />
-          <stop offset="1" stopColor="#159a57" />
-        </linearGradient>
-        <linearGradient id={glyph} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#8ff7c2" />
-          <stop offset="1" stopColor="#2ee88a" />
-        </linearGradient>
-      </defs>
-      {/* Terminal tile with a gradient ring */}
-      <rect
-        x="3"
-        y="3"
-        width="94"
-        height="94"
-        rx="24"
-        fill="#0e1512"
-        stroke={`url(#${ring})`}
-        strokeWidth="3"
-      />
-      {/* Subtle inner top highlight for depth */}
-      <rect x="8" y="8" width="84" height="40" rx="19" fill="#ffffff" opacity="0.03" />
-      {/* The </> mark, redrawn as clean geometric strokes */}
-      <g
-        fill="none"
-        stroke={`url(#${glyph})`}
-        strokeWidth="7.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M37 36 L23 50 L37 64" />
-        <path d="M63 36 L77 50 L63 64" />
-        <path d="M56 33 L44 67" />
-      </g>
-    </svg>
-  );
-}
-
-// Alias kept for the favicon/tiny contexts.
-export const LogoBadge = LogoMark;
-
 export function Logo({
-  className = "",
-  uid = "smp",
+  compact = false,
+  onDark = false,
 }: {
-  className?: string;
-  uid?: string;
+  compact?: boolean;
+  onDark?: boolean;
 }) {
   return (
     <Link
       href="/"
-      className={`group flex items-center gap-2.5 ${className}`}
-      aria-label="SMP Developers — home"
+      className="group inline-flex items-center gap-3"
+      aria-label={`${site.name} — home`}
     >
-      <LogoMark
-        uid={uid}
-        className="h-9 w-9 shrink-0 rounded-[0.6rem] transition-transform duration-300 group-hover:-translate-y-0.5"
-      />
-      <span className="whitespace-nowrap font-mono text-xl font-semibold tracking-tight">
-        <span className="text-mist-600">~/</span>
-        <span className="text-green-400">smp-developers</span>
+      <span className="relative inline-flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white ring-1 ring-forest-100 shadow-soft transition-transform duration-300 group-hover:-translate-y-0.5">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/images/cosdep-logo.png"
+          alt=""
+          width={44}
+          height={44}
+          className="h-full w-full object-contain"
+        />
+      </span>
+      <span className="flex flex-col leading-none">
+        <span
+          className={`font-display text-lg font-extrabold tracking-tight ${
+            onDark ? "text-white" : "text-forest-800"
+          }`}
+        >
+          {site.name}
+        </span>
+        {!compact && (
+          <span
+            className={`mt-1 hidden text-[0.6rem] font-semibold uppercase tracking-[0.14em] sm:block ${
+              onDark ? "text-forest-100/70" : "text-ink-400"
+            }`}
+          >
+            Sustainable Development
+          </span>
+        )}
       </span>
     </Link>
   );

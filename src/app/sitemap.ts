@@ -1,16 +1,22 @@
 import type { MetadataRoute } from "next";
-import { site, projects } from "@/lib/portfolio";
+import { site } from "@/lib/cosdep";
 
 export const dynamic = "force-static";
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const base = `https://${site.domain}`;
-  const staticRoutes = ["", "/work", "/about", "/contact"];
-  const projectRoutes = projects.map((p) => `/work/${p.slug}`);
+  const routes = [
+    "",
+    "/about",
+    "/programs",
+    "/projects",
+    "/get-involved",
+    "/contact",
+  ];
 
-  return [...staticRoutes, ...projectRoutes].map((path) => ({
+  return routes.map((path) => ({
     url: `${base}${path}`,
     changeFrequency: "monthly",
-    priority: path === "" ? 1 : path.startsWith("/work/") ? 0.7 : 0.8,
+    priority: path === "" ? 1 : 0.8,
   }));
 }

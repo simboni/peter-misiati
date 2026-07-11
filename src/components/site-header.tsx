@@ -3,10 +3,10 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { nav, profile } from "@/lib/portfolio";
+import { nav } from "@/lib/cosdep";
 import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui";
-import { MenuIcon, CloseIcon, GitHubIcon } from "@/components/icons";
+import { MenuIcon, CloseIcon, HeartIcon } from "@/components/icons";
 
 export function SiteHeader() {
   const pathname = usePathname();
@@ -20,6 +20,14 @@ export function SiteHeader() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
+  // Lock body scroll when the mobile menu is open.
+  useEffect(() => {
+    document.body.style.overflow = open ? "hidden" : "";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [open]);
+
   const closeMenu = () => setOpen(false);
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : pathname.startsWith(href);
@@ -27,53 +35,45 @@ export function SiteHeader() {
   return (
     <header className="sticky top-0 z-50">
       <div
-        className={`border-b transition-all duration-200 ${
+        className={`border-b transition-all duration-300 ${
           scrolled
-            ? "border-ink-700 bg-ink-900/80 backdrop-blur"
+            ? "border-sand-200 bg-canvas/85 backdrop-blur-md shadow-soft"
             : "border-transparent bg-transparent"
         }`}
       >
-        <div className="container-page flex h-16 items-center justify-between">
-          <Logo uid="hdr" />
+        <div className="container-page flex h-[4.75rem] items-center justify-between">
+          <Logo />
 
-          <nav className="hidden items-center gap-1 font-mono text-sm lg:flex">
-            {nav.map((item, i) => {
+          <nav className="hidden items-center gap-0.5 lg:flex">
+            {nav.map((item) => {
               const active = isActive(item.href);
               return (
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`rounded-md px-3 py-2 transition-colors ${
-                    active ? "text-green-400" : "text-mist-400 hover:text-mist-100"
+                  className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                    active
+                      ? "bg-forest-50 text-forest-700"
+                      : "text-ink-600 hover:bg-forest-50/70 hover:text-forest-700"
                   }`}
                 >
-                  <span className="text-mist-600">0{i + 1}.</span> {item.label.toLowerCase()}
+                  {item.label}
                 </Link>
               );
             })}
           </nav>
 
           <div className="hidden items-center gap-2 lg:flex">
-            {profile.socials.github && (
-              <a
-                href={profile.socials.github}
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label="GitHub"
-                className="inline-flex h-9 w-9 items-center justify-center rounded-md text-mist-400 transition-colors hover:bg-ink-700 hover:text-green-400"
-              >
-                <GitHubIcon className="h-5 w-5" />
-              </a>
-            )}
-            <Button href="/contact" variant="gold">
-              let&rsquo;s talk
+            <Button href="/get-involved#donate" variant="leaf" withArrow>
+              <HeartIcon className="h-4 w-4" />
+              Donate
             </Button>
           </div>
 
           <button
             type="button"
             onClick={() => setOpen((v) => !v)}
-            className="inline-flex h-11 w-11 items-center justify-center rounded-md text-mist-200 hover:bg-ink-700 lg:hidden"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-full text-forest-800 hover:bg-forest-50 lg:hidden"
             aria-label={open ? "Close menu" : "Open menu"}
             aria-expanded={open}
           >
@@ -83,25 +83,32 @@ export function SiteHeader() {
       </div>
 
       {open && (
-        <div className="border-b border-ink-700 bg-ink-900 lg:hidden">
-          <nav className="container-page flex flex-col gap-1 py-4 font-mono">
-            {nav.map((item, i) => (
+        <div className="border-b border-sand-200 bg-canvas lg:hidden">
+          <nav className="container-page flex flex-col gap-1 py-4">
+            {nav.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
                 onClick={closeMenu}
-                className={`rounded-md px-4 py-3 text-base ${
+                className={`rounded-xl px-4 py-3 text-base font-medium ${
                   isActive(item.href)
-                    ? "bg-ink-700 text-green-400"
-                    : "text-mist-300 hover:bg-ink-700"
+                    ? "bg-forest-50 text-forest-700"
+                    : "text-ink-700 hover:bg-forest-50/70"
                 }`}
               >
-                <span className="text-mist-600">0{i + 1}.</span> {item.label.toLowerCase()}
+                {item.label}
               </Link>
             ))}
-            <div className="mt-3 border-t border-ink-700 pt-4">
-              <Button href="/contact" variant="gold" size="lg" className="w-full" onClick={closeMenu}>
-                let&rsquo;s talk
+            <div className="mt-3 border-t border-sand-200 pt-4">
+              <Button
+                href="/get-involved#donate"
+                variant="leaf"
+                size="lg"
+                className="w-full"
+                onClick={closeMenu}
+              >
+                <HeartIcon className="h-5 w-5" />
+                Donate
               </Button>
             </div>
           </nav>

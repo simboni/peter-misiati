@@ -1,37 +1,58 @@
 @import "tailwindcss";
 
-/* --------------------------------------------------------------------------
-   SMP — software-engineer portfolio design system
-   "Terminal" — deep ink surfaces, emerald-green signal, monospace accents.
-   Fonts: Space Grotesk (display) · Inter (body) · JetBrains Mono (code)
---------------------------------------------------------------------------- */
+/* ==========================================================================
+   COSDEP — design system
+   --------------------------------------------------------------------------
+   "Living green" — a warm, light, nature-forward palette built on the
+   organisation's leaf-green brand. Deep forest greens for trust and depth,
+   a vivid leaf accent for energy, and soft cream/sand neutrals that let the
+   field photography breathe.
+   Fonts: Poppins (display, continuity with the original brand) · Inter (body)
+   ========================================================================== */
+
 @theme {
-  /* Ink — dark, green-tinted surfaces (backgrounds → borders) */
-  --color-ink-950: #060907;
-  --color-ink-900: #0a0f0c; /* page background */
-  --color-ink-850: #0d130f;
-  --color-ink-800: #101712; /* card surface */
-  --color-ink-700: #18211b; /* raised surface */
-  --color-ink-600: #223029; /* borders */
-  --color-ink-500: #33453b; /* strong border / hover */
+  /* Brand green — deep forest → bright leaf */
+  --color-forest-950: #06180e;
+  --color-forest-900: #0b2a17;
+  --color-forest-800: #103a20;
+  --color-forest-700: #16512c;
+  --color-forest-600: #1d6b39;
+  --color-forest-500: #2f9e44; /* primary green */
+  --color-forest-400: #40c057;
+  --color-forest-300: #69db7c;
+  --color-forest-200: #b2f2bb;
+  --color-forest-100: #d3f9d8;
+  --color-forest-50: #ebfbee;
 
-  /* Green — the brand signal (punchy emerald-spring) */
-  --color-green-300: #8bf7bd;
-  --color-green-400: #2ee88a; /* primary accent */
-  --color-green-500: #14cf78;
-  --color-green-600: #0aa25e;
-  --color-green-700: #0a7548;
+  /* Leaf — the vivid brand accent (from the original COSDEP palette) */
+  --color-leaf-600: #5aa722;
+  --color-leaf-500: #77cd38;
+  --color-leaf-400: #8fdb52;
+  --color-leaf-300: #aee66f;
 
-  /* Mist — foreground text on ink */
-  --color-mist-100: #e9f1ec; /* headings */
-  --color-mist-300: #b7c7bd;
-  --color-mist-400: #93a89c; /* body */
-  --color-mist-500: #728379;
-  --color-mist-600: #55645b; /* faint / meta */
+  /* Earth — warm sand & soil neutrals */
+  --color-sand-50: #faf9f4;
+  --color-sand-100: #f3f1e8;
+  --color-sand-200: #e7e3d6;
+  --color-soil-700: #6f6350;
+  --color-soil-800: #4a4235;
+
+  /* Ink — foreground text (green-tinted charcoal) */
+  --color-ink-900: #12211a; /* headings */
+  --color-ink-700: #24352c;
+  --color-ink-600: #3c4d43; /* body */
+  --color-ink-500: #5c6b62; /* muted */
+  --color-ink-400: #8a978e; /* faint / meta */
+
+  /* Surfaces */
+  --color-surface: #ffffff;
+  --color-canvas: #f7faf5; /* page background — a whisper of green */
 
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
-  --font-display: var(--font-space), var(--font-inter), ui-sans-serif, sans-serif;
-  --font-mono: var(--font-jetbrains), ui-monospace, "SFMono-Regular", monospace;
+  --font-display: var(--font-poppins), var(--font-inter), ui-sans-serif, sans-serif;
+
+  --shadow-soft: 0 1px 2px rgba(16, 58, 32, 0.04), 0 8px 24px -12px rgba(16, 58, 32, 0.14);
+  --shadow-lift: 0 2px 4px rgba(16, 58, 32, 0.06), 0 20px 44px -18px rgba(16, 58, 32, 0.22);
 }
 
 html {
@@ -40,16 +61,16 @@ html {
 }
 
 body {
-  background: var(--color-ink-900);
-  color: var(--color-mist-300);
+  background: var(--color-canvas);
+  color: var(--color-ink-600);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
 
 ::selection {
-  background: rgba(46, 232, 138, 0.28);
-  color: #fff;
+  background: rgba(119, 205, 56, 0.3);
+  color: var(--color-forest-900);
 }
 
 @layer components {
@@ -65,63 +86,61 @@ body {
     }
   }
 
-  /* Faint blueprint grid used behind hero / section bands */
-  .bg-grid {
-    background-image:
-      linear-gradient(rgba(46, 232, 138, 0.06) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(46, 232, 138, 0.06) 1px, transparent 1px);
-    background-size: 44px 44px;
-    background-position: center;
+  /* Eyebrow / kicker — a small leaf-green label above a heading */
+  .kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 0.78rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-forest-600);
   }
-
-  /* Radial green glow wash for hero / CTA bands */
-  .glow-bg {
-    background:
-      radial-gradient(48rem 26rem at 78% -12%, rgba(46, 232, 138, 0.20), transparent 62%),
-      radial-gradient(40rem 24rem at 8% 108%, rgba(20, 207, 120, 0.14), transparent 60%);
+  .kicker::before {
+    content: "";
+    width: 1.4rem;
+    height: 2px;
+    border-radius: 2px;
+    background: linear-gradient(90deg, var(--color-leaf-500), var(--color-forest-500));
   }
-
-  /* Terminal / code window chrome */
-  .win {
-    border: 1px solid var(--color-ink-600);
-    background:
-      linear-gradient(180deg, rgba(16, 23, 18, 0.9), rgba(10, 15, 12, 0.9));
-    border-radius: 0.85rem;
-    box-shadow:
-      0 1px 0 rgba(255, 255, 255, 0.03) inset,
-      0 30px 60px -30px rgba(0, 0, 0, 0.6);
-    backdrop-filter: blur(6px);
-  }
-
-  .glow-ring {
-    box-shadow: 0 0 0 1px rgba(46, 232, 138, 0.35), 0 0 34px -6px rgba(46, 232, 138, 0.4);
+  .kicker-center::before {
+    display: none;
   }
 
   .text-balance {
     text-wrap: balance;
   }
-
-  /* mono section label: // like a code comment */
-  .kicker {
-    font-family: var(--font-mono);
-    font-size: 0.75rem;
-    letter-spacing: 0.02em;
-    color: var(--color-green-400);
+  .text-pretty {
+    text-wrap: pretty;
   }
-}
 
-/* Blinking terminal cursor */
-@keyframes blink {
-  0%, 49% { opacity: 1; }
-  50%, 100% { opacity: 0; }
-}
-.cursor {
-  display: inline-block;
-  width: 0.6ch;
-  height: 1.05em;
-  transform: translateY(0.14em);
-  background: var(--color-green-400);
-  animation: blink 1.1s step-end infinite;
+  /* Organic leaf-shaped mask for feature imagery */
+  .mask-blob {
+    border-radius: 62% 38% 42% 58% / 54% 46% 54% 46%;
+  }
+
+  /* A soft green radial wash for hero / CTA bands */
+  .wash-green {
+    background:
+      radial-gradient(42rem 26rem at 82% -10%, rgba(64, 192, 87, 0.16), transparent 60%),
+      radial-gradient(38rem 24rem at 6% 110%, rgba(119, 205, 56, 0.14), transparent 58%);
+  }
+
+  /* Subtle dotted texture behind bands */
+  .bg-dots {
+    background-image: radial-gradient(rgba(29, 107, 57, 0.09) 1.2px, transparent 1.2px);
+    background-size: 22px 22px;
+  }
+
+  /* Card base */
+  .card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-sand-200);
+    border-radius: 1.25rem;
+    box-shadow: var(--shadow-soft);
+  }
 }
 
 /* --------------------------------------------------------------------------
@@ -140,51 +159,22 @@ body {
 .reveal-scale { transform: scale(0.95); }
 .reveal-in { opacity: 1; transform: none; }
 
-/* Cursor-following green spotlight for cards */
-.spotlight {
-  position: relative;
-  isolation: isolate;
-}
-.spotlight::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  border-radius: inherit;
-  opacity: 0;
-  transition: opacity 0.3s ease;
-  pointer-events: none;
-  background: radial-gradient(
-    16rem 16rem at var(--mx, 50%) var(--my, 50%),
-    rgba(46, 232, 138, 0.16),
-    transparent 55%
-  );
-}
-.spotlight:hover::before { opacity: 1; }
-.spotlight > * { position: relative; z-index: 1; }
-
 @keyframes floatY {
   0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-20px); }
+  50% { transform: translateY(-18px); }
 }
-@keyframes riseIn {
-  from { opacity: 0; transform: translateY(22px); }
-  to { opacity: 1; transform: none; }
-}
-.hero-orb {
-  position: absolute;
-  border-radius: 999px;
-  filter: blur(70px);
+.float-slow {
   animation: floatY 11s ease-in-out infinite;
-  pointer-events: none;
 }
-.hero-stagger > * { animation: riseIn 0.7s cubic-bezier(0.16, 1, 0.3, 1) both; }
-.hero-stagger > *:nth-child(1) { animation-delay: 0.05s; }
-.hero-stagger > *:nth-child(2) { animation-delay: 0.13s; }
-.hero-stagger > *:nth-child(3) { animation-delay: 0.21s; }
-.hero-stagger > *:nth-child(4) { animation-delay: 0.29s; }
-.hero-stagger > *:nth-child(5) { animation-delay: 0.37s; }
-.hero-stagger > *:nth-child(6) { animation-delay: 0.45s; }
+
+/* Hero slide crossfade */
+.slide {
+  opacity: 0;
+  transition: opacity 1s ease-in-out;
+}
+.slide-active {
+  opacity: 1;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .reveal {
@@ -192,6 +182,6 @@ body {
     transform: none !important;
     transition: none !important;
   }
-  .hero-orb, .hero-stagger > * { animation: none !important; }
-  .cursor { animation: none !important; }
+  .float-slow { animation: none !important; }
+  html { scroll-behavior: auto; }
 }

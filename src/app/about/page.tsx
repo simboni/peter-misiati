@@ -1,151 +1,167 @@
 import type { Metadata } from "next";
-import { profile, about, skills, experience, education } from "@/lib/portfolio";
+import { org, figures, contact, site } from "@/lib/cosdep";
 import { PageHero } from "@/components/page-hero";
-import { Button, Section, SectionHeading } from "@/components/ui";
-import { LogoMark } from "@/components/logo";
-import { Chip } from "@/components/project-card";
-import { ServiceIcon, MailIcon, CheckIcon } from "@/components/icons";
+import { Section, SectionHeading, Button, Eyebrow, Pill } from "@/components/ui";
+import { Reveal } from "@/components/reveal";
+import { CountUp } from "@/components/count-up";
+import { LeafIcon, SproutIcon, TreeIcon, HeartIcon } from "@/components/icons";
 
 export const metadata: Metadata = {
-  title: "About",
-  description: `About ${profile.name} — ${profile.role}. ${profile.tagline}`,
+  title: "About COSDEP",
+  description:
+    "COSDEP is a registered Kenyan NGO advancing agro-ecological agriculture, natural-resource management and value addition for rural communities. Learn our mission, vision and approach.",
 };
+
+const approachIcons = [SproutIcon, LeafIcon, TreeIcon, HeartIcon];
 
 export default function AboutPage() {
   return (
     <>
-      <PageHero eyebrow="about" title="Hi, I'm Simboni." intro={profile.tagline} />
+      <PageHero
+        eyebrow="About us"
+        title="Training farmers to secure their future"
+        intro="For two decades, COSDEP has walked alongside rural communities in Kenya — helping households grow safe food, restore their land and build lasting income."
+        image="/images/farmers-vegetables.jpg"
+      />
 
-      {/* Intro */}
+      {/* ------------------------------ Who we are ----------------------------- */}
       <Section>
-        <div className="grid gap-12 lg:grid-cols-12">
-          <div className="lg:col-span-7">
-            <div className="space-y-5 text-lg leading-relaxed text-mist-400">
-              {about.paragraphs.map((p) => (
-                <p key={p.slice(0, 24)}>{p}</p>
-              ))}
+        <div className="grid items-center gap-12 lg:grid-cols-2 lg:gap-16">
+          <Reveal variant="right">
+            <div className="overflow-hidden rounded-[1.75rem] shadow-lift">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/images/community-training.jpg"
+                alt="A COSDEP facilitator leading an outdoor training with women farmers"
+                className="aspect-[4/3] w-full object-cover"
+              />
             </div>
+          </Reveal>
+          <Reveal variant="left">
+            <Eyebrow>Who we are</Eyebrow>
+            <h2 className="mt-4 font-display text-3xl font-bold leading-tight tracking-tight text-ink-900 text-balance sm:text-4xl">
+              A community-rooted NGO
+            </h2>
+            <div className="mt-5 space-y-4 text-lg leading-relaxed text-ink-600 text-pretty">
+              <p>{org.intro}</p>
+              <p>
+                Registered as the {site.fullName}, we work hands-on with
+                smallholder farmers, schools and local groups — and we don&rsquo;t
+                leave after the training ends. We keep checking in, sharing new
+                ideas and growing the movement toward food security and
+                environmental care.
+              </p>
+            </div>
+          </Reveal>
+        </div>
+      </Section>
+
+      {/* -------------------------- Mission & vision --------------------------- */}
+      <Section className="bg-forest-900 text-white">
+        <div className="grid gap-8 md:grid-cols-2">
+          <Reveal variant="up">
+            <div className="flex h-full flex-col rounded-2xl bg-forest-800/60 p-8 ring-1 ring-forest-700/60">
+              <Pill tone="white" className="self-start">
+                <SproutIcon className="h-3.5 w-3.5" /> Our mission
+              </Pill>
+              <p className="mt-5 text-xl leading-relaxed text-forest-50 text-pretty">
+                {org.mission}
+              </p>
+            </div>
+          </Reveal>
+          <Reveal variant="up" delay={100}>
+            <div className="flex h-full flex-col rounded-2xl bg-forest-800/60 p-8 ring-1 ring-forest-700/60">
+              <Pill tone="white" className="self-start">
+                <TreeIcon className="h-3.5 w-3.5" /> Our vision
+              </Pill>
+              <p className="mt-5 text-xl leading-relaxed text-forest-50 text-pretty">
+                {org.vision}
+              </p>
+            </div>
+          </Reveal>
+        </div>
+
+        {/* Figures strip */}
+        <div className="mt-12 grid gap-8 border-t border-forest-700/60 pt-12 sm:grid-cols-3">
+          {figures.map((f) => (
+            <div key={f.label} className="text-center">
+              <p className="font-display text-4xl font-extrabold text-leaf-400 sm:text-5xl">
+                <CountUp end={f.value} suffix={f.suffix} />
+              </p>
+              <p className="mt-1 text-sm text-forest-100/80">{f.label}</p>
+            </div>
+          ))}
+        </div>
+      </Section>
+
+      {/* ------------------------------ Our approach --------------------------- */}
+      <Section>
+        <SectionHeading
+          align="center"
+          eyebrow="How we work"
+          title="Our approach"
+          intro="Four commitments shape everything we do — from the first seed to the final harvest."
+          className="mx-auto text-center"
+        />
+        <div className="mt-12 grid gap-6 md:grid-cols-2">
+          {org.approach.map((a, i) => {
+            const Icon = approachIcons[i] ?? LeafIcon;
+            return (
+              <Reveal key={a.title} variant="up" delay={i * 70}>
+                <div className="card flex h-full gap-5 p-7">
+                  <span className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-forest-50 text-forest-600">
+                    <Icon className="h-6 w-6" />
+                  </span>
+                  <div>
+                    <h3 className="font-display text-lg font-bold text-ink-900">
+                      {a.title}
+                    </h3>
+                    <p className="mt-2 text-sm leading-relaxed text-ink-500">
+                      {a.body}
+                    </p>
+                  </div>
+                </div>
+              </Reveal>
+            );
+          })}
+        </div>
+      </Section>
+
+      {/* ------------------------------ Team / band ---------------------------- */}
+      <Section className="bg-sand-50">
+        <div className="grid items-center gap-12 lg:grid-cols-2 lg:gap-16">
+          <Reveal variant="right">
+            <div className="overflow-hidden rounded-[1.75rem] shadow-lift">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/images/team-partners.jpg"
+                alt="The COSDEP team together with partners in a green garden"
+                className="aspect-[4/3] w-full object-cover"
+              />
+            </div>
+          </Reveal>
+          <Reveal variant="left">
+            <Eyebrow>Our people & partners</Eyebrow>
+            <h2 className="mt-4 font-display text-3xl font-bold leading-tight tracking-tight text-ink-900 text-balance sm:text-4xl">
+              Stronger together
+            </h2>
+            <p className="mt-5 text-lg leading-relaxed text-ink-600 text-pretty">
+              Our field officers, trainers and volunteers work side by side with
+              farmers, schools, funders and local partners. Together we turn
+              agro-ecological knowledge into thriving gardens, greener hills and
+              real household income.
+            </p>
             <div className="mt-8 flex flex-wrap gap-3">
-              <Button href="/contact" variant="gold" withArrow>
-                work with me
+              <Button href="/get-involved#partner" variant="primary" withArrow>
+                Partner with us
               </Button>
-              <Button href={`mailto:${profile.email}`} variant="outline">
-                <MailIcon className="h-4 w-4" /> email me
+              <Button href={`mailto:${contact.email}`} variant="outline">
+                {contact.email}
               </Button>
             </div>
-          </div>
-
-          <div className="lg:col-span-5">
-            <div className="win p-8">
-              <LogoMark uid="about" className="h-16 w-16" />
-              <div className="mt-6">
-                <div className="font-display text-lg font-semibold text-mist-100">{profile.name}</div>
-                <div className="font-mono text-sm text-green-400">{profile.role}</div>
-              </div>
-              <dl className="mt-6 space-y-4 border-t border-ink-600 pt-6 font-mono text-sm">
-                <Row label="location" value={profile.location} />
-                <Row label="status" value={profile.availability} />
-                <Row label="email" value={profile.email} />
-              </dl>
-            </div>
-          </div>
-        </div>
-      </Section>
-
-      {/* Principles */}
-      <Section className="border-y border-ink-700 bg-ink-850">
-        <SectionHeading eyebrow="how i work" title="Principles I build by" />
-        <div className="mt-12 grid gap-4 sm:grid-cols-2">
-          {about.principles.map((p) => (
-            <div key={p.title} className="rounded-xl border border-ink-600 bg-ink-800 p-6">
-              <div className="flex items-center gap-2">
-                <CheckIcon className="h-5 w-5 text-green-400" />
-                <h3 className="font-display font-semibold text-mist-100">{p.title}</h3>
-              </div>
-              <p className="mt-2 leading-relaxed text-mist-400">{p.body}</p>
-            </div>
-          ))}
-        </div>
-      </Section>
-
-      {/* Skills */}
-      <Section>
-        <SectionHeading eyebrow="stack" title="Technologies I use" />
-        <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {skills.map((group) => (
-            <div key={group.title} className="rounded-xl border border-ink-600 bg-ink-800 p-5">
-              <div className="flex items-center gap-2.5">
-                <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-green-400/10 text-green-400">
-                  <ServiceIcon name={group.icon} className="h-5 w-5" />
-                </span>
-                <h3 className="font-display font-semibold text-mist-100">{group.title}</h3>
-              </div>
-              <div className="mt-4 flex flex-wrap gap-1.5">
-                {group.items.map((item) => (
-                  <Chip key={item}>{item}</Chip>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      </Section>
-
-      {/* Education */}
-      <Section className="border-y border-ink-700 bg-ink-850">
-        <SectionHeading eyebrow="education" title="Study & certification" />
-        <div className="mt-12 grid gap-4 sm:grid-cols-3">
-          {education.map((e) => (
-            <div key={e.institution} className="rounded-xl border border-ink-600 bg-ink-800 p-6">
-              <div className="font-mono text-xs text-green-400">{e.period}</div>
-              <h3 className="mt-2 font-display font-semibold text-mist-100">{e.qualification}</h3>
-              <div className="mt-1 text-sm text-mist-400">{e.institution}</div>
-              {e.detail && <p className="mt-3 text-sm leading-relaxed text-mist-500">{e.detail}</p>}
-            </div>
-          ))}
-        </div>
-      </Section>
-
-      {/* Experience */}
-      <Section>
-        <SectionHeading eyebrow="journey" title="Experience" />
-        <div className="mt-12 space-y-4">
-          {experience.map((job, i) => (
-            <div
-              key={`${job.company}-${i}`}
-              className="grid gap-4 rounded-xl border border-ink-600 bg-ink-800 p-6 sm:grid-cols-12 sm:p-7"
-            >
-              <div className="sm:col-span-4">
-                <div className="font-mono text-xs text-green-400">{job.period}</div>
-                <h3 className="mt-1 font-display text-lg font-semibold text-mist-100">{job.role}</h3>
-                <div className="text-sm text-mist-400">{job.company}</div>
-                {job.location && (
-                  <div className="mt-1 font-mono text-xs text-mist-600">{job.location}</div>
-                )}
-              </div>
-              <div className="sm:col-span-8">
-                <p className="text-sm leading-relaxed text-mist-400">{job.summary}</p>
-                <ul className="mt-3 space-y-2">
-                  {job.highlights.map((h) => (
-                    <li key={h} className="flex gap-2.5 text-sm text-mist-300">
-                      <CheckIcon className="mt-0.5 h-4 w-4 shrink-0 text-green-400" />
-                      <span>{h}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-          ))}
+          </Reveal>
         </div>
       </Section>
     </>
-  );
-}
-
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex justify-between gap-4">
-      <dt className="text-mist-600">{label}</dt>
-      <dd className="text-right text-mist-200">{value}</dd>
-    </div>
   );
 }

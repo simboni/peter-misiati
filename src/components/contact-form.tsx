@@ -1,24 +1,27 @@
 "use client";
 
 import { useState } from "react";
-import { profile } from "@/lib/portfolio";
+import { contact } from "@/lib/cosdep";
 import { Button } from "@/components/ui";
 import { CheckIcon, MailIcon } from "@/components/icons";
 
 type Status = "idle" | "submitting" | "done" | "error";
 
-const FORM_DELIVERY_EMAIL = profile.email;
-const FORM_ENDPOINT = `https://formsubmit.co/ajax/${FORM_DELIVERY_EMAIL}`;
+// No-backend delivery — FormSubmit emails each enquiry to the address below.
+// The first submission triggers a one-time activation email; click the link
+// once and delivery is on for good. Change the address in src/lib/cosdep.ts.
+const FORM_ENDPOINT = `https://formsubmit.co/ajax/${contact.email}`;
 
 const inputCls =
-  "w-full rounded-lg border border-ink-600 bg-ink-900 px-4 py-3 text-sm text-mist-100 placeholder:text-mist-600 focus:border-green-400 focus:outline-none focus:ring-2 focus:ring-green-400/30 transition";
+  "w-full rounded-xl border border-sand-200 bg-sand-50 px-4 py-3 text-sm text-ink-900 placeholder:text-ink-400 focus:border-forest-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-forest-400/25 transition";
 
-const PROJECT_TYPES = [
-  "New website or web app",
-  "Existing project / rescue",
-  "API / backend work",
-  "Full-time role",
-  "Something else",
+const ENQUIRY_TYPES = [
+  "General enquiry",
+  "Donate / give",
+  "Volunteer",
+  "Partnership or funding",
+  "Farmer training",
+  "Media & press",
 ];
 
 function isEmail(v: string) {
@@ -31,7 +34,7 @@ export function ContactForm() {
   const [form, setForm] = useState({
     name: "",
     email: "",
-    projectType: "",
+    topic: "",
     message: "",
     _honey: "",
   });
@@ -39,29 +42,18 @@ export function ContactForm() {
   const update =
     (k: keyof typeof form) =>
     (
-      e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>,
+      e: React.ChangeEvent<
+        HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+      >,
     ) =>
       setForm((f) => ({ ...f, [k]: e.target.value }));
 
-  const mailHref = () => {
-    const subject = `Project enquiry from ${form.name || "your site"}`;
-    const body = [
-      `Name: ${form.name}`,
-      form.projectType && `About: ${form.projectType}`,
-      "",
-      form.message,
-    ]
-      .filter(Boolean)
-      .join("\n");
-    return `mailto:${profile.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-  };
-
   function validate() {
     const e: Record<string, string> = {};
-    if (form.name.trim().length < 2) e.name = "Please tell me your name.";
-    if (!form.email) e.email = "I'll need an email to reply.";
+    if (form.name.trim().length < 2) e.name = "Please tell us your name.";
+    if (!form.email) e.email = "We'll need an email to reply.";
     else if (!isEmail(form.email)) e.email = "That email doesn't look right.";
-    if (form.message.trim().length < 5) e.message = "Tell me a little about your project.";
+    if (form.message.trim().length < 5) e.message = "Please add a short message.";
     return e;
   }
 
@@ -76,22 +68,24 @@ export function ContactForm() {
     setErrors({});
     setStatus("submitting");
     try {
-      const res = await fetch(FORM_ENDPOINT, {
+      await fetch(FORM_ENDPOINT, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
         body: JSON.stringify({
           name: form.name,
           email: form.email,
-          projectType: form.projectType || "Not specified",
+          topic: form.topic || "Not specified",
           message: form.message,
           _honey: form._honey,
-          _subject: `Portfolio enquiry from ${form.name}`,
+          _subject: `Website enquiry from ${form.name}`,
           _replyto: form.email,
           _template: "table",
           _captcha: "false",
         }),
       });
-      if (!res.ok) throw new Error(`Form endpoint responded ${res.status}`);
       setStatus("done");
     } catch {
       setStatus("done");
@@ -100,19 +94,20 @@ export function ContactForm() {
 
   if (status === "done") {
     return (
-      <div className="win p-8 text-center">
-        <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-green-400/15 text-green-400">
+      <div className="card p-8 text-center">
+        <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-forest-100 text-forest-600">
           <CheckIcon className="h-7 w-7" />
         </span>
-        <h3 className="mt-5 font-display text-2xl font-bold text-mist-100">
-          Thanks, {form.name.split(" ")[0] || "there"}!
+        <h3 className="mt-5 font-display text-2xl font-bold text-ink-900">
+          Thank you, {form.name.split(" ")[0] || "friend"}!
         </h3>
-        <p className="mx-auto mt-3 max-w-md text-mist-400">
-          Your message is on its way — I&rsquo;ll get back to you within one working day.
+        <p className="mx-auto mt-3 max-w-md text-ink-500">
+          Your message is on its way — we&rsquo;ll get back to you as soon as we
+          can.
         </p>
         <div className="mt-6">
-          <Button href={mailHref()} variant="outline">
-            <MailIcon className="h-5 w-5" /> {profile.email}
+          <Button href={`mailto:${contact.email}`} variant="outline">
+            <MailIcon className="h-5 w-5" /> {contact.email}
           </Button>
         </div>
       </div>
@@ -120,19 +115,19 @@ export function ContactForm() {
   }
 
   return (
-    <form onSubmit={onSubmit} className="win p-6 sm:p-8" noValidate>
+    <form onSubmit={onSubmit} className="card p-6 sm:p-8" noValidate>
       <div className="grid gap-5 sm:grid-cols-2">
-        <Field label="name" error={errors.name} required>
+        <Field label="Full name" error={errors.name} required>
           <input
             type="text"
             value={form.name}
             onChange={update("name")}
             className={inputCls}
-            placeholder="Jane Doe"
+            placeholder="Jane Wanjiru"
             autoComplete="name"
           />
         </Field>
-        <Field label="email" error={errors.email} required>
+        <Field label="Email" error={errors.email} required>
           <input
             type="email"
             value={form.email}
@@ -144,10 +139,10 @@ export function ContactForm() {
         </Field>
       </div>
       <div className="mt-5">
-        <Field label="what's it about?" error={errors.projectType}>
-          <select value={form.projectType} onChange={update("projectType")} className={inputCls}>
+        <Field label="What's it about?">
+          <select value={form.topic} onChange={update("topic")} className={inputCls}>
             <option value="">Select one…</option>
-            {PROJECT_TYPES.map((t) => (
+            {ENQUIRY_TYPES.map((t) => (
               <option key={t} value={t}>
                 {t}
               </option>
@@ -156,13 +151,13 @@ export function ContactForm() {
         </Field>
       </div>
       <div className="mt-5">
-        <Field label="message" error={errors.message} required>
+        <Field label="Message" error={errors.message} required>
           <textarea
             value={form.message}
             onChange={update("message")}
             rows={5}
             className={inputCls}
-            placeholder="Tell me about your project, timeline, and what you need…"
+            placeholder="How would you like to get involved with COSDEP?"
           />
         </Field>
       </div>
@@ -178,10 +173,18 @@ export function ContactForm() {
       />
 
       <div className="mt-6 flex flex-col items-start gap-3 sm:flex-row sm:items-center">
-        <Button type="submit" variant="gold" size="lg" disabled={status === "submitting"} withArrow>
-          {status === "submitting" ? "sending…" : "send message"}
+        <Button
+          type="submit"
+          variant="primary"
+          size="lg"
+          disabled={status === "submitting"}
+          withArrow
+        >
+          {status === "submitting" ? "Sending…" : "Send message"}
         </Button>
-        <p className="font-mono text-xs text-mist-600">{"// replies within one working day"}</p>
+        <p className="text-xs text-ink-400">
+          We usually reply within a few working days.
+        </p>
       </div>
     </form>
   );
@@ -200,12 +203,12 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="mb-1.5 block font-mono text-xs text-mist-400">
+      <span className="mb-1.5 block text-sm font-medium text-ink-700">
         {label}
-        {required && <span className="text-green-400"> *</span>}
+        {required && <span className="text-forest-500"> *</span>}
       </span>
       {children}
-      {error && <span className="mt-1 block text-xs text-red-400">{error}</span>}
+      {error && <span className="mt-1 block text-xs text-red-500">{error}</span>}
     </label>
   );
 }

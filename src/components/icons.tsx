@@ -262,6 +262,62 @@ export const XIcon = (p: IconProps) => (
   </svg>
 );
 
+export const FacebookIcon = (p: IconProps) => (
+  <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" {...p}>
+    <path d="M22 12.06C22 6.5 17.52 2 12 2S2 6.5 2 12.06c0 5.02 3.66 9.18 8.44 9.94v-7.03H7.9v-2.9h2.54V9.85c0-2.51 1.49-3.9 3.77-3.9 1.09 0 2.24.2 2.24.2v2.46h-1.26c-1.24 0-1.63.78-1.63 1.57v1.88h2.78l-.44 2.9h-2.34V22c4.78-.76 8.44-4.92 8.44-9.94z" />
+  </svg>
+);
+
+export const YouTubeIcon = (p: IconProps) => (
+  <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" {...p}>
+    <path d="M23.5 6.5a3 3 0 0 0-2.12-2.12C19.5 3.86 12 3.86 12 3.86s-7.5 0-9.38.52A3 3 0 0 0 .5 6.5C0 8.4 0 12 0 12s0 3.6.5 5.5a3 3 0 0 0 2.12 2.12C4.5 20.14 12 20.14 12 20.14s7.5 0 9.38-.52A3 3 0 0 0 23.5 17.5C24 15.6 24 12 24 12s0-3.6-.5-5.5zM9.6 15.6V8.4l6.2 3.6-6.2 3.6z" />
+  </svg>
+);
+
+export const InstagramIcon = (p: IconProps) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...p}>
+    <rect x="3" y="3" width="18" height="18" rx="5" />
+    <circle cx="12" cy="12" r="4" />
+    <path d="M17.5 6.5h.01" />
+  </svg>
+);
+
+export const LeafIcon = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M4 20c0-8 6-14 16-14 0 10-6 15-14 14" />
+    <path d="M4 20c4-6 8-8 12-9" />
+  </Base>
+);
+
+export const SproutIcon = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M12 21v-8" />
+    <path d="M12 13c0-3-2-5-6-5 0 4 2 6 6 5z" />
+    <path d="M12 11c0-3 2-5 6-5 0 4-2 6-6 5z" />
+  </Base>
+);
+
+export const TreeIcon = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M12 21v-5" />
+    <path d="M12 16a6 6 0 0 0 4-10.5A5 5 0 0 0 7.5 6 6 6 0 0 0 12 16z" />
+  </Base>
+);
+
+export const HeartIcon = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M12 20s-7-4.4-9.3-8.3C1.2 9 2.5 5.5 6 5.5c2 0 3.2 1.2 4 2.4.8-1.2 2-2.4 4-2.4 3.5 0 4.8 3.5 3.3 6.2C19 15.6 12 20 12 20z" />
+  </Base>
+);
+
+export const HandshakeIcon = (p: IconProps) => (
+  <Base {...p}>
+    <path d="m11 13 2 2 3-3" />
+    <path d="M3 8l4-2 5 3 5-3 4 2v6l-4 4-3-2" />
+    <path d="M3 8v6l4 4 3-2" />
+  </Base>
+);
+
 export const ExternalLinkIcon = (p: IconProps) => (
   <Base {...p}>
     <path d="M14 4h6v6M20 4l-9 9M18 13v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h6" />
