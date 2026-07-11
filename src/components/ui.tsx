@@ -3,30 +3,30 @@ import type { ComponentPropsWithoutRef, ReactNode } from "react";
 import { ArrowRightIcon } from "@/components/icons";
 
 /* ------------------------------- Button ------------------------------- */
-/* Variant names are kept stable across the app; the palette is emerald/ink. */
 
 type ButtonVariant = "primary" | "gold" | "outline" | "ghost" | "white";
 type ButtonSize = "md" | "lg";
 
 const buttonBase =
-  "inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-400 focus-visible:ring-offset-2 focus-visible:ring-offset-ink-900 disabled:opacity-60 disabled:pointer-events-none";
+  "inline-flex items-center justify-center gap-2 rounded-full font-medium transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-terra-400 focus-visible:ring-offset-2 focus-visible:ring-offset-cream-50 disabled:opacity-60 disabled:pointer-events-none";
 
 const buttonVariants: Record<ButtonVariant, string> = {
-  // primary emerald CTA
-  gold: "bg-green-400 text-ink-950 font-semibold hover:bg-green-300 shadow-[0_0_34px_-6px_rgba(46,232,138,0.75)]",
-  // solid dark
-  primary: "bg-ink-700 text-mist-100 border border-ink-600 hover:border-green-500 hover:text-green-300",
-  // outline
+  // primary terracotta CTA
+  primary:
+    "bg-terra-600 text-cream-50 hover:bg-terra-700 shadow-[0_10px_28px_-12px_rgba(109,58,21,0.7)]",
+  // gold accent CTA
+  gold: "bg-gold-400 text-terra-900 font-semibold hover:bg-gold-300 shadow-[0_10px_28px_-12px_rgba(192,138,46,0.75)]",
+  // outline on cream
   outline:
-    "border border-ink-600 text-mist-200 hover:border-green-400 hover:text-green-300 hover:bg-green-400/5",
-  ghost: "text-mist-300 hover:text-green-300",
-  // light-ish secondary on dark
-  white: "border border-ink-500 text-mist-100 hover:border-green-400 hover:text-green-300",
+    "border border-line-strong text-ink-800 hover:border-terra-400 hover:text-terra-600 hover:bg-terra-50",
+  ghost: "text-terra-600 hover:text-terra-700",
+  // for dark / photo backgrounds
+  white: "bg-cream-50 text-terra-800 hover:bg-white shadow-sm",
 };
 
 const buttonSizes: Record<ButtonSize, string> = {
   md: "px-5 py-2.5 text-sm",
-  lg: "px-6 py-3 text-base",
+  lg: "px-7 py-3.5 text-base",
 };
 
 type ButtonProps = {
@@ -105,8 +105,7 @@ export function Section({
   );
 }
 
-/* --------------------------- Kicker / Eyebrow ------------------------- */
-/* A code-comment style label: // selected work */
+/* --------------------------- Eyebrow / kicker ------------------------- */
 
 export function Eyebrow({
   children,
@@ -114,12 +113,10 @@ export function Eyebrow({
 }: {
   children: ReactNode;
   className?: string;
-  /** kept for API compatibility; the design is single-theme */
-  light?: boolean;
 }) {
   return (
-    <span className={`kicker inline-flex items-center gap-1.5 ${className}`}>
-      <span className="text-mist-600">{"//"}</span>
+    <span className={`kicker inline-flex items-center gap-2 ${className}`}>
+      <span className="h-px w-6 bg-gold-400" aria-hidden="true" />
       {children}
     </span>
   );
@@ -138,19 +135,31 @@ export function SectionHeading({
   title: ReactNode;
   intro?: ReactNode;
   align?: "left" | "center";
-  light?: boolean;
   className?: string;
 }) {
   const alignCls = align === "center" ? "items-center text-center mx-auto" : "items-start";
   return (
     <div className={`flex max-w-2xl flex-col gap-4 ${alignCls} ${className}`}>
       {eyebrow && <Eyebrow>{eyebrow}</Eyebrow>}
-      <h2 className="font-display text-3xl font-bold leading-tight tracking-tight text-mist-100 text-balance sm:text-4xl">
+      <h2 className="font-display text-3xl font-semibold leading-[1.1] tracking-tight text-ink-900 sm:text-4xl lg:text-[2.7rem]">
         {title}
       </h2>
       {intro && (
-        <p className="text-base leading-relaxed text-mist-400 sm:text-lg">{intro}</p>
+        <p className="text-base leading-relaxed text-ink-600 sm:text-lg">{intro}</p>
       )}
+    </div>
+  );
+}
+
+/* ------------------------------- Rubric ------------------------------- */
+/* Decorative divider with a diamond — a gentle liturgical rubric mark.  */
+
+export function Rubric({ className = "" }: { className?: string }) {
+  return (
+    <div className={`rubric ${className}`} aria-hidden="true">
+      <svg viewBox="0 0 12 12" className="h-2.5 w-2.5 shrink-0 rotate-45 fill-gold-400">
+        <rect x="1" y="1" width="10" height="10" rx="1.5" />
+      </svg>
     </div>
   );
 }

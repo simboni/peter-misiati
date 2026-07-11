@@ -1,351 +1,465 @@
+import Link from "next/link";
 import {
-  profile,
-  about,
-  skills,
-  experience,
-  featuredProjects,
-  testimonials,
-} from "@/lib/portfolio";
-import { Button, Section, SectionHeading, Eyebrow } from "@/components/ui";
+  ministries,
+  causes,
+  stats,
+  faqs,
+  updates,
+  identity,
+  founder,
+  testimonial,
+} from "@/lib/site";
+import { Button, Section, SectionHeading, Eyebrow, Rubric } from "@/components/ui";
 import { Reveal } from "@/components/reveal";
 import { CountUp } from "@/components/count-up";
-import { ProjectCard, Chip } from "@/components/project-card";
-import { ReviewCard } from "@/components/review-card";
-import {
-  ServiceIcon,
-  GitHubIcon,
-  LinkedInIcon,
-  MailIcon,
-  DownloadIcon,
-  CheckIcon,
-} from "@/components/icons";
+import { MinistryCard } from "@/components/ministry-card";
+import { ProgressBar } from "@/components/progress-bar";
+import { Faq } from "@/components/faq";
+import { ArrowRightIcon, HeartHandIcon, ArrowUpRightIcon } from "@/components/icons";
 
 export default function HomePage() {
   return (
     <>
-      {/* ============================= HERO ============================= */}
-      <section className="relative overflow-hidden border-b border-ink-700 bg-grid glow-bg">
-        <div className="hero-orb left-[-6%] top-[6%] h-72 w-72 bg-green-500/20" />
-        <div className="container-page relative py-16 sm:py-20 lg:py-28">
-          <div className="grid items-center gap-12 lg:grid-cols-12">
-            {/* Intro */}
-            <div className="hero-stagger min-w-0 lg:col-span-7">
-              <span className="inline-flex items-center gap-2 font-mono text-sm text-green-400">
-                <span className="relative flex h-2 w-2">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-green-400" />
-                </span>
-                {profile.availability}
-              </span>
-
-              <h1 className="mt-5 bg-gradient-to-br from-mist-100 via-mist-100 to-green-300 bg-clip-text font-display text-4xl font-bold leading-[1.05] tracking-tight text-transparent text-balance sm:text-6xl">
-                {profile.name}
-              </h1>
-              <p className="mt-3 font-mono text-lg text-green-400 sm:text-xl">
-                {profile.role}
-              </p>
-
-              <p className="mt-6 max-w-xl leading-relaxed text-mist-400">
-                {profile.valueProp}
-              </p>
-
-              <div className="mt-8 flex flex-wrap gap-3">
-                <Button href="/work" variant="gold" size="lg" withArrow>
-                  view my work
-                </Button>
-                <Button href="/contact" variant="outline" size="lg">
-                  get in touch
-                </Button>
-              </div>
-
-              <div className="mt-8 flex items-center gap-2.5">
-                {profile.socials.github && (
-                  <HeroSocial href={profile.socials.github} label="GitHub">
-                    <GitHubIcon className="h-5 w-5" />
-                  </HeroSocial>
-                )}
-                {profile.socials.linkedin && (
-                  <HeroSocial href={profile.socials.linkedin} label="LinkedIn">
-                    <LinkedInIcon className="h-5 w-5" />
-                  </HeroSocial>
-                )}
-                <HeroSocial href={`mailto:${profile.email}`} label="Email">
-                  <MailIcon className="h-5 w-5" />
-                </HeroSocial>
-                {profile.resumeUrl && (
-                  <a
-                    href={profile.resumeUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 rounded-md border border-ink-600 px-4 py-2 font-mono text-sm text-mist-300 transition-colors hover:border-green-400/60 hover:text-green-300"
-                  >
-                    <DownloadIcon className="h-4 w-4" /> résumé
-                  </a>
-                )}
-              </div>
-            </div>
-
-            {/* Code window */}
-            <div className="hero-fade-in min-w-0 lg:col-span-5">
-              <CodeWindow />
-            </div>
-          </div>
-        </div>
-
-        {/* Stat strip */}
-        <div className="border-t border-ink-700 bg-ink-950/40">
-          <div className="container-page grid grid-cols-2 gap-6 py-8 sm:grid-cols-4">
-            {profile.stats.map((s) => (
-              <div key={s.label}>
-                <div className="font-display text-3xl font-bold text-green-400 sm:text-4xl">
-                  <CountUp end={s.value} suffix={s.suffix} />
-                </div>
-                <div className="mt-1 font-mono text-xs text-mist-500">{s.label}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ========================= FEATURED WORK ======================= */}
-      <Section id="work">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <SectionHeading
-            eyebrow="selected work"
-            title="Things I've designed & shipped"
-            intro="A directory of builds — each one a full case study: the problem, the approach, and the result."
-          />
-          <Button href="/work" variant="outline" withArrow className="shrink-0">
-            all projects
-          </Button>
-        </div>
-        <div className="mt-12 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {featuredProjects.map((p, i) => (
-            <Reveal key={p.slug} delay={i * 70}>
-              <ProjectCard project={p} />
-            </Reveal>
-          ))}
-        </div>
-      </Section>
-
-      {/* ============================ SKILLS =========================== */}
-      <Section id="skills" className="border-y border-ink-700 bg-ink-850">
-        <SectionHeading
-          eyebrow="stack"
-          title="What I build with"
-          intro="A modern, TypeScript-first toolkit — plus the WordPress, mobile and fintech range to back it up."
-        />
-        <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {skills.map((group, i) => (
-            <Reveal key={group.title} delay={i * 50}>
-              <div className="h-full rounded-xl border border-ink-600 bg-ink-800 p-5 transition-colors hover:border-green-400/40">
-                <div className="flex items-center gap-2.5">
-                  <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-green-400/10 text-green-400">
-                    <ServiceIcon name={group.icon} className="h-5 w-5" />
-                  </span>
-                  <h3 className="font-display font-semibold text-mist-100">{group.title}</h3>
-                </div>
-                <div className="mt-4 flex flex-wrap gap-1.5">
-                  {group.items.map((item) => (
-                    <Chip key={item}>{item}</Chip>
-                  ))}
-                </div>
-              </div>
-            </Reveal>
-          ))}
-        </div>
-      </Section>
-
-      {/* ========================== EXPERIENCE ========================= */}
-      <Section>
-        <SectionHeading eyebrow="experience" title="Where I've been building" />
-        <div className="mt-12 space-y-4">
-          {experience.map((job, i) => (
-            <Reveal key={`${job.company}-${i}`} delay={i * 60}>
-              <div className="grid gap-4 rounded-xl border border-ink-600 bg-ink-800 p-6 sm:grid-cols-12 sm:p-7">
-                <div className="sm:col-span-4">
-                  <div className="font-mono text-xs text-green-400">{job.period}</div>
-                  <h3 className="mt-1 font-display text-lg font-semibold text-mist-100">
-                    {job.role}
-                  </h3>
-                  <div className="text-sm text-mist-400">{job.company}</div>
-                  {job.location && (
-                    <div className="mt-1 font-mono text-xs text-mist-600">{job.location}</div>
-                  )}
-                </div>
-                <div className="sm:col-span-8">
-                  <p className="text-sm leading-relaxed text-mist-400">{job.summary}</p>
-                  <ul className="mt-3 space-y-2">
-                    {job.highlights.map((h) => (
-                      <li key={h} className="flex gap-2.5 text-sm text-mist-300">
-                        <CheckIcon className="mt-0.5 h-4 w-4 shrink-0 text-green-400" />
-                        <span>{h}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            </Reveal>
-          ))}
-        </div>
-      </Section>
-
-      {/* =========================== ABOUT ============================= */}
-      <Section className="border-y border-ink-700 bg-ink-850">
-        <div className="grid gap-12 lg:grid-cols-12">
-          <div className="lg:col-span-5">
-            <Eyebrow>about</Eyebrow>
-            <h2 className="mt-4 font-display text-3xl font-bold leading-tight tracking-tight text-mist-100 text-balance sm:text-4xl">
-              Engineer, builder, and relentless finisher.
-            </h2>
-            <p className="mt-5 leading-relaxed text-mist-400">{about.paragraphs[0]}</p>
-            <Button href="/about" variant="outline" withArrow className="mt-7">
-              more about me
-            </Button>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:col-span-7">
-            {about.principles.map((p, i) => (
-              <Reveal key={p.title} delay={i * 50}>
-                <div className="h-full rounded-xl border border-ink-600 bg-ink-800 p-5">
-                  <h3 className="font-display font-semibold text-green-300">{p.title}</h3>
-                  <p className="mt-2 text-sm leading-relaxed text-mist-400">{p.body}</p>
-                </div>
-              </Reveal>
-            ))}
-          </div>
-        </div>
-      </Section>
-
-      {/* ========================= TESTIMONIALS ======================== */}
-      {testimonials.length > 0 && (
-        <Section>
-          <SectionHeading
-            eyebrow="reviews"
-            title="What clients say"
-            align="center"
-            className="mx-auto"
-          />
-          <div
-            className={`mx-auto mt-12 grid gap-6 ${
-              testimonials.length === 1
-                ? "max-w-2xl"
-                : "sm:grid-cols-2 lg:grid-cols-3"
-            }`}
-          >
-            {testimonials.map((review, i) => (
-              <Reveal key={review.author + i} delay={i * 80} className="h-full">
-                <ReviewCard review={review} />
-              </Reveal>
-            ))}
-          </div>
-        </Section>
-      )}
-
-      {/* ============================= CTA ============================= */}
-      <section className="relative overflow-hidden border-t border-ink-700 bg-grid glow-bg">
-        <div className="container-page py-20 text-center">
-          <p className="font-mono text-sm text-green-400">{"// let's build"}</p>
-          <h2 className="mx-auto mt-4 max-w-2xl font-display text-3xl font-bold leading-tight tracking-tight text-mist-100 text-balance sm:text-4xl">
-            Have a project in mind? Let&rsquo;s ship it.
-          </h2>
-          <p className="mx-auto mt-4 max-w-xl text-mist-400">
-            A new product, a rescue mission, or a role on your team — I&rsquo;d love to hear about it.
-          </p>
-          <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
-            <Button href="/contact" variant="gold" size="lg" withArrow>
-              start a conversation
-            </Button>
-            <Button href={`mailto:${profile.email}`} variant="outline" size="lg">
-              <MailIcon className="h-5 w-5" /> {profile.email}
-            </Button>
-          </div>
-        </div>
-      </section>
+      <Hero />
+      <AnniversaryBanner />
+      <IntroSection />
+      <MinistriesSection />
+      <ImpactSection />
+      <CausesSection />
+      <ServiceSplit />
+      <FaqSection />
+      <UpdatesSection />
+      <CtaBand />
     </>
   );
 }
 
-/* ----------------------------- Code window ---------------------------- */
+/* --------------------------------- Hero ---------------------------------- */
 
-function CodeWindow() {
+function Hero() {
   return (
-    <div className="win min-w-0 max-w-full overflow-hidden">
-      <div className="flex items-center gap-2 border-b border-ink-600 px-4 py-2.5">
-        <span className="h-3 w-3 rounded-full bg-[#ff5f56]" />
-        <span className="h-3 w-3 rounded-full bg-[#ffbd2e]" />
-        <span className="h-3 w-3 rounded-full bg-green-400" />
-        <span className="ml-2 font-mono text-xs text-mist-600">~/simboni — engineer.ts</span>
+    <section className="relative overflow-hidden bg-terra-900 text-cream-100">
+      <div className="absolute inset-0">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/images/sisters-arusha.jpg"
+          alt="Canossian Sisters of the North East Africa Province"
+          className="h-full w-full object-cover object-center"
+        />
+        <div className="absolute inset-0 bg-gradient-to-r from-terra-900/95 via-terra-900/80 to-terra-900/40" />
+        <div className="absolute inset-0 bg-gradient-to-t from-terra-900 via-transparent to-transparent" />
       </div>
-      <pre className="overflow-x-auto p-5 font-mono text-[0.8rem] leading-relaxed">
-        <code>
-          <span className="text-[#c792ea]">const</span>{" "}
-          <span className="text-green-400">engineer</span>{" "}
-          <span className="text-mist-500">=</span>{" "}
-          <span className="text-mist-300">{"{"}</span>
-          {"\n"}
-          {"  "}<span className="text-mist-400">name</span>
-          <span className="text-mist-500">:</span>{" "}
-          <span className="text-green-300">&quot;Simboni Misiati Peter&quot;</span>
-          <span className="text-mist-500">,</span>
-          {"\n"}
-          {"  "}<span className="text-mist-400">role</span>
-          <span className="text-mist-500">:</span>{" "}
-          <span className="text-green-300">&quot;Software Engineer&quot;</span>
-          <span className="text-mist-500">,</span>
-          {"\n"}
-          {"  "}<span className="text-mist-400">stack</span>
-          <span className="text-mist-500">:</span>{" "}
-          <span className="text-mist-300">[</span>
-          <span className="text-green-300">&quot;Next.js&quot;</span>
-          <span className="text-mist-500">, </span>
-          <span className="text-green-300">&quot;TypeScript&quot;</span>
-          <span className="text-mist-500">, </span>
-          <span className="text-green-300">&quot;React&quot;</span>
-          <span className="text-mist-300">]</span>
-          <span className="text-mist-500">,</span>
-          {"\n"}
-          {"  "}<span className="text-mist-400">builds</span>
-          <span className="text-mist-500">:</span>{" "}
-          <span className="text-mist-300">[</span>
-          <span className="text-green-300">&quot;web apps&quot;</span>
-          <span className="text-mist-500">, </span>
-          <span className="text-green-300">&quot;fintech&quot;</span>
-          <span className="text-mist-500">, </span>
-          <span className="text-green-300">&quot;systems&quot;</span>
-          <span className="text-mist-300">]</span>
-          <span className="text-mist-500">,</span>
-          {"\n"}
-          {"  "}<span className="text-mist-400">available</span>
-          <span className="text-mist-500">:</span>{" "}
-          <span className="text-[#f78c6c]">true</span>
-          <span className="text-mist-500">,</span>
-          {"\n"}
-          <span className="text-mist-300">{"}"}</span>
-          <span className="cursor align-middle" />
-        </code>
-      </pre>
+
+      <div className="hero-orb right-[8%] top-[12%] h-72 w-72 bg-gold-400/20" />
+
+      <div className="container-page relative">
+        <div className="hero-stagger flex max-w-2xl flex-col items-start py-24 sm:py-28 lg:py-36">
+          <Eyebrow className="!text-gold-300">
+            Daughters of Charity · Servants of the Poor
+          </Eyebrow>
+          <h1 className="mt-5 font-display text-4xl font-semibold leading-[1.03] tracking-tight text-cream-50 sm:text-5xl lg:text-6xl">
+            Loving without measure, in and for the mission of today.
+          </h1>
+          <p className="mt-6 max-w-xl text-lg leading-relaxed text-cream-200/90">
+            The Canossian Sisters serve the poor, needy and marginalized across Tanzania,
+            Kenya, Uganda and Sudan — through education, evangelization, healthcare and prayer.
+          </p>
+          <div className="mt-9 flex flex-wrap items-center gap-4">
+            <Button href="/donate" variant="gold" size="lg">
+              <HeartHandIcon className="h-5 w-5" /> Support our mission
+            </Button>
+            <Button
+              href="/ministries"
+              size="lg"
+              className="border border-cream-100/30 bg-cream-50/5 text-cream-50 hover:bg-cream-50/10"
+              withArrow
+            >
+              Our ministries
+            </Button>
+          </div>
+
+          <div className="mt-12 flex items-center gap-8">
+            <HeroStat value="100,000+" label="Lives touched" />
+            <span className="h-10 w-px bg-cream-100/20" />
+            <HeroStat value="4" label="Countries served" />
+            <span className="hidden h-10 w-px bg-cream-100/20 sm:block" />
+            <HeroStat value="5" label="Ministries" className="hidden sm:flex" />
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function HeroStat({
+  value,
+  label,
+  className = "",
+}: {
+  value: string;
+  label: string;
+  className?: string;
+}) {
+  return (
+    <div className={`flex flex-col ${className}`}>
+      <span className="font-display text-2xl font-semibold text-gold-300 sm:text-3xl">
+        {value}
+      </span>
+      <span className="text-xs uppercase tracking-wider text-cream-200/70">{label}</span>
     </div>
   );
 }
 
-function HeroSocial({
-  href,
-  label,
-  children,
-}: {
-  href: string;
-  label: string;
-  children: React.ReactNode;
-}) {
-  const external = href.startsWith("http");
+/* --------------------------- Anniversary banner -------------------------- */
+
+function AnniversaryBanner() {
   return (
-    <a
-      href={href}
-      aria-label={label}
-      {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-      className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-ink-600 bg-ink-800 text-mist-300 transition-colors hover:border-green-400/50 hover:text-green-400"
-    >
-      {children}
-    </a>
+    <div className="border-b border-line bg-gold-400">
+      <div className="container-page flex flex-col items-center justify-center gap-2 py-3.5 text-center text-sm text-terra-900 sm:flex-row sm:gap-3">
+        <span className="inline-flex items-center gap-2 font-semibold">
+          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-terra-900/10">✦</span>
+          {founder.anniversary}
+        </span>
+        <span className="hidden text-terra-900/50 sm:inline">·</span>
+        <span>Celebrating 250 years since the birth of {founder.name}</span>
+        <Link
+          href="/about"
+          className="inline-flex items-center gap-1 font-semibold underline underline-offset-2 hover:text-terra-700"
+        >
+          Learn more <ArrowRightIcon className="h-3.5 w-3.5" />
+        </Link>
+      </div>
+    </div>
   );
+}
+
+/* -------------------------------- Intro ---------------------------------- */
+
+function IntroSection() {
+  return (
+    <Section className="bg-cream-50">
+      <div className="grid gap-12 lg:grid-cols-12 lg:items-center">
+        <div className="lg:col-span-6">
+          <Reveal>
+            <Eyebrow>Who we are</Eyebrow>
+            <h2 className="mt-4 font-display text-3xl font-semibold leading-tight tracking-tight text-ink-900 sm:text-4xl">
+              Canossian Daughters of Charity, Servants of the Poor
+            </h2>
+            <p className="mt-5 text-lg leading-relaxed text-ink-600">{identity.charism}</p>
+            <div className="mt-8 space-y-5">
+              <ValueLine label="Our vision">{identity.vision}</ValueLine>
+              <ValueLine label="Our mission">{identity.mission}</ValueLine>
+            </div>
+            <div className="mt-8">
+              <Button href="/about" variant="outline" withArrow>
+                More about us
+              </Button>
+            </div>
+          </Reveal>
+        </div>
+
+        <div className="lg:col-span-6">
+          <Reveal variant="left" className="relative">
+            <div className="grid grid-cols-2 gap-4">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/images/evangelization-bukoba.jpg"
+                alt="Canossian Sisters in the community"
+                loading="lazy"
+                className="col-span-2 h-64 w-full rounded-2xl border border-line object-cover"
+              />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/images/healthcare.jpg"
+                alt="Pastoral healthcare ministry"
+                loading="lazy"
+                className="h-44 w-full rounded-2xl border border-line object-cover"
+              />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/images/education-class.jpg"
+                alt="Education ministry"
+                loading="lazy"
+                className="h-44 w-full rounded-2xl border border-line object-cover"
+              />
+            </div>
+            <div className="card absolute -bottom-6 -left-4 hidden items-center gap-3 px-5 py-4 sm:flex">
+              <span className="font-display text-3xl font-semibold text-terra-600">1808</span>
+              <span className="max-w-[9rem] text-xs leading-snug text-ink-600">
+                Serving the poor since our founding
+              </span>
+            </div>
+          </Reveal>
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+function ValueLine({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex gap-4">
+      <span className="mt-1 h-fit shrink-0 rounded-full bg-terra-50 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-terra-600">
+        {label}
+      </span>
+      <p className="text-ink-600">{children}</p>
+    </div>
+  );
+}
+
+/* ------------------------------ Ministries ------------------------------- */
+
+function MinistriesSection() {
+  return (
+    <Section className="bg-cream-100 bg-dots">
+      <div className="flex flex-col items-center text-center">
+        <SectionHeading
+          align="center"
+          eyebrow="Our ministries"
+          title="One mission of charity, lived five ways"
+          intro="We dedicate ourselves to serve the poor, needy and the marginalized through our five ministries."
+        />
+      </div>
+      <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+        {ministries.map((m, i) => (
+          <Reveal key={m.slug} delay={i * 60}>
+            <MinistryCard ministry={m} />
+          </Reveal>
+        ))}
+        <Reveal delay={ministries.length * 60}>
+          <Link
+            href="/ministries"
+            className="group flex h-full min-h-64 flex-col justify-between rounded-2xl border border-dashed border-terra-300 bg-terra-50/50 p-6 transition-colors hover:bg-terra-50"
+          >
+            <span className="font-display text-xl font-semibold text-terra-700">
+              Explore every ministry
+            </span>
+            <span className="inline-flex items-center gap-2 text-sm font-medium text-terra-600">
+              See all five in detail
+              <ArrowRightIcon className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+            </span>
+          </Link>
+        </Reveal>
+      </div>
+    </Section>
+  );
+}
+
+/* -------------------------------- Impact --------------------------------- */
+
+function ImpactSection() {
+  return (
+    <section className="relative overflow-hidden bg-terra-800 text-cream-100">
+      <div className="absolute inset-0 bg-dots opacity-30" />
+      <div className="container-page relative py-16 sm:py-20">
+        <div className="mx-auto max-w-2xl text-center">
+          <Rubric className="mx-auto mb-6 max-w-xs" />
+          <h2 className="font-display text-3xl font-semibold text-cream-50 sm:text-4xl">
+            A charity that has touched lives
+          </h2>
+          <p className="mt-4 text-cream-200/80">
+            The fruit of the Sisters&rsquo; service across the North East Africa Province.
+          </p>
+        </div>
+        <div className="mt-12 grid grid-cols-2 gap-8 lg:grid-cols-4">
+          {stats.map((s, i) => (
+            <Reveal key={s.label} delay={i * 80} className="text-center">
+              <div className="font-display text-4xl font-semibold text-gold-300 sm:text-5xl">
+                <CountUp end={s.value} suffix={s.suffix} />
+              </div>
+              <div className="mt-2 text-sm font-medium text-cream-50">{s.label}</div>
+              <div className="mt-1 text-xs leading-snug text-cream-200/60">{s.note}</div>
+            </Reveal>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* -------------------------------- Causes --------------------------------- */
+
+function CausesSection() {
+  return (
+    <Section className="bg-cream-50">
+      <div className="flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
+        <SectionHeading
+          eyebrow="Ongoing causes"
+          title="Join us in our ongoing causes"
+          intro="Your generosity helps build schools, fund scholarships and equip our hospital."
+        />
+        <Button href="/causes" variant="ghost" withArrow className="shrink-0 self-start sm:self-auto">
+          View all causes
+        </Button>
+      </div>
+      <div className="mt-12 grid gap-6 lg:grid-cols-3">
+        {causes.map((c, i) => (
+          <Reveal key={c.slug} delay={i * 70}>
+            <article className="card flex h-full flex-col overflow-hidden p-0">
+              <div className="relative aspect-[16/10] overflow-hidden">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={c.image} alt={c.title} loading="lazy" className="h-full w-full object-cover" />
+              </div>
+              <div className="flex flex-1 flex-col p-6">
+                <h3 className="font-display text-lg font-semibold text-ink-900">{c.title}</h3>
+                <p className="mt-2 flex-1 text-sm leading-relaxed text-ink-600">{c.summary}</p>
+                <div className="mt-5">
+                  <ProgressBar value={c.progress} accent={c.accent} />
+                </div>
+                <Button href="/donate" variant="outline" className="mt-5 w-full" withArrow>
+                  Donate to this cause
+                </Button>
+              </div>
+            </article>
+          </Reveal>
+        ))}
+      </div>
+    </Section>
+  );
+}
+
+/* ----------------------------- Service split ----------------------------- */
+
+function ServiceSplit() {
+  return (
+    <section className="relative overflow-hidden">
+      <div className="grid lg:grid-cols-2">
+        <div className="relative min-h-88 lg:min-h-128">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/images/evangelization.jpg"
+            alt="Service to humanity"
+            loading="lazy"
+            className="absolute inset-0 h-full w-full object-cover"
+          />
+        </div>
+        <div className="flex items-center bg-sage-700 px-6 py-16 text-cream-100 sm:px-10 lg:px-16 lg:py-20">
+          <Reveal className="max-w-xl">
+            <Eyebrow className="!text-gold-300">Service to humanity</Eyebrow>
+            <h2 className="mt-4 font-display text-3xl font-semibold leading-tight text-cream-50 sm:text-4xl">
+              {testimonial.quote}
+            </h2>
+            <p className="mt-6 text-cream-200/85">
+              We dedicate ourselves to serve the poor, needy and the marginalized — regarding
+              every person we meet as a living image of Christ Himself.
+            </p>
+            <div className="mt-8">
+              <Button href="/about" variant="white" withArrow>
+                Read our story
+              </Button>
+            </div>
+          </Reveal>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ---------------------------------- FAQ ---------------------------------- */
+
+function FaqSection() {
+  return (
+    <Section className="bg-cream-100">
+      <div className="grid gap-10 lg:grid-cols-12 lg:gap-16">
+        <div className="lg:col-span-5">
+          <SectionHeading
+            eyebrow="Questions"
+            title="Frequently asked questions"
+            intro="A little more about who we are, where we serve, and how you can take part."
+          />
+          <div className="mt-8 hidden lg:block">
+            <Button href="/contact" variant="primary" withArrow>
+              Ask us anything
+            </Button>
+          </div>
+        </div>
+        <div className="lg:col-span-7">
+          <Faq items={faqs} />
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+/* -------------------------------- Updates -------------------------------- */
+
+function UpdatesSection() {
+  return (
+    <Section className="bg-cream-50">
+      <div className="flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
+        <SectionHeading
+          eyebrow="Recent updates"
+          title="News from the Province"
+          intro="Stories and moments from our communities across North & East Africa."
+        />
+      </div>
+      <div className="mt-12 grid gap-6 md:grid-cols-3">
+        {updates.map((u, i) => (
+          <Reveal key={u.title} delay={i * 70}>
+            <article className="group card flex h-full flex-col overflow-hidden p-0">
+              <div className="aspect-[16/10] overflow-hidden">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={u.image}
+                  alt={u.title}
+                  loading="lazy"
+                  className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                />
+              </div>
+              <div className="flex flex-1 flex-col p-6">
+                <time className="text-xs font-semibold uppercase tracking-wide text-terra-500">
+                  {formatDate(u.date)}
+                </time>
+                <h3 className="mt-2 font-display text-lg font-semibold leading-snug text-ink-900">
+                  {u.title}
+                </h3>
+                <p className="mt-2 flex-1 text-sm leading-relaxed text-ink-600">{u.excerpt}</p>
+              </div>
+            </article>
+          </Reveal>
+        ))}
+      </div>
+    </Section>
+  );
+}
+
+/* -------------------------------- CTA band ------------------------------- */
+
+function CtaBand() {
+  return (
+    <section className="relative overflow-hidden bg-terra-900">
+      <div className="absolute inset-0 glow-warm" />
+      <div className="container-page relative py-20 text-center">
+        <Reveal className="mx-auto max-w-2xl">
+          <Eyebrow className="!text-gold-300 justify-center">Let&rsquo;s work together</Eyebrow>
+          <h2 className="mt-5 font-display text-3xl font-semibold text-cream-50 sm:text-4xl lg:text-5xl">
+            Interested in being our volunteer?
+          </h2>
+          <p className="mt-5 text-lg text-cream-200/85">
+            Give, pray, or serve alongside us. Every act of charity helps bring the love of
+            Christ to those who need it most.
+          </p>
+          <div className="mt-9 flex flex-wrap items-center justify-center gap-4">
+            <Button href="/donate" variant="gold" size="lg">
+              <HeartHandIcon className="h-5 w-5" /> Donate now
+            </Button>
+            <Button
+              href="/contact"
+              size="lg"
+              className="border border-cream-100/30 bg-cream-50/5 text-cream-50 hover:bg-cream-50/10"
+            >
+              <ArrowUpRightIcon className="h-4 w-4" /> Get in touch
+            </Button>
+          </div>
+        </Reveal>
+      </div>
+    </section>
+  );
+}
+
+/* -------------------------------- helpers -------------------------------- */
+
+function formatDate(iso: string) {
+  const d = new Date(iso);
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }

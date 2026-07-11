@@ -1,18 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 44 48" width="44" height="48">
   <defs>
-    <linearGradient id="ring" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#3ff59a"/>
-      <stop offset="1" stop-color="#159a57"/>
-    </linearGradient>
-    <linearGradient id="glyph" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#8ff7c2"/>
-      <stop offset="1" stop-color="#2ee88a"/>
+    <linearGradient id="s" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e6c877"/>
+      <stop offset="1" stop-color="#c08a2e"/>
     </linearGradient>
   </defs>
-  <rect x="4" y="4" width="92" height="92" rx="24" fill="#0a0f0c" stroke="url(#ring)" stroke-width="5"/>
-  <g fill="none" stroke="url(#glyph)" stroke-width="9" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M37 36 L23 50 L37 64"/>
-    <path d="M63 36 L77 50 L63 64"/>
-    <path d="M56 33 L44 67"/>
-  </g>
+  <path d="M22 2 40 7v16c0 12-8 19-18 23C12 42 4 35 4 23V7L22 2Z" fill="url(#s)" stroke="#8a4a1a" stroke-width="1.4"/>
+  <path d="M22 6 36 9.8V23c0 9.6-6.2 15.4-14 18.8C14.2 38.4 8 32.6 8 23V9.8L22 6Z" fill="#faf1e8"/>
+  <path d="M22 32s-7-4.3-7-9.4a3.9 3.9 0 0 1 7-2.3 3.9 3.9 0 0 1 7 2.3C29 27.7 22 32 22 32Z" fill="#a12e2a"/>
+  <path d="M22 20V13M19.4 15.4h5.2" stroke="#c08a2e" stroke-width="1.5" stroke-linecap="round"/>
 </svg>

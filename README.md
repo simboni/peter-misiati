@@ -1,48 +1,43 @@
-# Peter Misiati — Portfolio
+# Canossian Sisters — North East Africa Province
 
-A tier-1 software-engineer portfolio and **directory of work** for Peter Misiati,
-Full-Stack Software Engineer. Built with **Next.js 16 (App Router)**, **React 19**,
-**TypeScript** and **Tailwind CSS v4**, and exported as a fast static site.
+A modern redesign of the Canossian Daughters of Charity (Canossian Sisters)
+website, built with **Next.js 16 (App Router)**, **React 19**, **TypeScript**
+and **Tailwind CSS v4**, exported as a fast static site.
+
+The design keeps the congregation's original identity — the warm terracotta,
+gold, sky-blue and sage palette drawn from the Canossian crest — and carries
+every programme and service from the previous site forward.
 
 ## Pages
 
-| Route            | Purpose                                                                   |
-| ---------------- | ------------------------------------------------------------------------- |
-| `/`              | Home — hero, stats, featured work, skills, experience, about, testimonial |
-| `/work`          | The directory — filterable grid of every project                          |
-| `/work/[slug]`   | Case study — problem, approach, architecture, highlights, impact          |
-| `/about`         | Long-form bio, principles, full skills, experience                        |
-| `/contact`       | Contact form + direct email / GitHub / LinkedIn                           |
+| Route                 | Purpose                                                              |
+| --------------------- | -------------------------------------------------------------------- |
+| `/`                   | Home — hero, 250th-anniversary banner, who we are, ministries, impact stats, causes, FAQ, news, volunteer CTA |
+| `/about`              | Story, vision & mission, St Magdalene of Canossa, where we serve     |
+| `/ministries`         | The five ministries at a glance                                      |
+| `/ministries/[slug]`  | Ministry detail — education, evangelization, pastoral healthcare, formation of the laity, spiritual exercises & retreats |
+| `/causes`             | Ongoing causes with funding progress — school, scholarships, hospital |
+| `/gallery`            | Photo mosaic from the mission                                        |
+| `/contact`            | Contact form, details, socials, FAQ                                  |
+| `/donate`             | Ways to give and how to make a gift                                  |
 
-Plus `sitemap.xml`, `robots.txt`, JSON-LD `Person` schema and per-project OG metadata.
+Plus `sitemap.xml`, `robots.txt` and JSON-LD `NGO` schema.
 
 ## Editing content — one file
 
-**All content lives in [`src/lib/portfolio.ts`](src/lib/portfolio.ts).** Change your
-bio, add a skill, add a job — or add a whole project (which auto-creates its card on
-the home grid, an entry in the `/work` directory, its own `/work/<slug>` case-study
-page, and a sitemap entry) — by editing that one typed file. You never touch the page
-components.
+**All content lives in [`src/lib/site.ts`](src/lib/site.ts).** Ministries,
+causes, stats, FAQs, locations, news updates, contact details — edit that one
+typed file and every page (and the sitemap) updates. Adding a ministry
+automatically creates its card, its `/ministries/<slug>` page, and a sitemap
+entry.
 
-Items marked `// SAMPLE — replace` are realistic placeholders. Swap them for your real
-work. To feature a project on the home page, set `featured: true`.
+Photos live in `public/images/`.
 
-### Adding screenshots
+## Forms
 
-Each project has a `media: []` array. Drop images into `public/` and add
-`{ src: "/my-shot.png", alt: "…" }` entries — they replace the branded gradient cover
-on the case-study page.
-
-### Your résumé / CV
-
-Put a PDF in `public/` and set `profile.resumeUrl` (e.g. `"/peter-misiati-cv.pdf"`) —
-a Résumé button then appears in the hero.
-
-## Contact form delivery
-
-The form at `/contact` posts to a no-backend service ([FormSubmit](https://formsubmit.co))
-that emails each enquiry to `profile.email`. The first submission triggers a one-time
-activation email — click the link once and delivery is on for good.
+The contact form and newsletter post to [FormSubmit](https://formsubmit.co),
+which emails each submission to `contact.email` in `src/lib/site.ts` — no
+backend needed. The first submission triggers a one-time activation email.
 
 ## Local development
 
@@ -55,10 +50,6 @@ npm run build    # static export → ./out
 ## Deployment
 
 Static export (`output: 'export'`), so it deploys to any static host — Vercel,
-Cloudflare Pages, Netlify, GitHub Pages. Set the build command to `npm run build` and
-the output directory to `out`. Update `site.domain` in `src/lib/portfolio.ts` to your
-real domain before launch (it drives canonical URLs, the sitemap and JSON-LD).
-
----
-
-© 2026 Peter Misiati.
+Cloudflare Pages, Netlify, GitHub Pages. Build command `npm run build`, output
+directory `out`. Update `site.domain` in `src/lib/site.ts` to the live domain
+before launch (it drives canonical URLs, the sitemap and JSON-LD).

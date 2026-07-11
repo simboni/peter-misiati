@@ -1,187 +1,106 @@
 "use client";
 
 import { useState } from "react";
-import { profile } from "@/lib/portfolio";
+import { contact } from "@/lib/site";
 import { Button } from "@/components/ui";
-import { CheckIcon, MailIcon } from "@/components/icons";
-
-type Status = "idle" | "submitting" | "done" | "error";
-
-const FORM_DELIVERY_EMAIL = profile.email;
-const FORM_ENDPOINT = `https://formsubmit.co/ajax/${FORM_DELIVERY_EMAIL}`;
+import { CheckIcon } from "@/components/icons";
 
 const inputCls =
-  "w-full rounded-lg border border-ink-600 bg-ink-900 px-4 py-3 text-sm text-mist-100 placeholder:text-mist-600 focus:border-green-400 focus:outline-none focus:ring-2 focus:ring-green-400/30 transition";
+  "w-full rounded-xl border border-line-strong bg-cream-50 px-4 py-3 text-sm text-ink-900 placeholder:text-ink-400 focus:border-terra-400 focus:outline-none focus:ring-2 focus:ring-terra-400/30";
 
-const PROJECT_TYPES = [
-  "New website or web app",
-  "Existing project / rescue",
-  "API / backend work",
-  "Full-time role",
-  "Something else",
-];
+const subjects = [
+  "General enquiry",
+  "Volunteering",
+  "Support a cause / donate",
+  "Prayer request",
+  "Retreats & spiritual direction",
+] as const;
 
-function isEmail(v: string) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
-}
-
+/**
+ * Contact form posting to FormSubmit — emails each enquiry to the Province
+ * inbox with no backend. The first submission triggers a one-time activation.
+ */
 export function ContactForm() {
-  const [status, setStatus] = useState<Status>("idle");
-  const [errors, setErrors] = useState<Record<string, string>>({});
-  const [form, setForm] = useState({
-    name: "",
-    email: "",
-    projectType: "",
-    message: "",
-    _honey: "",
-  });
+  const [sent, setSent] = useState(false);
 
-  const update =
-    (k: keyof typeof form) =>
-    (
-      e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>,
-    ) =>
-      setForm((f) => ({ ...f, [k]: e.target.value }));
-
-  const mailHref = () => {
-    const subject = `Project enquiry from ${form.name || "your site"}`;
-    const body = [
-      `Name: ${form.name}`,
-      form.projectType && `About: ${form.projectType}`,
-      "",
-      form.message,
-    ]
-      .filter(Boolean)
-      .join("\n");
-    return `mailto:${profile.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-  };
-
-  function validate() {
-    const e: Record<string, string> = {};
-    if (form.name.trim().length < 2) e.name = "Please tell me your name.";
-    if (!form.email) e.email = "I'll need an email to reply.";
-    else if (!isEmail(form.email)) e.email = "That email doesn't look right.";
-    if (form.message.trim().length < 5) e.message = "Tell me a little about your project.";
-    return e;
-  }
-
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    const found = validate();
-    if (Object.keys(found).length) {
-      setErrors(found);
-      setStatus("error");
-      return;
-    }
-    setErrors({});
-    setStatus("submitting");
-    try {
-      const res = await fetch(FORM_ENDPOINT, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({
-          name: form.name,
-          email: form.email,
-          projectType: form.projectType || "Not specified",
-          message: form.message,
-          _honey: form._honey,
-          _subject: `Portfolio enquiry from ${form.name}`,
-          _replyto: form.email,
-          _template: "table",
-          _captcha: "false",
-        }),
-      });
-      if (!res.ok) throw new Error(`Form endpoint responded ${res.status}`);
-      setStatus("done");
-    } catch {
-      setStatus("done");
-    }
-  }
-
-  if (status === "done") {
+  if (sent) {
     return (
-      <div className="win p-8 text-center">
-        <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-green-400/15 text-green-400">
+      <div className="card flex flex-col items-center gap-4 px-8 py-14 text-center">
+        <span className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-sage-500/12 text-sage-600">
           <CheckIcon className="h-7 w-7" />
         </span>
-        <h3 className="mt-5 font-display text-2xl font-bold text-mist-100">
-          Thanks, {form.name.split(" ")[0] || "there"}!
-        </h3>
-        <p className="mx-auto mt-3 max-w-md text-mist-400">
-          Your message is on its way — I&rsquo;ll get back to you within one working day.
+        <h3 className="font-display text-2xl font-semibold text-ink-900">Message received</h3>
+        <p className="max-w-sm text-ink-600">
+          Thank you for reaching out. A Sister will reply to you as soon as possible. May God
+          bless you.
         </p>
-        <div className="mt-6">
-          <Button href={mailHref()} variant="outline">
-            <MailIcon className="h-5 w-5" /> {profile.email}
-          </Button>
-        </div>
       </div>
     );
   }
 
   return (
-    <form onSubmit={onSubmit} className="win p-6 sm:p-8" noValidate>
+    <form
+      action={`https://formsubmit.co/${contact.email}`}
+      method="POST"
+      onSubmit={() => setSent(true)}
+      className="card grid gap-5 p-6 sm:p-8"
+    >
+      <input type="hidden" name="_subject" value="New enquiry from the website" />
+      <input type="hidden" name="_template" value="table" />
+      <input type="text" name="_honey" className="hidden" tabIndex={-1} autoComplete="off" />
+
       <div className="grid gap-5 sm:grid-cols-2">
-        <Field label="name" error={errors.name} required>
-          <input
-            type="text"
-            value={form.name}
-            onChange={update("name")}
-            className={inputCls}
-            placeholder="Jane Doe"
-            autoComplete="name"
-          />
+        <Field label="Full name" htmlFor="name">
+          <input id="name" name="name" required placeholder="Jane Doe" className={inputCls} />
         </Field>
-        <Field label="email" error={errors.email} required>
+        <Field label="Email" htmlFor="email">
           <input
+            id="email"
             type="email"
-            value={form.email}
-            onChange={update("email")}
-            className={inputCls}
+            name="email"
+            required
             placeholder="you@example.com"
-            autoComplete="email"
+            className={inputCls}
           />
         </Field>
       </div>
-      <div className="mt-5">
-        <Field label="what's it about?" error={errors.projectType}>
-          <select value={form.projectType} onChange={update("projectType")} className={inputCls}>
-            <option value="">Select one…</option>
-            {PROJECT_TYPES.map((t) => (
-              <option key={t} value={t}>
-                {t}
+
+      <div className="grid gap-5 sm:grid-cols-2">
+        <Field label="Phone (optional)" htmlFor="phone">
+          <input id="phone" name="phone" placeholder="+254 …" className={inputCls} />
+        </Field>
+        <Field label="I'm writing about" htmlFor="subject">
+          <select id="subject" name="subject" defaultValue="" required className={inputCls}>
+            <option value="" disabled>
+              Choose a topic
+            </option>
+            {subjects.map((s) => (
+              <option key={s} value={s}>
+                {s}
               </option>
             ))}
           </select>
         </Field>
       </div>
-      <div className="mt-5">
-        <Field label="message" error={errors.message} required>
-          <textarea
-            value={form.message}
-            onChange={update("message")}
-            rows={5}
-            className={inputCls}
-            placeholder="Tell me about your project, timeline, and what you need…"
-          />
-        </Field>
-      </div>
 
-      <input
-        type="text"
-        tabIndex={-1}
-        autoComplete="off"
-        value={form._honey}
-        onChange={update("_honey")}
-        className="absolute left-[-9999px] h-0 w-0 opacity-0"
-        aria-hidden="true"
-      />
+      <Field label="Message" htmlFor="message">
+        <textarea
+          id="message"
+          name="message"
+          required
+          rows={5}
+          placeholder="How can we help?"
+          className={`${inputCls} resize-y`}
+        />
+      </Field>
 
-      <div className="mt-6 flex flex-col items-start gap-3 sm:flex-row sm:items-center">
-        <Button type="submit" variant="gold" size="lg" disabled={status === "submitting"} withArrow>
-          {status === "submitting" ? "sending…" : "send message"}
+      <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-xs text-ink-500">
+          Your details are only used to reply to your message.
+        </p>
+        <Button type="submit" variant="primary" size="lg" withArrow>
+          Send message
         </Button>
-        <p className="font-mono text-xs text-mist-600">{"// replies within one working day"}</p>
       </div>
     </form>
   );
@@ -189,23 +108,17 @@ export function ContactForm() {
 
 function Field({
   label,
-  error,
-  required,
+  htmlFor,
   children,
 }: {
   label: string;
-  error?: string;
-  required?: boolean;
+  htmlFor: string;
   children: React.ReactNode;
 }) {
   return (
-    <label className="block">
-      <span className="mb-1.5 block font-mono text-xs text-mist-400">
-        {label}
-        {required && <span className="text-green-400"> *</span>}
-      </span>
+    <label htmlFor={htmlFor} className="flex flex-col gap-1.5">
+      <span className="text-sm font-medium text-ink-800">{label}</span>
       {children}
-      {error && <span className="mt-1 block text-xs text-red-400">{error}</span>}
     </label>
   );
 }

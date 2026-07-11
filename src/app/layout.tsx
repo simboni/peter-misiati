@@ -1,20 +1,16 @@
 import type { Metadata } from "next";
-import { Inter, JetBrains_Mono, Space_Grotesk } from "next/font/google";
+import { Inter, Fraunces } from "next/font/google";
 import "./globals.css";
-import { profile, site } from "@/lib/portfolio";
+import { site, contact, locations } from "@/lib/site";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 
 const inter = Inter({ variable: "--font-inter", subsets: ["latin"], display: "swap" });
-const space = Space_Grotesk({
-  variable: "--font-space",
+const fraunces = Fraunces({
+  variable: "--font-fraunces",
   subsets: ["latin"],
   display: "swap",
-});
-const jetbrains = JetBrains_Mono({
-  variable: "--font-jetbrains",
-  subsets: ["latin"],
-  display: "swap",
+  axes: ["SOFT", "opsz"],
 });
 
 const siteUrl = `https://${site.domain}`;
@@ -23,28 +19,27 @@ export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
     default: site.title,
-    template: `%s | ${profile.name}`,
+    template: `%s | ${site.shortName}`,
   },
   description: site.description,
   keywords: [
-    "Simboni Misiati Peter",
-    "SMP",
-    "SMP Developers",
-    "software engineer Kenya",
-    "web developer Kenya",
-    "WordPress developer",
-    "Laravel developer",
-    "tech consultant",
-    "microfinance software",
-    "Nairobi software engineer",
+    "Canossian Sisters",
+    "Canossian Daughters of Charity",
+    "St Magdalene of Canossa",
+    "Catholic sisters Africa",
+    "Tanzania Kenya Uganda Sudan mission",
+    "Canossa hospital",
+    "Canossa school",
+    "evangelization Africa",
+    "Servants of the Poor",
   ],
-  authors: [{ name: profile.name }],
-  creator: profile.name,
+  authors: [{ name: site.name }],
+  creator: site.name,
   openGraph: {
     type: "website",
     locale: "en_US",
     url: siteUrl,
-    siteName: profile.name,
+    siteName: site.shortName,
     title: site.title,
     description: site.description,
   },
@@ -56,17 +51,23 @@ export const metadata: Metadata = {
   robots: { index: true, follow: true },
 };
 
-const personSchema = {
+const orgSchema = {
   "@context": "https://schema.org",
-  "@type": "Person",
-  name: profile.name,
-  jobTitle: profile.role,
-  email: `mailto:${profile.email}`,
+  "@type": "NGO",
+  name: site.name,
+  alternateName: site.shortName,
   url: siteUrl,
-  description: profile.valueProp,
-  sameAs: [profile.socials.github, profile.socials.linkedin, profile.socials.x].filter(
-    Boolean,
-  ),
+  description: site.description,
+  telephone: contact.phone,
+  email: contact.email,
+  areaServed: locations.map((l) => l.country),
+  address: {
+    "@type": "PostalAddress",
+    streetAddress: contact.address.lines[0],
+    postOfficeBoxNumber: "7683",
+    addressLocality: "Dar es Salaam",
+    addressCountry: "TZ",
+  },
 };
 
 export default function RootLayout({
@@ -75,12 +76,12 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${inter.variable} ${space.variable} ${jetbrains.variable} h-full antialiased`}
+      className={`${inter.variable} ${fraunces.variable} h-full antialiased`}
     >
-      <body className="flex min-h-full flex-col bg-ink-900">
+      <body className="flex min-h-full flex-col bg-cream-50">
         <script
           type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(personSchema) }}
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(orgSchema) }}
         />
         <SiteHeader />
         <main className="flex-1">{children}</main>
