@@ -78,6 +78,13 @@
       "when": 1783544701280,
       "tag": "0010_red_black_queen",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1783886685945,
+      "tag": "0011_quick_menace",
+      "breakpoints": true
     }
   ]
 }

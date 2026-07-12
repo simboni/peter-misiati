@@ -1,0 +1,1 @@
+ALTER TABLE `org_profile` ADD `share_domain` text;

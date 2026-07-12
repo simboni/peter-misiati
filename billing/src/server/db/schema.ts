@@ -145,6 +145,10 @@ export const orgProfile = sqliteTable("org_profile", {
   logoUrl: text("logo_url"),
   bankDetails: text("bank_details"),
   invoiceFooter: text("invoice_footer"),
+  // Optional custom domain for public share links (Pro white-label). When set,
+  // shared invoice/receipt links use https://<shareDomain>/d/... instead of the
+  // TallyPay domain. The vendor must CNAME it to the app first.
+  shareDomain: text("share_domain"),
   // Authorised signature shown on documents for credibility. The image is
   // stored inline (data URL) so no external hosting is needed.
   signatureUrl: text("signature_url"),

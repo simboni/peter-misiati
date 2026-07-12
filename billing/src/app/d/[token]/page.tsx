@@ -3,13 +3,13 @@ import { notFound } from "next/navigation";
 import { and, eq, lt } from "drizzle-orm";
 import { getDb, schema } from "@/server/db";
 import { getOrg, getOrgProfile } from "@/server/org";
-import { pdfIssuer } from "@/server/pdf-issuer";
 import { browserEnabled, appBaseUrl } from "@/server/config";
 import { kopokopoConfigForOrg } from "@/server/payments-config";
 import { MPESA_PAYMENTS_ENABLED, SERVER_PDF_ENABLED } from "@/lib/flags";
 import { PrintBar } from "@/components/documents/print-bar";
 import { PayPanel } from "@/components/pay-panel";
 import { formatMoney } from "@/server/money";
+import { fmtDate } from "@/server/queries";
 import {
   InvoiceDocument,
   ReceiptDocument,
@@ -19,25 +19,65 @@ import {
 
 import type { Metadata } from "next";
 
-// Name the browser tab (and therefore the "Save as PDF" filename) after the
-// actual document — "Invoice INV-0001", "Receipt RCP-0002" — not "Document".
-// `absolute` skips the "· TallyPay" template so the filename stays purpose-only.
-async function labelForToken(db: Awaited<ReturnType<typeof getDb>>, token: string): Promise<string | null> {
-  const inv = await db.select({ number: schema.invoice.number, type: schema.invoice.type }).from(schema.invoice).where(eq(schema.invoice.shareToken, token)).limit(1);
-  if (inv[0]) return `${inv[0].type === "quotation" ? "Quotation" : "Invoice"} ${inv[0].number}`;
-  const pay = await db.select({ number: schema.payment.number }).from(schema.payment).where(eq(schema.payment.shareToken, token)).limit(1);
-  if (pay[0]) return `Receipt ${pay[0].number}`;
-  const dn = await db.select({ number: schema.deliveryNote.number }).from(schema.deliveryNote).where(eq(schema.deliveryNote.shareToken, token)).limit(1);
-  if (dn[0]) return `Delivery Note ${dn[0].number}`;
-  const cn = await db.select({ number: schema.creditNote.number }).from(schema.creditNote).where(eq(schema.creditNote.shareToken, token)).limit(1);
-  if (cn[0]) return `Credit Note ${cn[0].number}`;
+// The public share base for a vendor: their own custom domain when configured,
+// otherwise the TallyPay app domain. Lets shared links read as the vendor's own.
+async function shareBaseFor(profile: { shareDomain?: string | null } | null): Promise<string> {
+  const d = profile?.shareDomain?.trim();
+  if (d) return `https://${d.replace(/^https?:\/\//, "").replace(/\/+$/, "")}`;
+  return await appBaseUrl();
+}
+
+// Vendor-branded link-preview (Open Graph) data: the sharing card shows the
+// issuing business's name, address, logo and the document amount — so the
+// client feels they're dealing with the vendor, not TallyPay. Falls back to a
+// plain title if the token doesn't resolve.
+type ShareMeta = { title: string; description: string; siteName: string; base: string; hasLogo: boolean };
+async function metaForToken(db: Awaited<ReturnType<typeof getDb>>, token: string): Promise<ShareMeta | null> {
+  const brand = async (organizationId: string, currencyFallback = "KES") => {
+    const [org, profile] = await Promise.all([getOrg(db, organizationId), getOrgProfile(db, organizationId)]);
+    const vendorName = profile?.legalName || org?.name || "Business";
+    const addr = [profile?.addressLine1, profile?.city].filter(Boolean).join(", ");
+    return { vendorName, addr, base: await shareBaseFor(profile), hasLogo: Boolean(profile?.logoUrl), currency: profile?.currency ?? currencyFallback };
+  };
+
+  const inv = await db.select({ number: schema.invoice.number, type: schema.invoice.type, total: schema.invoice.total, currency: schema.invoice.currency, dueDate: schema.invoice.dueDate, organizationId: schema.invoice.organizationId }).from(schema.invoice).where(eq(schema.invoice.shareToken, token)).limit(1);
+  if (inv[0]) {
+    const b = await brand(inv[0].organizationId, inv[0].currency);
+    const kind = inv[0].type === "quotation" ? "Quotation" : "Invoice";
+    const due = inv[0].type !== "quotation" && inv[0].dueDate ? `, due ${fmtDate(inv[0].dueDate)}` : "";
+    return { title: `${kind} ${inv[0].number} — ${b.vendorName}`, description: `${b.vendorName}${b.addr ? ` · ${b.addr}` : ""} — ${formatMoney(inv[0].total, inv[0].currency)}${due}`, siteName: b.vendorName, base: b.base, hasLogo: b.hasLogo };
+  }
+  const pay = await db.select({ number: schema.payment.number, amount: schema.payment.amount, organizationId: schema.payment.organizationId }).from(schema.payment).where(eq(schema.payment.shareToken, token)).limit(1);
+  if (pay[0]) {
+    const b = await brand(pay[0].organizationId);
+    return { title: `Receipt ${pay[0].number} — ${b.vendorName}`, description: `${b.vendorName}${b.addr ? ` · ${b.addr}` : ""} — Payment received: ${formatMoney(pay[0].amount, b.currency)}`, siteName: b.vendorName, base: b.base, hasLogo: b.hasLogo };
+  }
+  const dn = await db.select({ number: schema.deliveryNote.number, organizationId: schema.deliveryNote.organizationId }).from(schema.deliveryNote).where(eq(schema.deliveryNote.shareToken, token)).limit(1);
+  if (dn[0]) {
+    const b = await brand(dn[0].organizationId);
+    return { title: `Delivery Note ${dn[0].number} — ${b.vendorName}`, description: `${b.vendorName}${b.addr ? ` · ${b.addr}` : ""} — Delivery note`, siteName: b.vendorName, base: b.base, hasLogo: b.hasLogo };
+  }
+  const cn = await db.select({ number: schema.creditNote.number, total: schema.creditNote.total, currency: schema.creditNote.currency, organizationId: schema.creditNote.organizationId }).from(schema.creditNote).where(eq(schema.creditNote.shareToken, token)).limit(1);
+  if (cn[0]) {
+    const b = await brand(cn[0].organizationId, cn[0].currency);
+    return { title: `Credit Note ${cn[0].number} — ${b.vendorName}`, description: `${b.vendorName} — Credit note ${formatMoney(cn[0].total, cn[0].currency)}`, siteName: b.vendorName, base: b.base, hasLogo: b.hasLogo };
+  }
   return null;
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ token: string }> }): Promise<Metadata> {
   const { token } = await params;
-  const label = await labelForToken(await getDb(), token);
-  return { title: label ? { absolute: label } : "Document" };
+  const m = await metaForToken(await getDb(), token);
+  if (!m) return { title: "Document" };
+  const images = m.hasLogo ? [{ url: `${m.base}/d/${token}/logo` }] : undefined;
+  return {
+    title: { absolute: m.title },
+    description: m.description,
+    openGraph: { title: m.title, description: m.description, siteName: m.siteName, type: "website", url: `${m.base}/d/${token}`, images },
+    twitter: { card: images ? "summary_large_image" : "summary", title: m.title, description: m.description, images: images?.map((i) => i.url) },
+    // Private shared documents shouldn't be search-indexed.
+    robots: { index: false, follow: false },
+  };
 }
 
 async function issuerFor(db: Awaited<ReturnType<typeof getDb>>, organizationId: string) {
@@ -81,7 +121,8 @@ export default async function PublicDocumentPage({
       invoice.status !== "void" &&
       invoice.balanceDue > 0 &&
       (await kopokopoConfigForOrg(db, invoice.organizationId)) !== null;
-    const payUrl = canPay ? `${await appBaseUrl()}/d/${invoice.shareToken}` : null;
+    const base = await shareBaseFor(issuer.profile);
+    const payUrl = canPay ? `${base}/d/${invoice.shareToken}` : null;
     return (
       <>
         <PrintBar
@@ -89,13 +130,7 @@ export default async function PublicDocumentPage({
           clientEmail={client?.email}
           clientPhone={client?.phone}
           pdfHref={pdfHref}
-          pdf={{
-            kind: invoice.type === "quotation" ? "quotation" : "invoice",
-            issuer: pdfIssuer(issuer.name, issuer.profile),
-            invoice,
-            lines,
-            client,
-          }}
+          shareUrl={`${base}/d/${token}`}
         />
         {canPay && (
           <div className="no-print mx-auto mt-4 max-w-[820px] px-4">
@@ -144,6 +179,7 @@ export default async function PublicDocumentPage({
     if (invRows2.length === 0) notFound();
     const priorPaid = priors.reduce((a, p) => a + p.amount, 0);
     const client = clientRows[0] ?? null;
+    const base = await shareBaseFor(issuer.profile);
     return (
       <>
         <PrintBar
@@ -151,14 +187,7 @@ export default async function PublicDocumentPage({
           clientEmail={client?.email}
           clientPhone={client?.phone}
           pdfHref={pdfHref}
-          pdf={{
-            kind: "receipt",
-            issuer: pdfIssuer(issuer.name, issuer.profile),
-            payment,
-            invoice: invRows2[0],
-            client,
-            priorPaid,
-          }}
+          shareUrl={`${base}/d/${token}`}
         />
         <div id="tp-doc" className="p-4 print:p-0">
           <ReceiptDocument
@@ -198,6 +227,7 @@ export default async function PublicDocumentPage({
         : Promise.resolve([]),
     ]);
     const client = clientRows[0] ?? null;
+    const base = await shareBaseFor(issuer.profile);
     return (
       <>
         <PrintBar
@@ -205,14 +235,7 @@ export default async function PublicDocumentPage({
           clientEmail={client?.email}
           clientPhone={client?.phone}
           pdfHref={pdfHref}
-          pdf={{
-            kind: "deliveryNote",
-            issuer: pdfIssuer(issuer.name, issuer.profile),
-            note,
-            lines,
-            client,
-            invoiceNumber: invRows3[0]?.number ?? null,
-          }}
+          shareUrl={`${base}/d/${token}`}
         />
         <div id="tp-doc" className="p-4 print:p-0">
           <DeliveryNoteDocument
@@ -248,6 +271,7 @@ export default async function PublicDocumentPage({
         : Promise.resolve([]),
     ]);
     const client = clientRows[0] ?? null;
+    const base = await shareBaseFor(issuer.profile);
     return (
       <>
         <PrintBar
@@ -255,14 +279,7 @@ export default async function PublicDocumentPage({
           clientEmail={client?.email}
           clientPhone={client?.phone}
           pdfHref={pdfHref}
-          pdf={{
-            kind: "creditNote",
-            issuer: pdfIssuer(issuer.name, issuer.profile),
-            creditNote: cn,
-            lines,
-            client,
-            invoiceNumber: invRows4[0]?.number ?? null,
-          }}
+          shareUrl={`${base}/d/${token}`}
         />
         <div id="tp-doc" className="p-4 print:p-0">
           <CreditNoteDocument issuer={issuer} creditNote={cn} lines={lines} client={client} invoiceNumber={invRows4[0]?.number ?? null} />
