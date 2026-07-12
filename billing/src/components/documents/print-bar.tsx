@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { SharePdf } from "./share-pdf";
+import type { PdfDocInput } from "@/lib/invoice-pdf";
 
 export function PrintBar({
   docLabel,
@@ -9,12 +10,14 @@ export function PrintBar({
   clientPhone,
   pdfHref,
   fileBase,
+  pdf,
 }: {
   docLabel: string;
   clientEmail?: string | null;
   clientPhone?: string | null;
   pdfHref?: string | null;
   fileBase?: string;
+  pdf?: PdfDocInput;
 }) {
   const [copied, setCopied] = useState(false);
   // Set on the client after mount to avoid a hydration mismatch.
@@ -39,7 +42,7 @@ export function PrintBar({
 
   return (
     <div className="no-print sticky top-0 z-10 flex flex-wrap items-center justify-center gap-2 border-b border-line bg-white/90 px-4 py-3 backdrop-blur">
-      <SharePdf fileBase={fileBase || docLabel.replace(/\s+/g, "-")} docLabel={docLabel} />
+      {pdf && <SharePdf doc={pdf} fileBase={fileBase || docLabel.replace(/\s+/g, "-")} docLabel={docLabel} />}
       <button onClick={() => window.print()} className="btn-ghost btn-sm">
         Print / Save as PDF
       </button>

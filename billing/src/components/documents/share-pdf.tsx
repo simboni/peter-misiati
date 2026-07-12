@@ -1,65 +1,31 @@
 "use client";
 
 import { useState } from "react";
+import type { PdfDocInput } from "@/lib/invoice-pdf";
 
 /**
- * Build a PDF of the on-page document (client-side, no server) and share it as
- * an actual file via the device's share sheet — so WhatsApp/Email/etc. receive
- * a PDF, not a link. Falls back to downloading the PDF where file-sharing isn't
- * supported (most desktops).
+ * Build a clean, vector A4 PDF of the document (real selectable text, laid out
+ * for print — NOT a screenshot of the page) and share it as a file via the
+ * device share sheet, falling back to a download where file-sharing isn't
+ * supported. `doc` carries the structured data; the heavy jspdf builder is
+ * dynamically imported so it only loads on click.
  */
-export function SharePdf({ fileBase, docLabel }: { fileBase: string; docLabel: string }) {
+export function SharePdf({ doc, fileBase, docLabel }: { doc: PdfDocInput; fileBase: string; docLabel: string }) {
   const [busy, setBusy] = useState(false);
-
-  async function makePdfBlob(): Promise<Blob> {
-    const el = document.getElementById("tp-doc");
-    if (!el) throw new Error("Document not found on the page.");
-    const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
-      import("html2canvas-pro"),
-      import("jspdf"),
-    ]);
-    const canvas = await html2canvas(el, {
-      scale: 2,
-      backgroundColor: "#ffffff",
-      useCORS: true,
-      allowTaint: true,
-      logging: false,
-    });
-    const img = canvas.toDataURL("image/jpeg", 0.92);
-
-    const pdf = new jsPDF({ unit: "pt", format: "a4" });
-    const pageW = pdf.internal.pageSize.getWidth();
-    const pageH = pdf.internal.pageSize.getHeight();
-    const imgW = pageW;
-    const imgH = (canvas.height * pageW) / canvas.width;
-
-    if (imgH <= pageH) {
-      pdf.addImage(img, "JPEG", 0, 0, imgW, imgH);
-    } else {
-      // Taller than one page — tile the same image up the pages.
-      let heightLeft = imgH;
-      let position = 0;
-      pdf.addImage(img, "JPEG", 0, position, imgW, imgH);
-      heightLeft -= pageH;
-      while (heightLeft > 0) {
-        position -= pageH;
-        pdf.addPage();
-        pdf.addImage(img, "JPEG", 0, position, imgW, imgH);
-        heightLeft -= pageH;
-      }
-    }
-    return pdf.output("blob");
-  }
+  const [err, setErr] = useState(false);
 
   async function onShare() {
     setBusy(true);
+    setErr(false);
     try {
-      const blob = await makePdfBlob();
+      const { buildDocumentPdf } = await import("@/lib/invoice-pdf");
+      const bytes = await buildDocumentPdf(doc);
+      const blob = new Blob([bytes as BlobPart], { type: "application/pdf" });
       const fileName = `${fileBase}.pdf`;
       const file = new File([blob], fileName, { type: "application/pdf" });
       const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean };
       if (nav.canShare && nav.canShare({ files: [file] })) {
-        await nav.share({ files: [file], title: docLabel, text: docLabel });
+        await nav.share({ files: [file], title: docLabel });
       } else {
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
@@ -69,23 +35,16 @@ export function SharePdf({ fileBase, docLabel }: { fileBase: string; docLabel: s
         URL.revokeObjectURL(url);
       }
     } catch (e) {
-      // User cancelled the share sheet — do nothing.
-      if (e instanceof DOMException && e.name === "AbortError") return;
-      // Anything else (a browser that can't rasterize the page): fall back to
-      // the native Save as PDF so the user still ends up with a PDF.
-      try {
-        window.print();
-      } catch {
-        /* ignore */
-      }
+      if (e instanceof DOMException && e.name === "AbortError") return; // user cancelled the share sheet
+      setErr(true);
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <button onClick={onShare} disabled={busy} className="btn-primary btn-sm">
-      {busy ? "Preparing PDF…" : "Share PDF"}
+    <button onClick={onShare} disabled={busy} className="btn-primary btn-sm" title="Download a print-ready PDF">
+      {busy ? "Preparing PDF…" : err ? "Retry PDF" : "Share PDF"}
     </button>
   );
 }

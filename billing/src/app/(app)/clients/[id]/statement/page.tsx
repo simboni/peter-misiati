@@ -7,6 +7,7 @@ import { schema } from "@/server/db";
 import { buildStatement } from "@/server/statement";
 import { StatementDocument } from "@/components/documents/templates";
 import { PrintBar } from "@/components/documents/print-bar";
+import { pdfIssuer } from "@/server/pdf-issuer";
 
 import type { Metadata } from "next";
 
@@ -44,7 +45,22 @@ export default async function ClientStatementPage({ params }: { params: Promise<
       <div className="no-print mb-4 flex items-center justify-between">
         <Link href={`/clients/${id}`} className="btn-ghost btn-sm">← Back to client</Link>
       </div>
-      <PrintBar docLabel={`statement for ${client.name}`} clientEmail={client.email} clientPhone={client.phone} />
+      <PrintBar
+        docLabel={`Statement - ${client.name}`}
+        clientEmail={client.email}
+        clientPhone={client.phone}
+        pdf={{
+          kind: "statement",
+          issuer: pdfIssuer(org?.name ?? "Business", profile),
+          client,
+          entries: statement.entries,
+          totalDebit: statement.totalDebit,
+          totalCredit: statement.totalCredit,
+          closingBalance: statement.closingBalance,
+          currency: statement.currency,
+          asOf: new Date(),
+        }}
+      />
       <div className="p-4 print:p-0">
         <StatementDocument
           issuer={issuer}
