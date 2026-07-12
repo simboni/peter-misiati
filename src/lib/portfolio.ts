@@ -40,10 +40,10 @@ export const profile = {
   },
   /** Quick "by the numbers" stats. */
   stats: [
-    { value: 8, suffix: "+", label: "Years in tech" },
-    { value: 10, suffix: "+", label: "Projects delivered" },
-    { value: 10, suffix: "+", label: "Clients served" },
-    { value: 3, suffix: "", label: "Ventures led" },
+    { value: 10, suffix: "+", label: "Years in tech" },
+    { value: 100, suffix: "+", label: "Projects delivered" },
+    { value: 20, suffix: "+", label: "Clients served" },
+    { value: 5, suffix: "", label: "Ventures led" },
   ],
 } as const;
 
