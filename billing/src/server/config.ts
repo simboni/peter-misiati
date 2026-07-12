@@ -1,4 +1,5 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
+import { headers } from "next/headers";
 
 export async function getEnv(): Promise<CloudflareEnv> {
   const { env } = await getCloudflareContext({ async: true });
@@ -42,10 +43,28 @@ export async function resendConfig(): Promise<ResendConfig | null> {
   return { apiKey: env.RESEND_API_KEY, from: env.RESEND_FROM || "Billing <onboarding@resend.dev>" };
 }
 
-/** Public base URL of the app (for building share + callback links). */
+/**
+ * Public base URL of the app (for building share + callback links). Prefers the
+ * configured BETTER_AUTH_URL, but when that's unset (or points at localhost) it
+ * derives the real origin from the incoming request — so links never leak
+ * "localhost" in production. Falls back to the canonical domain as a last resort.
+ */
 export async function appBaseUrl(): Promise<string> {
   const env = await getEnv();
-  return (env.BETTER_AUTH_URL || "http://localhost:3000").replace(/\/$/, "");
+  const configured = env.BETTER_AUTH_URL?.replace(/\/$/, "");
+  if (configured && !configured.includes("localhost")) return configured;
+
+  try {
+    const h = await headers();
+    const host = h.get("x-forwarded-host") || h.get("host");
+    if (host) {
+      const proto = h.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : "https");
+      return `${proto}://${host}`.replace(/\/$/, "");
+    }
+  } catch {
+    // headers() is unavailable outside a request scope — fall through.
+  }
+  return configured || "https://tallypay.co.ke";
 }
 
 /** Whether the Cloudflare Browser Rendering binding is available (PDF export). */

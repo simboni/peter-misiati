@@ -130,7 +130,6 @@ export default async function PublicDocumentPage({
           clientEmail={client?.email}
           clientPhone={client?.phone}
           pdfHref={pdfHref}
-          shareUrl={`${base}/d/${token}`}
         />
         {canPay && (
           <div className="no-print mx-auto mt-4 max-w-[820px] px-4">
@@ -179,7 +178,6 @@ export default async function PublicDocumentPage({
     if (invRows2.length === 0) notFound();
     const priorPaid = priors.reduce((a, p) => a + p.amount, 0);
     const client = clientRows[0] ?? null;
-    const base = await shareBaseFor(issuer.profile);
     return (
       <>
         <PrintBar
@@ -187,7 +185,6 @@ export default async function PublicDocumentPage({
           clientEmail={client?.email}
           clientPhone={client?.phone}
           pdfHref={pdfHref}
-          shareUrl={`${base}/d/${token}`}
         />
         <div id="tp-doc" className="p-4 print:p-0">
           <ReceiptDocument
@@ -227,7 +224,6 @@ export default async function PublicDocumentPage({
         : Promise.resolve([]),
     ]);
     const client = clientRows[0] ?? null;
-    const base = await shareBaseFor(issuer.profile);
     return (
       <>
         <PrintBar
@@ -235,7 +231,6 @@ export default async function PublicDocumentPage({
           clientEmail={client?.email}
           clientPhone={client?.phone}
           pdfHref={pdfHref}
-          shareUrl={`${base}/d/${token}`}
         />
         <div id="tp-doc" className="p-4 print:p-0">
           <DeliveryNoteDocument
@@ -271,7 +266,6 @@ export default async function PublicDocumentPage({
         : Promise.resolve([]),
     ]);
     const client = clientRows[0] ?? null;
-    const base = await shareBaseFor(issuer.profile);
     return (
       <>
         <PrintBar
@@ -279,7 +273,6 @@ export default async function PublicDocumentPage({
           clientEmail={client?.email}
           clientPhone={client?.phone}
           pdfHref={pdfHref}
-          shareUrl={`${base}/d/${token}`}
         />
         <div id="tp-doc" className="p-4 print:p-0">
           <CreditNoteDocument issuer={issuer} creditNote={cn} lines={lines} client={client} invoiceNumber={invRows4[0]?.number ?? null} />

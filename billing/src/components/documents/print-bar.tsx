@@ -7,22 +7,17 @@ export function PrintBar({
   clientEmail,
   clientPhone,
   pdfHref,
-  shareUrl,
 }: {
   docLabel: string;
   clientEmail?: string | null;
   clientPhone?: string | null;
   pdfHref?: string | null;
-  /** Canonical link to share — the vendor's custom domain when configured. */
-  shareUrl?: string | null;
 }) {
   const [copied, setCopied] = useState(false);
-  // Prefer the server-provided canonical URL (vendor's custom domain); fall
-  // back to the current address once mounted (avoids a hydration mismatch).
-  const [url, setUrl] = useState(shareUrl ?? "");
-  useEffect(() => {
-    if (!shareUrl) setUrl(window.location.href);
-  }, [shareUrl]);
+  // Use the page's actual address — always the real production URL, regardless
+  // of server env config. Set after mount to avoid a hydration mismatch.
+  const [url, setUrl] = useState("");
+  useEffect(() => setUrl(window.location.href), []);
   const message = `Hello, here is your ${docLabel}: ${url}`;
 
   const copy = async () => {
