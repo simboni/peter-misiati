@@ -19,11 +19,11 @@ import {
 
 import type { Metadata } from "next";
 
-// The public share base for a vendor: their own custom domain when configured,
-// otherwise the TallyPay app domain. Lets shared links read as the vendor's own.
-async function shareBaseFor(profile: { shareDomain?: string | null } | null): Promise<string> {
-  const d = profile?.shareDomain?.trim();
-  if (d) return `https://${d.replace(/^https?:\/\//, "").replace(/\/+$/, "")}`;
+// Public share links always use the TallyPay app domain. (The client-facing
+// link PREVIEW is still fully vendor-branded via the Open Graph metadata below
+// — business name, address, logo and amount — so clients see the vendor, not
+// TallyPay, even though the URL is tallypay.co.ke.)
+async function shareBaseFor(_profile?: unknown): Promise<string> {
   return await appBaseUrl();
 }
 

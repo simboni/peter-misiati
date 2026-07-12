@@ -217,40 +217,6 @@ export function SettingsForm({
       <section className="card p-6">
         <div className="mb-1 flex items-center gap-2">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">
-            Share link domain
-          </h2>
-          {!pro && (
-            <span className="rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-semibold text-brand-700">
-              Pro
-            </span>
-          )}
-        </div>
-        <p className="mb-4 text-sm text-muted">
-          Share invoices and receipts on your own domain so clients see your brand, not TallyPay.
-          Leave blank to use the default TallyPay link.
-        </p>
-        <label className="label" htmlFor="shareDomain">
-          Custom domain
-        </label>
-        <input
-          id="shareDomain"
-          name="shareDomain"
-          className="input"
-          placeholder="e.g. pay.yourbusiness.co.ke"
-          defaultValue={profile.shareDomain ?? ""}
-          autoCapitalize="none"
-          spellCheck={false}
-        />
-        <p className="mt-2 text-xs text-muted">
-          One-time setup: add a <b>CNAME</b> record for this domain pointing to{" "}
-          <code className="rounded bg-canvas px-1 py-0.5">tallypay.co.ke</code>, then contact support
-          to activate it. Until it&apos;s pointed and activated, links on it won&apos;t open.
-        </p>
-      </section>
-
-      <section className="card p-6">
-        <div className="mb-1 flex items-center gap-2">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">
             Invoice template &amp; colour
           </h2>
           {!pro && (
