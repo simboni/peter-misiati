@@ -24,10 +24,22 @@ export async function generateMetadata({
   const { slug } = await params;
   const project = getProject(slug);
   if (!project) return { title: "Project not found" };
+  // Share the project's own preview when it has one; otherwise fall back to
+  // the site-wide card so every case-study link still unfurls with an image.
+  const image = project.media[0]?.src ?? "/opengraph-image.png";
   return {
     title: project.title,
     description: project.summary,
-    openGraph: { title: project.title, description: project.summary },
+    openGraph: {
+      title: project.title,
+      description: project.summary,
+      images: [image],
+    },
+    twitter: {
+      title: project.title,
+      description: project.summary,
+      images: [image],
+    },
   };
 }
 
