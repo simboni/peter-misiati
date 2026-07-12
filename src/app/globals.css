@@ -186,17 +186,17 @@ body {
 .hero-stagger > *:nth-child(5) { animation-delay: 0.37s; }
 .hero-stagger > *:nth-child(6) { animation-delay: 0.45s; }
 
-/* Logo marquee — a single row sliding slowly to the right, looping seamlessly.
+/* Logo marquee — a single row sliding slowly to the left, looping seamlessly.
    The track holds two identical copies; translating by -50% shows the seam-free
    loop point. Each item owns its trailing gap (margin) so the halves are equal. */
-@keyframes marquee-right {
-  from { transform: translateX(-50%); }
-  to { transform: translateX(0); }
+@keyframes marquee-left {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
 }
 .marquee-track {
   display: flex;
   width: max-content;
-  animation: marquee-right var(--marquee-duration, 55s) linear infinite;
+  animation: marquee-left var(--marquee-duration, 55s) linear infinite;
   will-change: transform;
 }
 .marquee:hover .marquee-track { animation-play-state: paused; }
