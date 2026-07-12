@@ -1,26 +1,13 @@
 export const dynamic = "force-dynamic";
 import { AppShell } from "@/components/app-shell";
-import { requireOrg, getOrg, getOrgProfile } from "@/server/org";
-import { getAdminContext } from "@/server/admin";
-import { isPro } from "@/lib/plan";
+import { appShellContext } from "@/server/org";
 import { signOutAction } from "@/server/actions/auth";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  const { db, organizationId, user } = await requireOrg();
-  const [org, profile, admin] = await Promise.all([
-    getOrg(db, organizationId),
-    getOrgProfile(db, organizationId),
-    getAdminContext(),
-  ]);
+  const { orgName, userEmail, pro, isAdmin } = await appShellContext();
 
   return (
-    <AppShell
-      orgName={org?.name ?? "Workspace"}
-      userEmail={user.email}
-      pro={isPro(profile?.plan)}
-      isAdmin={Boolean(admin)}
-      signOut={signOutAction}
-    >
+    <AppShell orgName={orgName} userEmail={userEmail} pro={pro} isAdmin={isAdmin} signOut={signOutAction}>
       {children}
     </AppShell>
   );
