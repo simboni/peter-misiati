@@ -17,10 +17,58 @@
   --color-muted: #64748b;
   --color-line: #e2e8f0;
   --color-canvas: #f8fafc;
+  /* Raised surfaces (cards, inputs, sidebar). Themed below so the whole app
+     re-skins by swapping these variables — no per-component dark: classes. */
+  --color-surface: #ffffff;
+  --color-surface-2: #f1f5f9;
 }
 
-:root {
+/* ------------------------------------------------------------------ */
+/* Themes — Light (default) · Dark · Midnight. The switcher sets
+   data-theme on <html>; utilities read these vars, so everything reskins. */
+:root,
+:root[data-theme="light"] {
   color-scheme: light;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-ink: #e7eef8;
+  --color-muted: #93a3bb;
+  --color-line: #263349;
+  --color-canvas: #0b1220;
+  --color-surface: #131c30;
+  --color-surface-2: #1b2540;
+}
+:root[data-theme="midnight"] {
+  color-scheme: dark;
+  --color-ink: #ece9fb;
+  --color-muted: #a8a2c8;
+  --color-line: #2c2554;
+  --color-canvas: #0b0a1a;
+  --color-surface: #171532;
+  --color-surface-2: #221d47;
+}
+
+/* Printed / shared documents must always read as ink-on-white regardless of the
+   app theme — pin light tokens on the document scope. */
+.doc-light {
+  color-scheme: light;
+  --color-ink: #0f172a;
+  --color-muted: #64748b;
+  --color-line: #e2e8f0;
+  --color-canvas: #f8fafc;
+  --color-surface: #ffffff;
+  --color-surface-2: #f1f5f9;
+  color: var(--color-ink);
+}
+@media print {
+  :root {
+    --color-ink: #0f172a;
+    --color-muted: #64748b;
+    --color-line: #e2e8f0;
+    --color-canvas: #ffffff;
+    --color-surface: #ffffff;
+  }
 }
 
 body {
@@ -47,17 +95,17 @@ body {
     @apply bg-brand-600 text-white hover:bg-brand-700;
   }
   .btn-ghost {
-    @apply border border-line bg-white text-ink hover:bg-canvas;
+    @apply border border-line bg-surface text-ink hover:bg-surface-2;
   }
   .btn-danger {
-    @apply border border-red-200 bg-white text-red-600 hover:bg-red-50;
+    @apply border border-red-200 bg-surface text-red-600 hover:bg-red-50;
   }
   .btn-sm {
     @apply px-3 py-1.5 text-xs;
   }
 
   .input {
-    @apply w-full rounded-lg border border-line bg-white px-3 py-2 text-sm
+    @apply w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm
       text-ink shadow-sm outline-none placeholder:text-muted
       focus:border-brand-500 focus:ring-2 focus:ring-brand-100;
   }
@@ -65,7 +113,7 @@ body {
     @apply mb-1 block text-xs font-medium text-muted;
   }
   .card {
-    @apply rounded-xl border border-line bg-white shadow-sm;
+    @apply rounded-xl border border-line bg-surface shadow-sm;
   }
 
   .badge {

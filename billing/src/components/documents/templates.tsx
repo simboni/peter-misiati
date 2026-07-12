@@ -60,7 +60,7 @@ function DocumentShell({
   children: React.ReactNode;
 }) {
   return (
-    <div className="mx-auto max-w-[820px] bg-white p-5 text-ink shadow-sm sm:p-8 print:max-w-none print:p-0 print:shadow-none">
+    <div className="doc-light mx-auto max-w-[820px] bg-white p-5 text-ink shadow-sm sm:p-8 print:max-w-none print:p-0 print:shadow-none">
       <div className="flex flex-col gap-6 border-b border-line pb-6 sm:flex-row sm:items-start sm:justify-between">
         <IssuerBlock issuer={issuer} />
         <div className="sm:shrink-0 sm:text-right">

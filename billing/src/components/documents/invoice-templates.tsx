@@ -431,13 +431,13 @@ export function InvoiceDocument(props: {
     : vm.template === "boutique" ? Boutique
     : Column;
   return (
-    <>
+    <div className="doc-light">
       <style dangerouslySetInnerHTML={{ __html: DOC_CSS }} />
       <T vm={vm} />
       <div style={{ maxWidth: 820, margin: "0 auto", padding: "0 8px" }}>
         <DocSignature profile={props.issuer.profile} />
       </div>
       {vm.poweredByTally && <PoweredByTally />}
-    </>
+    </div>
   );
 }

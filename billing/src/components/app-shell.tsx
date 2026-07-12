@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
 import { Brand, BrandMark } from "./brand";
+import { ThemeToggle } from "./theme-toggle";
 
 /** Small spinner shown on a nav item while its route is loading. */
 function NavPending({ collapsed }: { collapsed: boolean }) {
@@ -114,7 +115,7 @@ export function AppShell({
                 ? "bg-brand-50 text-brand-800"
                 : isUpgrade && !pro
                   ? "text-brand-700 hover:bg-brand-50"
-                  : "text-slate-600 hover:bg-canvas hover:text-ink"
+                  : "text-muted hover:bg-surface-2 hover:text-ink"
             } ${collapsed ? "justify-center px-2" : ""}`}
           >
             <Icon name={it.icon} className="h-5 w-5 flex-none" />
@@ -129,7 +130,7 @@ export function AppShell({
   const Footer = ({ collapsed }: { collapsed: boolean }) =>
     collapsed ? (
       <form action={signOut}>
-        <button className="grid w-full place-items-center rounded-lg py-2 text-slate-500 hover:bg-canvas hover:text-ink" title="Sign out">
+        <button className="grid w-full place-items-center rounded-lg py-2 text-muted hover:bg-surface-2 hover:text-ink" title="Sign out">
           <Icon name="logout" />
         </button>
       </form>
@@ -145,6 +146,10 @@ export function AppShell({
             ◆ Admin console
           </Link>
         )}
+        <div className="mt-3 flex items-center justify-between">
+          <span className="text-xs font-medium text-muted">Theme</span>
+          <ThemeToggle />
+        </div>
         <form action={signOut} className="mt-2">
           <button className="btn-ghost btn-sm w-full">Sign out</button>
         </form>
@@ -155,7 +160,7 @@ export function AppShell({
     <div className="min-h-screen bg-canvas">
       {/* ---------- Desktop sidebar (fixed, collapsible) ---------- */}
       <aside
-        className={`no-print fixed inset-y-0 left-0 z-30 hidden flex-col border-r border-line bg-white transition-[width] duration-200 lg:flex ${
+        className={`no-print fixed inset-y-0 left-0 z-30 hidden flex-col border-r border-line bg-surface transition-[width] duration-200 lg:flex ${
           collapsed ? "w-[74px]" : "w-64"
         }`}
       >
@@ -185,24 +190,25 @@ export function AppShell({
       </aside>
 
       {/* ---------- Mobile top bar ---------- */}
-      <header className="no-print sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-line bg-white/90 px-4 backdrop-blur lg:hidden">
+      <header className="no-print sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-line bg-surface/90 px-4 backdrop-blur lg:hidden">
         <button
           onClick={() => setDrawer(true)}
           aria-label="Open menu"
-          className="grid h-9 w-9 place-items-center rounded-lg text-ink hover:bg-canvas"
+          className="grid h-9 w-9 place-items-center rounded-lg text-ink hover:bg-surface-2"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-6 w-6">
             <path d="M3 6h18M3 12h18M3 18h18" strokeLinecap="round" />
           </svg>
         </button>
         <Brand href="/dashboard" />
+        <ThemeToggle className="ml-auto" />
       </header>
 
       {/* ---------- Mobile drawer ---------- */}
       {drawer && (
         <div className="no-print fixed inset-0 z-40 lg:hidden">
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setDrawer(false)} />
-          <aside className="absolute inset-y-0 left-0 flex w-72 max-w-[82%] flex-col bg-white shadow-2xl">
+          <aside className="absolute inset-y-0 left-0 flex w-72 max-w-[82%] flex-col bg-surface shadow-2xl">
             <div className="flex h-14 items-center justify-between border-b border-line px-4">
               <Brand href="/dashboard" />
               <button onClick={() => setDrawer(false)} aria-label="Close menu" className="grid h-9 w-9 place-items-center rounded-lg text-muted hover:bg-canvas hover:text-ink">
