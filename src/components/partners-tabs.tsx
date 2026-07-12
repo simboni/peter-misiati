@@ -5,7 +5,7 @@ import type { Project } from "@/lib/portfolio";
 import { BrandLogo } from "@/components/client-logos";
 import { ExternalLinkIcon, ArrowUpRightIcon } from "@/components/icons";
 
-const CATEGORY_ORDER = ["Web Apps", "Business", "NGOs"];
+const CATEGORY_ORDER = ["Web Apps", "Business", "NGOs", "Political"];
 
 export function PartnersTabs({ works }: { works: Project[] }) {
   // Ordered list of categories present in the data.

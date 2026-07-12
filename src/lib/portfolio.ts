@@ -564,6 +564,49 @@ export const projects: Project[] = [
     ],
   },
   {
+    slug: "dennis-wamalwa",
+    title: "Dr. Dennis Wamalwa",
+    summary:
+      "A political & advocacy brand site for a Kenya National Commission on Human Rights commissioner — telling a two-decade human-rights story and turning it into a movement.",
+    type: "Political brand",
+    year: "2026",
+    role: "Design & full-stack development",
+    stack: ["Next.js", "React", "TypeScript", "Tailwind CSS"],
+    tags: ["Web", "Political", "Client"],
+    featured: false,
+    cover: { from: "from-ink-700", to: "to-ink-950", initials: "DW" },
+    logo: "/logos/dennis-wamalwa.svg",
+    logoBg: "#f6efe1",
+    category: "Political",
+    links: { live: "https://www.commrdrdenniswamalwa.co.ke" },
+    problem:
+      "Dr. Dennis Wamalwa has spent over two decades defending Kenya's most vulnerable as a KNCHR commissioner, but that record lived in fragments — he needed one credible home that tells the story, shows the work, and turns supporters into a movement.",
+    approach:
+      "I designed a warm, dignified political brand — an 'Equal rights for every person' hero, a story-led journey, a work and news/press archive, a gallery, and clear 'join the movement' and 'support' calls-to-action — with a light/dark theme. Built fast and mobile-first.",
+    architecture: [
+      "Next.js App Router build with a light/dark theme.",
+      "About, My Work, News & Press and Gallery sections from a typed content model.",
+      "Prominent 'join the movement' and support calls-to-action throughout the journey.",
+      "SEO, Open Graph, sitemap and JSON-LD so the message travels.",
+    ],
+    highlights: [
+      "A dignified hero that states the mission in one line — 'Equal rights for every person.'",
+      "Impact told in numbers: two decades of service and over a thousand verified redress cases.",
+      "Light/dark theme, fast and mobile-first for a broad Kenyan audience.",
+    ],
+    impact: [
+      { value: "20+", label: "Years of service" },
+      { value: "1,101", label: "Victims verified for redress" },
+      { value: "5", label: "Communities championed" },
+    ],
+    media: [
+      {
+        src: "/mockups/dennis-wamalwa.webp",
+        alt: "Dr. Dennis Wamalwa — 'Equal rights for every person' campaign homepage",
+      },
+    ],
+  },
+  {
     slug: "smp-portfolio",
     title: "SMP Portfolio",
     summary:
