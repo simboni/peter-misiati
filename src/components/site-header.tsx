@@ -72,12 +72,12 @@ export function SiteHeader() {
             </Button>
           </div>
 
-          <div className="flex items-center gap-2 lg:hidden">
+          <div className="flex shrink-0 items-center gap-1.5 lg:hidden">
             <ThemeSwitcher />
             <button
               type="button"
               onClick={() => setOpen((v) => !v)}
-              className="inline-flex h-11 w-11 items-center justify-center rounded-md text-mist-200 hover:bg-ink-700"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-md text-mist-200 hover:bg-ink-700"
               aria-label={open ? "Close menu" : "Open menu"}
               aria-expanded={open}
             >

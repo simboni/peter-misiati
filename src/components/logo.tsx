@@ -76,14 +76,14 @@ export function Logo({
   return (
     <Link
       href="/"
-      className={`group flex items-center gap-2.5 ${className}`}
+      className={`group flex min-w-0 items-center gap-2 sm:gap-2.5 ${className}`}
       aria-label="SMP Developers — home"
     >
       <LogoMark
         uid={uid}
-        className="h-9 w-9 shrink-0 rounded-[0.6rem] transition-transform duration-300 group-hover:-translate-y-0.5"
+        className="h-7 w-7 shrink-0 rounded-[0.5rem] transition-transform duration-300 group-hover:-translate-y-0.5 sm:h-9 sm:w-9 sm:rounded-[0.6rem]"
       />
-      <span className="whitespace-nowrap font-mono text-xl font-semibold tracking-tight">
+      <span className="truncate whitespace-nowrap font-mono text-[0.95rem] font-semibold tracking-tight sm:text-xl">
         <span className="text-mist-600">~/</span>
         <span className="text-green-400">smp-developers</span>
       </span>

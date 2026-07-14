@@ -26,7 +26,7 @@ export default function HomePage() {
     <>
       {/* ============================= HERO ============================= */}
       <section className="relative overflow-hidden border-b border-ink-700 glow-bg">
-        <div className="container-page relative py-20 sm:py-28 lg:py-36">
+        <div className="container-page relative py-14 sm:py-24 lg:py-32">
           <div className="max-w-3xl">
             <span className="inline-flex items-center gap-2 text-sm text-mist-400">
               <span className="inline-flex h-2 w-2 rounded-full bg-green-400" />
