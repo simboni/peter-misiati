@@ -38,7 +38,7 @@ export function WorkDirectory() {
               aria-pressed={on}
               className={`rounded-md px-3 py-1.5 transition-colors ${
                 on
-                  ? "bg-green-400 text-ink-950"
+                  ? "bg-green-400 text-on-accent"
                   : "border border-ink-600 text-mist-400 hover:border-green-400/60 hover:text-green-300"
               }`}
             >
@@ -115,7 +115,7 @@ function Pagination({
               aria-current={on ? "page" : undefined}
               className={`h-9 w-9 rounded-md transition-colors ${
                 on
-                  ? "bg-green-400 text-ink-950"
+                  ? "bg-green-400 text-on-accent"
                   : "border border-ink-600 text-mist-400 hover:border-green-400/60 hover:text-green-300"
               }`}
             >

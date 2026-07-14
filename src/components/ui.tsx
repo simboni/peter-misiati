@@ -13,7 +13,7 @@ const buttonBase =
 
 const buttonVariants: Record<ButtonVariant, string> = {
   // primary emerald CTA
-  gold: "bg-green-400 text-ink-950 font-semibold hover:bg-green-300",
+  gold: "bg-green-400 text-on-accent font-semibold hover:bg-green-500",
   // solid dark
   primary: "bg-ink-700 text-mist-100 border border-ink-600 hover:border-green-500 hover:text-green-300",
   // outline

@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { nav, profile } from "@/lib/portfolio";
 import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui";
+import { ThemeSwitcher } from "@/components/theme-switcher";
 import { MenuIcon, CloseIcon, GitHubIcon } from "@/components/icons";
 
 export function SiteHeader() {
@@ -53,7 +54,8 @@ export function SiteHeader() {
             })}
           </nav>
 
-          <div className="hidden items-center gap-2 lg:flex">
+          <div className="hidden items-center gap-3 lg:flex">
+            <ThemeSwitcher />
             {profile.socials.github && (
               <a
                 href={profile.socials.github}
@@ -99,8 +101,9 @@ export function SiteHeader() {
                 {item.label}
               </Link>
             ))}
-            <div className="mt-3 border-t border-ink-700 pt-4">
-              <Button href="/contact" variant="gold" size="lg" className="w-full" onClick={closeMenu}>
+            <div className="mt-3 flex items-center justify-between gap-4 border-t border-ink-700 pt-4">
+              <ThemeSwitcher />
+              <Button href="/contact" variant="gold" size="lg" className="flex-1" onClick={closeMenu}>
                 Let&rsquo;s talk
               </Button>
             </div>
