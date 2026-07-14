@@ -79,11 +79,11 @@ export default function RootLayout({
       className={`${inter.variable} ${space.variable} ${jetbrains.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col bg-ink-900">
-        {/* Apply the stored theme before first paint (default: dark). */}
+        {/* Apply the stored theme before first paint (default: light). */}
         <script
           dangerouslySetInnerHTML={{
             __html:
-              "(function(){try{var t=localStorage.getItem('smp-theme');if(t==='light'||t==='midnight'){document.documentElement.setAttribute('data-theme',t);}}catch(e){}})();",
+              "(function(){try{var t=localStorage.getItem('smp-theme');if(t==='dark'||t==='midnight'){document.documentElement.setAttribute('data-theme',t);}}catch(e){}})();",
           }}
         />
         <script

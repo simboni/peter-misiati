@@ -3,15 +3,15 @@
 import { useEffect, useState } from "react";
 
 /**
- * Three-theme selector — Dark (default), Light, Midnight.
+ * Three-theme selector — Light (default), Dark, Midnight.
  * The choice is stored in localStorage ("smp-theme") and applied as
  * data-theme on <html>; an inline script in the root layout applies it
  * before first paint so there's no flash of the wrong theme.
  */
 
 const THEMES = [
-  { id: "dark", label: "Dark", swatch: "#0a0f0c", accent: "#2ee88a" },
   { id: "light", label: "Light", swatch: "#f6f8f6", accent: "#0a9d61" },
+  { id: "dark", label: "Dark", swatch: "#0a0f0c", accent: "#2ee88a" },
   { id: "midnight", label: "Midnight", swatch: "#060b16", accent: "#3fb2ff" },
 ] as const;
 
@@ -19,7 +19,7 @@ type ThemeId = (typeof THEMES)[number]["id"];
 
 function applyTheme(id: ThemeId) {
   const root = document.documentElement;
-  if (id === "dark") root.removeAttribute("data-theme");
+  if (id === "light") root.removeAttribute("data-theme");
   else root.setAttribute("data-theme", id);
   try {
     localStorage.setItem("smp-theme", id);
@@ -29,12 +29,12 @@ function applyTheme(id: ThemeId) {
 }
 
 export function ThemeSwitcher({ className = "" }: { className?: string }) {
-  const [active, setActive] = useState<ThemeId>("dark");
+  const [active, setActive] = useState<ThemeId>("light");
 
   // Read whatever the pre-paint script applied.
   useEffect(() => {
     const current = document.documentElement.getAttribute("data-theme");
-    if (current === "light" || current === "midnight") setActive(current);
+    if (current === "dark" || current === "midnight") setActive(current);
   }, []);
 
   return (

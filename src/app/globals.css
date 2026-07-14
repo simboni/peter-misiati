@@ -6,32 +6,35 @@
    Fonts: Space Grotesk (display) · Inter (body) · JetBrains Mono (code)
 --------------------------------------------------------------------------- */
 @theme {
-  /* Ink — dark, green-tinted surfaces (backgrounds → borders) */
-  --color-ink-950: #060907;
-  --color-ink-900: #0a0f0c; /* page background */
-  --color-ink-850: #0d130f;
-  --color-ink-800: #101712; /* card surface */
-  --color-ink-700: #18211b; /* raised surface */
-  --color-ink-600: #223029; /* borders */
-  --color-ink-500: #33453b; /* strong border / hover */
+  /* Default theme: Light — paper surfaces, deep emerald accent.
+     (Dark and Midnight override these variables below.) */
 
-  /* Green — the brand signal (punchy emerald-spring) */
-  --color-green-300: #8bf7bd;
-  --color-green-400: #2ee88a; /* primary accent */
-  --color-green-500: #14cf78;
-  --color-green-600: #0aa25e;
-  --color-green-700: #0a7548;
+  /* Ink — surfaces (backgrounds → borders) */
+  --color-ink-950: #e7ebe8;
+  --color-ink-900: #f6f8f6; /* page background */
+  --color-ink-850: #eff2ef;
+  --color-ink-800: #ffffff; /* card surface */
+  --color-ink-700: #e9ede9; /* raised surface */
+  --color-ink-600: #d8deda; /* borders */
+  --color-ink-500: #bcc6bf; /* strong border / hover */
 
-  /* Mist — foreground text on ink */
-  --color-mist-100: #e9f1ec; /* headings */
-  --color-mist-200: #d3dfd8;
-  --color-mist-300: #b7c7bd;
-  --color-mist-400: #93a89c; /* body */
-  --color-mist-500: #728379;
-  --color-mist-600: #55645b; /* faint / meta */
+  /* Green — the brand signal */
+  --color-green-300: #07603c;
+  --color-green-400: #0a9d61; /* primary accent */
+  --color-green-500: #0a8a55;
+  --color-green-600: #0b7449;
+  --color-green-700: #0a5c3b;
+
+  /* Mist — foreground text */
+  --color-mist-100: #111814; /* headings */
+  --color-mist-200: #232e28;
+  --color-mist-300: #333f38;
+  --color-mist-400: #516057; /* body */
+  --color-mist-500: #6c7a71;
+  --color-mist-600: #97a29a; /* faint / meta */
 
   /* Text color used on top of the accent (buttons, active pills) */
-  --color-on-accent: #060907;
+  --color-on-accent: #ffffff;
 
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   --font-display: var(--font-space), var(--font-inter), ui-sans-serif, sans-serif;
@@ -44,31 +47,31 @@
    Applied via data-theme on <html>, persisted in localStorage ("smp-theme").
 --------------------------------------------------------------------------- */
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 }
 
-/* Light — paper surfaces, deep emerald accent */
-:root[data-theme="light"] {
-  color-scheme: light;
-  --color-ink-950: #e7ebe8;
-  --color-ink-900: #f6f8f6;
-  --color-ink-850: #eff2ef;
-  --color-ink-800: #ffffff;
-  --color-ink-700: #e9ede9;
-  --color-ink-600: #d8deda;
-  --color-ink-500: #bcc6bf;
-  --color-green-300: #07603c;
-  --color-green-400: #0a9d61;
-  --color-green-500: #0a8a55;
-  --color-green-600: #0b7449;
-  --color-green-700: #0a5c3b;
-  --color-mist-100: #111814;
-  --color-mist-200: #232e28;
-  --color-mist-300: #333f38;
-  --color-mist-400: #516057;
-  --color-mist-500: #6c7a71;
-  --color-mist-600: #97a29a;
-  --color-on-accent: #ffffff;
+/* Dark — deep ink surfaces, emerald signal (the original look) */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-ink-950: #060907;
+  --color-ink-900: #0a0f0c;
+  --color-ink-850: #0d130f;
+  --color-ink-800: #101712;
+  --color-ink-700: #18211b;
+  --color-ink-600: #223029;
+  --color-ink-500: #33453b;
+  --color-green-300: #8bf7bd;
+  --color-green-400: #2ee88a;
+  --color-green-500: #14cf78;
+  --color-green-600: #0aa25e;
+  --color-green-700: #0a7548;
+  --color-mist-100: #e9f1ec;
+  --color-mist-200: #d3dfd8;
+  --color-mist-300: #b7c7bd;
+  --color-mist-400: #93a89c;
+  --color-mist-500: #728379;
+  --color-mist-600: #55645b;
+  --color-on-accent: #060907;
 }
 
 /* Midnight — deep navy surfaces, sky accent */
@@ -106,6 +109,8 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  /* Backstop: no widget may widen the page into horizontal scroll on mobile */
+  overflow-x: clip;
 }
 
 ::selection {
@@ -145,16 +150,12 @@ body {
       );
   }
 
-  /* Terminal / code window chrome */
+  /* Raised panel chrome (forms, framed cards) — follows the active theme */
   .win {
     border: 1px solid var(--color-ink-600);
-    background:
-      linear-gradient(180deg, rgba(16, 23, 18, 0.9), rgba(10, 15, 12, 0.9));
+    background: var(--color-ink-800);
     border-radius: 0.85rem;
-    box-shadow:
-      0 1px 0 rgba(255, 255, 255, 0.03) inset,
-      0 30px 60px -30px rgba(0, 0, 0, 0.6);
-    backdrop-filter: blur(6px);
+    box-shadow: 0 24px 50px -32px rgba(0, 0, 0, 0.45);
   }
 
   .glow-ring {

@@ -80,7 +80,9 @@ export function LogoItem({ project, duplicate }: { project: Project; duplicate: 
 export function BrandLogo({ project, hideAlt }: { project: Project; hideAlt?: boolean }) {
   if (!project.logo) {
     return (
-      <span className="font-display text-xl font-bold tracking-tight text-ink-900 sm:text-2xl">
+      // logoBg is a fixed brand colour (inline style), so the fallback
+      // wordmark must be a fixed dark too — not a theme token.
+      <span className="font-display text-xl font-bold tracking-tight text-[#14181a] sm:text-2xl">
         {project.title}
       </span>
     );

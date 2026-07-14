@@ -72,15 +72,18 @@ export function SiteHeader() {
             </Button>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setOpen((v) => !v)}
-            className="inline-flex h-11 w-11 items-center justify-center rounded-md text-mist-200 hover:bg-ink-700 lg:hidden"
-            aria-label={open ? "Close menu" : "Open menu"}
-            aria-expanded={open}
-          >
-            {open ? <CloseIcon className="h-6 w-6" /> : <MenuIcon className="h-6 w-6" />}
-          </button>
+          <div className="flex items-center gap-2 lg:hidden">
+            <ThemeSwitcher />
+            <button
+              type="button"
+              onClick={() => setOpen((v) => !v)}
+              className="inline-flex h-11 w-11 items-center justify-center rounded-md text-mist-200 hover:bg-ink-700"
+              aria-label={open ? "Close menu" : "Open menu"}
+              aria-expanded={open}
+            >
+              {open ? <CloseIcon className="h-6 w-6" /> : <MenuIcon className="h-6 w-6" />}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -101,9 +104,8 @@ export function SiteHeader() {
                 {item.label}
               </Link>
             ))}
-            <div className="mt-3 flex items-center justify-between gap-4 border-t border-ink-700 pt-4">
-              <ThemeSwitcher />
-              <Button href="/contact" variant="gold" size="lg" className="flex-1" onClick={closeMenu}>
+            <div className="mt-3 border-t border-ink-700 pt-4">
+              <Button href="/contact" variant="gold" size="lg" className="w-full" onClick={closeMenu}>
                 Let&rsquo;s talk
               </Button>
             </div>

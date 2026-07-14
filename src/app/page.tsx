@@ -226,7 +226,7 @@ export default function HomePage() {
             }`}
           >
             {testimonials.map((review, i) => (
-              <Reveal key={review.author + i} delay={i * 80} className="h-full">
+              <Reveal key={review.author + i} delay={i * 80} className="h-full min-w-0">
                 <ReviewCard review={review} />
               </Reveal>
             ))}

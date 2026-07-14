@@ -123,6 +123,8 @@ export default async function CaseStudyPage({
             <div
               className={`relative flex aspect-[16/9] items-center justify-center overflow-hidden rounded-xl border border-ink-600 bg-gradient-to-br ${project.cover.from} ${project.cover.to}`}
             >
+              {/* Fixed dark scrim keeps the white initials readable in every theme */}
+              <div className="absolute inset-0 bg-black/45" />
               <div className="absolute inset-0 bg-grid opacity-40" />
               <span className="relative font-mono text-6xl font-bold text-white/90">
                 {project.cover.initials}

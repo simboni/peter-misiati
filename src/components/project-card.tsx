@@ -30,10 +30,13 @@ export function ProjectCard({ project }: { project: Project }) {
                 className="absolute inset-0 h-full w-full object-cover object-top transition-transform duration-500 group-hover:scale-105"
                 loading="lazy"
               />
-              <div className="absolute inset-0 bg-gradient-to-t from-ink-950/80 via-ink-950/10 to-transparent" />
+              {/* Fixed black scrim — sits on an image, must not follow the theme */}
+              <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent" />
             </>
           ) : (
             <>
+              {/* Fixed dark scrim keeps the white initials readable in every theme */}
+              <div className="absolute inset-0 bg-black/45" />
               <div className="absolute inset-0 bg-grid opacity-40" />
               <span className="relative font-mono text-4xl font-bold tracking-tight text-white/90">
                 {project.cover.initials}
