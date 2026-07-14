@@ -45,8 +45,8 @@ export function SiteFooter() {
 
           {/* Explore */}
           <div className="lg:col-span-3">
-            <h3 className="font-mono text-xs uppercase tracking-wider text-green-400">
-              {"// explore"}
+            <h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-mist-500">
+              Explore
             </h3>
             <ul className="mt-4 space-y-3 text-sm">
               {nav.map((item) => (
@@ -64,8 +64,8 @@ export function SiteFooter() {
 
           {/* Work */}
           <div className="lg:col-span-4">
-            <h3 className="font-mono text-xs uppercase tracking-wider text-green-400">
-              {"// selected work"}
+            <h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-mist-500">
+              Selected work
             </h3>
             <ul className="mt-4 space-y-3 text-sm">
               {projects.slice(0, 4).map((p) => (

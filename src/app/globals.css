@@ -68,17 +68,16 @@ body {
   /* Faint blueprint grid used behind hero / section bands */
   .bg-grid {
     background-image:
-      linear-gradient(rgba(46, 232, 138, 0.06) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(46, 232, 138, 0.06) 1px, transparent 1px);
+      linear-gradient(rgba(233, 241, 236, 0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(233, 241, 236, 0.025) 1px, transparent 1px);
     background-size: 44px 44px;
     background-position: center;
   }
 
-  /* Radial green glow wash for hero / CTA bands */
+  /* Whisper-quiet radial wash for hero / CTA bands */
   .glow-bg {
     background:
-      radial-gradient(48rem 26rem at 78% -12%, rgba(46, 232, 138, 0.20), transparent 62%),
-      radial-gradient(40rem 24rem at 8% 108%, rgba(20, 207, 120, 0.14), transparent 60%);
+      radial-gradient(48rem 26rem at 78% -12%, rgba(46, 232, 138, 0.06), transparent 62%);
   }
 
   /* Terminal / code window chrome */
@@ -101,12 +100,13 @@ body {
     text-wrap: balance;
   }
 
-  /* mono section label: // like a code comment */
+  /* quiet uppercase section label */
   .kicker {
-    font-family: var(--font-mono);
     font-size: 0.75rem;
-    letter-spacing: 0.02em;
-    color: var(--color-green-400);
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--color-mist-500);
   }
 }
 

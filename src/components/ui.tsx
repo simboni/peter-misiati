@@ -106,7 +106,7 @@ export function Section({
 }
 
 /* --------------------------- Kicker / Eyebrow ------------------------- */
-/* A code-comment style label: // selected work */
+/* A quiet uppercase section label */
 
 export function Eyebrow({
   children,
@@ -118,10 +118,7 @@ export function Eyebrow({
   light?: boolean;
 }) {
   return (
-    <span className={`kicker inline-flex items-center gap-1.5 ${className}`}>
-      <span className="text-mist-600">{"//"}</span>
-      {children}
-    </span>
+    <span className={`kicker inline-flex items-center ${className}`}>{children}</span>
   );
 }
 

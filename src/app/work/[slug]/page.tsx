@@ -162,7 +162,7 @@ export default async function CaseStudyPage({
         <aside className="lg:col-span-4">
           <div className="sticky top-24 space-y-6">
             <div className="rounded-xl border border-ink-600 bg-ink-800 p-6">
-              <h3 className="font-mono text-xs uppercase tracking-wide text-green-400">{"// tech stack"}</h3>
+              <h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-mist-500">Tech stack</h3>
               <div className="mt-3 flex flex-wrap gap-1.5">
                 {project.stack.map((s) => (
                   <Chip key={s}>{s}</Chip>
@@ -170,7 +170,7 @@ export default async function CaseStudyPage({
               </div>
             </div>
             <div className="rounded-xl border border-ink-600 bg-ink-800 p-6">
-              <h3 className="font-mono text-xs uppercase tracking-wide text-green-400">{"// impact"}</h3>
+              <h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-mist-500">Impact</h3>
               <div className="mt-4 space-y-4">
                 {project.impact.map((m) => (
                   <div key={m.label}>
@@ -180,8 +180,8 @@ export default async function CaseStudyPage({
                 ))}
               </div>
             </div>
-            <div className="rounded-xl border border-green-400/30 bg-grid glow-bg p-6 text-center">
-              <p className="font-mono text-sm text-mist-300">like what you see?</p>
+            <div className="rounded-xl border border-ink-600 bg-ink-800 p-6 text-center">
+              <p className="text-sm text-mist-300">Like what you see?</p>
               <Button href="/contact" variant="gold" className="mt-3 w-full" withArrow>
                 work with me
               </Button>
@@ -198,7 +198,7 @@ export default async function CaseStudyPage({
             className="group flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center"
           >
             <div>
-              <div className="font-mono text-sm text-green-400">{"// next project"}</div>
+              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mist-500">Next project</div>
               <div className="mt-1 font-display text-2xl font-bold text-mist-100 group-hover:text-green-300">
                 {next.title}
               </div>

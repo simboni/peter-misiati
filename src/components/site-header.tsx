@@ -36,18 +36,18 @@ export function SiteHeader() {
         <div className="container-page flex h-16 items-center justify-between">
           <Logo uid="hdr" />
 
-          <nav className="hidden items-center gap-1 font-mono text-sm lg:flex">
-            {nav.map((item, i) => {
+          <nav className="hidden items-center gap-1 text-sm lg:flex">
+            {nav.map((item) => {
               const active = isActive(item.href);
               return (
                 <Link
                   key={item.href}
                   href={item.href}
                   className={`rounded-md px-3 py-2 transition-colors ${
-                    active ? "text-green-400" : "text-mist-400 hover:text-mist-100"
+                    active ? "text-mist-100" : "text-mist-400 hover:text-mist-100"
                   }`}
                 >
-                  <span className="text-mist-600">0{i + 1}.</span> {item.label.toLowerCase()}
+                  {item.label}
                 </Link>
               );
             })}
@@ -66,7 +66,7 @@ export function SiteHeader() {
               </a>
             )}
             <Button href="/contact" variant="gold">
-              let&rsquo;s talk
+              Let&rsquo;s talk
             </Button>
           </div>
 
@@ -84,24 +84,24 @@ export function SiteHeader() {
 
       {open && (
         <div className="border-b border-ink-700 bg-ink-900 lg:hidden">
-          <nav className="container-page flex flex-col gap-1 py-4 font-mono">
-            {nav.map((item, i) => (
+          <nav className="container-page flex flex-col gap-1 py-4">
+            {nav.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
                 onClick={closeMenu}
                 className={`rounded-md px-4 py-3 text-base ${
                   isActive(item.href)
-                    ? "bg-ink-700 text-green-400"
+                    ? "bg-ink-700 text-mist-100"
                     : "text-mist-300 hover:bg-ink-700"
                 }`}
               >
-                <span className="text-mist-600">0{i + 1}.</span> {item.label.toLowerCase()}
+                {item.label}
               </Link>
             ))}
             <div className="mt-3 border-t border-ink-700 pt-4">
               <Button href="/contact" variant="gold" size="lg" className="w-full" onClick={closeMenu}>
-                let&rsquo;s talk
+                Let&rsquo;s talk
               </Button>
             </div>
           </nav>

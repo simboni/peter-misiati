@@ -25,70 +25,59 @@ export default function HomePage() {
   return (
     <>
       {/* ============================= HERO ============================= */}
-      <section className="relative overflow-hidden border-b border-ink-700 bg-grid glow-bg">
-        <div className="hero-orb left-[-6%] top-[6%] h-72 w-72 bg-green-500/20" />
-        <div className="container-page relative py-16 sm:py-20 lg:py-28">
-          <div className="grid items-center gap-12 lg:grid-cols-12">
-            {/* Intro */}
-            <div className="hero-stagger min-w-0 lg:col-span-7">
-              <span className="inline-flex items-center gap-2 font-mono text-sm text-green-400">
-                <span className="relative flex h-2 w-2">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-green-400" />
-                </span>
-                {profile.availability}
-              </span>
+      <section className="relative overflow-hidden border-b border-ink-700 glow-bg">
+        <div className="container-page relative py-20 sm:py-28 lg:py-36">
+          <div className="max-w-3xl">
+            <span className="inline-flex items-center gap-2 text-sm text-mist-400">
+              <span className="inline-flex h-2 w-2 rounded-full bg-green-400" />
+              {profile.availability}
+            </span>
 
-              <h1 className="mt-5 bg-gradient-to-br from-mist-100 via-mist-100 to-green-300 bg-clip-text font-display text-4xl font-bold leading-[1.05] tracking-tight text-transparent text-balance sm:text-6xl">
-                {profile.name}
-              </h1>
-              <p className="mt-3 font-mono text-lg text-green-400 sm:text-xl">
-                {profile.role}
-              </p>
+            <h1 className="mt-6 font-display text-4xl font-bold leading-[1.08] tracking-tight text-mist-100 text-balance sm:text-6xl">
+              I build the software your organisation runs on.
+            </h1>
 
-              <p className="mt-6 max-w-xl leading-relaxed text-mist-400">
-                {profile.valueProp}
-              </p>
+            <p className="mt-6 text-lg text-mist-300">
+              {profile.name} — {profile.role}
+            </p>
 
-              <div className="mt-8 flex flex-wrap gap-3">
-                <Button href="/work" variant="gold" size="lg" withArrow>
-                  view my work
-                </Button>
-                <Button href="/contact" variant="outline" size="lg">
-                  get in touch
-                </Button>
-              </div>
+            <p className="mt-4 max-w-xl leading-relaxed text-mist-400">
+              {profile.valueProp}
+            </p>
 
-              <div className="mt-8 flex items-center gap-2.5">
-                {profile.socials.github && (
-                  <HeroSocial href={profile.socials.github} label="GitHub">
-                    <GitHubIcon className="h-5 w-5" />
-                  </HeroSocial>
-                )}
-                {profile.socials.linkedin && (
-                  <HeroSocial href={profile.socials.linkedin} label="LinkedIn">
-                    <LinkedInIcon className="h-5 w-5" />
-                  </HeroSocial>
-                )}
-                <HeroSocial href={`mailto:${profile.email}`} label="Email">
-                  <MailIcon className="h-5 w-5" />
-                </HeroSocial>
-                {profile.resumeUrl && (
-                  <a
-                    href={profile.resumeUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 rounded-md border border-ink-600 px-4 py-2 font-mono text-sm text-mist-300 transition-colors hover:border-green-400/60 hover:text-green-300"
-                  >
-                    <DownloadIcon className="h-4 w-4" /> résumé
-                  </a>
-                )}
-              </div>
+            <div className="mt-10 flex flex-wrap gap-3">
+              <Button href="/work" variant="gold" size="lg" withArrow>
+                View my work
+              </Button>
+              <Button href="/contact" variant="outline" size="lg">
+                Get in touch
+              </Button>
             </div>
 
-            {/* Code window */}
-            <div className="hero-fade-in min-w-0 lg:col-span-5">
-              <CodeWindow />
+            <div className="mt-10 flex items-center gap-2.5">
+              {profile.socials.github && (
+                <HeroSocial href={profile.socials.github} label="GitHub">
+                  <GitHubIcon className="h-5 w-5" />
+                </HeroSocial>
+              )}
+              {profile.socials.linkedin && (
+                <HeroSocial href={profile.socials.linkedin} label="LinkedIn">
+                  <LinkedInIcon className="h-5 w-5" />
+                </HeroSocial>
+              )}
+              <HeroSocial href={`mailto:${profile.email}`} label="Email">
+                <MailIcon className="h-5 w-5" />
+              </HeroSocial>
+              {profile.resumeUrl && (
+                <a
+                  href={profile.resumeUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-ink-600 px-4 py-2 text-sm text-mist-300 transition-colors hover:border-green-400/60 hover:text-green-300"
+                >
+                  <DownloadIcon className="h-4 w-4" /> Résumé
+                </a>
+              )}
             </div>
           </div>
         </div>
@@ -98,10 +87,10 @@ export default function HomePage() {
           <div className="container-page grid grid-cols-2 gap-6 py-8 sm:grid-cols-4">
             {profile.stats.map((s) => (
               <div key={s.label}>
-                <div className="font-display text-3xl font-bold text-green-400 sm:text-4xl">
+                <div className="font-display text-3xl font-bold text-mist-100 sm:text-4xl">
                   <CountUp end={s.value} suffix={s.suffix} />
                 </div>
-                <div className="mt-1 font-mono text-xs text-mist-500">{s.label}</div>
+                <div className="mt-1 text-sm text-mist-500">{s.label}</div>
               </div>
             ))}
           </div>
@@ -246,9 +235,9 @@ export default function HomePage() {
       )}
 
       {/* ============================= CTA ============================= */}
-      <section className="relative overflow-hidden border-t border-ink-700 bg-grid glow-bg">
-        <div className="container-page py-20 text-center">
-          <p className="font-mono text-sm text-green-400">{"// let's build"}</p>
+      <section className="relative overflow-hidden border-t border-ink-700 glow-bg">
+        <div className="container-page py-24 text-center">
+          <Eyebrow>Let&rsquo;s build</Eyebrow>
           <h2 className="mx-auto mt-4 max-w-2xl font-display text-3xl font-bold leading-tight tracking-tight text-mist-100 text-balance sm:text-4xl">
             Have a project in mind? Let&rsquo;s ship it.
           </h2>
@@ -266,69 +255,6 @@ export default function HomePage() {
         </div>
       </section>
     </>
-  );
-}
-
-/* ----------------------------- Code window ---------------------------- */
-
-function CodeWindow() {
-  return (
-    <div className="win min-w-0 max-w-full overflow-hidden">
-      <div className="flex items-center gap-2 border-b border-ink-600 px-4 py-2.5">
-        <span className="h-3 w-3 rounded-full bg-[#ff5f56]" />
-        <span className="h-3 w-3 rounded-full bg-[#ffbd2e]" />
-        <span className="h-3 w-3 rounded-full bg-green-400" />
-        <span className="ml-2 font-mono text-xs text-mist-600">~/simboni — engineer.ts</span>
-      </div>
-      <pre className="overflow-x-auto p-5 font-mono text-[0.8rem] leading-relaxed">
-        <code>
-          <span className="text-[#c792ea]">const</span>{" "}
-          <span className="text-green-400">engineer</span>{" "}
-          <span className="text-mist-500">=</span>{" "}
-          <span className="text-mist-300">{"{"}</span>
-          {"\n"}
-          {"  "}<span className="text-mist-400">name</span>
-          <span className="text-mist-500">:</span>{" "}
-          <span className="text-green-300">&quot;Simboni Misiati Peter&quot;</span>
-          <span className="text-mist-500">,</span>
-          {"\n"}
-          {"  "}<span className="text-mist-400">role</span>
-          <span className="text-mist-500">:</span>{" "}
-          <span className="text-green-300">&quot;Software Engineer&quot;</span>
-          <span className="text-mist-500">,</span>
-          {"\n"}
-          {"  "}<span className="text-mist-400">stack</span>
-          <span className="text-mist-500">:</span>{" "}
-          <span className="text-mist-300">[</span>
-          <span className="text-green-300">&quot;Next.js&quot;</span>
-          <span className="text-mist-500">, </span>
-          <span className="text-green-300">&quot;TypeScript&quot;</span>
-          <span className="text-mist-500">, </span>
-          <span className="text-green-300">&quot;React&quot;</span>
-          <span className="text-mist-300">]</span>
-          <span className="text-mist-500">,</span>
-          {"\n"}
-          {"  "}<span className="text-mist-400">builds</span>
-          <span className="text-mist-500">:</span>{" "}
-          <span className="text-mist-300">[</span>
-          <span className="text-green-300">&quot;web apps&quot;</span>
-          <span className="text-mist-500">, </span>
-          <span className="text-green-300">&quot;fintech&quot;</span>
-          <span className="text-mist-500">, </span>
-          <span className="text-green-300">&quot;systems&quot;</span>
-          <span className="text-mist-300">]</span>
-          <span className="text-mist-500">,</span>
-          {"\n"}
-          {"  "}<span className="text-mist-400">available</span>
-          <span className="text-mist-500">:</span>{" "}
-          <span className="text-[#f78c6c]">true</span>
-          <span className="text-mist-500">,</span>
-          {"\n"}
-          <span className="text-mist-300">{"}"}</span>
-          <span className="cursor align-middle" />
-        </code>
-      </pre>
-    </div>
   );
 }
 

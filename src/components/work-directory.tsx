@@ -56,8 +56,8 @@ export function WorkDirectory() {
       </div>
 
       {filtered.length === 0 && (
-        <p className="mt-12 text-center font-mono text-mist-500">
-          {"// no projects in this category yet"}
+        <p className="mt-12 text-center text-mist-500">
+          No projects in this category yet.
         </p>
       )}
 
@@ -89,11 +89,11 @@ function Pagination({
 
   return (
     <nav
-      className="mt-12 flex flex-col items-center gap-4 font-mono text-sm"
+      className="mt-12 flex flex-col items-center gap-4 text-sm"
       aria-label="Work directory pages"
     >
       <p className="text-mist-500">
-        {`// showing ${from}–${to} of ${count}`}
+        {`Showing ${from}–${to} of ${count}`}
       </p>
 
       <div className="flex items-center gap-2">

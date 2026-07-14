@@ -25,7 +25,7 @@ export function ClientLogos() {
       <div className="container-page py-14 sm:py-16">
         <div className="flex flex-col items-center text-center">
           <Eyebrow>worked with</Eyebrow>
-          <p className="mt-3 font-mono text-sm text-mist-500">
+          <p className="mt-3 text-sm text-mist-500">
             Brands and organisations behind the work
           </p>
         </div>
@@ -45,9 +45,9 @@ export function ClientLogos() {
         <div className="mt-10 flex justify-center">
           <Link
             href="/partners"
-            className="group/btn inline-flex items-center gap-2 rounded-lg border border-ink-600 bg-ink-800 px-5 py-2.5 font-mono text-sm text-mist-200 transition-all duration-200 hover:border-green-400 hover:text-green-300 hover:bg-green-400/5"
+            className="group/btn inline-flex items-center gap-2 rounded-lg border border-ink-600 bg-ink-800 px-5 py-2.5 text-sm font-medium text-mist-200 transition-all duration-200 hover:border-green-400 hover:text-green-300 hover:bg-green-400/5"
           >
-            show all partners
+            Show all partners
             <ArrowRightIcon className="h-4 w-4 transition-transform duration-200 group-hover/btn:translate-x-0.5" />
           </Link>
         </div>

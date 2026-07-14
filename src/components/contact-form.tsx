@@ -181,7 +181,7 @@ export function ContactForm() {
         <Button type="submit" variant="gold" size="lg" disabled={status === "submitting"} withArrow>
           {status === "submitting" ? "sending…" : "send message"}
         </Button>
-        <p className="font-mono text-xs text-mist-600">{"// replies within one working day"}</p>
+        <p className="text-xs text-mist-600">Replies within one working day.</p>
       </div>
     </form>
   );

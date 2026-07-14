@@ -6,7 +6,7 @@ export default function NotFound() {
     <section className="relative overflow-hidden bg-grid glow-bg">
       <div className="container-page flex min-h-[70vh] flex-col items-center justify-center py-24 text-center">
         <div className="font-mono text-7xl font-bold text-green-400 sm:text-8xl">404</div>
-        <p className="mt-4 font-mono text-sm text-mist-500">{"// this route doesn't exist"}</p>
+        <p className="mt-4 text-sm text-mist-500">This route doesn&rsquo;t exist.</p>
         <h1 className="mt-6 font-display text-3xl font-bold text-mist-100 text-balance sm:text-4xl">
           This page took a wrong turn.
         </h1>
