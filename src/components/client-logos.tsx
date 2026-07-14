@@ -68,7 +68,7 @@ export function LogoItem({ project, duplicate }: { project: Project; duplicate: 
         aria-label={`${project.title} — visit`}
         tabIndex={duplicate ? -1 : undefined}
         style={project.logoBg ? { background: project.logoBg } : undefined}
-        className="flex h-20 w-56 items-center justify-center rounded-xl border border-ink-600 px-6 transition-all duration-300 hover:-translate-y-0.5 hover:border-green-400/60 hover:shadow-[0_18px_44px_-24px_rgba(46,232,138,0.55)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-400 focus-visible:ring-offset-2 focus-visible:ring-offset-ink-950 sm:h-24 sm:w-64"
+        className="flex h-20 w-56 items-center justify-center rounded-xl border border-ink-600 px-6 transition-all duration-300 hover:-translate-y-0.5 hover:border-green-400/60 hover:shadow-[0_16px_40px_-28px_rgba(0,0,0,0.75)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-400 focus-visible:ring-offset-2 focus-visible:ring-offset-ink-950 sm:h-24 sm:w-64"
       >
         <BrandLogo project={project} hideAlt={duplicate} />
       </a>

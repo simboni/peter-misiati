@@ -19,7 +19,7 @@ export function ReviewCard({ review }: { review: Testimonial }) {
 
   return (
     <SpotlightCard
-      className={`group relative flex h-full flex-col rounded-xl border border-ink-600 bg-ink-800 p-6 transition-all duration-300 hover:-translate-y-1 hover:border-green-400/50 hover:shadow-[0_24px_60px_-26px_rgba(46,232,138,0.45)] sm:p-7 ${
+      className={`group relative flex h-full flex-col rounded-xl border border-ink-600 bg-ink-800 p-6 transition-all duration-300 hover:-translate-y-1 hover:border-green-400/50 hover:shadow-[0_20px_50px_-30px_rgba(0,0,0,0.8)] sm:p-7 ${
         linked ? "cursor-pointer" : ""
       }`}
     >

@@ -121,7 +121,7 @@ body {
   height: 1.05em;
   transform: translateY(0.14em);
   background: var(--color-green-400);
-  animation: blink 1.1s step-end infinite;
+  opacity: 0.85;
 }
 
 /* --------------------------------------------------------------------------
@@ -155,9 +155,9 @@ body {
   transition: opacity 0.3s ease;
   pointer-events: none;
   background: radial-gradient(
-    16rem 16rem at var(--mx, 50%) var(--my, 50%),
-    rgba(46, 232, 138, 0.16),
-    transparent 55%
+    18rem 18rem at var(--mx, 50%) var(--my, 50%),
+    rgba(255, 255, 255, 0.04),
+    transparent 60%
   );
 }
 .spotlight:hover::before { opacity: 1; }
@@ -174,8 +174,8 @@ body {
 .hero-orb {
   position: absolute;
   border-radius: 999px;
-  filter: blur(70px);
-  animation: floatY 11s ease-in-out infinite;
+  filter: blur(80px);
+  opacity: 0.6;
   pointer-events: none;
 }
 .hero-stagger > * { animation: riseIn 0.7s cubic-bezier(0.16, 1, 0.3, 1) both; }
@@ -196,7 +196,7 @@ body {
 .marquee-track {
   display: flex;
   width: max-content;
-  animation: marquee-left var(--marquee-duration, 55s) linear infinite;
+  animation: marquee-left var(--marquee-duration, 88s) linear infinite;
   will-change: transform;
 }
 .marquee:hover .marquee-track { animation-play-state: paused; }
