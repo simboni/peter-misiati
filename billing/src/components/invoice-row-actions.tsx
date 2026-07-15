@@ -107,7 +107,7 @@ export function InvoiceRowActions({
               maxHeight: "calc(100vh - 16px)",
               overflowY: "auto",
             }}
-            className="z-[70] overflow-hidden rounded-xl border border-line bg-white py-1 shadow-xl"
+            className="z-[70] overflow-hidden rounded-xl border border-line bg-surface py-1 shadow-xl"
           >
             <Link href={`${base}/${id}`} className={item} onClick={() => setOpen(false)}>
               <Ic d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z M12 9a3 3 0 100 6 3 3 0 000-6z" /> View

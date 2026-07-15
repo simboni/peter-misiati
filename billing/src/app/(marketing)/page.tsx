@@ -26,7 +26,7 @@ function Icon({ d }: { d: string }) {
 
 export default function LandingPage() {
   return (
-    <div className="flex min-h-screen flex-col bg-white text-ink">
+    <div className="theme-light flex min-h-screen flex-col bg-white text-ink">
       {/* Header */}
       <header className="sticky top-0 z-30 border-b border-line/70 bg-white/80 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">

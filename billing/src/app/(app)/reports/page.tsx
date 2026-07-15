@@ -95,7 +95,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
       <PageHeader title="Reports" subtitle="How the business is doing — income, costs, profit and who owes you." />
 
       {/* Period selector */}
-      <div className="inline-flex rounded-lg border border-line bg-white p-1">
+      <div className="inline-flex rounded-lg border border-line bg-surface p-1">
         {PERIODS.map((p) => (
           <Link
             key={p.key}

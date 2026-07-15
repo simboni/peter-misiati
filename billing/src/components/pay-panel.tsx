@@ -77,7 +77,7 @@ export function PayPanel({
   }
 
   return (
-    <div className="rounded-xl border border-brand-200 bg-white p-4 text-left">
+    <div className="rounded-xl border border-brand-200 bg-surface p-4 text-left">
       {phase === "form" && (
         <form onSubmit={submit} className="space-y-3">
           <p className="text-sm font-semibold text-ink">Pay by M-Pesa</p>

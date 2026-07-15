@@ -49,9 +49,11 @@
   --color-surface-2: #221d47;
 }
 
-/* Printed / shared documents must always read as ink-on-white regardless of the
-   app theme — pin light tokens on the document scope. */
-.doc-light {
+/* Pin light tokens on a scope regardless of the chosen app theme — used for
+   printed/shared documents AND the public marketing/auth pages, which are a
+   deliberately light, branded experience and must always stay legible. */
+.doc-light,
+.theme-light {
   color-scheme: light;
   --color-ink: #0f172a;
   --color-muted: #64748b;
