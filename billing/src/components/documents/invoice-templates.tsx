@@ -1,5 +1,5 @@
 /* eslint-disable @next/next/no-img-element */
-import { formatMoney, formatQty, formatRate } from "@/server/money";
+import { formatMoney, formatAmount, formatQty, formatRate } from "@/server/money";
 import { fmtDate } from "@/server/queries";
 import { isPro } from "@/lib/plan";
 import { DEFAULT_TEMPLATE, DEFAULT_ACCENT } from "@/lib/doc-style";
@@ -39,9 +39,11 @@ function buildVM(issuer: Issuer, invoice: Invoice, lines: InvoiceLine[], client:
       name: l.title || l.description,
       desc: l.title ? l.description : "",
       qty: formatQty(l.quantityMilli),
-      unit: formatMoney(l.unitPrice, cur),
+      // Currency shown once in the "Amount (KES)" column header, so the cells
+      // themselves carry just the number — no repeated "KES" per row.
+      unit: formatAmount(l.unitPrice),
       vat: formatRate(l.taxRateBps),
-      amount: formatMoney(l.lineSubtotal, cur),
+      amount: formatAmount(l.lineSubtotal),
     })),
     subtotal: formatMoney(invoice.subtotal, cur),
     discount: invoice.discountAmount > 0 ? formatMoney(invoice.discountAmount, cur) : null,
@@ -135,7 +137,7 @@ function Aria({ vm }: { vm: VM }) {
         </div>
       </div>
       <table>
-        <thead><tr><th className="lbl">Description</th><th className="lbl r">Qty</th><th className="lbl r">Price</th><th className="lbl r">VAT</th><th className="lbl r">Amount</th></tr></thead>
+        <thead><tr><th className="lbl">Description</th><th className="lbl r">Qty</th><th className="lbl r">Price</th><th className="lbl r">VAT</th><th className="lbl r">Amount ({vm.cur})</th></tr></thead>
         <tbody><LineRows vm={vm} /></tbody>
       </table>
       <div className="tot"><Totals vm={vm} />{vm.deposit && <div className="row dep"><span>Deposit due now</span><span className="num">{vm.deposit}</span></div>}</div>
@@ -161,7 +163,7 @@ function Meridian({ vm }: { vm: VM }) {
           <div><div className="lbl">Dates</div><p>Issued <b>{vm.issue}</b></p>{!vm.isQuote && <p>Due <b>{vm.due}</b></p>}</div>
         </div>
         <table>
-          <thead><tr><th>Description</th><th className="r">Qty</th><th className="r">Price</th><th className="r">VAT</th><th className="r">Amount</th></tr></thead>
+          <thead><tr><th>Description</th><th className="r">Qty</th><th className="r">Price</th><th className="r">VAT</th><th className="r">Amount ({vm.cur})</th></tr></thead>
           <tbody><LineRows vm={vm} /></tbody>
         </table>
         <div className="tot"><Totals vm={vm} /></div>
@@ -188,7 +190,7 @@ function Vertex({ vm }: { vm: VM }) {
       </div>
       <div className="body">
         <table>
-          <thead><tr><th className="lbl">Description</th><th className="lbl r">Qty</th><th className="lbl r">Price</th><th className="lbl r">VAT</th><th className="lbl r">Amount</th></tr></thead>
+          <thead><tr><th className="lbl">Description</th><th className="lbl r">Qty</th><th className="lbl r">Price</th><th className="lbl r">VAT</th><th className="lbl r">Amount ({vm.cur})</th></tr></thead>
           <tbody><LineRows vm={vm} /></tbody>
         </table>
         <div className="split">
@@ -217,7 +219,7 @@ function Column({ vm }: { vm: VM }) {
         <p className="iss">{vm.issuerName}</p>
         {vm.kraPin && <p className="muted">KRA PIN {vm.kraPin}</p>}
         <table>
-          <thead><tr><th className="lbl">Description</th><th className="lbl r">Qty</th><th className="lbl r">Amount</th></tr></thead>
+          <thead><tr><th className="lbl">Description</th><th className="lbl r">Qty</th><th className="lbl r">Amount ({vm.cur})</th></tr></thead>
           <tbody>{vm.lines.map((l, i) => (<tr key={i}><td>{l.name}{l.desc ? <div className="ln-desc">{l.desc}</div> : null}</td><td className="r num">{l.qty}</td><td className="r num">{l.amount}</td></tr>))}</tbody>
         </table>
         <Footer vm={vm} />
@@ -240,7 +242,7 @@ function Boutique({ vm }: { vm: VM }) {
         <div className="r"><div className="lbl">No.</div><div className="num">{vm.number}</div>{!vm.isQuote && <div>Due {vm.due}</div>}</div>
       </div>
       <table>
-        <thead><tr><th>Description</th><th className="r">Qty</th><th className="r">Amount</th></tr></thead>
+        <thead><tr><th>Description</th><th className="r">Qty</th><th className="r">Amount ({vm.cur})</th></tr></thead>
         <tbody>{vm.lines.map((l, i) => (<tr key={i}><td>{l.name}{l.desc ? <div className="ln-desc">{l.desc}</div> : null}</td><td className="r num">{l.qty}</td><td className="r num">{l.amount}</td></tr>))}</tbody>
       </table>
       <div className="tot"><Totals vm={vm} /></div>
@@ -275,7 +277,12 @@ const DOC_CSS = `
 .iv-doc .tot .row{display:flex;justify-content:space-between;gap:16px;padding:5px 0;color:#475569}
 .iv-doc .tot .row>span:first-child{flex:1;min-width:0}
 .iv-doc .tot .row .num{white-space:nowrap}
-.iv-doc th,.iv-doc td{word-break:break-word}
+.iv-doc th,.iv-doc td{word-break:break-word;vertical-align:top}
+/* Description takes the bulk of the row and wraps to multiple lines; numeric
+   columns keep their figures on one line with clear breathing room so Qty and
+   Amount never crowd together. */
+.iv-doc thead th:first-child,.iv-doc tbody td:first-child{width:48%;padding-right:22px;overflow-wrap:anywhere}
+.iv-doc thead th.r,.iv-doc tbody td.r{padding-left:26px;white-space:nowrap}
 .iv-doc .tot .grand{border-top:2px solid #0f172a;margin-top:6px;padding-top:9px;color:#0f172a;font-weight:800;font-size:17px}
 .iv-doc .tot .grand .num{color:var(--ac)}
 .iv-doc .tot .bal{font-weight:700;color:#0f172a}.iv-doc .tot .bal .num{color:var(--ac)}
