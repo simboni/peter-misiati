@@ -49,6 +49,15 @@ export default function RootLayout({
               "try{var t=localStorage.getItem('tp:theme');if(t&&t!=='light')document.documentElement.setAttribute('data-theme',t);}catch(e){}",
           }}
         />
+        {/* Capture the PWA install prompt as early as possible — the browser
+            fires `beforeinstallprompt` before React hydrates, so stash it and
+            let the Install button (which mounts later) replay it on click. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();window.__tpInstallEvent=e;window.dispatchEvent(new Event('tp:installready'));});window.addEventListener('appinstalled',function(){window.__tpInstallEvent=null;window.dispatchEvent(new Event('tp:installed'));});",
+          }}
+        />
       </head>
       <body>
         <RegisterSW />

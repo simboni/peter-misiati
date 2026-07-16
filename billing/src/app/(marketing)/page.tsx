@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Brand, BrandMark, APP_NAME } from "@/components/brand";
+import { InstallButton, InstallBanner } from "@/components/install-prompt";
 
 const features = [
   { t: "Quotations → Invoices", d: "Send a quote, win the job, convert it to an invoice in one click.", icon: "M4 7h16M4 12h10M4 17h7" },
@@ -32,6 +33,7 @@ export default function LandingPage() {
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <Brand />
           <nav className="flex items-center gap-2 sm:gap-3">
+            <InstallButton className="btn-ghost btn-sm hidden gap-1.5 sm:inline-flex" />
             <Link href="/login" className="btn-ghost btn-sm">Sign in</Link>
             <Link href="/signup" className="btn-primary btn-sm">Get started</Link>
           </nav>
@@ -68,6 +70,7 @@ export default function LandingPage() {
                 <Link href="/signup" className="btn-primary px-6 py-3 text-base shadow-sm">
                   Create your free workspace
                 </Link>
+                <InstallButton className="btn-ghost gap-2 px-6 py-3 text-base" />
                 <Link href="/login" className="btn-ghost px-6 py-3 text-base">
                   I already have an account
                 </Link>
@@ -260,6 +263,8 @@ export default function LandingPage() {
           <span className="font-semibold text-ink">SMP Developers Ltd</span>
         </div>
       </footer>
+
+      <InstallBanner />
     </div>
   );
 }
