@@ -11,8 +11,8 @@ a thin Android wrapper that opens the real site full‑screen (no browser bar) a
 - **Icons** — `public/icons/icon-192.png`, `icon-512.png`, `maskable-512.png`.
 - **Service worker** — `public/sw.js` (installability + an offline screen at
   `public/offline.html`), registered by `src/components/register-sw.tsx`.
-- **Digital Asset Links** — `public/.well-known/assetlinks.json` (placeholder —
-  see step 3).
+- **Digital Asset Links** — served at `/.well-known/assetlinks.json` by the app
+  (`app/api/assetlinks` + a rewrite), configurable via Worker vars — see step 3.
 - **Privacy policy** — `/privacy` (required by Play).
 
 After deploying, confirm these resolve:
@@ -47,10 +47,17 @@ bubblewrap build      # produces app-release-bundle.aab + a signing key
    - PWABuilder/Bubblewrap prints it, or
    - after upload, from Play Console → *Release → Setup → App signing* (use the
      **App signing key** fingerprint, since Play re‑signs your bundle).
-2. Paste it into `public/.well-known/assetlinks.json` (replace the placeholder),
-   and set `package_name` to your chosen id (e.g. `ke.co.tallypay.app`).
-3. Commit + deploy so `https://tallypay.co.ke/.well-known/assetlinks.json` serves
-   the real fingerprint. (You can list more than one fingerprint if needed.)
+2. Set two **Worker variables** (no code change / redeploy of code needed):
+   ```bash
+   cd billing
+   npx wrangler secret put ASSETLINKS_SHA256   # paste the SHA-256 fingerprint
+   #   (comma-separate to list more than one)
+   npx wrangler secret put TWA_PACKAGE_NAME     # e.g. ke.co.tallypay.app
+   ```
+   Or add them under the Worker's *Settings → Variables* in the Cloudflare
+   dashboard.
+3. Confirm `https://tallypay.co.ke/.well-known/assetlinks.json` now shows the
+   real fingerprint (it's served by the app, so it always resolves).
 
 ## Step 4 — Create the Play listing & submit
 

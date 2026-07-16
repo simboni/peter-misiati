@@ -4,6 +4,11 @@ const nextConfig: NextConfig = {
   // Server-rendered app (auth, D1 database) — NOT a static export like the
   // marketing site. Deployed to Cloudflare Workers via @opennextjs/cloudflare.
   outputFileTracingRoot: __dirname,
+  // Serve the Android TWA Digital Asset Links from the app (see
+  // app/api/assetlinks) so it never depends on Cloudflare serving a dotfile.
+  async rewrites() {
+    return [{ source: "/.well-known/assetlinks.json", destination: "/api/assetlinks" }];
+  },
   experimental: {
     // Behind Cloudflare's custom-domain proxy the forwarded host can differ
     // from the request Origin, which makes Next reject Server Action POSTs
