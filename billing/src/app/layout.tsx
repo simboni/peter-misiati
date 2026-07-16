@@ -1,7 +1,8 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Suspense } from "react";
 import "./globals.css";
 import { RouteProgress } from "@/components/route-progress";
+import { RegisterSW } from "@/components/register-sw";
 
 const SITE_URL = process.env.BETTER_AUTH_URL ?? "https://tallypay.co.ke";
 
@@ -14,6 +15,9 @@ export const metadata: Metadata = {
   description:
     "TallyPay: simple multi-vendor billing — quotations, invoices with deposits, M-Pesa collection, receipts, delivery notes and reports. Built for Kenya (VAT, KRA PIN).",
   applicationName: "TallyPay",
+  // Installable-app metadata (PWA / Play via TWA).
+  manifest: "/manifest.webmanifest",
+  appleWebApp: { capable: true, title: "TallyPay", statusBarStyle: "default" },
   openGraph: {
     title: "TallyPay — Invoicing & M-Pesa payments for Kenya",
     description:
@@ -21,6 +25,13 @@ export const metadata: Metadata = {
     siteName: "TallyPay",
     type: "website",
   },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#059669",
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({
@@ -40,6 +51,7 @@ export default function RootLayout({
         />
       </head>
       <body>
+        <RegisterSW />
         <Suspense fallback={null}>
           <RouteProgress />
         </Suspense>
