@@ -14,6 +14,9 @@ a thin Android wrapper that opens the real site full‑screen (no browser bar) a
 - **Digital Asset Links** — served at `/.well-known/assetlinks.json` by the app
   (`app/api/assetlinks` + a rewrite), configurable via Worker vars — see step 3.
 - **Privacy policy** — `/privacy` (required by Play).
+- **Android app project** — `android/` (Trusted Web Activity) plus a
+  **Build Android app** GitHub Actions workflow that emits the installable
+  `.apk`/`.aab` — see `android/README.md`.
 
 After deploying, confirm these resolve:
 `https://tallypay.co.ke/manifest.webmanifest`, `/sw.js`,
@@ -27,24 +30,41 @@ After deploying, confirm these resolve:
 
 ## Step 2 — Generate the Android app bundle (.aab)
 
-Easiest (no local tooling): **PWABuilder**
-1. Go to https://www.pwabuilder.com and enter `https://tallypay.co.ke`.
-2. It scores the PWA and lets you **Package for Android** (choose "Trusted Web
-   Activity"). Download the `.aab` and the generated signing key (`.keystore`) —
-   **keep the keystore safe; you need the same one for every future update.**
+The Android app lives in this repo at **`android/`** (a Trusted Web Activity)
+and is built for you by **GitHub Actions** — no local Android tooling required.
 
-Or with the CLI (**Bubblewrap**):
+1. Repo **Actions** tab → **Build Android app** → **Run workflow**.
+2. Open the finished run and download the **Artifacts**:
+   - **`tallypay-debug-apk`** → `app-debug.apk`, installable on any phone right
+     now (great for testing before you ever touch Play).
+   - **`tallypay-release`** → the Play-ready signed `.aab` + `.apk` (appears once
+     the signing secrets from step 3 are set).
+
+The package id is **`ke.co.tallypay.app`** (matches `assetlinks.json`). To change
+the app name/version, edit `android/app/src/main/res/values/strings.xml` and the
+`versionCode`/`versionName` in `android/app/build.gradle`.
+
+> Prefer a one-click web tool instead? **PWABuilder** (https://www.pwabuilder.com,
+> enter `https://tallypay.co.ke` → Package For Android) also produces a `.aab`.
+> The in-repo workflow is the maintained path and keeps everything in one place.
+
+## Step 3 — Sign the release + link the app to the domain
+
+**Signing** (so the workflow can emit a Play‑ready `.aab`): create an upload
+keystore once and add it to the repo as secrets — full commands in
+`android/README.md`. In short:
 ```bash
-npm i -g @bubblewrap/cli
-bubblewrap init --manifest https://tallypay.co.ke/manifest.webmanifest
-#   package id suggestion: ke.co.tallypay.app  (must match assetlinks.json)
-bubblewrap build      # produces app-release-bundle.aab + a signing key
+keytool -genkeypair -v -keystore tallypay-upload.keystore \
+  -alias tallypay -keyalg RSA -keysize 2048 -validity 10000
+base64 -w0 tallypay-upload.keystore
 ```
+then add repo secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`,
+`ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` and re‑run the workflow.
 
-## Step 3 — Link the app to the domain (removes the URL bar)
+**Linking the domain** (removes the URL bar):
 
 1. Get your app's **SHA‑256 signing fingerprint**:
-   - PWABuilder/Bubblewrap prints it, or
+   - `keytool -list -v -keystore tallypay-upload.keystore -alias tallypay`, or
    - after upload, from Play Console → *Release → Setup → App signing* (use the
      **App signing key** fingerprint, since Play re‑signs your bundle).
 2. Set two **Worker variables** (no code change / redeploy of code needed):

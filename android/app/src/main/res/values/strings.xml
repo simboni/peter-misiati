@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">TallyPay</string>
+    <string name="launch_url">https://tallypay.co.ke/dashboard</string>
+    <string name="host">tallypay.co.ke</string>
+
+    <!-- Verifies the TWA against the site. Must match the package + fingerprint
+         published at https://tallypay.co.ke/.well-known/assetlinks.json -->
+    <string name="asset_statements" translatable="false">
+        [{ \"relation\": [\"delegate_permission/common.handle_all_urls\"], \"target\": { \"namespace\": \"web\", \"site\": \"https://tallypay.co.ke\" } }]
+    </string>
+</resources>

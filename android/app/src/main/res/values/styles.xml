@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base theme uses the platform Material theme so we don't pull in AppCompat. -->
+    <style name="Theme.App" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:colorPrimary">@color/colorPrimary</item>
+        <item name="android:colorPrimaryDark">@color/colorPrimaryDark</item>
+        <item name="android:statusBarColor">@color/colorPrimary</item>
+    </style>
+
+    <!-- Shown for the brief moment before the web content paints. -->
+    <style name="Theme.App.Splash" parent="Theme.App">
+        <item name="android:windowBackground">@drawable/splash</item>
+    </style>
+</resources>
