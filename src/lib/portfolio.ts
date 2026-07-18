@@ -614,7 +614,7 @@ export const projects: Project[] = [
     type: "Political brand",
     year: "2026",
     role: "Design & full-stack development",
-    stack: ["Next.js", "React", "TypeScript", "Tailwind CSS"],
+    stack: ["HTML/CSS/JS", "Render"],
     tags: ["Web", "Political", "Client"],
     featured: false,
     cover: { from: "from-ink-700", to: "to-ink-950", initials: "DW" },
@@ -627,10 +627,10 @@ export const projects: Project[] = [
     approach:
       "I designed a warm, dignified political brand — an 'Equal rights for every person' hero, a story-led journey, a work and news/press archive, a gallery, and clear 'join the movement' and 'support' calls-to-action — with a light/dark theme. Built fast and mobile-first.",
     architecture: [
-      "Next.js App Router build with a light/dark theme.",
-      "About, My Work, News & Press and Gallery sections from a typed content model.",
+      "Hand-built static HTML/CSS/JS with a light/dark theme — nothing to break, cheap to host.",
+      "About, My Work, News & Press and Gallery pages, plus a partner strip (KNCHR, NANHRI, Centre for Human Rights and more).",
       "Prominent 'join the movement' and support calls-to-action throughout the journey.",
-      "SEO, Open Graph, sitemap and JSON-LD so the message travels.",
+      "Deployed on Render behind the official custom domain.",
     ],
     highlights: [
       "A dignified hero that states the mission in one line — 'Equal rights for every person.'",
