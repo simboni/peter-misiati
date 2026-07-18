@@ -14,7 +14,8 @@ import { ArrowRightIcon } from "@/components/icons";
  * leads with a visual.
  */
 
-const works = projects.filter((p) => p.slug !== "smp-portfolio");
+// The index lists every project — compact rows scale to the full directory.
+const works = projects;
 
 export function WorkIndex() {
   const [open, setOpen] = useState<string | null>(works[0]?.slug ?? null);
