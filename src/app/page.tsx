@@ -3,13 +3,13 @@ import {
   about,
   skills,
   experience,
-  featuredProjects,
   testimonials,
 } from "@/lib/portfolio";
 import { Button, Section, SectionHeading, Eyebrow } from "@/components/ui";
 import { Reveal } from "@/components/reveal";
 import { CountUp } from "@/components/count-up";
-import { ProjectCard, Chip } from "@/components/project-card";
+import { Chip } from "@/components/project-card";
+import { WorkIndex } from "@/components/work-index";
 import { ReviewCard } from "@/components/review-card";
 import { ClientLogos } from "@/components/client-logos";
 import {
@@ -100,25 +100,19 @@ export default function HomePage() {
       {/* ===================== WORKED-WITH LOGO WALL ==================== */}
       <ClientLogos />
 
-      {/* ========================= FEATURED WORK ======================= */}
+      {/* ========================= WORK INDEX ========================== */}
       <Section id="work">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <SectionHeading
             eyebrow="selected work"
             title="Things I've designed & shipped"
-            intro="A directory of builds — each one a full case study: the problem, the approach, and the result."
+            intro="Tap a project to preview it — every one links to a full case study."
           />
           <Button href="/work" variant="outline" withArrow className="shrink-0">
             all projects
           </Button>
         </div>
-        <div className="mt-12 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {featuredProjects.map((p, i) => (
-            <Reveal key={p.slug} delay={i * 70}>
-              <ProjectCard project={p} />
-            </Reveal>
-          ))}
-        </div>
+        <WorkIndex />
       </Section>
 
       {/* ============================ SKILLS =========================== */}
