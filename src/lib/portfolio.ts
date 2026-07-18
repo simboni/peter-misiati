@@ -483,6 +483,44 @@ export const projects: Project[] = [
     ],
   },
   {
+    slug: "zuri-place-resort",
+    title: "Zuri Place Resort",
+    summary:
+      "A hospitality website for Zuri Place in Oyugis, Homabay County — rooms, dining and facilities presented to turn lookers into bookers.",
+    type: "Client project",
+    year: "2026",
+    role: "Design & full-stack development",
+    stack: ["WordPress", "PHP", "MySQL"],
+    tags: ["Web", "Hospitality", "Client"],
+    featured: false,
+    cover: { from: "from-green-600", to: "to-ink-900", initials: "ZP" },
+    logo: "/clients/zuri.png",
+    logoBg: "#101712",
+    category: "Business",
+    links: { live: "https://zuriplaceresort.com" },
+    problem:
+      "Zuri Place — a hotel and resort in Oyugis Town overlooking the Mawira Hills — needed an online home worthy of the property: travellers deciding where to stay judge a hotel by its website before they ever see the gate.",
+    approach:
+      "I built a warm, image-led hospitality site that showcases the rooms, dining and facilities, tells the story of the place, and puts reservation and contact paths front and centre — fast and mobile-first for guests browsing on the road.",
+    architecture: [
+      "Image-led rooms, dining and facilities showcase.",
+      "Prominent reservation and contact calls-to-action throughout.",
+      "Travel content pages that bring in search traffic.",
+      "Fast, mobile-first build for guests booking from their phones.",
+    ],
+    highlights: [
+      "A credible online front door for a growing Homabay County hospitality brand.",
+      "Rooms and amenities presented to convert lookers into bookers.",
+      "Reservation paths one tap away on mobile.",
+    ],
+    impact: [
+      { value: "0→1", label: "Online booking presence" },
+      { value: "18", label: "Rooms showcased" },
+      { value: "Mobile", label: "First, for travellers" },
+    ],
+    media: [],
+  },
+  {
     slug: "cosdep-kenya",
     title: "COSDEP Kenya",
     summary:
