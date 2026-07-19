@@ -444,7 +444,7 @@ export const projects: Project[] = [
     slug: "misiati-mc",
     title: "Misiati MC",
     summary:
-      "A bold personal-brand site for a professional Master of Ceremonies, facilitator and moderator in Nairobi — turning 'I hold the room' into booked events across East Africa.",
+      "A bold personal-brand site for Emmanuel Misiati — a professional Master of Ceremonies, facilitator and moderator — turning 'I hold the room' into booked events across Nairobi and East Africa.",
     type: "Personal brand",
     year: "2026",
     role: "Design & full-stack development",
