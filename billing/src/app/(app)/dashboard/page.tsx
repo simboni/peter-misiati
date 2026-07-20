@@ -6,7 +6,7 @@ import { formatMoney, formatAmount } from "@/server/money";
 import { fmtDate } from "@/server/queries";
 import { StatusBadge } from "@/components/status-badge";
 import { EmptyState } from "@/components/page-header";
-import { Collapsible } from "@/components/collapsible";
+import { Accordion } from "@/components/accordion";
 import { runDueRecurring } from "@/server/recurring";
 
 export const metadata = { title: "Dashboard" };
@@ -201,57 +201,62 @@ export default async function DashboardPage() {
           action={{ href: "/clients/new", label: "Add your first client" }}
         />
       ) : (
-        <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
-          <Collapsible title="Recent invoices" meta={String(recent.length)}>
-            {recent.length === 0 ? (
-              <p className="px-5 py-8 text-center text-sm text-muted">No invoices yet.</p>
-            ) : (
-              // A reflowing row rather than a table: on a narrow phone the
-              // number + status sit on top, the client · date truncates, and
-              // the amount stays pinned to the right so it's never clipped.
-              <ul className="divide-y divide-line">
-                {recent.map((r) => (
-                  <li key={r.id}>
-                    <Link
-                      href={`/invoices/${r.id}`}
-                      className="flex items-center justify-between gap-3 px-5 py-3 hover:bg-canvas"
-                    >
-                      <span className="min-w-0">
-                        <span className="flex items-center gap-2">
-                          <span className="font-medium text-ink">{r.number}</span>
-                          <StatusBadge status={r.status} />
-                        </span>
-                        <span className="mt-0.5 block truncate text-sm text-muted">
-                          {r.clientName ?? "—"} · {fmtDate(r.issueDate)}
-                        </span>
-                      </span>
-                      <span className="shrink-0 whitespace-nowrap font-semibold tabular-nums text-ink">
-                        {formatMoney(r.total, cur)}
-                      </span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Collapsible>
-
-          <Collapsible title="Top clients" meta={String(topClients.length)} bodyClassName="p-5">
-            {topClients.length === 0 ? (
-              <p className="text-sm text-muted">No data yet.</p>
-            ) : (
-              <ul className="space-y-3">
-                {topClients.map((c) => (
-                  <li key={c.id} className="flex items-center justify-between text-sm">
-                    <Link href={`/clients/${c.id}`} className="text-ink hover:text-brand-700">
-                      {c.name}
-                    </Link>
-                    <span className="tabular-nums font-medium text-ink">{formatMoney(c.total, cur)}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Collapsible>
-        </div>
+        <Accordion
+          items={[
+            {
+              title: "Recent invoices",
+              meta: String(recent.length),
+              content:
+                recent.length === 0 ? (
+                  <p className="px-5 py-8 text-center text-sm text-muted">No invoices yet.</p>
+                ) : (
+                  <ul className="divide-y divide-line">
+                    {recent.map((r) => (
+                      <li key={r.id}>
+                        <Link
+                          href={`/invoices/${r.id}`}
+                          className="flex items-center justify-between gap-3 px-5 py-3 hover:bg-canvas"
+                        >
+                          <span className="min-w-0">
+                            <span className="flex items-center gap-2">
+                              <span className="font-medium text-ink">{r.number}</span>
+                              <StatusBadge status={r.status} />
+                            </span>
+                            <span className="mt-0.5 block truncate text-sm text-muted">
+                              {r.clientName ?? "—"} · {fmtDate(r.issueDate)}
+                            </span>
+                          </span>
+                          <span className="shrink-0 whitespace-nowrap font-semibold tabular-nums text-ink">
+                            {formatMoney(r.total, cur)}
+                          </span>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                ),
+            },
+            {
+              title: "Top clients",
+              meta: String(topClients.length),
+              bodyClassName: "p-5",
+              content:
+                topClients.length === 0 ? (
+                  <p className="text-sm text-muted">No data yet.</p>
+                ) : (
+                  <ul className="space-y-3">
+                    {topClients.map((c) => (
+                      <li key={c.id} className="flex items-center justify-between text-sm">
+                        <Link href={`/clients/${c.id}`} className="text-ink hover:text-brand-700">
+                          {c.name}
+                        </Link>
+                        <span className="tabular-nums font-medium text-ink">{formatMoney(c.total, cur)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ),
+            },
+          ]}
+        />
       )}
     </div>
   );
