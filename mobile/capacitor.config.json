@@ -1,0 +1,23 @@
+{
+  "appId": "ke.co.tallypay.app",
+  "appName": "TallyPay",
+  "webDir": "www",
+  "server": {
+    "url": "https://tallypay.co.ke",
+    "cleartext": false,
+    "androidScheme": "https"
+  },
+  "backgroundColor": "#ffffff",
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 900,
+      "backgroundColor": "#059669",
+      "showSpinner": false,
+      "androidSplashResourceName": "splash"
+    },
+    "StatusBar": {
+      "style": "LIGHT",
+      "backgroundColor": "#059669"
+    }
+  }
+}
