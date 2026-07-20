@@ -1,14 +1,34 @@
 import Link from "next/link";
 import { and, eq, desc } from "drizzle-orm";
-import { requireOrg, getOrg, getOrgProfile } from "@/server/org";
+import { requireOrg, getOrgProfile } from "@/server/org";
 import { schema } from "@/server/db";
-import { formatMoney } from "@/server/money";
+import { formatMoney, formatAmount } from "@/server/money";
 import { fmtDate } from "@/server/queries";
 import { StatusBadge } from "@/components/status-badge";
 import { EmptyState } from "@/components/page-header";
 import { runDueRecurring } from "@/server/recurring";
 
 export const metadata = { title: "Dashboard" };
+
+// Quick-action glyphs (kept local so the dashboard stays a lean server component).
+const ICN = {
+  invoice: "M6 2h9l3 3v17l-3-2-3 2-3-2-3 2V2zM9 8h6M9 12h6M9 16h4",
+  quote: "M6 2h8l4 4v16H6zM14 2v4h4M9 13h6M9 17h4",
+  users: "M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zM22 21v-2a4 4 0 00-3-3.87M16 3.13A4 4 0 0116 11",
+  wallet: "M3 7a2 2 0 012-2h12a2 2 0 012 2v2M3 7v10a2 2 0 002 2h14a2 2 0 002-2v-4M21 13h-4a2 2 0 010-4h4z",
+  truck: "M1 4h13v10H1zM14 8h4l3 3v3h-7zM5.5 18a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM18.5 18a1.5 1.5 0 100-3 1.5 1.5 0 000 3z",
+  box: "M21 8l-9-5-9 5 9 5 9-5zM3 8v8l9 5 9-5V8M12 13v8",
+  receipt: "M5 3h14v18l-2.5-1.6L14 21l-2-1.4L10 21l-2.5-1.6L5 21zM8.5 8h7M8.5 12h7",
+  chart: "M3 3v18h18M8 15v3M13 10v8M18 6v12",
+} as const;
+
+function DIcon({ d, className = "h-6 w-6" }: { d: string; className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d={d} />
+    </svg>
+  );
+}
 
 export default async function DashboardPage() {
   const { db, organizationId } = await requireOrg();
@@ -18,8 +38,7 @@ export default async function DashboardPage() {
 
   // Fetch everything the dashboard needs in one parallel batch (one D1
   // round-trip's worth of latency instead of five sequential ones).
-  const [org, profile, invoices, payments, expenses] = await Promise.all([
-    getOrg(db, organizationId),
+  const [profile, invoices, payments, expenses] = await Promise.all([
     getOrgProfile(db, organizationId),
     db
       .select({
@@ -85,55 +104,94 @@ export default async function DashboardPage() {
 
   const recent = invoices.slice(0, 6);
 
-  const cards = [
-    { label: "Invoiced", value: totalInvoiced, hint: `${issued.length} issued` },
-    { label: "Received", value: totalPaid, hint: "all time" },
-    { label: "Outstanding", value: outstanding, hint: "unpaid balances" },
-    { label: "Overdue", value: overdue, hint: `${overdueList.length} invoice(s)`, danger: overdue > 0 },
+  const openCount = invoices.filter((i) => i.status !== "void" && i.balanceDue > 0).length;
+  // Whole-shilling formatting for the compact stat chips (no cents, so the
+  // figures never get clipped in their narrow cards).
+  const whole = (v: number) => formatAmount(v).replace(/\.\d+$/, "");
+
+  const chips = [
+    { label: "Received", sub: "this month", value: monthRevenue, tone: "accent" as const },
+    { label: "Invoiced", sub: "all time", value: totalInvoiced, tone: "ink" as const },
+    { label: "Net", sub: "this month", value: monthNet, tone: monthNet >= 0 ? ("accent" as const) : ("danger" as const) },
+  ];
+
+  const actions: { href: string; label: string; icon: keyof typeof ICN; primary?: boolean }[] = [
+    { href: "/invoices/new", label: "Invoice", icon: "invoice", primary: true },
+    { href: "/quotations/new", label: "Quotation", icon: "quote" },
+    { href: "/clients/new", label: "Client", icon: "users" },
+    { href: "/expenses/new", label: "Expense", icon: "wallet" },
+    { href: "/delivery-notes/new", label: "Delivery", icon: "truck" },
+    { href: "/items/new", label: "Item", icon: "box" },
+    { href: "/receipts", label: "Receipts", icon: "receipt" },
+    { href: "/reports", label: "Reports", icon: "chart" },
   ];
 
   const noData = invoices.length === 0 && payments.length === 0;
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-ink">Welcome, {org?.name}</h1>
-        <p className="mt-1 text-sm text-muted">Here’s where your money stands.</p>
-      </div>
+      {/* Hero — what you're owed */}
+      <section
+        className="relative overflow-hidden rounded-3xl p-6 text-white shadow-[0_18px_40px_-20px_rgba(4,120,87,0.7)]"
+        style={{ background: "linear-gradient(140deg, #059669 0%, #047857 52%, #065f46 100%)" }}
+      >
+        <div className="pointer-events-none absolute -right-12 -top-16 h-52 w-52 rounded-full bg-white/10" />
+        <div className="pointer-events-none absolute -bottom-16 -left-10 h-44 w-44 rounded-full bg-black/10" />
+        <div className="relative">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium text-white/80">You&rsquo;re owed</p>
+            <span className="rounded-full bg-white/15 px-2.5 py-1 text-xs font-bold tracking-wide">{cur}</span>
+          </div>
+          <p className="mt-2 text-4xl font-extrabold tracking-tight tabular-nums sm:text-5xl">{formatAmount(outstanding)}</p>
+          <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">
+            <span className="rounded-full bg-white/15 px-3 py-1 font-medium">{openCount} open invoice{openCount === 1 ? "" : "s"}</span>
+            {overdue > 0 && (
+              <span className="rounded-full bg-amber-300 px-3 py-1 font-bold text-amber-950">
+                {overdueList.length} overdue · {formatAmount(overdue)}
+              </span>
+            )}
+            <Link href="/invoices" className="ml-auto inline-flex items-center gap-1 rounded-full bg-white/15 px-3 py-1 font-semibold text-white">
+              View all →
+            </Link>
+          </div>
+        </div>
+      </section>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {cards.map((c) => (
-          <div key={c.label} className="card p-5">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted">{c.label}</p>
-            <p className={`mt-2 text-2xl font-bold ${c.danger ? "text-red-600" : "text-ink"}`}>
-              {formatMoney(c.value, cur)}
+      {/* Quick stat chips */}
+      <div className="grid grid-cols-3 gap-3">
+        {chips.map((c) => (
+          <div key={c.label} className="card p-3.5">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">{c.label}</p>
+            <p
+              className={`mt-1 truncate text-[15px] font-bold tabular-nums ${
+                c.tone === "accent" ? "text-brand-700" : c.tone === "danger" ? "text-red-600" : "text-ink"
+              }`}
+            >
+              {whole(c.value)}
             </p>
-            <p className="mt-1 text-xs text-muted">{c.hint}</p>
+            <p className="text-[11px] text-muted">{c.sub}</p>
           </div>
         ))}
       </div>
 
-      <div className="card flex flex-wrap items-center justify-between gap-4 p-5">
-        <div className="flex flex-wrap gap-6">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted">Received this month</p>
-            <p className="mt-1 text-xl font-bold text-brand-700">{formatMoney(monthRevenue, cur)}</p>
-          </div>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted">Expenses this month</p>
-            <p className="mt-1 text-xl font-bold text-ink">{formatMoney(monthExpenses, cur)}</p>
-          </div>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted">Net this month</p>
-            <p className={`mt-1 text-xl font-bold ${monthNet >= 0 ? "text-brand-700" : "text-red-600"}`}>{formatMoney(monthNet, cur)}</p>
-          </div>
+      {/* Quick actions */}
+      <section>
+        <h2 className="mb-3 text-sm font-bold text-ink">What would you like to do?</h2>
+        <div className="grid grid-cols-4 gap-x-2 gap-y-4 sm:grid-cols-8">
+          {actions.map((a) => (
+            <Link key={a.href} href={a.href} className="group flex flex-col items-center gap-2">
+              <span
+                className={`grid h-14 w-14 place-items-center rounded-2xl transition-transform group-active:scale-90 ${
+                  a.primary ? "bg-brand-600 text-white shadow-sm" : "bg-brand-50 text-brand-700"
+                }`}
+              >
+                <DIcon d={ICN[a.icon]} />
+              </span>
+              <span className="text-center text-[11px] font-medium leading-tight text-muted">{a.label}</span>
+            </Link>
+          ))}
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Link href="/invoices/new" className="btn-primary btn-sm">New invoice</Link>
-          <Link href="/expenses/new" className="btn-ghost btn-sm">Add expense</Link>
-          <Link href="/reports" className="btn-ghost btn-sm">Reports</Link>
-        </div>
-      </div>
+      </section>
 
       {noData ? (
         <EmptyState

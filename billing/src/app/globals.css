@@ -182,10 +182,12 @@ body {
 /* for a bottom-tab app shell. The website itself is left untouched.   */
 /* ------------------------------------------------------------------ */
 :root {
-  --tp-safe-top: env(safe-area-inset-top, 0px);
+  /* Android WebViews usually report a 0 safe-area inset even though the status
+     bar overlays the page, so reserve a sensible floor for it. */
+  --tp-safe-top: max(env(safe-area-inset-top, 0px), 26px);
   --tp-safe-bottom: env(safe-area-inset-bottom, 0px);
   --tp-tabbar-h: 62px;
-  --tp-appbar-h: 52px;
+  --tp-appbar-h: 56px;
 }
 
 /* Show native-only chrome only in the app; hide web-only chrome there. */

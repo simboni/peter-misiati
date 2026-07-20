@@ -89,10 +89,19 @@ export function NativeAppChrome({
   signOut: () => void;
 }) {
   const pathname = usePathname();
-  const [sheet, setSheet] = useState<null | "create" | "more">(null);
+  const [sheet, setSheet] = useState<null | "create" | "more" | "notifications">(null);
 
   // Any navigation closes an open sheet.
   useEffect(() => setSheet(null), [pathname]);
+
+  // The header search jumps to the current screen's search field.
+  const focusSearch = () => {
+    const el = document.querySelector<HTMLInputElement>("main input");
+    if (el) {
+      el.scrollIntoView({ block: "center", behavior: "smooth" });
+      el.focus();
+    }
+  };
 
   const section = activeSection(pathname);
   const isSub = !!section && pathname !== section.href;
@@ -109,30 +118,46 @@ export function NativeAppChrome({
 
   return (
     <>
-      {/* ---------------- Title bar ---------------- */}
+      {/* ---------------- Title bar (branded) ---------------- */}
       <header
-        className="app-only app-chrome sticky top-0 z-30 items-center gap-2 border-b border-line bg-surface/85 px-3 backdrop-blur"
-        style={{ paddingTop: "var(--tp-safe-top)", height: "calc(var(--tp-appbar-h) + var(--tp-safe-top))" }}
+        className="app-only app-chrome sticky top-0 z-30 flex-col text-white"
+        style={{
+          paddingTop: "var(--tp-safe-top)",
+          background: "linear-gradient(160deg, #059669 0%, #047857 100%)",
+          boxShadow: "0 6px 18px -10px rgba(4,120,87,0.7)",
+        }}
       >
-        {backHref ? (
-          <Link href={backHref} aria-label="Back" className="tp-press grid h-10 w-10 place-items-center rounded-full text-ink">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6">
-              <path d="M15 18l-6-6 6-6" />
+        <div className="flex items-center gap-2 px-3" style={{ height: "var(--tp-appbar-h)" }}>
+          {backHref ? (
+            <Link href={backHref} aria-label="Back" className="tp-press grid h-9 w-9 flex-none place-items-center rounded-full text-white">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" className="h-6 w-6">
+                <path d="M15 18l-6-6 6-6" />
+              </svg>
+            </Link>
+          ) : (
+            <span className="grid h-9 w-9 flex-none place-items-center" aria-hidden>
+              <svg width="26" height="26" viewBox="0 0 64 64"><g fill="none" stroke="#fff" strokeWidth={6.5} strokeLinecap="round" strokeLinejoin="round"><line x1="20" y1="22" x2="20" y2="42" /><line x1="29" y1="22" x2="29" y2="42" /><path d="M36 34 L43 42 L52 22" /></g></svg>
+            </span>
+          )}
+          <div className="min-w-0 flex-1 leading-tight">
+            <p className="truncate text-[18px] font-extrabold tracking-tight">{title}</p>
+            <p className="truncate text-[11px] font-medium text-white/70">{orgName}</p>
+          </div>
+          <button onClick={focusSearch} aria-label="Search" className="tp-press grid h-9 w-9 flex-none place-items-center rounded-full bg-white/15 text-white">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="h-[18px] w-[18px]">
+              <circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" />
             </svg>
-          </Link>
-        ) : (
-          <span className="grid h-10 w-10 place-items-center">
-            <svg width="26" height="26" viewBox="0 0 64 64" aria-hidden><rect width="64" height="64" rx="17" fill="#059669" /><g fill="none" stroke="#fff" strokeWidth={6.5} strokeLinecap="round" strokeLinejoin="round"><line x1="20" y1="22" x2="20" y2="42" /><line x1="29" y1="22" x2="29" y2="42" /><path d="M36 34 L43 42 L52 22" /></g></svg>
-          </span>
-        )}
-        <h1 className="min-w-0 flex-1 truncate text-center text-[17px] font-bold tracking-tight text-ink">{title}</h1>
-        <button
-          onClick={() => setSheet("more")}
-          aria-label="Menu"
-          className="tp-press grid h-10 w-10 place-items-center rounded-full"
-        >
-          <span className="grid h-8 w-8 place-items-center rounded-full bg-brand-600 text-sm font-bold text-white">{initial}</span>
-        </button>
+          </button>
+          <button onClick={() => setSheet("notifications")} aria-label="Notifications" className="tp-press relative grid h-9 w-9 flex-none place-items-center rounded-full bg-white/15 text-white">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-[18px] w-[18px]">
+              <path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 01-3.4 0" />
+            </svg>
+            <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-amber-300 ring-2 ring-brand-700" />
+          </button>
+          <button onClick={() => setSheet("more")} aria-label="Menu" className="tp-press grid h-9 w-9 flex-none place-items-center">
+            <span className="grid h-9 w-9 place-items-center rounded-full bg-white text-sm font-extrabold text-brand-700 ring-1 ring-white/50">{initial}</span>
+          </button>
+        </div>
       </header>
 
       {/* ---------------- Bottom tab bar ---------------- */}
@@ -198,6 +223,23 @@ export function NativeAppChrome({
                 <span className="text-xs font-semibold text-ink">{c.label}</span>
               </Link>
             ))}
+          </div>
+        </Sheet>
+      )}
+
+      {/* ---------------- Notifications sheet ---------------- */}
+      {sheet === "notifications" && (
+        <Sheet title="Notifications" onClose={() => setSheet(null)}>
+          <div className="py-8 text-center">
+            <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-brand-50 text-brand-700">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-8 w-8">
+                <path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 01-3.4 0" />
+              </svg>
+            </div>
+            <p className="mt-4 font-bold text-ink">You&apos;re all caught up</p>
+            <p className="mx-auto mt-1 max-w-xs text-sm text-muted">
+              Payment received alerts, invoice views and overdue reminders will appear here.
+            </p>
           </div>
         </Sheet>
       )}
