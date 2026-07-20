@@ -1,104 +1,151 @@
 # Publishing TallyPay to Google Play
 
-TallyPay is a web app. We ship it to Play as a **Trusted Web Activity (TWA)** —
-a thin Android wrapper that opens the real site full‑screen (no browser bar) and
-**auto‑updates every time you deploy**. No separate mobile codebase.
+TallyPay ships to Play as a **Capacitor** Android app that opens the real,
+always‑current site (`tallypay.co.ke/dashboard`) full‑screen with native chrome,
+splash and push. Because it loads the live site, **deploying the website updates
+the app instantly** — you only re‑upload a new bundle when the native shell
+itself changes (icons, version, plugins). No separate mobile codebase to keep in
+sync.
 
-## What's already in the code (done)
+The app project lives in **`mobile/`**; CI builds the installable files for you.
 
-- **Web app manifest** — `src/app/manifest.ts` → served at `/manifest.webmanifest`
-  (name, icons, `#059669` theme colour, `standalone` display, `start_url`).
-- **Icons** — `public/icons/icon-192.png`, `icon-512.png`, `maskable-512.png`.
-- **Service worker** — `public/sw.js` (installability + an offline screen at
-  `public/offline.html`), registered by `src/components/register-sw.tsx`.
-- **Digital Asset Links** — served at `/.well-known/assetlinks.json` by the app
-  (`app/api/assetlinks` + a rewrite), configurable via Worker vars — see step 3.
-- **Privacy policy** — `/privacy` (required by Play).
-- **Android app project** — `mobile/` (Capacitor) plus a
-  **Build mobile app (Android)** GitHub Actions workflow that emits the
-  installable `.apk`/`.aab` — see `mobile/README.md`.
+---
 
-After deploying, confirm these resolve:
-`https://tallypay.co.ke/manifest.webmanifest`, `/sw.js`,
-`/.well-known/assetlinks.json`, `/privacy`.
+## Compliance — done in the code ✅
 
-## Step 1 — One‑time setup
+Google will reject a data‑collecting app that is missing these. All are built:
 
-- Create a **Google Play Developer account** (~USD 25 one‑time):
-  https://play.google.com/console/signup
-- Install Node (already have it) and a JDK 17+ for the packaging tool.
+- **In‑app account deletion** — Settings → **Delete account** (typed
+  confirmation) erases the user and, for a workspace owner, all workspace data.
+- **Public account‑deletion URL** — `https://tallypay.co.ke/delete-account`
+  (this is the URL Play's Data Safety form asks for).
+- **Privacy policy** — `https://tallypay.co.ke/privacy`.
 
-## Step 2 — Generate the Android app bundle (.aab)
+After a deploy, confirm all three resolve.
 
-The Android app lives in this repo at **`mobile/`** (a Capacitor app) and is
-built for you by **GitHub Actions** — no local Android tooling required.
+---
 
-1. Repo **Actions** tab → **Build mobile app (Android)** → **Run workflow**.
-2. Open the finished run and download the **Artifacts**:
-   - **`tallypay-debug-apk`** → `app-debug.apk`, installable on any phone right
-     now (great for testing before you ever touch Play).
-   - **`tallypay-release`** → the Play-ready signed `.aab` + `.apk` (appears once
-     the signing secrets from step 3 are set).
+## What you (the human) still need to do
 
-The package id is **`ke.co.tallypay.app`** (matches `assetlinks.json`). To change
-the app name/version, edit `versionCode`/`versionName` in
-`mobile/android/app/build.gradle`.
+Four things only you can do — everything else is in the repo:
 
-> Prefer a one-click web tool instead? **PWABuilder** (https://www.pwabuilder.com,
-> enter `https://tallypay.co.ke` → Package For Android) also produces a `.aab`.
-> The in-repo workflow is the maintained path and keeps everything in one place.
+1. **Play Developer account** — one‑time ~USD 25: https://play.google.com/console/signup
+2. **Signing keystore + 4 repo secrets** (so CI can emit a Play‑ready `.aab`).
+3. **Upload the `.aab`** to a Play release.
+4. **Fill the store listing** (copy below) + Data Safety + content rating.
 
-## Step 3 — Sign the release + link the app to the domain
+---
 
-**Signing** (so the workflow can emit a Play‑ready `.aab`): create an upload
-keystore once and add it to the repo as secrets — full commands in
-`mobile/README.md`. In short:
+## Step 1 — Generate the upload keystore, add signing secrets
+
+Create the key once (keep the file + passwords safe — you reuse them for every
+future update):
+
 ```bash
 keytool -genkeypair -v -keystore tallypay-upload.keystore \
   -alias tallypay -keyalg RSA -keysize 2048 -validity 10000
-base64 -w0 tallypay-upload.keystore
+base64 -w0 tallypay-upload.keystore     # copy this whole string
 ```
-then add repo secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`,
-`ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` and re‑run the workflow.
 
-**Linking the domain** (removes the URL bar):
+Add these repo **Settings → Secrets and variables → Actions** secrets:
 
-1. Get your app's **SHA‑256 signing fingerprint**:
-   - `keytool -list -v -keystore tallypay-upload.keystore -alias tallypay`, or
-   - after upload, from Play Console → *Release → Setup → App signing* (use the
-     **App signing key** fingerprint, since Play re‑signs your bundle).
-2. Set two **Worker variables** (no code change / redeploy of code needed):
-   ```bash
-   cd billing
-   npx wrangler secret put ASSETLINKS_SHA256   # paste the SHA-256 fingerprint
-   #   (comma-separate to list more than one)
-   npx wrangler secret put TWA_PACKAGE_NAME     # e.g. ke.co.tallypay.app
-   ```
-   Or add them under the Worker's *Settings → Variables* in the Cloudflare
-   dashboard.
-3. Confirm `https://tallypay.co.ke/.well-known/assetlinks.json` now shows the
-   real fingerprint (it's served by the app, so it always resolves).
+| Secret | Value |
+| --- | --- |
+| `ANDROID_KEYSTORE_BASE64` | the base64 string above |
+| `ANDROID_KEYSTORE_PASSWORD` | keystore password you chose |
+| `ANDROID_KEY_ALIAS` | `tallypay` |
+| `ANDROID_KEY_PASSWORD` | key password you chose |
 
-## Step 4 — Create the Play listing & submit
+## Step 2 — Build the bundle
 
-In the Play Console:
-- **Create app** → name "TallyPay", language, app (not game), free.
-- **Store listing**: short & full description, app icon (use `icon-512.png`), a
-  feature graphic (1024×500), and phone **screenshots** (reuse the marketing
-  images or capture real screens).
-- **Privacy policy URL**: `https://tallypay.co.ke/privacy`.
-- **Data safety** form: declare what you collect (account info, financial info
-  for invoicing, app activity) and that it's encrypted in transit — mirror
-  `/privacy`.
-- **Content rating** questionnaire, **target audience** (18+), and country
-  availability (Kenya + wherever you want).
-- **Production → Create release** → upload the `.aab` → roll out.
+Repo **Actions → Build mobile app (Android) → Run workflow**. When it finishes,
+download the artifacts from that run:
 
-Google review is usually **1–3 days**. After approval it's live; every time you
-deploy the website, the app content updates automatically — you only re‑upload a
-new `.aab` if you change the manifest, icons, or Android wrapper itself.
+- **`tallypay-debug-apk`** → `app-debug.apk` — installs on any phone for testing,
+  no signing needed.
+- **`tallypay-release`** → the signed **`.aab`** (and `.apk`) — appears once the
+  Step 1 secrets are set. This is what you upload to Play.
 
-## iPhone bonus
+Package id is **`ke.co.tallypay.app`**. Bump `versionCode`/`versionName` in
+`mobile/android/app/build.gradle` for each new store update.
 
-The same PWA is installable on iOS via Safari → Share → **Add to Home Screen**
-(Apple doesn't allow TWAs in the App Store, so that's the iOS route).
+## Step 3 — Create the app & release in Play Console
+
+1. **Create app** → name **TallyPay**, default language English (Kenya), type
+   **App**, **Free**.
+2. **Production → Create release** → upload the `.aab` → save.
+3. Play manages re‑signing (App Signing) automatically — accept the default.
+
+## Step 4 — Store listing (copy‑paste ready)
+
+- **App name:** `TallyPay`
+- **Short description (≤80 chars):**
+  `Invoices, receipts & M-Pesa payments for Kenyan businesses.`
+- **Full description:**
+
+  ```
+  TallyPay is the simple way for Kenyan businesses to invoice clients and get
+  paid. Create professional quotations, invoices, receipts, delivery notes and
+  credit notes with your logo and KRA PIN, add 16% VAT and deposits, and share
+  them by link or WhatsApp in seconds.
+
+  • Quotations that convert to invoices in one tap
+  • Deposits, partial payments and running balances tracked for you
+  • Get paid by M-Pesa — clients pay the invoice, you get a receipt
+  • Clean, print-ready documents branded to your business
+  • Clients, items and expenses in one place
+  • A dashboard that shows what you're owed, what's paid and your top clients
+  • Recurring invoices for retainers
+
+  Built for Kenya: KRA PIN and VAT on every document, prices in KES.
+
+  Start free. Your books, your rules.
+  ```
+
+- **App icon:** the 512×512 icon in `mobile/` (or `public/icons/icon-512.png`).
+- **Feature graphic (1024×500):** required — see “Assets to generate” below.
+- **Phone screenshots (2–8, min 1080px):** capture real screens (dashboard,
+  invoice, payment, receipt) from the installed debug APK, or ask me to
+  generate a polished set.
+- **App category:** Business. **Tags:** invoicing, finance.
+- **Contact email:** `support@tallypay.co.ke`.
+
+## Step 5 — Data Safety, privacy & rating
+
+- **Privacy policy URL:** `https://tallypay.co.ke/privacy`
+- **Account deletion URL:** `https://tallypay.co.ke/delete-account`
+- **Data Safety form** — declare and mark **encrypted in transit** + **deletion
+  available**:
+  - *Personal info* — name, email address (account).
+  - *Financial info* — your business/customer billing details and payment info
+    (you enter these to make invoices).
+  - *App activity / app info & performance* — basic logs to run and secure it.
+  - Data **is** used to run the service, **not** sold, **not** shared for ads.
+- **Content rating** questionnaire → answer honestly (no objectionable content →
+  rated **Everyone**).
+- **Target audience:** 18+.
+- **Countries:** Kenya (add others if you want).
+
+## Step 6 — Submit
+
+Send for review. Google typically takes **1–3 days**. After approval it's live;
+every website deploy updates the app content automatically. Re‑upload a new
+`.aab` only when you change the native shell (icons, version, plugins) — bump
+`versionCode` first.
+
+---
+
+## Assets to generate
+
+You still need two visual assets for the listing. I can produce both on request:
+
+- **Feature graphic** — 1024×500 PNG, TallyPay brand.
+- **Phone screenshots** — a polished set (device frame + captions) of the
+  dashboard, invoice, M‑Pesa payment and receipt.
+
+Ask and I’ll generate them.
+
+## iPhone (later)
+
+The Capacitor project can target iOS too (`npx cap add ios`), or the PWA installs
+via Safari → Share → **Add to Home Screen**. Deferred until Android is live.
