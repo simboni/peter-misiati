@@ -7,6 +7,7 @@ import { fmtDate } from "@/server/queries";
 import { StatusBadge } from "@/components/status-badge";
 import { EmptyState } from "@/components/page-header";
 import { Collapsible } from "@/components/collapsible";
+import { HeroCarousel, type HeroCard } from "@/components/hero-carousel";
 import { runDueRecurring } from "@/server/recurring";
 
 export const metadata = { title: "Dashboard" };
@@ -110,6 +111,36 @@ export default async function DashboardPage() {
   // figures never get clipped in their narrow cards).
   const whole = (v: number) => formatAmount(v).replace(/\.\d+$/, "");
 
+  // Warm greeting in East Africa Time (server clock is UTC).
+  const eatHour = (now.getUTCHours() + 3) % 24;
+  const greeting = eatHour < 12 ? "Good morning" : eatHour < 17 ? "Good afternoon" : "Good evening";
+
+  const heroCards: HeroCard[] = [
+    {
+      label: "You're owed",
+      amount: formatAmount(outstanding),
+      cur,
+      chips: [
+        { text: `${openCount} open invoice${openCount === 1 ? "" : "s"}` },
+        ...(overdue > 0 ? [{ text: `${overdueList.length} overdue · ${whole(overdue)}`, amber: true }] : []),
+      ],
+      link: { href: "/invoices", label: "View all →" },
+    },
+    {
+      label: "Received this month",
+      amount: formatAmount(monthRevenue),
+      cur,
+      chips: [{ text: `All-time ${whole(totalPaid)}` }],
+      link: { href: "/receipts", label: "Receipts →" },
+    },
+    {
+      label: "Net this month",
+      amount: formatAmount(monthNet),
+      cur,
+      chips: [{ text: `Income ${whole(monthRevenue)}` }, { text: `Expenses ${whole(monthExpenses)}` }],
+    },
+  ];
+
   const chips = [
     { label: "Received", sub: "this month", value: monthRevenue, tone: "accent" as const },
     { label: "Invoiced", sub: "all time", value: totalInvoiced, tone: "ink" as const },
@@ -131,32 +162,9 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      {/* Hero — what you're owed */}
-      <section
-        className="relative overflow-hidden rounded-3xl p-6 text-white shadow-[0_18px_40px_-20px_rgba(4,120,87,0.7)]"
-        style={{ background: "linear-gradient(140deg, #059669 0%, #047857 52%, #065f46 100%)" }}
-      >
-        <div className="pointer-events-none absolute -right-12 -top-16 h-52 w-52 rounded-full bg-white/10" />
-        <div className="pointer-events-none absolute -bottom-16 -left-10 h-44 w-44 rounded-full bg-black/10" />
-        <div className="relative">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-medium text-white/80">You&rsquo;re owed</p>
-            <span className="rounded-full bg-white/15 px-2.5 py-1 text-xs font-bold tracking-wide">{cur}</span>
-          </div>
-          <p className="mt-2 text-4xl font-extrabold tracking-tight tabular-nums sm:text-5xl">{formatAmount(outstanding)}</p>
-          <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">
-            <span className="rounded-full bg-white/15 px-3 py-1 font-medium">{openCount} open invoice{openCount === 1 ? "" : "s"}</span>
-            {overdue > 0 && (
-              <span className="rounded-full bg-amber-300 px-3 py-1 font-bold text-amber-950">
-                {overdueList.length} overdue · {formatAmount(overdue)}
-              </span>
-            )}
-            <Link href="/invoices" className="ml-auto inline-flex items-center gap-1 rounded-full bg-white/15 px-3 py-1 font-semibold text-white">
-              View all →
-            </Link>
-          </div>
-        </div>
-      </section>
+      {/* Greeting + swipeable money cards */}
+      <p className="px-1 text-sm font-medium text-muted">{greeting} 👋</p>
+      <HeroCarousel cards={heroCards} />
 
       {/* Quick stat chips */}
       <div className="grid grid-cols-3 gap-3">
@@ -202,7 +210,7 @@ export default async function DashboardPage() {
         />
       ) : (
         <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
-          <Collapsible title="Recent invoices" meta={String(recent.length)}>
+          <Collapsible title="Recent invoices" meta={String(recent.length)} defaultOpen={false}>
             {recent.length === 0 ? (
               <p className="px-5 py-8 text-center text-sm text-muted">No invoices yet.</p>
             ) : (
@@ -235,7 +243,7 @@ export default async function DashboardPage() {
             )}
           </Collapsible>
 
-          <Collapsible title="Top clients" meta={String(topClients.length)} bodyClassName="p-5">
+          <Collapsible title="Top clients" meta={String(topClients.length)} bodyClassName="p-5" defaultOpen={false}>
             {topClients.length === 0 ? (
               <p className="text-sm text-muted">No data yet.</p>
             ) : (
