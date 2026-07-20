@@ -5,11 +5,12 @@ import { PageHeader } from "@/components/page-header";
 import { SettingsForm } from "@/components/settings-form";
 import { PaymentSettingsForm } from "@/components/payment-settings-form";
 import { DangerZone } from "@/components/danger-zone";
+import { DeleteAccount } from "@/components/delete-account";
 
 export const metadata = { title: "Settings" };
 
 export default async function SettingsPage() {
-  const { db, organizationId } = await requireOrg();
+  const { db, organizationId, role } = await requireOrg();
   const [org, profile, platformCfg] = await Promise.all([
     getOrg(db, organizationId),
     getOrgProfile(db, organizationId),
@@ -39,6 +40,7 @@ export default async function SettingsPage() {
         platformConfigured={platformCfg !== null}
       />
       <DangerZone />
+      <DeleteAccount isOwner={role === "owner"} />
     </div>
   );
 }

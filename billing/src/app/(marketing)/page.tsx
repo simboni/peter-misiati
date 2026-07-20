@@ -253,6 +253,8 @@ export default function LandingPage() {
           <div className="flex items-center gap-5">
             <Link href="/login" className="hover:text-ink">Sign in</Link>
             <Link href="/signup" className="hover:text-ink">Get started</Link>
+            <Link href="/privacy" className="hover:text-ink">Privacy</Link>
+            <Link href="/delete-account" className="hover:text-ink">Delete account</Link>
           </div>
         </div>
         <div className="border-t border-line py-4 text-center text-xs text-muted">

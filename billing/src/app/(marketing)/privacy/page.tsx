@@ -69,7 +69,14 @@ export default function PrivacyPage() {
           </Section>
 
           <Section title="Your rights">
-            <p>You can access, correct or delete your information from within the app, or by contacting us. You may also request a copy of your data or ask us to delete your account.</p>
+            <p>
+              You can access, correct or delete your information from within the app, or by
+              contacting us. You may also request a copy of your data or{" "}
+              <Link className="font-semibold text-brand-700 underline" href="/delete-account">
+                delete your account
+              </Link>
+              .
+            </p>
           </Section>
 
           <Section title="Children">
