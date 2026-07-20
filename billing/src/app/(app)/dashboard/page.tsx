@@ -7,6 +7,7 @@ import { fmtDate } from "@/server/queries";
 import { StatusBadge } from "@/components/status-badge";
 import { EmptyState } from "@/components/page-header";
 import { Accordion } from "@/components/accordion";
+import { HeroCarousel } from "@/components/hero-carousel";
 import { runDueRecurring } from "@/server/recurring";
 
 export const metadata = { title: "Dashboard" };
@@ -28,6 +29,27 @@ function DIcon({ d, className = "h-6 w-6" }: { d: string; className?: string }) 
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={className}>
       <path d={d} />
     </svg>
+  );
+}
+
+// A gradient "money" card used as a slide in the dashboard hero carousel.
+function MoneyCard({ label, amount, cur, foot }: { label: string; amount: string; cur: string; foot?: React.ReactNode }) {
+  return (
+    <section
+      className="relative h-full overflow-hidden rounded-3xl p-6 text-white shadow-[0_18px_40px_-20px_rgba(4,120,87,0.7)]"
+      style={{ background: "linear-gradient(140deg, #059669 0%, #047857 52%, #065f46 100%)" }}
+    >
+      <div className="pointer-events-none absolute -right-12 -top-16 h-52 w-52 rounded-full bg-white/10" />
+      <div className="pointer-events-none absolute -bottom-16 -left-10 h-44 w-44 rounded-full bg-black/10" />
+      <div className="relative flex h-full flex-col">
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-medium text-white/80">{label}</p>
+          <span className="rounded-full bg-white/15 px-2.5 py-1 text-xs font-bold tracking-wide">{cur}</span>
+        </div>
+        <p className="mt-2 text-4xl font-extrabold tracking-tight tabular-nums sm:text-5xl">{amount}</p>
+        {foot && <div className="mt-auto flex flex-wrap items-center gap-2 pt-4 text-xs">{foot}</div>}
+      </div>
+    </section>
   );
 }
 
@@ -110,6 +132,10 @@ export default async function DashboardPage() {
   // figures never get clipped in their narrow cards).
   const whole = (v: number) => formatAmount(v).replace(/\.\d+$/, "");
 
+  // Warm greeting in East Africa Time (server clock is UTC).
+  const eatHour = (now.getUTCHours() + 3) % 24;
+  const greeting = eatHour < 12 ? "Good morning" : eatHour < 17 ? "Good afternoon" : "Good evening";
+
   const chips = [
     { label: "Received", sub: "this month", value: monthRevenue, tone: "accent" as const },
     { label: "Invoiced", sub: "all time", value: totalInvoiced, tone: "ink" as const },
@@ -131,32 +157,54 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      {/* Hero — what you're owed */}
-      <section
-        className="relative overflow-hidden rounded-3xl p-6 text-white shadow-[0_18px_40px_-20px_rgba(4,120,87,0.7)]"
-        style={{ background: "linear-gradient(140deg, #059669 0%, #047857 52%, #065f46 100%)" }}
-      >
-        <div className="pointer-events-none absolute -right-12 -top-16 h-52 w-52 rounded-full bg-white/10" />
-        <div className="pointer-events-none absolute -bottom-16 -left-10 h-44 w-44 rounded-full bg-black/10" />
-        <div className="relative">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-medium text-white/80">You&rsquo;re owed</p>
-            <span className="rounded-full bg-white/15 px-2.5 py-1 text-xs font-bold tracking-wide">{cur}</span>
-          </div>
-          <p className="mt-2 text-4xl font-extrabold tracking-tight tabular-nums sm:text-5xl">{formatAmount(outstanding)}</p>
-          <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">
-            <span className="rounded-full bg-white/15 px-3 py-1 font-medium">{openCount} open invoice{openCount === 1 ? "" : "s"}</span>
-            {overdue > 0 && (
-              <span className="rounded-full bg-amber-300 px-3 py-1 font-bold text-amber-950">
-                {overdueList.length} overdue · {formatAmount(overdue)}
+      {/* Greeting + swipeable money cards */}
+      <p className="px-1 text-sm font-medium text-muted">{greeting} 👋</p>
+      <HeroCarousel>
+        <MoneyCard
+          label="You're owed"
+          amount={formatAmount(outstanding)}
+          cur={cur}
+          foot={
+            <>
+              <span className="rounded-full bg-white/15 px-3 py-1 font-medium">
+                {openCount} open invoice{openCount === 1 ? "" : "s"}
               </span>
-            )}
-            <Link href="/invoices" className="ml-auto inline-flex items-center gap-1 rounded-full bg-white/15 px-3 py-1 font-semibold text-white">
-              View all →
-            </Link>
-          </div>
-        </div>
-      </section>
+              {overdue > 0 && (
+                <span className="rounded-full bg-amber-300 px-3 py-1 font-bold text-amber-950">
+                  {overdueList.length} overdue · {whole(overdue)}
+                </span>
+              )}
+              <Link href="/invoices" className="ml-auto inline-flex items-center gap-1 rounded-full bg-white/15 px-3 py-1 font-semibold text-white">
+                View all →
+              </Link>
+            </>
+          }
+        />
+        <MoneyCard
+          label="Received this month"
+          amount={formatAmount(monthRevenue)}
+          cur={cur}
+          foot={
+            <>
+              <span className="rounded-full bg-white/15 px-3 py-1 font-medium">All-time {whole(totalPaid)}</span>
+              <Link href="/receipts" className="ml-auto inline-flex items-center gap-1 rounded-full bg-white/15 px-3 py-1 font-semibold text-white">
+                Receipts →
+              </Link>
+            </>
+          }
+        />
+        <MoneyCard
+          label="Net this month"
+          amount={formatAmount(monthNet)}
+          cur={cur}
+          foot={
+            <>
+              <span className="rounded-full bg-white/15 px-3 py-1 font-medium">Income {whole(monthRevenue)}</span>
+              <span className="rounded-full bg-white/15 px-3 py-1 font-medium">Expenses {whole(monthExpenses)}</span>
+            </>
+          }
+        />
+      </HeroCarousel>
 
       {/* Quick stat chips */}
       <div className="grid grid-cols-3 gap-3">
