@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { canShare, share } from "@/lib/native";
 
 export function PrintBar({
   docLabel,
@@ -17,7 +18,13 @@ export function PrintBar({
   // Use the page's actual address — always the real production URL, regardless
   // of server env config. Set after mount to avoid a hydration mismatch.
   const [url, setUrl] = useState("");
-  useEffect(() => setUrl(window.location.href), []);
+  // Whether to show the native/OS share button (in-app, or a browser that
+  // supports Web Share). Resolved after mount so SSR markup stays stable.
+  const [shareable, setShareable] = useState(false);
+  useEffect(() => {
+    setUrl(window.location.href);
+    setShareable(canShare());
+  }, []);
   const message = `Hello, here is your ${docLabel}: ${url}`;
 
   const copy = async () => {
@@ -30,6 +37,11 @@ export function PrintBar({
     }
   };
 
+  const shareNative = async () => {
+    const ok = await share({ title: docLabel, text: message, url });
+    if (!ok) copy(); // no share sheet available — fall back to copying the link
+  };
+
   const wa = clientPhone
     ? `https://wa.me/${clientPhone.replace(/[^0-9]/g, "")}?text=${encodeURIComponent(message)}`
     : `https://wa.me/?text=${encodeURIComponent(message)}`;
@@ -40,6 +52,11 @@ export function PrintBar({
       <button onClick={() => window.print()} className="btn-primary btn-sm">
         Print / Save as PDF
       </button>
+      {shareable && (
+        <button onClick={shareNative} className="btn-ghost btn-sm">
+          Share
+        </button>
+      )}
       {pdfHref && (
         <a href={pdfHref} className="btn-ghost btn-sm" target="_blank" rel="noreferrer">
           Download PDF

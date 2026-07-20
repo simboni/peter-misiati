@@ -16,6 +16,8 @@
     "cf:deploy": "opennextjs-cloudflare deploy"
   },
   "dependencies": {
+    "@capacitor/core": "^8.4.2",
+    "@capacitor/share": "^8.0.1",
     "@cloudflare/puppeteer": "^1.1.0",
     "better-auth": "^1.2.7",
     "drizzle-orm": "^0.45.2",
