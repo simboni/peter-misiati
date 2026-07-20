@@ -15,15 +15,27 @@ export const metadata: Metadata = {
   description:
     "TallyPay: simple multi-vendor billing — quotations, invoices with deposits, M-Pesa collection, receipts, delivery notes and reports. Built for Kenya (VAT, KRA PIN).",
   applicationName: "TallyPay",
-  // Installable-app metadata (PWA / Play via TWA).
+  // Installable-app metadata (PWA / Play).
   manifest: "/manifest.webmanifest",
   appleWebApp: { capable: true, title: "TallyPay", statusBarStyle: "default" },
+  // Served from /public (static) rather than the src/app file convention so the
+  // 70 KiB PNG stays out of the Cloudflare Worker bundle (3 MiB compressed cap).
+  icons: {
+    icon: "/icon.svg",
+    apple: "/apple-icon.png",
+  },
   openGraph: {
     title: "TallyPay — Invoicing & M-Pesa payments for Kenya",
     description:
       "Quotations, invoices with deposits, M-Pesa collection, receipts and reports — built for Kenya.",
     siteName: "TallyPay",
     type: "website",
+    images: [{ url: "/opengraph-image.png", width: 1200, height: 630, alt: "TallyPay" }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "TallyPay — Invoicing & M-Pesa payments for Kenya",
+    images: ["/opengraph-image.png"],
   },
 };
 
