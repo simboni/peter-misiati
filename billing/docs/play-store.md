@@ -14,9 +14,9 @@ a thin Android wrapper that opens the real site full‑screen (no browser bar) a
 - **Digital Asset Links** — served at `/.well-known/assetlinks.json` by the app
   (`app/api/assetlinks` + a rewrite), configurable via Worker vars — see step 3.
 - **Privacy policy** — `/privacy` (required by Play).
-- **Android app project** — `android/` (Trusted Web Activity) plus a
-  **Build Android app** GitHub Actions workflow that emits the installable
-  `.apk`/`.aab` — see `android/README.md`.
+- **Android app project** — `mobile/` (Capacitor) plus a
+  **Build mobile app (Android)** GitHub Actions workflow that emits the
+  installable `.apk`/`.aab` — see `mobile/README.md`.
 
 After deploying, confirm these resolve:
 `https://tallypay.co.ke/manifest.webmanifest`, `/sw.js`,
@@ -30,10 +30,10 @@ After deploying, confirm these resolve:
 
 ## Step 2 — Generate the Android app bundle (.aab)
 
-The Android app lives in this repo at **`android/`** (a Trusted Web Activity)
-and is built for you by **GitHub Actions** — no local Android tooling required.
+The Android app lives in this repo at **`mobile/`** (a Capacitor app) and is
+built for you by **GitHub Actions** — no local Android tooling required.
 
-1. Repo **Actions** tab → **Build Android app** → **Run workflow**.
+1. Repo **Actions** tab → **Build mobile app (Android)** → **Run workflow**.
 2. Open the finished run and download the **Artifacts**:
    - **`tallypay-debug-apk`** → `app-debug.apk`, installable on any phone right
      now (great for testing before you ever touch Play).
@@ -41,8 +41,8 @@ and is built for you by **GitHub Actions** — no local Android tooling required
      the signing secrets from step 3 are set).
 
 The package id is **`ke.co.tallypay.app`** (matches `assetlinks.json`). To change
-the app name/version, edit `android/app/src/main/res/values/strings.xml` and the
-`versionCode`/`versionName` in `android/app/build.gradle`.
+the app name/version, edit `versionCode`/`versionName` in
+`mobile/android/app/build.gradle`.
 
 > Prefer a one-click web tool instead? **PWABuilder** (https://www.pwabuilder.com,
 > enter `https://tallypay.co.ke` → Package For Android) also produces a `.aab`.
@@ -52,7 +52,7 @@ the app name/version, edit `android/app/src/main/res/values/strings.xml` and the
 
 **Signing** (so the workflow can emit a Play‑ready `.aab`): create an upload
 keystore once and add it to the repo as secrets — full commands in
-`android/README.md`. In short:
+`mobile/README.md`. In short:
 ```bash
 keytool -genkeypair -v -keystore tallypay-upload.keystore \
   -alias tallypay -keyalg RSA -keysize 2048 -validity 10000
