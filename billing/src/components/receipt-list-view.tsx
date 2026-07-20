@@ -63,7 +63,32 @@ export function ReceiptListView({ rows }: { rows: Row[] }) {
         <span>Total received: <b className="text-ink tabular-nums">{formatMoney(total, cur)}</b></span>
       </div>
 
-      <div className="card overflow-x-auto">
+      <div className="space-y-2.5 md:hidden">
+        {filtered.map((r) => (
+          <div key={r.id} className="card p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <p className="font-bold text-ink">{r.number}</p>
+                <p className="truncate text-sm text-muted">{r.client}</p>
+                <p className="mt-0.5 text-xs text-muted">{r.date}</p>
+              </div>
+              <div className="flex flex-col items-end gap-1">
+                <p className="font-bold text-ink tabular-nums">{formatMoney(r.amount, r.currency)}</p>
+                <span className="text-xs text-muted">{r.methodLabel}</span>
+              </div>
+            </div>
+            <div className="mt-2 flex justify-end gap-3 border-t border-line pt-2 text-sm">
+              {r.invoiceId ? <Link href={`/invoices/${r.invoiceId}`} className="text-brand-700 hover:underline">{r.invoiceNumber}</Link> : "—"}
+              <Link href={`/d/${r.shareToken}`} target="_blank" className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-canvas hover:text-ink">View</Link>
+            </div>
+          </div>
+        ))}
+        {filtered.length === 0 && (
+          <div className="card p-6 text-center text-sm text-muted">No receipts match your filters.</div>
+        )}
+      </div>
+
+      <div className="card hidden overflow-x-auto md:block">
         <table className="w-full min-w-[720px]">
           <thead className="border-b border-line">
             <tr>

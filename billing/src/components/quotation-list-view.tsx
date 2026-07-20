@@ -62,7 +62,31 @@ export function QuotationListView({ rows }: { rows: Row[] }) {
 
       <div className="px-1 text-xs text-muted">Showing {filtered.length} of {rows.length}</div>
 
-      <div className="card overflow-x-auto">
+      <div className="space-y-2.5 md:hidden">
+        {filtered.map((r) => (
+          <div key={r.id} className="card p-4">
+            <div className="flex items-start justify-between gap-3">
+              <Link href={`/quotations/${r.id}`} className="min-w-0 flex-1">
+                <p className="font-bold text-ink">{r.number}</p>
+                <p className="truncate text-sm text-muted">{r.client}</p>
+                <p className="mt-0.5 text-xs text-muted">{r.date}</p>
+              </Link>
+              <div className="flex flex-col items-end gap-1">
+                <p className="font-bold text-ink tabular-nums">{formatMoney(r.total, r.currency)}</p>
+                <StatusBadge status={r.status} />
+              </div>
+            </div>
+            <div className="mt-2 flex justify-end border-t border-line pt-2">
+              <InvoiceRowActions id={r.id} shareToken={r.shareToken} canPay={false} kind="quotation" />
+            </div>
+          </div>
+        ))}
+        {filtered.length === 0 && (
+          <div className="card p-6 text-center text-sm text-muted">No quotations match your filters.</div>
+        )}
+      </div>
+
+      <div className="card overflow-x-auto hidden md:block">
         <table className="w-full min-w-[640px]">
           <thead className="border-b border-line">
             <tr>

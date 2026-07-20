@@ -104,8 +104,38 @@ export function InvoiceListView({ rows }: { rows: Row[] }) {
         <span>Outstanding: <b className="text-ink tabular-nums">{formatMoney(outstanding, cur)}</b></span>
       </div>
 
-      {/* Table */}
-      <div className="card overflow-x-auto">
+      {/* Mobile: cards */}
+      <div className="space-y-2.5 md:hidden">
+        {filtered.map((r) => (
+          <div key={r.id} className="card p-4">
+            <div className="flex items-start justify-between gap-3">
+              <Link href={`/invoices/${r.id}`} className="min-w-0 flex-1">
+                <p className="font-bold text-ink">{r.number}</p>
+                <p className="truncate text-sm text-muted">{r.client}</p>
+                <p className="mt-0.5 text-xs text-muted">{r.date}</p>
+              </Link>
+              <div className="flex flex-col items-end gap-1">
+                <p className="font-bold text-ink tabular-nums">{formatMoney(r.total, r.currency)}</p>
+                <StatusBadge status={r.status} />
+              </div>
+            </div>
+            {r.balance > 0 && (
+              <p className="mt-2 text-xs text-muted">
+                Balance due <b className="text-ink tabular-nums">{formatMoney(r.balance, r.currency)}</b>
+              </p>
+            )}
+            <div className="mt-2 flex justify-end border-t border-line pt-2">
+              <InvoiceRowActions id={r.id} shareToken={r.shareToken} canPay={r.balance > 0 && r.status !== "void"} />
+            </div>
+          </div>
+        ))}
+        {filtered.length === 0 && (
+          <div className="card p-6 text-center text-sm text-muted">No invoices match your filters.</div>
+        )}
+      </div>
+
+      {/* Desktop: table */}
+      <div className="card hidden overflow-x-auto md:block">
         <table className="w-full min-w-[760px]">
           <thead className="border-b border-line">
             <tr>

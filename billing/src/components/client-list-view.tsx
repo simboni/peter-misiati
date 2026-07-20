@@ -34,7 +34,32 @@ export function ClientListView({ rows }: { rows: Row[] }) {
 
       <div className="px-1 text-xs text-muted">Showing {filtered.length} of {rows.length}</div>
 
-      <div className="card overflow-x-auto">
+      <div className="space-y-2.5 md:hidden">
+        {filtered.map((r) => (
+          <div key={r.id} className="card p-4">
+            <Link href={`/clients/${r.id}`}>
+              <p className="font-bold text-ink">{r.name}</p>
+            </Link>
+            {r.contact && <p className="text-sm text-muted">{r.contact}</p>}
+            <p className="text-xs text-muted">
+              {r.kraPin && <>KRA PIN {r.kraPin} · </>}{r.currency}
+            </p>
+            <div className="mt-2 flex justify-end gap-1 border-t border-line pt-2">
+              <Link href={`/clients/${r.id}/statement`} className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-canvas hover:text-ink">Statement</Link>
+              <Link href={`/clients/${r.id}`} className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-canvas hover:text-ink">Edit</Link>
+              <form action={deleteClientAction} onSubmit={(e) => { if (!confirm("Delete this client?")) e.preventDefault(); }}>
+                <input type="hidden" name="id" value={r.id} />
+                <button className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-red-50 hover:text-red-600">Delete</button>
+              </form>
+            </div>
+          </div>
+        ))}
+        {filtered.length === 0 && (
+          <div className="card p-6 text-center text-sm text-muted">No clients match your filters.</div>
+        )}
+      </div>
+
+      <div className="card overflow-x-auto hidden md:block">
         <table className="w-full min-w-[560px]">
           <thead className="border-b border-line">
             <tr>

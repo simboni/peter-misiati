@@ -63,7 +63,44 @@ export function RecurringListView({ rows }: { rows: Row[] }) {
         <span>Active recurring value: <b className="text-ink tabular-nums">{formatMoney(activeValue, cur)}</b></span>
       </div>
 
-      <div className="card overflow-x-auto">
+      <div className="space-y-2.5 md:hidden">
+        {filtered.map((r) => (
+          <div key={r.id} className="card p-4">
+            <div className="flex items-start gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="font-medium text-ink">{r.label}</div>
+                <div className="truncate text-sm text-muted">{r.client}</div>
+                <div className="text-xs text-muted">{r.frequencyLabel} · next {r.status === "ended" ? "—" : r.nextRun}</div>
+              </div>
+              <div className="flex flex-col items-end gap-1">
+                <div className="font-medium text-ink tabular-nums">{formatMoney(r.total, r.currency)}</div>
+                <span className={`badge ${STATUS_STYLE[r.status] ?? "bg-slate-100 text-slate-500"}`}>{r.status}</span>
+              </div>
+            </div>
+            <div className="mt-2 flex justify-end gap-1 border-t border-line pt-2">
+              <Link href={`/recurring/${r.id}/edit`} className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-canvas hover:text-ink">Edit</Link>
+              {r.status !== "ended" && (
+                <form action={setRecurringStatusAction}>
+                  <input type="hidden" name="id" value={r.id} />
+                  <input type="hidden" name="status" value={r.status === "active" ? "paused" : "active"} />
+                  <button className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-canvas hover:text-ink">
+                    {r.status === "active" ? "Pause" : "Resume"}
+                  </button>
+                </form>
+              )}
+              <form action={deleteRecurringAction} onSubmit={(e) => { if (!confirm("Delete this schedule? Invoices already created are kept.")) e.preventDefault(); }}>
+                <input type="hidden" name="id" value={r.id} />
+                <button className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-red-50 hover:text-red-600">Delete</button>
+              </form>
+            </div>
+          </div>
+        ))}
+        {filtered.length === 0 && (
+          <div className="card p-6 text-center text-sm text-muted">No schedules match your filters.</div>
+        )}
+      </div>
+
+      <div className="card hidden overflow-x-auto md:block">
         <table className="w-full min-w-[760px]">
           <thead className="border-b border-line">
             <tr>
