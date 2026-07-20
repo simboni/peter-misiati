@@ -207,8 +207,9 @@ body {
   padding-left: 0 !important;
 }
 [data-app="native"] .app-main {
+  /* Clear the fixed title bar (top) and the fixed tab bar (bottom). */
+  padding-top: calc(var(--tp-safe-top) + var(--tp-appbar-h) + 12px) !important;
   padding-bottom: calc(var(--tp-tabbar-h) + var(--tp-safe-bottom) + 12px) !important;
-  padding-top: 14px !important;
 }
 
 /* Chrome doesn't feel like a web page: no text selection, no callout. */

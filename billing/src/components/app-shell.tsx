@@ -7,6 +7,7 @@ import { Brand, BrandMark } from "./brand";
 import { ThemeToggle } from "./theme-toggle";
 import { isNativeApp } from "@/lib/native";
 import { NativeAppChrome } from "./native-app-chrome";
+import { PullToRefresh } from "./pull-to-refresh";
 
 /** Small spinner shown on a nav item while its route is loading. */
 function NavPending({ collapsed }: { collapsed: boolean }) {
@@ -258,6 +259,7 @@ export function AppShell({
       {/* Native app chrome (bottom tabs + title bar + sheets) — CSS shows this
           only inside the installed app. */}
       <NativeAppChrome orgName={orgName} userEmail={userEmail} pro={pro} isAdmin={isAdmin} signOut={signOut} />
+      <PullToRefresh />
     </div>
   );
 }

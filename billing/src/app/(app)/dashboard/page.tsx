@@ -6,6 +6,7 @@ import { formatMoney, formatAmount } from "@/server/money";
 import { fmtDate } from "@/server/queries";
 import { StatusBadge } from "@/components/status-badge";
 import { EmptyState } from "@/components/page-header";
+import { Collapsible } from "@/components/collapsible";
 import { runDueRecurring } from "@/server/recurring";
 
 export const metadata = { title: "Dashboard" };
@@ -201,10 +202,7 @@ export default async function DashboardPage() {
         />
       ) : (
         <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
-          <div className="card overflow-hidden">
-            <div className="border-b border-line px-5 py-3">
-              <h2 className="font-semibold text-ink">Recent invoices</h2>
-            </div>
+          <Collapsible title="Recent invoices" meta={String(recent.length)}>
             {recent.length === 0 ? (
               <p className="px-5 py-8 text-center text-sm text-muted">No invoices yet.</p>
             ) : (
@@ -235,10 +233,9 @@ export default async function DashboardPage() {
                 ))}
               </ul>
             )}
-          </div>
+          </Collapsible>
 
-          <div className="card p-5">
-            <h2 className="mb-3 font-semibold text-ink">Top clients</h2>
+          <Collapsible title="Top clients" meta={String(topClients.length)} bodyClassName="p-5">
             {topClients.length === 0 ? (
               <p className="text-sm text-muted">No data yet.</p>
             ) : (
@@ -253,7 +250,7 @@ export default async function DashboardPage() {
                 ))}
               </ul>
             )}
-          </div>
+          </Collapsible>
         </div>
       )}
     </div>

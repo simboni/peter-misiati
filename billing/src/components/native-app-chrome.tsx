@@ -120,7 +120,7 @@ export function NativeAppChrome({
     <>
       {/* ---------------- Title bar (branded) ---------------- */}
       <header
-        className="app-only app-chrome sticky top-0 z-30 flex-col text-white"
+        className="app-only app-chrome fixed inset-x-0 top-0 z-30 flex-col text-white"
         style={{
           paddingTop: "var(--tp-safe-top)",
           background: "linear-gradient(160deg, #059669 0%, #047857 100%)",
