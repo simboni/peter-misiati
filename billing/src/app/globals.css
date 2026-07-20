@@ -175,6 +175,65 @@ body {
   50% { opacity: 0.45; }
 }
 
+/* ------------------------------------------------------------------ */
+/* Native app mode                                                     */
+/* Inside the installed app (Capacitor), AppShell sets                 */
+/* data-app="native" on <html>. We then swap the desktop/web chrome    */
+/* for a bottom-tab app shell. The website itself is left untouched.   */
+/* ------------------------------------------------------------------ */
+:root {
+  --tp-safe-top: env(safe-area-inset-top, 0px);
+  --tp-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --tp-tabbar-h: 62px;
+  --tp-appbar-h: 52px;
+}
+
+/* Show native-only chrome only in the app; hide web-only chrome there. */
+.app-only { display: none; }
+[data-app="native"] .app-only { display: flex; }
+[data-app="native"] .web-only { display: none !important; }
+
+[data-app="native"] {
+  -webkit-tap-highlight-color: transparent;
+}
+[data-app="native"] body {
+  overscroll-behavior-y: none;
+}
+/* Give the scroll area room for the fixed tab bar + let the app bar sit
+   under the status bar via the safe-area inset. */
+[data-app="native"] .app-main-wrap {
+  padding-left: 0 !important;
+}
+[data-app="native"] .app-main {
+  padding-bottom: calc(var(--tp-tabbar-h) + var(--tp-safe-bottom) + 12px) !important;
+  padding-top: 14px !important;
+}
+
+/* Chrome doesn't feel like a web page: no text selection, no callout. */
+[data-app="native"] .app-chrome {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* Bottom sheet (Create / More) */
+@keyframes tp-sheet-in {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+@keyframes tp-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.tp-sheet-backdrop { animation: tp-fade-in 0.18s ease-out; }
+.tp-sheet { animation: tp-sheet-in 0.26s cubic-bezier(0.22, 1, 0.36, 1); }
+@media (prefers-reduced-motion: reduce) {
+  .tp-sheet, .tp-sheet-backdrop { animation: none; }
+}
+/* Pressed feedback on tappable app chrome. */
+[data-app="native"] .tp-press { transition: transform 0.08s ease, background-color 0.15s ease; }
+[data-app="native"] .tp-press:active { transform: scale(0.94); }
+
 /* Print: A4 documents. Hide app chrome, show only the document. */
 .print-only {
   display: none;

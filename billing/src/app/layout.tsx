@@ -49,6 +49,14 @@ export default function RootLayout({
               "try{var t=localStorage.getItem('tp:theme');if(t&&t!=='light')document.documentElement.setAttribute('data-theme',t);}catch(e){}",
           }}
         />
+        {/* Inside the native app, mark the document early so the bottom-tab app
+            chrome paints immediately (no flash of the website layout). */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "try{var C=window.Capacitor;if(C&&C.isNativePlatform&&C.isNativePlatform())document.documentElement.setAttribute('data-app','native');}catch(e){}",
+          }}
+        />
       </head>
       <body>
         <RegisterSW />

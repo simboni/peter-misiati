@@ -5,6 +5,8 @@ import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
 import { Brand, BrandMark } from "./brand";
 import { ThemeToggle } from "./theme-toggle";
+import { isNativeApp } from "@/lib/native";
+import { NativeAppChrome } from "./native-app-chrome";
 
 /** Small spinner shown on a nav item while its route is loading. */
 function NavPending({ collapsed }: { collapsed: boolean }) {
@@ -18,9 +20,9 @@ function NavPending({ collapsed }: { collapsed: boolean }) {
   );
 }
 
-type NavItem = { href: string; label: string; icon: keyof typeof ICONS; exact?: boolean };
+export type NavItem = { href: string; label: string; icon: keyof typeof ICONS; exact?: boolean };
 
-const NAV: NavItem[] = [
+export const NAV: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: "grid", exact: true },
   { href: "/invoices", label: "Invoices", icon: "invoice" },
   { href: "/recurring", label: "Recurring", icon: "repeat" },
@@ -35,7 +37,7 @@ const NAV: NavItem[] = [
   { href: "/settings", label: "Settings", icon: "gear" },
 ];
 
-const ICONS = {
+export const ICONS = {
   grid: "M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z",
   invoice: "M6 2h9l3 3v17l-3-2-3 2-3-2-3 2V2zM9 8h6M9 12h6M9 16h4",
   quote: "M6 2h8l4 4v16H6zM14 2v4h4M9 13h6M9 17h4",
@@ -52,7 +54,7 @@ const ICONS = {
   logout: "M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9",
 };
 
-function Icon({ name, className = "h-5 w-5" }: { name: keyof typeof ICONS; className?: string }) {
+export function Icon({ name, className = "h-5 w-5" }: { name: keyof typeof ICONS; className?: string }) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={className}>
       <path d={ICONS[name]} />
@@ -93,6 +95,12 @@ export function AppShell({
 
   // close the mobile drawer on navigation
   useEffect(() => setDrawer(false), [pathname]);
+
+  // Inside the installed native app, switch on the bottom-tab app chrome
+  // (globals.css keys everything off html[data-app="native"]).
+  useEffect(() => {
+    if (isNativeApp()) document.documentElement.setAttribute("data-app", "native");
+  }, []);
 
   const nav = [...NAV];
   const upgradeItem: NavItem = { href: "/upgrade", label: pro ? "Plan" : "Upgrade", icon: "spark" };
@@ -160,7 +168,7 @@ export function AppShell({
     <div className="min-h-screen bg-canvas">
       {/* ---------- Desktop sidebar (fixed, collapsible) ---------- */}
       <aside
-        className={`no-print fixed inset-y-0 left-0 z-30 hidden flex-col border-r border-line bg-surface transition-[width] duration-200 lg:flex ${
+        className={`web-only no-print fixed inset-y-0 left-0 z-30 hidden flex-col border-r border-line bg-surface transition-[width] duration-200 lg:flex ${
           collapsed ? "w-[74px]" : "w-64"
         }`}
       >
@@ -190,7 +198,7 @@ export function AppShell({
       </aside>
 
       {/* ---------- Mobile top bar ---------- */}
-      <header className="no-print sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-line bg-surface/90 px-4 backdrop-blur lg:hidden">
+      <header className="web-only no-print sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-line bg-surface/90 px-4 backdrop-blur lg:hidden">
         <button
           onClick={() => setDrawer(true)}
           aria-label="Open menu"
@@ -206,7 +214,7 @@ export function AppShell({
 
       {/* ---------- Mobile drawer ---------- */}
       {drawer && (
-        <div className="no-print fixed inset-0 z-40 lg:hidden">
+        <div className="web-only no-print fixed inset-0 z-40 lg:hidden">
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setDrawer(false)} />
           <aside className="absolute inset-y-0 left-0 flex w-72 max-w-[82%] flex-col bg-surface shadow-2xl">
             <div className="flex h-14 items-center justify-between border-b border-line px-4">
@@ -226,8 +234,8 @@ export function AppShell({
       )}
 
       {/* ---------- Main ---------- */}
-      <div className={`transition-[padding] duration-200 ${collapsed ? "lg:pl-[74px]" : "lg:pl-64"}`}>
-        <main className="min-w-0 p-4 sm:p-6 lg:p-8">
+      <div className={`app-main-wrap transition-[padding] duration-200 ${collapsed ? "lg:pl-[74px]" : "lg:pl-64"}`}>
+        <main className="app-main min-w-0 p-4 sm:p-6 lg:p-8">
           {!pro && (
             <Link
               href="/upgrade"
@@ -242,10 +250,14 @@ export function AppShell({
           )}
           {children}
         </main>
-        <footer className="no-print px-4 pb-6 pt-2 text-center text-xs text-muted sm:px-6 lg:px-8">
+        <footer className="web-only no-print px-4 pb-6 pt-2 text-center text-xs text-muted sm:px-6 lg:px-8">
           Designed by <span className="font-semibold text-ink">SMP Developers Ltd</span>
         </footer>
       </div>
+
+      {/* Native app chrome (bottom tabs + title bar + sheets) — CSS shows this
+          only inside the installed app. */}
+      <NativeAppChrome orgName={orgName} userEmail={userEmail} pro={pro} isAdmin={isAdmin} signOut={signOut} />
     </div>
   );
 }
