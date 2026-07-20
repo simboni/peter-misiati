@@ -239,7 +239,7 @@ export function AppShell({
           {!pro && (
             <Link
               href="/upgrade"
-              className="no-print mb-5 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 transition-colors hover:bg-brand-100/70"
+              className="web-only no-print mb-5 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 transition-colors hover:bg-brand-100/70"
             >
               <span className="text-sm text-brand-800">
                 <b>You’re on the free plan.</b> Your invoices carry TallyPay branding — upgrade to
