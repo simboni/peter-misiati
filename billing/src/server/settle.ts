@@ -2,6 +2,8 @@ import { eq } from "drizzle-orm";
 import { schema, type DB } from "./db";
 import { allocateNumber } from "./sequence";
 import { deriveInvoiceStatus } from "./totals";
+import { formatMoney } from "./money";
+import { notifyPaymentReceived } from "./push";
 
 type IntentRow = typeof schema.paymentIntent.$inferSelect;
 
@@ -93,6 +95,12 @@ export async function settleIntent(
       mpesaReference: mpesaReference ?? row.mpesaReference,
     })
     .where(eq(schema.paymentIntent.id, row.id));
+
+  // Notify the vendor's devices that money landed (no-op unless push is set up).
+  await notifyPaymentReceived(db, row.organizationId, {
+    amount: formatMoney(amount, inv.currency),
+    invoiceNumber: inv.number,
+  });
 
   return { receiptToken };
 }

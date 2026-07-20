@@ -581,6 +581,31 @@ export const recurringInvoiceLine = sqliteTable(
 // ------------------------------------------------------------- platform admin
 
 /**
+ * Device push-notification tokens (FCM). One row per device/token; a user can
+ * have several. Used to send "payment received" alerts to a vendor's phones.
+ */
+export const pushToken = sqliteTable(
+  "push_token",
+  {
+    id: id(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    token: text("token").notNull(),
+    platform: text("platform").notNull().default("android"), // android|ios|web
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex("push_token_token_idx").on(t.token),
+    index("push_token_org_idx").on(t.organizationId),
+  ],
+);
+
+/**
  * Single-row platform configuration, editable from the admin console. Secrets
  * are AES-GCM encrypted. Env values are used only as a fallback when a field
  * here is unset, so the app can run with everything managed from the UI.

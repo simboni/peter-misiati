@@ -8,6 +8,7 @@ import { ThemeToggle } from "./theme-toggle";
 import { isNativeApp } from "@/lib/native";
 import { NativeAppChrome } from "./native-app-chrome";
 import { PullToRefresh } from "./pull-to-refresh";
+import { PushRegistration } from "./push-registration";
 
 /** Small spinner shown on a nav item while its route is loading. */
 function NavPending({ collapsed }: { collapsed: boolean }) {
@@ -260,6 +261,7 @@ export function AppShell({
           only inside the installed app. */}
       <NativeAppChrome orgName={orgName} userEmail={userEmail} pro={pro} isAdmin={isAdmin} signOut={signOut} />
       <PullToRefresh />
+      <PushRegistration />
     </div>
   );
 }
