@@ -32,6 +32,7 @@ export default function LandingPage() {
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <Brand />
           <nav className="flex items-center gap-2 sm:gap-3">
+            <Link href="/download" className="btn-ghost btn-sm hidden sm:inline-flex">Get the app</Link>
             <Link href="/login" className="btn-ghost btn-sm">Sign in</Link>
             <Link href="/signup" className="btn-primary btn-sm">Get started</Link>
           </nav>
@@ -68,8 +69,11 @@ export default function LandingPage() {
                 <Link href="/signup" className="btn-primary px-6 py-3 text-base shadow-sm">
                   Create your free workspace
                 </Link>
-                <Link href="/login" className="btn-ghost px-6 py-3 text-base">
-                  I already have an account
+                <Link href="/download" className="btn-ghost px-6 py-3 text-base inline-flex items-center gap-2">
+                  <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 3v12m0 0l4-4m-4 4l-4-4M5 21h14" />
+                  </svg>
+                  Download for Android
                 </Link>
               </div>
               <div className="mt-6 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-muted">
@@ -251,6 +255,7 @@ export default function LandingPage() {
             <span>© {new Date().getFullYear()} {APP_NAME}. Multi-vendor billing for Kenya.</span>
           </div>
           <div className="flex items-center gap-5">
+            <Link href="/download" className="hover:text-ink">Get the app</Link>
             <Link href="/login" className="hover:text-ink">Sign in</Link>
             <Link href="/signup" className="hover:text-ink">Get started</Link>
             <Link href="/privacy" className="hover:text-ink">Privacy</Link>

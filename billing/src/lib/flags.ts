@@ -27,3 +27,11 @@ export const SERVER_PDF_ENABLED = false;
 export const SUPPORT_EMAIL_USER = "support";
 export const SUPPORT_EMAIL_DOMAIN = "tallypay.co.ke";
 export const supportEmail = () => `${SUPPORT_EMAIL_USER}@${SUPPORT_EMAIL_DOMAIN}`;
+
+/**
+ * Public, stable download URL for the Android app. The "Build mobile app
+ * (Android)" workflow publishes the installable APK to a GitHub Release under
+ * the fixed `android` tag, so this link always points at the latest build.
+ */
+export const ANDROID_APK_URL =
+  "https://github.com/simboni/peter-misiati/releases/download/android/tallypay.apk";

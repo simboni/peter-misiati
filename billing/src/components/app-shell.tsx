@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { Brand, BrandMark } from "./brand";
 import { ThemeToggle } from "./theme-toggle";
 import { isNativeApp } from "@/lib/native";
+import { ANDROID_APK_URL } from "@/lib/flags";
 import { NativeAppChrome } from "./native-app-chrome";
 import { PullToRefresh } from "./pull-to-refresh";
 import { PushRegistration } from "./push-registration";
@@ -253,7 +254,18 @@ export function AppShell({
           {children}
         </main>
         <footer className="web-only no-print px-4 pb-6 pt-2 text-center text-xs text-muted sm:px-6 lg:px-8">
-          Designed by <span className="font-semibold text-ink">SMP Developers Ltd</span>
+          <a
+            href={ANDROID_APK_URL}
+            className="inline-flex items-center gap-1.5 font-semibold text-brand-700 hover:underline"
+          >
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 3v12m0 0l4-4m-4 4l-4-4M5 21h14" />
+            </svg>
+            Get the Android app
+          </a>
+          <div className="mt-2">
+            Designed by <span className="font-semibold text-ink">SMP Developers Ltd</span>
+          </div>
         </footer>
       </div>
 

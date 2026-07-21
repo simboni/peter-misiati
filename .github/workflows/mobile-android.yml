@@ -24,7 +24,7 @@ on:
       - ".github/workflows/mobile-android.yml"
 
 permissions:
-  contents: read
+  contents: write # needed to publish the APK to a GitHub Release (public download link)
 
 jobs:
   build:
@@ -99,3 +99,28 @@ jobs:
             mobile/android/app/build/outputs/bundle/release/app-release.aab
             mobile/android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
+
+      # Publish the installable APK to a GitHub Release under a fixed tag so the
+      # website can link to a stable, public download URL:
+      #   https://github.com/simboni/peter-misiati/releases/download/android/tallypay.apk
+      # Prefers the signed release APK when signing is configured, else the debug APK.
+      - name: Stage APK for the public download link
+        run: |
+          if [ -f mobile/android/app/build/outputs/apk/release/app-release.apk ]; then
+            cp mobile/android/app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/tallypay.apk"
+          else
+            cp mobile/android/app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/tallypay.apk"
+          fi
+
+      - name: Publish APK to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android
+          name: TallyPay for Android
+          body: |
+            Direct-install APK for TallyPay — installs the app that loads the latest
+            tallypay.co.ke, so it updates itself whenever the site is deployed.
+            To install: download on an Android phone, open the file, and allow
+            "install unknown apps" if prompted. Also coming to Google Play.
+          files: ${{ runner.temp }}/tallypay.apk
+          fail_on_unmatched_files: true
