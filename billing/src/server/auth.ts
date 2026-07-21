@@ -30,9 +30,30 @@ async function buildAuth() {
   const { env } = await getCloudflareContext({ async: true });
   const db = await getDb();
 
+  const baseURL = env.BETTER_AUTH_URL ?? "http://localhost:3000";
+  // Fail CLOSED: without a real secret, session cookies would be signed with a
+  // public constant — anyone could forge a session for any user. Never fall
+  // back to a hardcoded value in a deployed app.
+  const secret = env.BETTER_AUTH_SECRET;
+  if (!secret || secret.length < 32) {
+    throw new Error("BETTER_AUTH_SECRET is not set (or under 32 chars); refusing to start auth with a fallback secret.");
+  }
+
   return betterAuth({
-    baseURL: env.BETTER_AUTH_URL ?? "http://localhost:3000",
-    secret: env.BETTER_AUTH_SECRET ?? "dev-secret-please-change-in-production",
+    baseURL,
+    secret,
+    // Lock CSRF/redirect handling to known hosts rather than relying on the
+    // baseURL alone (which collapses to localhost if BETTER_AUTH_URL is unset).
+    trustedOrigins: [
+      "https://tallypay.co.ke",
+      "https://www.tallypay.co.ke",
+      "https://billing-platform.misiatipeter.workers.dev",
+    ],
+    // Throttle auth endpoints (sign-in/up/change) to blunt brute-force and
+    // enumeration. Note: on Workers this in-memory limiter is per-isolate;
+    // Cloudflare WAF rate-limiting rules on /api/auth/* are the production-grade
+    // layer (see docs/security.md).
+    rateLimit: { enabled: true, window: 10, max: 50 },
     database: drizzleAdapter(db, {
       provider: "sqlite",
       schema: {

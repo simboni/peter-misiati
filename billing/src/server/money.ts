@@ -33,7 +33,9 @@ export function parseAmount(input: unknown): number {
   if (s === "" || s === "-" || s === ".") return 0;
   const n = Number(s);
   if (!Number.isFinite(n)) return 0;
-  return Math.round(n * 100);
+  // Clamp to non-negative: a negative unit price / deposit / discount would
+  // corrupt the money math, and no document field legitimately takes one.
+  return Math.max(0, Math.round(n * 100));
 }
 
 /** Quantity thousandths -> display string ("2500" -> "2.5", "1000" -> "1"). */
@@ -48,7 +50,7 @@ export function parseQty(input: unknown): number {
   const s = String(input).replace(/[^0-9.-]/g, "");
   const n = Number(s);
   if (!Number.isFinite(n)) return 0;
-  return Math.round(n * 1000);
+  return Math.max(0, Math.round(n * 1000));
 }
 
 /** VAT basis points -> percent string ("1600" -> "16"). */
@@ -62,7 +64,7 @@ export function parseRate(input: unknown): number {
   if (input === null || input === undefined || input === "") return 0;
   const n = Number(String(input).replace(/[^0-9.-]/g, ""));
   if (!Number.isFinite(n)) return 0;
-  return Math.round(n * 100);
+  return Math.max(0, Math.round(n * 100));
 }
 
 /**

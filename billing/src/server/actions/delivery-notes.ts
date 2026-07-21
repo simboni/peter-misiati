@@ -111,6 +111,14 @@ export async function deleteDeliveryNoteAction(fd: FormData): Promise<void> {
   const { db, organizationId } = await requireOrg();
   const id = String(fd.get("id") ?? "");
   if (!id) return;
+  // Confirm ownership before deleting child rows (the line delete is not
+  // org-scoped on its own, so a foreign id could wipe another org's lines).
+  const owned = await db
+    .select({ id: schema.deliveryNote.id })
+    .from(schema.deliveryNote)
+    .where(and(eq(schema.deliveryNote.id, id), eq(schema.deliveryNote.organizationId, organizationId)))
+    .limit(1);
+  if (!owned[0]) redirect("/delivery-notes");
   await db.delete(schema.deliveryNoteLine).where(eq(schema.deliveryNoteLine.deliveryNoteId, id));
   await db
     .delete(schema.deliveryNote)

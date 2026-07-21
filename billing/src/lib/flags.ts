@@ -18,7 +18,12 @@ export const MPESA_PAYMENTS_ENABLED = false;
 export const SERVER_PDF_ENABLED = false;
 
 /**
- * Where free-plan vendors are pointed to arrange their own branding
- * (white-label) on invoices and emails. Change to your real support inbox.
+ * Support inbox where free-plan vendors arrange their own branding
+ * (white-label). Stored as separate parts so the literal address never sits in
+ * page HTML as one string — use <ObfuscatedEmail user={SUPPORT_EMAIL_USER}
+ * domain={SUPPORT_EMAIL_DOMAIN}/> in public UI, or supportEmail() when a plain
+ * string is unavoidable.
  */
-export const SUPPORT_EMAIL = "support@tallypay.co.ke";
+export const SUPPORT_EMAIL_USER = "support";
+export const SUPPORT_EMAIL_DOMAIN = "tallypay.co.ke";
+export const supportEmail = () => `${SUPPORT_EMAIL_USER}@${SUPPORT_EMAIL_DOMAIN}`;

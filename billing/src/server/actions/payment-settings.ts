@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { eq } from "drizzle-orm";
 import { requireOrg } from "@/server/org";
-import { getEnv } from "@/server/config";
+import { appSecret as getAppSecret } from "@/server/config";
 import { schema } from "@/server/db";
 import { encryptSecret } from "@/server/crypto";
 import { kopokopoConfigForOrg } from "@/server/payments-config";
@@ -19,8 +19,7 @@ function str(fd: FormData, key: string): string {
 /** Save the vendor's own Kopo Kopo credentials (secrets encrypted at rest). */
 export async function savePaymentSettingsAction(_prev: FormState, fd: FormData): Promise<FormState> {
   const { db, organizationId } = await requireOrg();
-  const env = await getEnv();
-  const appSecret = env.BETTER_AUTH_SECRET || "dev-secret-please-change-in-production";
+  const appSecret = await getAppSecret();
 
   const enabled = fd.get("kopokopoEnabled") === "on";
   const baseUrl =

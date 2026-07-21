@@ -73,10 +73,22 @@ export async function browserEnabled(): Promise<boolean> {
   return Boolean(env.BROWSER);
 }
 
-/** App secret used to derive the AES-GCM key for encrypting stored secrets. */
+/**
+ * App secret used to derive the AES-GCM key for encrypting stored secrets.
+ * Fails CLOSED: if BETTER_AUTH_SECRET is missing or too short we throw rather
+ * than silently falling back to a constant, which would encrypt every vendor's
+ * payment credentials under a publicly-known key. A short outage at deploy time
+ * is far safer than trivially-decryptable secrets.
+ */
 export async function appSecret(): Promise<string> {
   const env = await getEnv();
-  return env.BETTER_AUTH_SECRET || "dev-secret-please-change-in-production";
+  const secret = env.BETTER_AUTH_SECRET;
+  if (!secret || secret.length < 32) {
+    throw new Error(
+      "BETTER_AUTH_SECRET is not set (or under 32 chars). Refusing to encrypt secrets with a fallback key.",
+    );
+  }
+  return secret;
 }
 
 /** Emails (lowercased) that bootstrap as platform super-admins on login. */

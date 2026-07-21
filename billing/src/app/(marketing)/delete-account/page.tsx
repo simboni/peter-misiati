@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { Brand } from "@/components/brand";
+import { ObfuscatedEmail } from "@/components/obfuscated-email";
+import { SUPPORT_EMAIL_USER, SUPPORT_EMAIL_DOMAIN } from "@/lib/flags";
 
 export const metadata = {
   title: "Delete your account",
@@ -49,9 +51,12 @@ export default function DeleteAccountPage() {
           <Section title="Or request deletion by email">
             <p>
               Email{" "}
-              <a className="font-semibold text-brand-700 underline" href="mailto:support@tallypay.co.ke?subject=Delete%20my%20account">
-                support@tallypay.co.ke
-              </a>{" "}
+              <ObfuscatedEmail
+                className="font-semibold text-brand-700 underline"
+                user={SUPPORT_EMAIL_USER}
+                domain={SUPPORT_EMAIL_DOMAIN}
+                subject="Delete my account"
+              />{" "}
               from the email address on your account, with the subject “Delete my account”. We will
               verify it’s you and delete your account within 30 days, then confirm by email.
             </p>
@@ -86,9 +91,11 @@ export default function DeleteAccountPage() {
           <Section title="Contact">
             <p>
               Any questions about deletion or your data? Email{" "}
-              <a className="font-semibold text-brand-700 underline" href="mailto:support@tallypay.co.ke">
-                support@tallypay.co.ke
-              </a>
+              <ObfuscatedEmail
+                className="font-semibold text-brand-700 underline"
+                user={SUPPORT_EMAIL_USER}
+                domain={SUPPORT_EMAIL_DOMAIN}
+              />
               . See also our{" "}
               <Link className="font-semibold text-brand-700 underline" href="/privacy">
                 Privacy Policy

@@ -29,7 +29,15 @@ export default async function SettingsPage() {
   return (
     <div className="max-w-3xl space-y-6">
       <PageHeader title="Settings" subtitle="Your business details appear on every document." />
-      <SettingsForm orgName={org?.name ?? ""} profile={profile} pro={isPro(profile.plan)} />
+      <SettingsForm
+        orgName={org?.name ?? ""}
+        // Strip encrypted secrets before handing the profile to a Client
+        // Component — Next serializes every prop into the browser payload, and
+        // the form never needs the ciphertext (payment secrets are managed by
+        // PaymentSettingsForm via boolean flags).
+        profile={{ ...profile, kopokopoClientSecretEnc: null, kopokopoApiKeyEnc: null }}
+        pro={isPro(profile.plan)}
+      />
       <PaymentSettingsForm
         enabled={profile.kopokopoEnabled}
         baseUrl={profile.kopokopoBaseUrl}

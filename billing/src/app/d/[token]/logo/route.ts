@@ -31,16 +31,35 @@ export async function GET(_req: Request, { params }: { params: Promise<{ token: 
   const url = profile?.logoUrl;
   if (!url) return new Response(null, { status: 404 });
 
+  // Only ever serve real raster images from this origin. Echoing the stored
+  // MIME back (e.g. text/html or image/svg+xml) would let a vendor host an
+  // executable document on our domain — a stored-XSS / phishing primitive — so
+  // we allowlist the type and refuse anything else, regardless of what the data
+  // URL claims. Extra headers stop sniffing and framing.
+  const ALLOWED = new Set(["image/png", "image/jpeg", "image/gif", "image/webp", "image/avif"]);
+  const SAFE_HEADERS: Record<string, string> = {
+    "cache-control": "public, max-age=3600",
+    "x-content-type-options": "nosniff",
+    "content-disposition": "inline",
+    "content-security-policy": "default-src 'none'; sandbox",
+  };
+
   if (url.startsWith("data:")) {
     const comma = url.indexOf(",");
-    const mime = url.slice(5, comma).split(";")[0] || "image/png";
+    const mime = comma > 5 ? url.slice(5, comma).split(";")[0].toLowerCase() : "";
+    if (!ALLOWED.has(mime)) return new Response(null, { status: 415 });
     const b64 = url.slice(comma + 1);
-    const bin = atob(b64);
+    let bin: string;
+    try {
+      bin = atob(b64);
+    } catch {
+      return new Response(null, { status: 415 });
+    }
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    return new Response(bytes, {
-      headers: { "content-type": mime, "cache-control": "public, max-age=3600" },
-    });
+    return new Response(bytes, { headers: { "content-type": mime, ...SAFE_HEADERS } });
   }
-  return Response.redirect(url, 302);
+  // Hosted logo: only follow absolute https URLs, never javascript:/data:/http.
+  if (/^https:\/\//i.test(url)) return Response.redirect(url, 302);
+  return new Response(null, { status: 415 });
 }

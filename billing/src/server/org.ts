@@ -70,6 +70,9 @@ const orgBundle = cache(async () => {
   const activeId = session.session.activeOrganizationId ?? undefined;
   const active = (activeId ? rows.find((r) => r.organizationId === activeId) : undefined) ?? rows[0];
 
+  // Block a user an admin has disabled (offboarded / compromised account) from
+  // all authenticated pages and actions — not just the admin link.
+  if (active.disabled) redirect("/suspended");
   // Block access to a workspace an admin has suspended.
   if (active.suspended) redirect("/suspended");
 

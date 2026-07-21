@@ -154,6 +154,15 @@ export async function deleteRecurringAction(fd: FormData): Promise<void> {
   const { db, organizationId } = await requireOrg();
   const id = String(fd.get("id") ?? "");
   if (!id) return;
+  // Confirm the schedule belongs to THIS org before touching its child rows —
+  // otherwise a crafted id could delete another org's line items (the parent
+  // delete is org-scoped, but the line delete was not).
+  const owned = await db
+    .select({ id: schema.recurringInvoice.id })
+    .from(schema.recurringInvoice)
+    .where(and(eq(schema.recurringInvoice.id, id), eq(schema.recurringInvoice.organizationId, organizationId)))
+    .limit(1);
+  if (!owned[0]) return;
   await db.delete(schema.recurringInvoiceLine).where(eq(schema.recurringInvoiceLine.recurringInvoiceId, id));
   await db
     .delete(schema.recurringInvoice)

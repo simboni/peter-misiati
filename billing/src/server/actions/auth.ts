@@ -6,6 +6,15 @@ import { getAuth } from "@/server/auth";
 
 export type FormState = { error?: string };
 
+function isDuplicateUser(e: unknown): boolean {
+  const msg = messageFrom(e).toLowerCase();
+  const code =
+    e && typeof e === "object" && "body" in e
+      ? String((e as { body?: { code?: string } }).body?.code ?? "").toUpperCase()
+      : "";
+  return code.includes("USER_ALREADY_EXISTS") || msg.includes("already exists") || msg.includes("already registered");
+}
+
 function messageFrom(e: unknown): string {
   if (e && typeof e === "object" && "body" in e) {
     const body = (e as { body?: { message?: string } }).body;
@@ -27,6 +36,12 @@ export async function signUpAction(_prev: FormState, formData: FormData): Promis
   try {
     await auth.api.signUpEmail({ body: { name, email, password }, headers: await headers() });
   } catch (e) {
+    // Don't echo the library's "User already exists" — that turns sign-up into
+    // an oracle for which emails are registered. Return a uniform message for
+    // the duplicate case; surface other (e.g. validation) errors as-is.
+    if (isDuplicateUser(e)) {
+      return { error: "We couldn't create an account with those details. Try signing in instead." };
+    }
     return { error: messageFrom(e) };
   }
   redirect("/onboarding");

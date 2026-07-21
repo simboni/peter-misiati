@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { schema, type DB } from "./db";
-import { getEnv, type KopoKopoConfig } from "./config";
+import { appSecret as getAppSecret, type KopoKopoConfig } from "./config";
 import { platformKopokopoConfig } from "./platform";
 import { decryptSecret } from "./crypto";
 
@@ -29,8 +29,7 @@ export async function kopokopoConfigForOrg(
   const p = rows[0];
 
   if (p?.enabled && p.till && p.clientId && p.secretEnc && p.apiKeyEnc) {
-    const env = await getEnv();
-    const appSecret = env.BETTER_AUTH_SECRET || "dev-secret-please-change-in-production";
+    const appSecret = await getAppSecret();
     const [clientSecret, apiKey] = await Promise.all([
       decryptSecret(p.secretEnc, appSecret),
       decryptSecret(p.apiKeyEnc, appSecret),

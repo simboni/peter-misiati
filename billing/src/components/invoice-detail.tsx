@@ -10,7 +10,7 @@ import {
 } from "@/server/actions/invoices";
 import { deletePaymentAction } from "@/server/actions/payments";
 import { EmailPdfButton } from "./email-pdf-button";
-import { SUPPORT_EMAIL } from "@/lib/flags";
+import { supportEmail } from "@/lib/flags";
 import type { PdfIssuer } from "@/lib/invoice-pdf";
 import type { Invoice, InvoiceLine, Client, Payment } from "@/server/db/schema";
 
@@ -49,7 +49,7 @@ export function InvoiceDetail({
   const base = isQuote ? "quotations" : "invoices";
   const depositMet = invoice.amountPaid >= invoice.depositAmount && invoice.depositAmount > 0;
   const noun = isQuote ? "quotation" : "invoice";
-  const mailto = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("Custom branding for my invoices")}`;
+  const mailto = `mailto:${supportEmail()}?subject=${encodeURIComponent("Custom branding for my invoices")}`;
 
   return (
     <div className="space-y-6">

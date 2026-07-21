@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { requireOrg } from "@/server/org";
 import { schema } from "@/server/db";
 import { allocateNumber } from "@/server/sequence";
@@ -60,6 +60,19 @@ export async function saveInvoiceAction(_prev: FormState, fd: FormData): Promise
     // A line is valid when it has a name (title or description) and some value.
     .filter((l) => (l.title || l.description) !== "" && (l.quantityMilli !== 0 || l.unitPrice !== 0));
   if (cleaned.length === 0) return { error: "Add at least one item with a name and a price." };
+
+  // Drop any itemId that isn't one of this org's items, so a crafted payload
+  // can't attach another org's item id to the line. (Line values come from the
+  // payload, not the item, so this is integrity hygiene rather than a leak.)
+  const itemIds = [...new Set(cleaned.map((l) => l.itemId).filter(Boolean))] as string[];
+  if (itemIds.length > 0) {
+    const owned = await db
+      .select({ id: schema.item.id })
+      .from(schema.item)
+      .where(and(eq(schema.item.organizationId, organizationId), inArray(schema.item.id, itemIds)));
+    const ok = new Set(owned.map((r) => r.id));
+    for (const l of cleaned) if (l.itemId && !ok.has(l.itemId)) l.itemId = null;
+  }
 
   const discountType = (String(fd.get("discountType") ?? "") || null) as DiscountType;
   const discountValue =

@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, ne } from "drizzle-orm";
 import { requireOrg } from "@/server/org";
 import { getAuth } from "@/server/auth";
 import { schema, type DB } from "@/server/db";
@@ -96,9 +96,27 @@ export async function deleteAccountAction(_prev: FormState, fd: FormData): Promi
     .from(schema.member)
     .where(eq(schema.member.userId, userId));
 
+  // Guard the blast radius: deleting your account purges any workspace you OWN,
+  // which would also wipe every co-owner's and member's data. Refuse if an
+  // owned workspace still has other members — the user must remove/transfer
+  // them first, so "delete my account" can never silently destroy other people.
   for (const m of memberships) {
-    // Owner leaving = the workspace is dissolved for everyone. Workspaces where
-    // this user is only a member are left standing; their seat is dropped below.
+    if (m.role !== "owner") continue;
+    const others = await db
+      .select({ id: schema.member.id })
+      .from(schema.member)
+      .where(and(eq(schema.member.organizationId, m.organizationId), ne(schema.member.userId, userId)))
+      .limit(1);
+    if (others[0]) {
+      return {
+        error:
+          "You own a workspace that still has other members. Remove them (or transfer ownership) before deleting your account, so their data isn't deleted.",
+      };
+    }
+  }
+
+  for (const m of memberships) {
+    // Owner leaving a workspace where they are now the only member = dissolve it.
     if (m.role === "owner") await purgeOrganization(db, m.organizationId);
   }
 
