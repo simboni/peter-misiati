@@ -44,6 +44,13 @@ export function PrintBar({
     if (!ok) copy(); // no share sheet available — fall back to copying the link
   };
 
+  // Inside the installed app this public page has no tab bar, so give the vendor
+  // a way back. Return to where they came from, or the dashboard as a fallback.
+  const goBack = () => {
+    if (window.history.length > 1) window.history.back();
+    else window.location.href = "/dashboard";
+  };
+
   const wa = clientPhone
     ? `https://wa.me/${clientPhone.replace(/[^0-9]/g, "")}?text=${encodeURIComponent(message)}`
     : `https://wa.me/?text=${encodeURIComponent(message)}`;
@@ -51,6 +58,17 @@ export function PrintBar({
 
   return (
     <div className="doc-toolbar no-print sticky top-0 z-10 flex flex-wrap items-center justify-center gap-2 border-b border-line bg-white/90 px-4 py-3 backdrop-blur">
+      {/* App-only: return to the app (this public page has no tab bar). Hidden
+          for clients viewing the document in a normal browser. */}
+      <button
+        onClick={goBack}
+        className="app-only mr-auto items-center gap-1 rounded-lg border border-line bg-white px-3 py-2 text-sm font-semibold text-ink active:scale-95"
+      >
+        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M15 18l-6-6 6-6" />
+        </svg>
+        Back
+      </button>
       {/* WhatsApp is the primary way Kenyan businesses send documents — make it
           the big, obvious first action. */}
       <a
