@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { SubmitButton } from "./submit-button";
 import { deleteClientAction } from "@/server/actions/clients";
 
 type Row = {
@@ -49,7 +50,7 @@ export function ClientListView({ rows }: { rows: Row[] }) {
               <Link href={`/clients/${r.id}`} className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-canvas hover:text-ink">Edit</Link>
               <form action={deleteClientAction} onSubmit={(e) => { if (!confirm("Delete this client?")) e.preventDefault(); }}>
                 <input type="hidden" name="id" value={r.id} />
-                <button className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-red-50 hover:text-red-600">Delete</button>
+                <SubmitButton className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-red-50 hover:text-red-600" pendingText="Deleting…">Delete</SubmitButton>
               </form>
             </div>
           </div>
@@ -83,7 +84,7 @@ export function ClientListView({ rows }: { rows: Row[] }) {
                     <Link href={`/clients/${c.id}`} className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-canvas hover:text-ink">Edit</Link>
                     <form action={deleteClientAction} onSubmit={(e) => { if (!confirm("Delete this client?")) e.preventDefault(); }}>
                       <input type="hidden" name="id" value={c.id} />
-                      <button className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-red-50 hover:text-red-600">Delete</button>
+                      <SubmitButton className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-red-50 hover:text-red-600" pendingText="Deleting…">Delete</SubmitButton>
                     </form>
                   </div>
                 </td>

@@ -6,6 +6,7 @@ import { schema } from "@/server/db";
 import { StatusBadge } from "@/components/status-badge";
 import { formatQty } from "@/server/money";
 import { fmtDate } from "@/server/queries";
+import { SubmitButton } from "@/components/submit-button";
 import { deleteDeliveryNoteAction } from "@/server/actions/delivery-notes";
 import type { Metadata } from "next";
 
@@ -58,7 +59,7 @@ export default async function DeliveryNotePage({ params }: { params: Promise<{ i
           </Link>
           <form action={deleteDeliveryNoteAction}>
             <input type="hidden" name="id" value={note.id} />
-            <button className="btn-danger btn-sm">Delete</button>
+            <SubmitButton className="btn-danger btn-sm" pendingText="Deleting…">Delete</SubmitButton>
           </form>
         </div>
       </div>

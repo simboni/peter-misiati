@@ -4,6 +4,7 @@ import { requireOrg, getOrgProfile } from "@/server/org";
 import { schema } from "@/server/db";
 import { ItemForm } from "@/components/item-form";
 import { PageHeader } from "@/components/page-header";
+import { SubmitButton } from "@/components/submit-button";
 import { deleteItemAction } from "@/server/actions/items";
 
 export const metadata = { title: "Edit item" };
@@ -28,7 +29,7 @@ export default async function EditItemPage({ params }: { params: Promise<{ id: s
       <ItemForm item={item} defaultVatRateBps={profile?.defaultVatRateBps ?? 1600} />
       <form action={deleteItemAction} className="mt-6 max-w-2xl">
         <input type="hidden" name="id" value={item.id} />
-        <button className="btn-danger btn-sm">Delete item</button>
+        <SubmitButton className="btn-danger btn-sm" pendingText="Deleting…">Delete item</SubmitButton>
       </form>
     </div>
   );

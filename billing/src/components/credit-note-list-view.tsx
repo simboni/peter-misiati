@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { formatMoney } from "@/server/money";
+import { SubmitButton } from "./submit-button";
 import { deleteCreditNoteAction } from "@/server/actions/credit-notes";
 
 type Row = {
@@ -68,7 +69,7 @@ export function CreditNoteListView({ rows }: { rows: Row[] }) {
               <Link href={`/credit-notes/${r.id}/edit`} className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-canvas hover:text-ink">Edit</Link>
               <form action={deleteCreditNoteAction} onSubmit={(e) => { if (!confirm("Delete this credit note? Any linked invoice balance is restored.")) e.preventDefault(); }}>
                 <input type="hidden" name="id" value={r.id} />
-                <button className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-red-50 hover:text-red-600">Delete</button>
+                <SubmitButton className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-red-50 hover:text-red-600" pendingText="Deleting…">Delete</SubmitButton>
               </form>
             </div>
           </div>
@@ -109,7 +110,7 @@ export function CreditNoteListView({ rows }: { rows: Row[] }) {
                     <Link href={`/credit-notes/${r.id}/edit`} className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-canvas hover:text-ink">Edit</Link>
                     <form action={deleteCreditNoteAction} onSubmit={(e) => { if (!confirm("Delete this credit note? Any linked invoice balance is restored.")) e.preventDefault(); }}>
                       <input type="hidden" name="id" value={r.id} />
-                      <button className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-red-50 hover:text-red-600">Delete</button>
+                      <SubmitButton className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-red-50 hover:text-red-600" pendingText="Deleting…">Delete</SubmitButton>
                     </form>
                   </div>
                 </td>

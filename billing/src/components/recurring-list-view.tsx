@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { formatMoney } from "@/server/money";
+import { SubmitButton } from "./submit-button";
 import { setRecurringStatusAction, deleteRecurringAction } from "@/server/actions/recurring";
 
 type Row = {
@@ -83,14 +84,14 @@ export function RecurringListView({ rows }: { rows: Row[] }) {
                 <form action={setRecurringStatusAction}>
                   <input type="hidden" name="id" value={r.id} />
                   <input type="hidden" name="status" value={r.status === "active" ? "paused" : "active"} />
-                  <button className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-canvas hover:text-ink">
+                  <SubmitButton className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-canvas hover:text-ink" pendingText="Updating…">
                     {r.status === "active" ? "Pause" : "Resume"}
-                  </button>
+                  </SubmitButton>
                 </form>
               )}
               <form action={deleteRecurringAction} onSubmit={(e) => { if (!confirm("Delete this schedule? Invoices already created are kept.")) e.preventDefault(); }}>
                 <input type="hidden" name="id" value={r.id} />
-                <button className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-red-50 hover:text-red-600">Delete</button>
+                <SubmitButton className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-red-50 hover:text-red-600" pendingText="Deleting…">Delete</SubmitButton>
               </form>
             </div>
           </div>
@@ -131,14 +132,14 @@ export function RecurringListView({ rows }: { rows: Row[] }) {
                       <form action={setRecurringStatusAction}>
                         <input type="hidden" name="id" value={r.id} />
                         <input type="hidden" name="status" value={r.status === "active" ? "paused" : "active"} />
-                        <button className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-canvas hover:text-ink">
+                        <SubmitButton className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-canvas hover:text-ink" pendingText="Updating…">
                           {r.status === "active" ? "Pause" : "Resume"}
-                        </button>
+                        </SubmitButton>
                       </form>
                     )}
                     <form action={deleteRecurringAction} onSubmit={(e) => { if (!confirm("Delete this schedule? Invoices already created are kept.")) e.preventDefault(); }}>
                       <input type="hidden" name="id" value={r.id} />
-                      <button className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-red-50 hover:text-red-600">Delete</button>
+                      <SubmitButton className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-red-50 hover:text-red-600" pendingText="Deleting…">Delete</SubmitButton>
                     </form>
                   </div>
                 </td>

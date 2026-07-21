@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { formatMoney } from "@/server/money";
+import { SubmitButton } from "./submit-button";
 import { deleteExpenseAction } from "@/server/actions/expenses";
 
 type Row = {
@@ -81,7 +82,7 @@ export function ExpenseListView({ rows }: { rows: Row[] }) {
               <Link href={`/expenses/${r.id}/edit`} className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-canvas hover:text-ink">Edit</Link>
               <form action={deleteExpenseAction} onSubmit={(e) => { if (!confirm("Delete this expense?")) e.preventDefault(); }}>
                 <input type="hidden" name="id" value={r.id} />
-                <button className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-red-50 hover:text-red-600">Delete</button>
+                <SubmitButton className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-red-50 hover:text-red-600" pendingText="Deleting…">Delete</SubmitButton>
               </form>
             </div>
           </div>
@@ -120,7 +121,7 @@ export function ExpenseListView({ rows }: { rows: Row[] }) {
                     <Link href={`/expenses/${r.id}/edit`} className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-canvas hover:text-ink">Edit</Link>
                     <form action={deleteExpenseAction} onSubmit={(e) => { if (!confirm("Delete this expense?")) e.preventDefault(); }}>
                       <input type="hidden" name="id" value={r.id} />
-                      <button className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-red-50 hover:text-red-600">Delete</button>
+                      <SubmitButton className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-red-50 hover:text-red-600" pendingText="Deleting…">Delete</SubmitButton>
                     </form>
                   </div>
                 </td>

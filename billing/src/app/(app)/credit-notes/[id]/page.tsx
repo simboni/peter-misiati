@@ -4,6 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { requireOrg, getOrg, getOrgProfile } from "@/server/org";
 import { schema } from "@/server/db";
 import { CreditNoteDocument } from "@/components/documents/templates";
+import { SubmitButton } from "@/components/submit-button";
 import { deleteCreditNoteAction } from "@/server/actions/credit-notes";
 import type { Metadata } from "next";
 
@@ -57,7 +58,7 @@ export default async function CreditNotePage({ params }: { params: Promise<{ id:
           <Link href={`/credit-notes/${cn.id}/edit`} className="btn-ghost btn-sm">Edit</Link>
           <form action={deleteCreditNoteAction}>
             <input type="hidden" name="id" value={cn.id} />
-            <button className="btn-danger btn-sm">Delete</button>
+            <SubmitButton className="btn-danger btn-sm" pendingText="Deleting…">Delete</SubmitButton>
           </form>
         </div>
       </div>

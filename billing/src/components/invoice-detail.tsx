@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { StatusBadge } from "./status-badge";
+import { SubmitButton } from "./submit-button";
 import { RecordPaymentForm } from "./record-payment-form";
 import { formatMoney, formatQty, formatRate } from "@/server/money";
 import { fmtDate } from "@/server/queries";
@@ -95,27 +96,27 @@ export function InvoiceDetail({
             <form action={setInvoiceStatusAction}>
               <input type="hidden" name="id" value={invoice.id} />
               <input type="hidden" name="status" value="sent" />
-              <button className="btn-ghost btn-sm">Mark as sent</button>
+              <SubmitButton className="btn-ghost btn-sm" pendingText="Marking…">Mark as sent</SubmitButton>
             </form>
           )}
           {isQuote && invoice.status !== "accepted" && (
             <form action={convertQuotationAction}>
               <input type="hidden" name="id" value={invoice.id} />
-              <button className="btn-primary btn-sm">Convert to invoice</button>
+              <SubmitButton className="btn-primary btn-sm" pendingText="Converting…">Convert to invoice</SubmitButton>
             </form>
           )}
           {!isQuote && invoice.status !== "void" && invoice.amountPaid === 0 && (
             <form action={setInvoiceStatusAction}>
               <input type="hidden" name="id" value={invoice.id} />
               <input type="hidden" name="status" value="void" />
-              <button className="btn-ghost btn-sm">Void</button>
+              <SubmitButton className="btn-ghost btn-sm" pendingText="Voiding…">Void</SubmitButton>
             </form>
           )}
           {invoice.amountPaid === 0 && (
             <form action={deleteInvoiceAction}>
               <input type="hidden" name="id" value={invoice.id} />
               <input type="hidden" name="type" value={invoice.type} />
-              <button className="btn-danger btn-sm">Delete</button>
+              <SubmitButton className="btn-danger btn-sm" pendingText="Deleting…">Delete</SubmitButton>
             </form>
           )}
         </div>
@@ -273,7 +274,7 @@ export function InvoiceDetail({
                         <span className="tabular-nums font-medium text-ink">{formatMoney(p.amount, cur)}</span>
                         <form action={deletePaymentAction}>
                           <input type="hidden" name="id" value={p.id} />
-                          <button className="text-xs text-muted hover:text-red-600">remove</button>
+                          <SubmitButton className="text-xs text-muted hover:text-red-600" pendingText="Removing…">remove</SubmitButton>
                         </form>
                       </div>
                     </li>

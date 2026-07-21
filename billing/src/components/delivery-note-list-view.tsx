@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { StatusBadge } from "./status-badge";
+import { SubmitButton } from "./submit-button";
 import { deleteDeliveryNoteAction } from "@/server/actions/delivery-notes";
 
 type Row = {
@@ -67,7 +68,7 @@ export function DeliveryNoteListView({ rows }: { rows: Row[] }) {
               <Link href={`/delivery-notes/${r.id}/edit`} className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-canvas hover:text-ink">Edit</Link>
               <form action={deleteDeliveryNoteAction} onSubmit={(e) => { if (!confirm("Delete this delivery note?")) e.preventDefault(); }}>
                 <input type="hidden" name="id" value={r.id} />
-                <button className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-red-50 hover:text-red-600">Delete</button>
+                <SubmitButton className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-red-50 hover:text-red-600" pendingText="Deleting…">Delete</SubmitButton>
               </form>
             </div>
           </div>
@@ -101,7 +102,7 @@ export function DeliveryNoteListView({ rows }: { rows: Row[] }) {
                     <Link href={`/delivery-notes/${r.id}/edit`} className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-canvas hover:text-ink">Edit</Link>
                     <form action={deleteDeliveryNoteAction} onSubmit={(e) => { if (!confirm("Delete this delivery note?")) e.preventDefault(); }}>
                       <input type="hidden" name="id" value={r.id} />
-                      <button className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-red-50 hover:text-red-600">Delete</button>
+                      <SubmitButton className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-red-50 hover:text-red-600" pendingText="Deleting…">Delete</SubmitButton>
                     </form>
                   </div>
                 </td>

@@ -4,6 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { requireOrg } from "@/server/org";
 import { schema } from "@/server/db";
 import { ClientForm } from "@/components/client-form";
+import { SubmitButton } from "@/components/submit-button";
 import { deleteClientAction } from "@/server/actions/clients";
 
 export const metadata = { title: "Edit client" };
@@ -49,7 +50,7 @@ export default async function EditClientPage({
 
       <form action={deleteClientAction} className="mt-6 max-w-2xl">
         <input type="hidden" name="id" value={client.id} />
-        <button className="btn-danger btn-sm">Delete client</button>
+        <SubmitButton className="btn-danger btn-sm" pendingText="Deleting…">Delete client</SubmitButton>
       </form>
     </div>
   );
