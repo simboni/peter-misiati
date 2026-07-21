@@ -10,6 +10,7 @@ import {
 } from "@/server/actions/invoices";
 import { deletePaymentAction } from "@/server/actions/payments";
 import { EmailPdfButton } from "./email-pdf-button";
+import { WhatsAppShareButton } from "./whatsapp-share-button";
 import { supportEmail } from "@/lib/flags";
 import type { PdfIssuer } from "@/lib/invoice-pdf";
 import type { Invoice, InvoiceLine, Client, Payment } from "@/server/db/schema";
@@ -69,6 +70,13 @@ export function InvoiceDetail({
           <StatusBadge status={invoice.status} />
         </div>
         <div className="flex flex-wrap gap-2">
+          <WhatsAppShareButton
+            path={`/d/${invoice.shareToken}`}
+            label={`${isQuote ? "Quotation" : "Invoice"} ${invoice.number}`}
+            phone={client?.phone}
+            amountText={formatMoney(invoice.total, cur)}
+            size="sm"
+          />
           <Link href={`/d/${invoice.shareToken}`} className="btn-ghost btn-sm" target="_blank">
             View / Print
           </Link>

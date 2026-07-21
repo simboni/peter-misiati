@@ -195,6 +195,14 @@ body {
 [data-app="native"] .app-only { display: flex; }
 [data-app="native"] .web-only { display: none !important; }
 
+/* A sticky toolbar (e.g. the public document share bar) must clear the status
+   bar when the page is opened INSIDE the installed app, where there is no
+   browser chrome above it. On the plain website the browser's own bar sits
+   above, so no extra space is needed. */
+[data-app="native"] .doc-toolbar {
+  padding-top: calc(var(--tp-safe-top) + 10px) !important;
+}
+
 [data-app="native"] {
   -webkit-tap-highlight-color: transparent;
 }
