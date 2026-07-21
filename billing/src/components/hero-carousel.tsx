@@ -39,10 +39,10 @@ export function HeroCarousel({ cards }: { cards: HeroCard[] }) {
       <div
         ref={ref}
         onScroll={onScroll}
-        className="-mx-1 flex snap-x snap-mandatory gap-3 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="-mx-1 flex snap-x snap-mandatory gap-3 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:mx-0 lg:grid lg:grid-cols-3 lg:gap-4 lg:overflow-x-visible lg:px-0 lg:pb-0"
       >
         {cards.map((c, i) => (
-          <div key={i} className="w-full flex-none snap-center">
+          <div key={i} className="w-full flex-none snap-center lg:w-auto">
             <section
               className="relative h-full overflow-hidden rounded-3xl p-6 text-white shadow-[0_18px_40px_-20px_rgba(4,120,87,0.7)]"
               style={{ background: "linear-gradient(140deg, #059669 0%, #047857 52%, #065f46 100%)" }}
@@ -54,7 +54,7 @@ export function HeroCarousel({ cards }: { cards: HeroCard[] }) {
                   <p className="text-sm font-medium text-white/80">{c.label}</p>
                   <span className="rounded-full bg-white/15 px-2.5 py-1 text-xs font-bold tracking-wide">{c.cur}</span>
                 </div>
-                <p className="mt-2 text-4xl font-extrabold tracking-tight tabular-nums sm:text-5xl">{c.amount}</p>
+                <p className="mt-2 text-4xl font-extrabold tracking-tight tabular-nums sm:text-5xl lg:text-4xl xl:text-5xl">{c.amount}</p>
                 {(c.chips?.length || c.link) && (
                   <div className="mt-auto flex flex-wrap items-center gap-2 pt-4 text-xs">
                     {c.chips?.map((ch, j) => (
@@ -85,7 +85,7 @@ export function HeroCarousel({ cards }: { cards: HeroCard[] }) {
         ))}
       </div>
       {cards.length > 1 && (
-        <div className="mt-3 flex justify-center gap-1.5">
+        <div className="mt-3 flex justify-center gap-1.5 lg:hidden">
           {cards.map((_, i) => (
             <button
               key={i}
