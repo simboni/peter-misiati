@@ -122,7 +122,28 @@ class Painter {
   /** Header band: issuer (left) + document title/number/meta (right). */
   header(title: string, number: string, meta: string[]) {
     const top = this.y;
-    this.text(this.p?.legalName || this.name, M, top, 17, "bold");
+
+    // Vendor logo (Pro only, matching the on-screen document) sits above the
+    // business name. Best-effort: an unreadable/unsupported image is skipped so
+    // the PDF still renders with the name, never breaking the download.
+    let logoH = 0;
+    const logo = this.pro ? this.p?.logoUrl : null;
+    if (logo && /^data:image\//i.test(logo)) {
+      try {
+        const props = this.doc.getImageProperties(logo);
+        const maxH = 40, maxW = 160;
+        let h = maxH;
+        let w = (props.width / props.height) * h;
+        if (w > maxW) { w = maxW; h = (props.height / props.width) * w; }
+        this.doc.addImage(logo, props.fileType || "PNG", M, top - 8, w, h);
+        logoH = h + 12;
+      } catch {
+        /* unsupported/corrupt logo — fall back to the name only */
+      }
+    }
+
+    const nameY = top + logoH;
+    this.text(this.p?.legalName || this.name, M, nameY, 17, "bold");
     const issuerLines = [
       this.p?.addressLine1,
       this.p?.addressLine2,
@@ -131,7 +152,7 @@ class Painter {
       this.p?.email,
       this.p?.kraPin ? `KRA PIN: ${this.p.kraPin}` : null,
     ].filter(Boolean) as string[];
-    let ly = top + 16;
+    let ly = nameY + 16;
     for (const l of issuerLines) { ly += 12; this.text(l, M, ly, 9.5, "normal", MUTED); }
 
     this.textR(title.toUpperCase(), this.right, top, 22, "bold", this.accent);
@@ -139,7 +160,7 @@ class Painter {
     this.textR(number, this.right, ry, 11, "bold");
     for (const m of meta) { ry += 13; this.textR(m, this.right, ry, 9.5, "normal", MUTED); }
 
-    this.y = top + Math.max(16 + issuerLines.length * 12, 34 + meta.length * 13) + 22;
+    this.y = Math.max(nameY + 16 + issuerLines.length * 12, top + 34 + meta.length * 13) + 22;
     this.rule(M, this.y, this.right, 1, LINE);
     this.y += 22;
   }
