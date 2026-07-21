@@ -77,7 +77,7 @@ export function QuotationListView({ rows }: { rows: Row[] }) {
               </div>
             </div>
             <div className="mt-2 flex justify-end border-t border-line pt-2">
-              <InvoiceRowActions id={r.id} shareToken={r.shareToken} canPay={false} kind="quotation" />
+              <InvoiceRowActions id={r.id} shareToken={r.shareToken} canPay={false} kind="quotation" label={r.number} />
             </div>
           </div>
         ))}
@@ -106,7 +106,7 @@ export function QuotationListView({ rows }: { rows: Row[] }) {
                 <td className="td whitespace-nowrap text-muted">{r.date}</td>
                 <td className="td"><StatusBadge status={r.status} /></td>
                 <td className="td text-right tabular-nums">{formatMoney(r.total, r.currency)}</td>
-                <td className="td"><InvoiceRowActions id={r.id} shareToken={r.shareToken} canPay={false} kind="quotation" /></td>
+                <td className="td"><InvoiceRowActions id={r.id} shareToken={r.shareToken} canPay={false} kind="quotation" label={r.number} /></td>
               </tr>
             ))}
             {filtered.length === 0 && (

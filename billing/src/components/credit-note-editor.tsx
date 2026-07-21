@@ -285,7 +285,7 @@ export function CreditNoteEditor({
       </div>
 
       {/* Mobile action bar */}
-      <div className="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-surface/95 p-3 backdrop-blur lg:hidden">
+      <div className="editor-actionbar fixed inset-x-0 bottom-0 z-20 border-t border-line bg-surface/95 p-3 backdrop-blur lg:hidden">
         {state.error && <p className="mb-2 rounded-lg bg-red-50 px-3 py-1.5 text-xs text-red-700">{state.error}</p>}
         <div className="flex items-center gap-3">
           <div className="min-w-0 flex-1">

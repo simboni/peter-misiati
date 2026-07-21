@@ -130,6 +130,7 @@ export default async function PublicDocumentPage({
           clientEmail={client?.email}
           clientPhone={client?.phone}
           pdfHref={pdfHref}
+          amountText={formatMoney(invoice.total, invoice.currency)}
         />
         {canPay && (
           <div className="no-print mx-auto mt-4 max-w-[820px] px-4">
@@ -185,6 +186,7 @@ export default async function PublicDocumentPage({
           clientEmail={client?.email}
           clientPhone={client?.phone}
           pdfHref={pdfHref}
+          amountText={formatMoney(payment.amount, invRows2[0].currency)}
         />
         <div id="tp-doc" className="p-4 print:p-0">
           <ReceiptDocument
@@ -273,6 +275,7 @@ export default async function PublicDocumentPage({
           clientEmail={client?.email}
           clientPhone={client?.phone}
           pdfHref={pdfHref}
+          amountText={formatMoney(cn.total, cn.currency)}
         />
         <div id="tp-doc" className="p-4 print:p-0">
           <CreditNoteDocument issuer={issuer} creditNote={cn} lines={lines} client={client} invoiceNumber={invRows4[0]?.number ?? null} />

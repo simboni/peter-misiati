@@ -203,6 +203,20 @@ body {
   padding-top: calc(var(--tp-safe-top) + 10px) !important;
 }
 
+/* A phone-only fixed action bar (e.g. an editor's Save/Create button) is
+   anchored to bottom:0. Inside the app the emerald tab bar also sits at
+   bottom:0 (taller, z-30) and would paint over it, hiding the primary button.
+   Lift it above the tab bar there; on the website leave room for the home
+   indicator via the safe-area inset. */
+.editor-actionbar {
+  padding-bottom: calc(0.75rem + var(--tp-safe-bottom));
+}
+[data-app="native"] .editor-actionbar {
+  bottom: calc(var(--tp-tabbar-h) + var(--tp-safe-bottom)) !important;
+  z-index: 40 !important;
+  padding-bottom: 0.75rem;
+}
+
 [data-app="native"] {
   -webkit-tap-highlight-color: transparent;
 }

@@ -8,11 +8,13 @@ export function PrintBar({
   clientEmail,
   clientPhone,
   pdfHref,
+  amountText,
 }: {
   docLabel: string;
   clientEmail?: string | null;
   clientPhone?: string | null;
   pdfHref?: string | null;
+  amountText?: string | null;
 }) {
   const [copied, setCopied] = useState(false);
   // Use the page's actual address — always the real production URL, regardless
@@ -25,7 +27,7 @@ export function PrintBar({
     setUrl(window.location.href);
     setShareable(canShare());
   }, []);
-  const message = `Hello, here is your ${docLabel}: ${url}`;
+  const message = `Hello, here is your ${docLabel}${amountText ? ` for ${amountText}` : ""}: ${url}`;
 
   const copy = async () => {
     try {

@@ -12,17 +12,37 @@ export function InvoiceRowActions({
   shareToken,
   canPay,
   kind = "invoice",
+  clientPhone,
+  label,
 }: {
   id: string;
   shareToken: string;
   canPay: boolean;
   kind?: "invoice" | "quotation";
+  clientPhone?: string | null;
+  label?: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
+  const [copied, setCopied] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const base = kind === "quotation" ? "/quotations" : "/invoices";
+
+  const shareUrl = () => `${window.location.origin}/d/${shareToken}`;
+  const waHref = () => {
+    const msg = `Hello, here is your ${label || (kind === "quotation" ? "quotation" : "invoice")}: ${shareUrl()}`;
+    return `https://wa.me/${(clientPhone ?? "").replace(/[^0-9]/g, "")}?text=${encodeURIComponent(msg)}`;
+  };
+  const copyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(shareUrl());
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* ignore */
+    }
+  };
 
   // Position the menu next to the trigger in viewport coords. Opens downward,
   // but flips upward when there isn't room below (e.g. rows near the page
@@ -36,12 +56,18 @@ export function InvoiceRowActions({
     const menuH = menuRef.current?.offsetHeight || 260; // measured once mounted, else estimate
     const left = Math.max(margin, Math.min(b.right - MENU_W, window.innerWidth - MENU_W - margin));
 
-    const spaceBelow = vh - b.bottom - margin;
-    const spaceAbove = b.top - margin;
+    // Inside the installed app, keep the menu clear of the fixed emerald title
+    // bar (top) and bottom tab bar so items (esp. Delete) aren't hidden.
+    const native = document.documentElement.dataset.app === "native";
+    const topFloor = native ? 26 + 56 + margin : margin; // safe-top + appbar
+    const bottomReserve = native ? 62 + margin : 0; // tabbar
+
+    const spaceBelow = vh - bottomReserve - b.bottom - margin;
+    const spaceAbove = b.top - topFloor;
     const openUp = spaceBelow < menuH && spaceAbove > spaceBelow;
 
     let top = openUp ? b.top - menuH - gap : b.bottom + gap;
-    top = Math.max(margin, Math.min(top, vh - menuH - margin));
+    top = Math.max(topFloor, Math.min(top, vh - bottomReserve - menuH - margin));
     setCoords({ top, left });
   }, []);
 
@@ -120,8 +146,24 @@ export function InvoiceRowActions({
                 <Ic d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" /> Record payment
               </Link>
             )}
+            <a
+              href={waHref()}
+              target="_blank"
+              rel="noreferrer"
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-semibold text-[#128C4B] hover:bg-canvas"
+              onClick={() => setOpen(false)}
+            >
+              <svg viewBox="0 0 24 24" className="h-4 w-4 flex-none" fill="currentColor" aria-hidden>
+                <path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2 22l5.25-1.38a9.9 9.9 0 0 0 4.79 1.22h.01c5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.82 9.82 0 0 0 12.04 2Zm4.52 12.94c-.25-.12-1.47-.72-1.69-.81-.23-.08-.39-.12-.56.13-.16.24-.64.8-.79.97-.14.16-.29.18-.54.06-.25-.12-1.05-.39-1.99-1.23-.74-.66-1.23-1.47-1.38-1.72-.14-.25-.01-.38.11-.5.11-.11.25-.29.37-.43.13-.14.17-.24.25-.41.08-.16.04-.31-.02-.43-.06-.12-.56-1.34-.76-1.84-.2-.48-.4-.42-.56-.43l-.48-.01c-.16 0-.43.06-.66.31-.22.24-.86.85-.86 2.07 0 1.22.89 2.4 1.01 2.56.12.16 1.75 2.67 4.25 3.74.59.26 1.06.41 1.42.52.6.19 1.14.16 1.57.1.48-.07 1.47-.6 1.68-1.18.21-.58.21-1.07.14-1.18-.06-.11-.22-.17-.47-.29Z" />
+              </svg>
+              Send on WhatsApp
+            </a>
+            <button type="button" onClick={copyLink} className={item}>
+              <Ic d="M10 13a5 5 0 007 0l3-3a5 5 0 00-7-7l-1 1M14 11a5 5 0 00-7 0l-3 3a5 5 0 007 7l1-1" />
+              {copied ? "Link copied ✓" : "Copy link"}
+            </button>
             <a href={`/d/${shareToken}`} target="_blank" rel="noreferrer" className={item} onClick={() => setOpen(false)}>
-              <Ic d="M10 13a5 5 0 007 0l3-3a5 5 0 00-7-7l-1 1M14 11a5 5 0 00-7 0l-3 3a5 5 0 007 7l1-1" /> Open share link
+              <Ic d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" /> Open share link
             </a>
             <div className="my-1 border-t border-line" />
             <form

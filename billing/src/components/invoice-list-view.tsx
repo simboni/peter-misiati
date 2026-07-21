@@ -125,7 +125,7 @@ export function InvoiceListView({ rows }: { rows: Row[] }) {
               </p>
             )}
             <div className="mt-2 flex justify-end border-t border-line pt-2">
-              <InvoiceRowActions id={r.id} shareToken={r.shareToken} canPay={r.balance > 0 && r.status !== "void"} />
+              <InvoiceRowActions id={r.id} shareToken={r.shareToken} canPay={r.balance > 0 && r.status !== "void"} label={r.number} />
             </div>
           </div>
         ))}
@@ -162,7 +162,7 @@ export function InvoiceListView({ rows }: { rows: Row[] }) {
                 <td className="td text-right tabular-nums">{r.balance > 0 ? formatMoney(r.balance, r.currency) : "—"}</td>
                 <td className="td text-right tabular-nums text-muted">{r.received > 0 ? formatMoney(r.received, r.currency) : "—"}</td>
                 <td className="td">
-                  <InvoiceRowActions id={r.id} shareToken={r.shareToken} canPay={r.balance > 0 && r.status !== "void"} />
+                  <InvoiceRowActions id={r.id} shareToken={r.shareToken} canPay={r.balance > 0 && r.status !== "void"} label={r.number} />
                 </td>
               </tr>
             ))}

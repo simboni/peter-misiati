@@ -407,24 +407,26 @@ export function DeliveryNoteDocument({
         <PartyBlock title="Deliver to" client={client} />
       </div>
 
-      <table className="mt-6 w-full border-collapse text-sm">
-        <thead>
-          <tr className="border-y border-line bg-canvas">
-            <th className="px-3 py-2 text-left font-semibold">Description</th>
-            <th className="px-3 py-2 text-right font-semibold">Quantity</th>
-            <th className="px-3 py-2 text-left font-semibold">Unit</th>
-          </tr>
-        </thead>
-        <tbody>
-          {lines.map((l) => (
-            <tr key={l.id} className="border-b border-line">
-              <td className="px-3 py-2">{l.description}</td>
-              <td className="px-3 py-2 text-right tabular-nums">{formatQty(l.quantityMilli)}</td>
-              <td className="px-3 py-2">{l.unit}</td>
+      <div className="mt-6 overflow-x-auto">
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr className="border-y border-line bg-canvas">
+              <th className="px-3 py-2 text-left font-semibold">Description</th>
+              <th className="px-3 py-2 text-right font-semibold">Quantity</th>
+              <th className="px-3 py-2 text-left font-semibold">Unit</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {lines.map((l) => (
+              <tr key={l.id} className="border-b border-line">
+                <td className="px-3 py-2 [overflow-wrap:anywhere]">{l.description}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{formatQty(l.quantityMilli)}</td>
+                <td className="px-3 py-2">{l.unit}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       {note.notes && <p className="mt-4 text-sm text-muted">{note.notes}</p>}
 
