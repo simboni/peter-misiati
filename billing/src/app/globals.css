@@ -150,6 +150,53 @@ body {
   100% { background-position: -200% 0; }
 }
 
+/* ------------------------------------------------------------------ */
+/* Global tap/click feedback. Every interactive element visibly reacts  */
+/* to a press (a quick scale-down, solids also dim) so a user always    */
+/* feels the tap register and never second-guesses whether it worked.   */
+/* Disabled / busy controls are excluded so a submitting button stays   */
+/* still. Respects reduced-motion.                                      */
+/* ------------------------------------------------------------------ */
+button,
+a[href],
+[role="button"],
+summary,
+label[for],
+.tp-press {
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.08s ease, filter 0.12s ease, opacity 0.12s ease,
+    background-color 0.15s ease, border-color 0.15s ease;
+}
+button:not(:disabled):not([aria-disabled="true"]):active,
+a[href]:active,
+[role="button"]:not([aria-disabled="true"]):active,
+summary:active,
+label[for]:active,
+.tp-press:active {
+  transform: scale(0.97);
+}
+/* Solid buttons dim a touch on press for an extra beat of confirmation. */
+.btn-primary:not(:disabled):active,
+.btn-danger:not(:disabled):active {
+  filter: brightness(0.93);
+}
+/* A busy (submitting) control shows it's working, not pressable. */
+button:disabled,
+[aria-disabled="true"],
+button[data-pending="true"] {
+  cursor: default;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button, a[href], [role="button"], summary, label[for], .tp-press {
+    transition: filter 0.12s ease, background-color 0.15s ease;
+  }
+  button:active, a[href]:active, [role="button"]:active,
+  summary:active, label[for]:active, .tp-press:active {
+    transform: none;
+  }
+}
+
 /* Top navigation progress bar (shown while a route/action is pending). */
 .route-progress {
   position: fixed;

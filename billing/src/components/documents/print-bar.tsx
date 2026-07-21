@@ -57,14 +57,16 @@ export function PrintBar({
   const mail = `mailto:${clientEmail ?? ""}?subject=${encodeURIComponent(docLabel)}&body=${encodeURIComponent(message)}`;
 
   return (
-    <div className="doc-toolbar no-print sticky top-0 z-10 flex flex-wrap items-center justify-center gap-2 border-b border-line bg-white/90 px-4 py-3 backdrop-blur">
+    <div className="doc-toolbar theme-light no-print sticky top-0 z-10 flex flex-wrap items-center justify-center gap-2 border-b border-slate-200 bg-white/90 px-4 py-3 text-slate-800 backdrop-blur">
       {/* App-only: return to the app (this public page has no tab bar). Hidden
-          for clients viewing the document in a normal browser. */}
+          for clients viewing the document in a normal browser. Explicit colours
+          (not theme tokens) so it stays legible on the always-white toolbar in
+          dark mode too. */}
       <button
         onClick={goBack}
-        className="app-only mr-auto items-center gap-1 rounded-lg border border-line bg-white px-3 py-2 text-sm font-semibold text-ink active:scale-95"
+        className="app-only mr-auto items-center gap-1.5 rounded-lg border border-slate-300 bg-slate-100 px-3.5 py-2 text-sm font-semibold text-slate-800 active:scale-95"
       >
-        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M15 18l-6-6 6-6" />
         </svg>
         Back
