@@ -12,6 +12,7 @@ import { Chip } from "@/components/project-card";
 import { WorkIndex } from "@/components/work-index";
 import { ReviewCard } from "@/components/review-card";
 import { ClientLogos } from "@/components/client-logos";
+import { StackupSpotlight } from "@/components/stackup-spotlight";
 import {
   ServiceIcon,
   GitHubIcon,
@@ -96,6 +97,9 @@ export default function HomePage() {
           </div>
         </div>
       </section>
+
+      {/* ===================== FLAGSHIP PRODUCT ======================== */}
+      <StackupSpotlight />
 
       {/* ===================== WORKED-WITH LOGO WALL ==================== */}
       <ClientLogos />
