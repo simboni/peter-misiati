@@ -246,6 +246,49 @@ export type Project = {
 
 export const projects: Project[] = [
   {
+    slug: "stackup",
+    title: "StackUp",
+    summary:
+      "An open, self-hostable work-management platform in the spirit of ClickUp — workspaces, tasks, docs, goals and dashboards, built module by module as a multi-tenant, real-time product.",
+    type: "Product",
+    year: "2026",
+    role: "Product design & full-stack engineering",
+    stack: ["NestJS", "PostgreSQL", "Next.js 15", "React 19", "TypeScript", "Capacitor", "Fly.io"],
+    tags: ["Web App", "SaaS", "Product"],
+    featured: true,
+    cover: { from: "from-ink-700", to: "to-ink-950", initials: "SU" },
+    logo: "/logos/stackup.svg",
+    logoBg: "#ffffff",
+    category: "Web Apps",
+    links: { live: "https://www.stackup.co.ke", code: "https://github.com/simboni/smp-planning" },
+    problem:
+      "Teams juggle tasks, docs, goals and reporting across half a dozen tools. The all-in-one option (ClickUp) is powerful but closed and pricey. I wanted a clean, open, self-hostable alternative that a team can own — without giving up multi-tenancy, real-time collaboration or security.",
+    approach:
+      "I'm building StackUp module by module — each a working, testable slice: Workspaces → Spaces → Folders → Lists → Tasks, with List / Board / Calendar / Gantt views, Docs, Goals, Dashboards, Time Tracking and Automations. A NestJS API over raw SQL, a Next.js web client and a Capacitor mobile shell share one typed contract.",
+    architecture: [
+      "NestJS 11 API over raw SQL (pg); Next.js 15 + React 19 web (static export); Capacitor Android app — one pnpm monorepo, shared types.",
+      "PostgreSQL 16 multi-tenancy via fail-closed Row-Level-Security: the app role is NOBYPASSRLS, every workspace table FORCEs RLS, no workspace context denies every query.",
+      "Argon2id passwords with two-stage JWTs (identity → workspace-scoped access) and rotating refresh tokens; append-only audit log.",
+      "A CI gate asserts cross-workspace isolation on every push; deployed on Fly.io.",
+    ],
+    highlights: [
+      "Security-first multi-tenancy — tenant isolation enforced in the database, not just the app, and proven by a CI gate.",
+      "One codebase, three clients (API, web, mobile) sharing a typed contract.",
+      "Open and self-hostable — a team can own its data end to end.",
+    ],
+    impact: [
+      { value: "Multi-tenant", label: "Fail-closed RLS" },
+      { value: "3 clients", label: "API · web · mobile" },
+      { value: "Open", label: "Self-hostable" },
+    ],
+    media: [
+      {
+        src: "/mockups/stackup.webp",
+        alt: "StackUp — 'one app to plan, track, and get work done' sign-in",
+      },
+    ],
+  },
+  {
     slug: "naveedex",
     title: "Naveedex",
     summary:
