@@ -283,7 +283,11 @@ export const projects: Project[] = [
     ],
     media: [
       {
-        src: "/mockups/stackup.webp",
+        src: "/mockups/stackup-dashboard.webp",
+        alt: "StackUp — workspace dashboard: spaces, tasks, goals and recent activity",
+      },
+      {
+        src: "/mockups/stackup-login.webp",
         alt: "StackUp — 'one app to plan, track, and get work done' sign-in",
       },
     ],

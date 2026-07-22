@@ -78,25 +78,35 @@ export function StackupSpotlight() {
             </div>
           </div>
 
-          {/* Preview */}
+          {/* Preview — dashboard up front, sign-in peeking behind */}
           <div className="order-1 lg:order-2">
             <Link
               href={`/work/${p.slug}`}
               aria-label="StackUp — case study"
-              className="group block overflow-hidden rounded-2xl border border-ink-600 shadow-[0_30px_70px_-40px_rgba(123,104,238,0.6)]"
+              className="group relative block"
             >
+              {p.media[1] && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={p.media[1].src}
+                  alt=""
+                  aria-hidden="true"
+                  loading="lazy"
+                  className="absolute -right-3 -top-6 hidden w-1/2 rotate-[3deg] rounded-xl border border-ink-600 opacity-90 shadow-[0_24px_50px_-30px_rgba(0,0,0,0.7)] transition-transform duration-500 group-hover:-translate-y-1 sm:block"
+                />
+              )}
               {p.media[0] && (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={p.media[0].src}
                   alt={p.media[0].alt}
                   loading="lazy"
-                  className="w-full transition-transform duration-500 group-hover:scale-[1.02]"
+                  className="relative w-full overflow-hidden rounded-2xl border border-ink-600 shadow-[0_30px_70px_-40px_rgba(123,104,238,0.65)] transition-transform duration-500 group-hover:scale-[1.02]"
                 />
               )}
             </Link>
             <div className="mt-3 flex items-center justify-end gap-1.5 text-xs text-mist-500">
-              <span>See it in the work directory</span>
+              <span>Dashboard &amp; sign-in — full case study</span>
               <ArrowRightIcon className="h-3.5 w-3.5" />
             </div>
           </div>
