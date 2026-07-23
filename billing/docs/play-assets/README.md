@@ -10,9 +10,16 @@ requirements. Regenerate with `scratchpad/gen-assets.mjs` if you tweak the copy.
 | `screen-2-invoice.png` | 1080×2340 | Phone screenshots |
 | `screen-3-mpesa.png` | 1080×2340 | Phone screenshots |
 | `screen-4-receipt.png` | 1080×2340 | Phone screenshots |
+| `tablet7-1-dashboard.png` | 1200×1920 | Store listing → **7-inch tablet screenshots** |
+| `tablet7-2-invoice.png` | 1200×1920 | 7-inch tablet screenshots |
+| `tablet10-1-dashboard.png` | 1600×2560 | Store listing → **10-inch tablet screenshots** |
+| `tablet10-2-invoice.png` | 1600×2560 | 10-inch tablet screenshots |
 
 Play needs **2–8 phone screenshots**; these four are enough to publish. Upload in
-this order — home first tells the story best.
+this order — home first tells the story best. Tablet screenshots are **optional**
+(the app still publishes without them) but fill the 7"/10" slots so the listing
+looks complete on tablets and Chromebooks; they show the real wide-screen
+(sidebar) layout. Regenerate with `scratchpad/gen-tablet.mjs`.
 
 The **app icon** (512×512, also required) is the launcher icon already in
 `mobile/` / `public/icons/icon-512.png`.
