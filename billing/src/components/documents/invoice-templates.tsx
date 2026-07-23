@@ -136,10 +136,10 @@ function Aria({ vm }: { vm: VM }) {
           </div>
         </div>
       </div>
-      <table>
+      <div className="iv-tablewrap"><table>
         <thead><tr><th className="lbl">Description</th><th className="lbl r">Qty</th><th className="lbl r">Price</th><th className="lbl r">VAT</th><th className="lbl r">Amount ({vm.cur})</th></tr></thead>
         <tbody><LineRows vm={vm} /></tbody>
-      </table>
+      </table></div>
       <div className="tot"><Totals vm={vm} />{vm.deposit && <div className="row dep"><span>Deposit due now</span><span className="num">{vm.deposit}</span></div>}</div>
       <Footer vm={vm} />
       <PayLink vm={vm} />
@@ -162,10 +162,10 @@ function Meridian({ vm }: { vm: VM }) {
           <div><div className="lbl">{vm.isQuote ? "Quotation for" : "Bill to"}</div><ClientBlock vm={vm} /></div>
           <div><div className="lbl">Dates</div><p>Issued <b>{vm.issue}</b></p>{!vm.isQuote && <p>Due <b>{vm.due}</b></p>}</div>
         </div>
-        <table>
+        <div className="iv-tablewrap"><table>
           <thead><tr><th>Description</th><th className="r">Qty</th><th className="r">Price</th><th className="r">VAT</th><th className="r">Amount ({vm.cur})</th></tr></thead>
           <tbody><LineRows vm={vm} /></tbody>
-        </table>
+        </table></div>
         <div className="tot"><Totals vm={vm} /></div>
         <Footer vm={vm} />
         <PayLink vm={vm} />
@@ -189,10 +189,10 @@ function Vertex({ vm }: { vm: VM }) {
         </div>
       </div>
       <div className="body">
-        <table>
+        <div className="iv-tablewrap"><table>
           <thead><tr><th className="lbl">Description</th><th className="lbl r">Qty</th><th className="lbl r">Price</th><th className="lbl r">VAT</th><th className="lbl r">Amount ({vm.cur})</th></tr></thead>
           <tbody><LineRows vm={vm} /></tbody>
-        </table>
+        </table></div>
         <div className="split">
           {vm.deposit ? <div className="chip"><span className="lbl">Deposit due now</span><span className="num">{vm.deposit}</span></div> : <span />}
           <div className="tot"><Totals vm={vm} /></div>
@@ -218,10 +218,10 @@ function Column({ vm }: { vm: VM }) {
       <div className="main">
         <p className="iss">{vm.issuerName}</p>
         {vm.kraPin && <p className="muted">KRA PIN {vm.kraPin}</p>}
-        <table>
+        <div className="iv-tablewrap"><table>
           <thead><tr><th className="lbl">Description</th><th className="lbl r">Qty</th><th className="lbl r">Amount ({vm.cur})</th></tr></thead>
           <tbody>{vm.lines.map((l, i) => (<tr key={i}><td>{l.name}{l.desc ? <div className="ln-desc">{l.desc}</div> : null}</td><td className="r num">{l.qty}</td><td className="r num">{l.amount}</td></tr>))}</tbody>
-        </table>
+        </table></div>
         <Footer vm={vm} />
         <PayLink vm={vm} />
       </div>
@@ -241,10 +241,10 @@ function Boutique({ vm }: { vm: VM }) {
         <div><div className="lbl">{vm.isQuote ? "Quotation for" : "Billed to"}</div><ClientBlock vm={vm} /></div>
         <div className="r"><div className="lbl">No.</div><div className="num">{vm.number}</div>{!vm.isQuote && <div>Due {vm.due}</div>}</div>
       </div>
-      <table>
+      <div className="iv-tablewrap"><table>
         <thead><tr><th>Description</th><th className="r">Qty</th><th className="r">Amount ({vm.cur})</th></tr></thead>
         <tbody>{vm.lines.map((l, i) => (<tr key={i}><td>{l.name}{l.desc ? <div className="ln-desc">{l.desc}</div> : null}</td><td className="r num">{l.qty}</td><td className="r num">{l.amount}</td></tr>))}</tbody>
-      </table>
+      </table></div>
       <div className="tot"><Totals vm={vm} /></div>
       <Footer vm={vm} center />
       <PayLink vm={vm} />
@@ -274,6 +274,9 @@ const DOC_CSS = `
 .iv-doc .iv-name{font-weight:800;margin:3px 0 0}
 .iv-doc .ln-desc{color:#64748b;font-size:11px;font-weight:400;margin-top:2px;line-height:1.4;white-space:pre-line}
 .iv-doc table{width:100%;border-collapse:collapse}
+/* Let a wide line-item table scroll on very narrow screens instead of crushing
+   the description column — the figures stay intact and aligned. */
+.iv-tablewrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
 .iv-doc .tot .row{display:flex;justify-content:space-between;gap:16px;padding:5px 0;color:#475569}
 .iv-doc .tot .row>span:first-child{flex:1;min-width:0}
 .iv-doc .tot .row .num{white-space:nowrap}
@@ -281,7 +284,7 @@ const DOC_CSS = `
 /* Description takes the bulk of the row and wraps to multiple lines; numeric
    columns keep their figures on one line with clear breathing room so Qty and
    Amount never crowd together. */
-.iv-doc thead th:first-child,.iv-doc tbody td:first-child{width:48%;padding-right:22px;overflow-wrap:anywhere}
+.iv-doc thead th:first-child,.iv-doc tbody td:first-child{width:48%;min-width:150px;padding-right:22px;overflow-wrap:anywhere}
 .iv-doc thead th.r,.iv-doc tbody td.r{padding-left:26px;white-space:nowrap}
 .iv-doc .tot .grand{border-top:2px solid #0f172a;margin-top:6px;padding-top:9px;color:#0f172a;font-weight:800;font-size:17px}
 .iv-doc .tot .grand .num{color:var(--ac)}
@@ -380,6 +383,10 @@ const DOC_CSS = `
 /* ---- Mobile: reflow every template to a single, readable column ---- */
 @media (max-width:640px){
   .iv-doc{font-size:12.5px}
+  /* Tighter gutters + a slightly smaller description floor so the row fits more
+     phones without scrolling; it still can't collapse to a sliver. */
+  .iv-doc thead th:first-child,.iv-doc tbody td:first-child{min-width:132px;padding-right:12px}
+  .iv-doc thead th.r,.iv-doc tbody td.r{padding-left:14px}
   .iv-doc.aria{padding:22px 18px 24px}
   .iv-doc.boutique{padding:24px 18px}
   .aria .top{flex-direction:column;gap:14px}
