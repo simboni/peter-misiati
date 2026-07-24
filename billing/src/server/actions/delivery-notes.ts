@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { and, eq } from "drizzle-orm";
 import { requireOrg } from "@/server/org";
 import { schema } from "@/server/db";
+import { chunkRows } from "@/server/d1-limits";
 import { allocateNumber } from "@/server/sequence";
 import { parseQty } from "@/server/money";
 
@@ -54,54 +55,64 @@ export async function saveDeliveryNoteAction(_prev: FormState, fd: FormData): Pr
   const status = String(fd.get("status") ?? "draft") === "delivered" ? "delivered" : "draft";
 
   let noteId = id;
-  if (id) {
-    const existing = await db
-      .select({ id: schema.deliveryNote.id })
-      .from(schema.deliveryNote)
-      .where(and(eq(schema.deliveryNote.id, id), eq(schema.deliveryNote.organizationId, organizationId)))
-      .limit(1);
-    if (existing.length === 0) return { error: "Delivery note not found." };
-    await db
-      .update(schema.deliveryNote)
-      .set({
-        clientId,
-        deliveryDate: isNaN(deliveryDate.getTime()) ? new Date() : deliveryDate,
-        invoiceId,
-        receivedBy,
-        notes,
-        status,
-      })
-      .where(eq(schema.deliveryNote.id, id));
-    await db.delete(schema.deliveryNoteLine).where(eq(schema.deliveryNoteLine.deliveryNoteId, id));
-  } else {
-    const number = await allocateNumber(db, organizationId, "delivery_note");
-    const inserted = await db
-      .insert(schema.deliveryNote)
-      .values({
-        organizationId,
-        clientId,
-        number,
-        deliveryDate: isNaN(deliveryDate.getTime()) ? new Date() : deliveryDate,
-        invoiceId,
-        receivedBy,
-        notes,
-        status,
-        shareToken: crypto.randomUUID(),
-      })
-      .returning({ id: schema.deliveryNote.id });
-    noteId = inserted[0].id;
-  }
 
-  await db.insert(schema.deliveryNoteLine).values(
+  const lineRows = (docId: string) =>
     cleaned.map((l, i) => ({
-      deliveryNoteId: noteId!,
+      deliveryNoteId: docId,
       itemId: l.itemId,
       description: l.description,
       quantityMilli: l.quantityMilli,
       unit: l.unit,
       sortOrder: i,
-    })),
-  );
+    }));
+
+  // Header + line writes commit as one atomic batch (see d1-limits.ts).
+  try {
+    if (id) {
+      const existing = await db
+        .select({ id: schema.deliveryNote.id })
+        .from(schema.deliveryNote)
+        .where(and(eq(schema.deliveryNote.id, id), eq(schema.deliveryNote.organizationId, organizationId)))
+        .limit(1);
+      if (existing.length === 0) return { error: "Delivery note not found." };
+      await db.batch([
+        db
+          .update(schema.deliveryNote)
+          .set({
+            clientId,
+            deliveryDate: isNaN(deliveryDate.getTime()) ? new Date() : deliveryDate,
+            invoiceId,
+            receivedBy,
+            notes,
+            status,
+          })
+          .where(eq(schema.deliveryNote.id, id)),
+        db.delete(schema.deliveryNoteLine).where(eq(schema.deliveryNoteLine.deliveryNoteId, id)),
+        ...chunkRows(lineRows(id)).map((c) => db.insert(schema.deliveryNoteLine).values(c)),
+      ]);
+    } else {
+      const number = await allocateNumber(db, organizationId, "delivery_note");
+      noteId = crypto.randomUUID();
+      await db.batch([
+        db.insert(schema.deliveryNote).values({
+          id: noteId,
+          organizationId,
+          clientId,
+          number,
+          deliveryDate: isNaN(deliveryDate.getTime()) ? new Date() : deliveryDate,
+          invoiceId,
+          receivedBy,
+          notes,
+          status,
+          shareToken: crypto.randomUUID(),
+        }),
+        ...chunkRows(lineRows(noteId)).map((c) => db.insert(schema.deliveryNoteLine).values(c)),
+      ]);
+    }
+  } catch (e) {
+    console.error("saveDeliveryNoteAction failed", e);
+    return { error: "Something went wrong saving the delivery note — nothing was changed. Please try again." };
+  }
 
   revalidatePath("/delivery-notes");
   redirect(`/delivery-notes/${noteId}`);

@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { and, eq, inArray } from "drizzle-orm";
 import { requireOrg } from "@/server/org";
 import { schema } from "@/server/db";
+import { chunkRows } from "@/server/d1-limits";
 import { allocateNumber } from "@/server/sequence";
 import { parseAmount, parseQty, parseRate } from "@/server/money";
 import { calcTotals, deriveInvoiceStatus, type DepositType, type DiscountType } from "@/server/totals";
@@ -120,48 +121,9 @@ export async function saveInvoiceAction(_prev: FormState, fd: FormData): Promise
 
   let invoiceId = id;
 
-  if (id) {
-    // Update existing (must belong to org)
-    const existing = await db
-      .select()
-      .from(schema.invoice)
-      .where(and(eq(schema.invoice.id, id), eq(schema.invoice.organizationId, organizationId)))
-      .limit(1);
-    if (existing.length === 0) return { error: "Document not found." };
-    const inv = existing[0];
-    const status = deriveInvoiceStatus({
-      type,
-      currentStatus: inv.status,
-      total: t.total,
-      amountPaid: inv.amountPaid,
-      dueDate,
-    });
-    await db
-      .update(schema.invoice)
-      .set({ ...base, balanceDue: t.total - inv.amountPaid, status })
-      .where(eq(schema.invoice.id, id));
-    await db.delete(schema.invoiceLine).where(eq(schema.invoiceLine.invoiceId, id));
-  } else {
-    const number = await allocateNumber(db, organizationId, type);
-    const inserted = await db
-      .insert(schema.invoice)
-      .values({
-        organizationId,
-        number,
-        status: "draft",
-        amountPaid: 0,
-        balanceDue: t.total,
-        shareToken: crypto.randomUUID(),
-        ...base,
-      })
-      .returning({ id: schema.invoice.id });
-    invoiceId = inserted[0].id;
-  }
-
-  // (Re)insert lines
-  await db.insert(schema.invoiceLine).values(
+  const lineRows = (docId: string) =>
     t.lines.map((l, i) => ({
-      invoiceId: invoiceId!,
+      invoiceId: docId,
       itemId: cleaned[i].itemId,
       title: cleaned[i].title,
       description: cleaned[i].description,
@@ -172,8 +134,57 @@ export async function saveInvoiceAction(_prev: FormState, fd: FormData): Promise
       taxAmount: l.taxAmount,
       lineTotal: l.lineTotal,
       sortOrder: i,
-    })),
-  );
+    }));
+
+  // Header write, line delete and line inserts run as ONE atomic batch — a
+  // failure anywhere rolls the whole document back instead of leaving a
+  // header with its lines deleted.
+  try {
+    if (id) {
+      // Update existing (must belong to org)
+      const existing = await db
+        .select()
+        .from(schema.invoice)
+        .where(and(eq(schema.invoice.id, id), eq(schema.invoice.organizationId, organizationId)))
+        .limit(1);
+      if (existing.length === 0) return { error: "Document not found." };
+      const inv = existing[0];
+      const status = deriveInvoiceStatus({
+        type,
+        currentStatus: inv.status,
+        total: t.total,
+        amountPaid: inv.amountPaid,
+        dueDate,
+      });
+      await db.batch([
+        db
+          .update(schema.invoice)
+          .set({ ...base, balanceDue: t.total - inv.amountPaid, status })
+          .where(eq(schema.invoice.id, id)),
+        db.delete(schema.invoiceLine).where(eq(schema.invoiceLine.invoiceId, id)),
+        ...chunkRows(lineRows(id)).map((c) => db.insert(schema.invoiceLine).values(c)),
+      ]);
+    } else {
+      const number = await allocateNumber(db, organizationId, type);
+      invoiceId = crypto.randomUUID();
+      await db.batch([
+        db.insert(schema.invoice).values({
+          id: invoiceId,
+          organizationId,
+          number,
+          status: "draft",
+          amountPaid: 0,
+          balanceDue: t.total,
+          shareToken: crypto.randomUUID(),
+          ...base,
+        }),
+        ...chunkRows(lineRows(invoiceId)).map((c) => db.insert(schema.invoiceLine).values(c)),
+      ]);
+    }
+  } catch (e) {
+    console.error("saveInvoiceAction failed", e);
+    return { error: "Something went wrong saving the document — nothing was changed. Please try again." };
+  }
 
   revalidatePath("/invoices");
   revalidatePath("/quotations");
@@ -225,9 +236,25 @@ export async function convertQuotationAction(fd: FormData): Promise<void> {
     .orderBy(schema.invoiceLine.sortOrder);
 
   const number = await allocateNumber(db, organizationId, "invoice");
-  const inserted = await db
-    .insert(schema.invoice)
-    .values({
+  const newId = crypto.randomUUID();
+  const lineRows = lines.map((l) => ({
+    invoiceId: newId,
+    itemId: l.itemId,
+    title: l.title,
+    description: l.description,
+    quantityMilli: l.quantityMilli,
+    unitPrice: l.unitPrice,
+    taxRateBps: l.taxRateBps,
+    lineSubtotal: l.lineSubtotal,
+    taxAmount: l.taxAmount,
+    lineTotal: l.lineTotal,
+    sortOrder: l.sortOrder,
+  }));
+
+  // New invoice, its lines and the quotation's status flip commit atomically.
+  await db.batch([
+    db.insert(schema.invoice).values({
+      id: newId,
       organizationId,
       clientId: q.clientId,
       number,
@@ -251,30 +278,10 @@ export async function convertQuotationAction(fd: FormData): Promise<void> {
       balanceDue: q.total,
       shareToken: crypto.randomUUID(),
       convertedFromId: q.id,
-    })
-    .returning({ id: schema.invoice.id });
-  const newId = inserted[0].id;
-
-  if (lines.length > 0) {
-    await db.insert(schema.invoiceLine).values(
-      lines.map((l) => ({
-        invoiceId: newId,
-        itemId: l.itemId,
-        title: l.title,
-        description: l.description,
-        quantityMilli: l.quantityMilli,
-        unitPrice: l.unitPrice,
-        taxRateBps: l.taxRateBps,
-        lineSubtotal: l.lineSubtotal,
-        taxAmount: l.taxAmount,
-        lineTotal: l.lineTotal,
-        sortOrder: l.sortOrder,
-      })),
-    );
-  }
-
-  // mark the quotation accepted
-  await db.update(schema.invoice).set({ status: "accepted" }).where(eq(schema.invoice.id, id));
+    }),
+    ...chunkRows(lineRows).map((c) => db.insert(schema.invoiceLine).values(c)),
+    db.update(schema.invoice).set({ status: "accepted" }).where(eq(schema.invoice.id, id)),
+  ]);
   revalidatePath("/invoices");
   redirect(`/invoices/${newId}`);
 }

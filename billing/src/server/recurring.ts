@@ -1,5 +1,6 @@
 import { and, eq, lte } from "drizzle-orm";
 import { schema, type DB } from "./db";
+import { chunkRows } from "./d1-limits";
 import { allocateNumber } from "./sequence";
 import { calcTotals, type DepositType, type DiscountType } from "./totals";
 
@@ -84,9 +85,24 @@ export async function runDueRecurring(db: DB, organizationId: string, now: Date 
       });
 
       const number = await allocateNumber(db, organizationId, "invoice");
-      const inserted = await db
-        .insert(schema.invoice)
-        .values({
+      const invId = crypto.randomUUID();
+      const lineRows = t.lines.map((l, i) => ({
+        invoiceId: invId,
+        itemId: lines[i].itemId,
+        title: lines[i].title,
+        description: lines[i].description,
+        quantityMilli: l.quantityMilli,
+        unitPrice: l.unitPrice,
+        taxRateBps: l.taxRateBps,
+        lineSubtotal: l.lineSubtotal,
+        taxAmount: l.taxAmount,
+        lineTotal: l.lineTotal,
+        sortOrder: i,
+      }));
+      // Invoice + lines commit as one atomic batch (see d1-limits.ts).
+      await db.batch([
+        db.insert(schema.invoice).values({
+          id: invId,
           organizationId,
           clientId: sched.clientId,
           number,
@@ -110,25 +126,9 @@ export async function runDueRecurring(db: DB, organizationId: string, now: Date 
           balanceDue: t.total,
           shareToken: crypto.randomUUID(),
           sentAt: sched.autoSend ? issueDate : null,
-        })
-        .returning({ id: schema.invoice.id });
-      const invId = inserted[0].id;
-
-      await db.insert(schema.invoiceLine).values(
-        t.lines.map((l, i) => ({
-          invoiceId: invId,
-          itemId: lines[i].itemId,
-          title: lines[i].title,
-          description: lines[i].description,
-          quantityMilli: l.quantityMilli,
-          unitPrice: l.unitPrice,
-          taxRateBps: l.taxRateBps,
-          lineSubtotal: l.lineSubtotal,
-          taxAmount: l.taxAmount,
-          lineTotal: l.lineTotal,
-          sortOrder: i,
-        })),
-      );
+        }),
+        ...chunkRows(lineRows).map((c) => db.insert(schema.invoiceLine).values(c)),
+      ]);
 
       created += 1;
       occurrences += 1;

@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { and, eq } from "drizzle-orm";
 import { requireOrg } from "@/server/org";
 import { schema } from "@/server/db";
+import { chunkRows } from "@/server/d1-limits";
 import { allocateNumber } from "@/server/sequence";
 import { parseAmount, parseQty, parseRate } from "@/server/money";
 import { calcTotals } from "@/server/totals";
@@ -104,28 +105,9 @@ export async function saveCreditNoteAction(_prev: FormState, fd: FormData): Prom
   let creditNoteId = id;
   let previousInvoiceId: string | null = null;
 
-  if (id) {
-    const existing = await db
-      .select()
-      .from(schema.creditNote)
-      .where(and(eq(schema.creditNote.id, id), eq(schema.creditNote.organizationId, organizationId)))
-      .limit(1);
-    if (existing.length === 0) return { error: "Credit note not found." };
-    previousInvoiceId = existing[0].invoiceId;
-    await db.update(schema.creditNote).set(base).where(eq(schema.creditNote.id, id));
-    await db.delete(schema.creditNoteLine).where(eq(schema.creditNoteLine.creditNoteId, id));
-  } else {
-    const number = await allocateNumber(db, organizationId, "credit_note");
-    const inserted = await db
-      .insert(schema.creditNote)
-      .values({ organizationId, number, shareToken: crypto.randomUUID(), ...base })
-      .returning({ id: schema.creditNote.id });
-    creditNoteId = inserted[0].id;
-  }
-
-  await db.insert(schema.creditNoteLine).values(
+  const lineRows = (docId: string) =>
     t.lines.map((l, i) => ({
-      creditNoteId: creditNoteId!,
+      creditNoteId: docId,
       title: cleaned[i].title,
       description: cleaned[i].description,
       quantityMilli: l.quantityMilli,
@@ -135,8 +117,37 @@ export async function saveCreditNoteAction(_prev: FormState, fd: FormData): Prom
       taxAmount: l.taxAmount,
       lineTotal: l.lineTotal,
       sortOrder: i,
-    })),
-  );
+    }));
+
+  // Header + line writes commit as one atomic batch (see d1-limits.ts).
+  try {
+    if (id) {
+      const existing = await db
+        .select()
+        .from(schema.creditNote)
+        .where(and(eq(schema.creditNote.id, id), eq(schema.creditNote.organizationId, organizationId)))
+        .limit(1);
+      if (existing.length === 0) return { error: "Credit note not found." };
+      previousInvoiceId = existing[0].invoiceId;
+      await db.batch([
+        db.update(schema.creditNote).set(base).where(eq(schema.creditNote.id, id)),
+        db.delete(schema.creditNoteLine).where(eq(schema.creditNoteLine.creditNoteId, id)),
+        ...chunkRows(lineRows(id)).map((c) => db.insert(schema.creditNoteLine).values(c)),
+      ]);
+    } else {
+      const number = await allocateNumber(db, organizationId, "credit_note");
+      creditNoteId = crypto.randomUUID();
+      await db.batch([
+        db
+          .insert(schema.creditNote)
+          .values({ id: creditNoteId, organizationId, number, shareToken: crypto.randomUUID(), ...base }),
+        ...chunkRows(lineRows(creditNoteId)).map((c) => db.insert(schema.creditNoteLine).values(c)),
+      ]);
+    }
+  } catch (e) {
+    console.error("saveCreditNoteAction failed", e);
+    return { error: "Something went wrong saving the credit note — nothing was changed. Please try again." };
+  }
 
   // Refresh the ledger of any invoice this credit affects (old + new link).
   const affected = new Set<string>();

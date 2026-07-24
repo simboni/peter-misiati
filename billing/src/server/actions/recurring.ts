@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { and, eq } from "drizzle-orm";
 import { requireOrg } from "@/server/org";
 import { schema } from "@/server/db";
+import { chunkRows } from "@/server/d1-limits";
 import { parseAmount, parseQty, parseRate } from "@/server/money";
 import type { DepositType, DiscountType } from "@/server/totals";
 
@@ -103,27 +104,9 @@ export async function saveRecurringAction(_prev: FormState, fd: FormData): Promi
 
   let recurringId = id;
 
-  if (id) {
-    const existing = await db
-      .select({ id: schema.recurringInvoice.id })
-      .from(schema.recurringInvoice)
-      .where(and(eq(schema.recurringInvoice.id, id), eq(schema.recurringInvoice.organizationId, organizationId)))
-      .limit(1);
-    if (existing.length === 0) return { error: "Schedule not found." };
-    // Editing keeps the existing nextRunDate/occurrences/status intact.
-    await db.update(schema.recurringInvoice).set(base).where(eq(schema.recurringInvoice.id, id));
-    await db.delete(schema.recurringInvoiceLine).where(eq(schema.recurringInvoiceLine.recurringInvoiceId, id));
-  } else {
-    const inserted = await db
-      .insert(schema.recurringInvoice)
-      .values({ organizationId, nextRunDate: startDate, occurrences: 0, status: "active", ...base })
-      .returning({ id: schema.recurringInvoice.id });
-    recurringId = inserted[0].id;
-  }
-
-  await db.insert(schema.recurringInvoiceLine).values(
+  const lineRows = (docId: string) =>
     cleaned.map((l, i) => ({
-      recurringInvoiceId: recurringId!,
+      recurringInvoiceId: docId,
       itemId: l.itemId,
       title: l.title,
       description: l.description,
@@ -131,8 +114,36 @@ export async function saveRecurringAction(_prev: FormState, fd: FormData): Promi
       unitPrice: l.unitPrice,
       taxRateBps: l.taxRateBps,
       sortOrder: i,
-    })),
-  );
+    }));
+
+  // Header + line writes commit as one atomic batch (see d1-limits.ts).
+  try {
+    if (id) {
+      const existing = await db
+        .select({ id: schema.recurringInvoice.id })
+        .from(schema.recurringInvoice)
+        .where(and(eq(schema.recurringInvoice.id, id), eq(schema.recurringInvoice.organizationId, organizationId)))
+        .limit(1);
+      if (existing.length === 0) return { error: "Schedule not found." };
+      // Editing keeps the existing nextRunDate/occurrences/status intact.
+      await db.batch([
+        db.update(schema.recurringInvoice).set(base).where(eq(schema.recurringInvoice.id, id)),
+        db.delete(schema.recurringInvoiceLine).where(eq(schema.recurringInvoiceLine.recurringInvoiceId, id)),
+        ...chunkRows(lineRows(id)).map((c) => db.insert(schema.recurringInvoiceLine).values(c)),
+      ]);
+    } else {
+      recurringId = crypto.randomUUID();
+      await db.batch([
+        db
+          .insert(schema.recurringInvoice)
+          .values({ id: recurringId, organizationId, nextRunDate: startDate, occurrences: 0, status: "active", ...base }),
+        ...chunkRows(lineRows(recurringId)).map((c) => db.insert(schema.recurringInvoiceLine).values(c)),
+      ]);
+    }
+  } catch (e) {
+    console.error("saveRecurringAction failed", e);
+    return { error: "Something went wrong saving the schedule — nothing was changed. Please try again." };
+  }
 
   revalidatePath("/recurring");
   redirect("/recurring");
