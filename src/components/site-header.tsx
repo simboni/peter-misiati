@@ -47,6 +47,28 @@ export function SiteHeader() {
   const [mobileSection, setMobileSection] = useState<MenuKey | null>(null);
   const [scrolled, setScrolled] = useState(false);
   const headerRef = useRef<HTMLDivElement>(null);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Open/close helpers with a short close delay so the pointer can travel
+  // from the trigger down into the panel without it disappearing (the gap).
+  const cancelClose = () => {
+    if (closeTimer.current) {
+      clearTimeout(closeTimer.current);
+      closeTimer.current = null;
+    }
+  };
+  const openPanel = (key: MenuKey) => {
+    cancelClose();
+    setOpenMenu(key);
+  };
+  const closePanel = () => {
+    cancelClose();
+    setOpenMenu(null);
+  };
+  const scheduleClose = () => {
+    cancelClose();
+    closeTimer.current = setTimeout(() => setOpenMenu(null), 180);
+  };
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8);
@@ -54,6 +76,9 @@ export function SiteHeader() {
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
+
+  // Clear any pending close timer on unmount.
+  useEffect(() => () => cancelClose(), []);
 
   // Close the desktop panel on route change.
   useEffect(() => {
@@ -102,34 +127,45 @@ export function SiteHeader() {
         <div className="container-page flex h-16 items-center justify-between">
           <Logo uid="hdr" />
 
-          {/* Desktop nav — leaving the whole bar (nav + panel) closes it. */}
-          <nav
-            className="hidden items-center gap-1 text-sm lg:flex"
-            onMouseLeave={() => setOpenMenu(null)}
-          >
-            <TopLink href="/" active={isActive("/")}>
+          {/* Desktop nav */}
+          <nav className="hidden items-center gap-1 text-sm lg:flex">
+            <TopLink href="/" active={isActive("/")} onMouseEnter={scheduleClose}>
               Home
             </TopLink>
 
             <MenuTrigger
               label="Work"
-              menuKey="work"
-              openMenu={openMenu}
-              setOpenMenu={setOpenMenu}
+              isOpen={openMenu === "work"}
               active={isActive("/work")}
+              onOpen={() => openPanel("work")}
+              onLeave={scheduleClose}
+              onToggle={() =>
+                openMenu === "work" ? closePanel() : openPanel("work")
+              }
             />
             <MenuTrigger
               label="Services"
-              menuKey="services"
-              openMenu={openMenu}
-              setOpenMenu={setOpenMenu}
+              isOpen={openMenu === "services"}
               active={false}
+              onOpen={() => openPanel("services")}
+              onLeave={scheduleClose}
+              onToggle={() =>
+                openMenu === "services" ? closePanel() : openPanel("services")
+              }
             />
 
-            <TopLink href="/about" active={isActive("/about")}>
+            <TopLink
+              href="/about"
+              active={isActive("/about")}
+              onMouseEnter={scheduleClose}
+            >
               About
             </TopLink>
-            <TopLink href="/contact" active={isActive("/contact")}>
+            <TopLink
+              href="/contact"
+              active={isActive("/contact")}
+              onMouseEnter={scheduleClose}
+            >
               Contact
             </TopLink>
           </nav>
@@ -174,7 +210,8 @@ export function SiteHeader() {
         {openMenu && (
           <div
             className="absolute inset-x-0 top-full hidden lg:block"
-            onMouseLeave={() => setOpenMenu(null)}
+            onMouseEnter={cancelClose}
+            onMouseLeave={scheduleClose}
           >
             <div className="container-page pb-4">
               <div className="rounded-2xl border border-ink-700 bg-ink-850 p-6 shadow-[0_30px_70px_-40px_rgba(0,0,0,0.75)]">
@@ -293,15 +330,18 @@ export function SiteHeader() {
 function TopLink({
   href,
   active,
+  onMouseEnter,
   children,
 }: {
   href: string;
   active: boolean;
+  onMouseEnter?: () => void;
   children: React.ReactNode;
 }) {
   return (
     <Link
       href={href}
+      onMouseEnter={onMouseEnter}
       className={`rounded-md px-3 py-2 transition-colors ${
         active ? "text-mist-100" : "text-mist-400 hover:text-mist-100"
       }`}
@@ -313,26 +353,28 @@ function TopLink({
 
 function MenuTrigger({
   label,
-  menuKey,
-  openMenu,
-  setOpenMenu,
+  isOpen,
   active,
+  onOpen,
+  onLeave,
+  onToggle,
 }: {
   label: string;
-  menuKey: MenuKey;
-  openMenu: MenuKey | null;
-  setOpenMenu: (m: MenuKey | null) => void;
+  isOpen: boolean;
   active: boolean;
+  onOpen: () => void;
+  onLeave: () => void;
+  onToggle: () => void;
 }) {
-  const isOpen = openMenu === menuKey;
   return (
     <button
       type="button"
       aria-haspopup="true"
       aria-expanded={isOpen}
-      onMouseEnter={() => setOpenMenu(menuKey)}
-      onFocus={() => setOpenMenu(menuKey)}
-      onClick={() => setOpenMenu(isOpen ? null : menuKey)}
+      onMouseEnter={onOpen}
+      onFocus={onOpen}
+      onMouseLeave={onLeave}
+      onClick={onToggle}
       className={`inline-flex items-center gap-1 rounded-md px-3 py-2 transition-colors ${
         isOpen || active
           ? "text-mist-100"
