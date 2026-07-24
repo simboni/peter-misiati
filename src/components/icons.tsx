@@ -224,6 +224,12 @@ export const ArrowRightIcon = (p: IconProps) => (
   </Base>
 );
 
+export const ChevronDownIcon = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M6 9l6 6 6-6" />
+  </Base>
+);
+
 export const CheckIcon = (p: IconProps) => (
   <Base {...p}>
     <path d="m5 12 4.5 4.5L19 7" />

@@ -769,6 +769,60 @@ export const testimonials: Testimonial[] = [
   },
 ];
 
+/* ------------------------------- Services ------------------------------- */
+
+export type Service = {
+  /** Key into the icon map (see components/icons.tsx). */
+  icon: string;
+  title: string;
+  blurb: string;
+  /** Where the mega-menu card points. */
+  href: string;
+};
+
+/**
+ * What SMP does — the capability set shown in the "Services" mega menu.
+ * These are the offers, distinct from `projects` (the proof).
+ */
+export const services: Service[] = [
+  {
+    icon: "server",
+    title: "Web apps & internal systems",
+    blurb: "ERP, microfinance, admin dashboards — the software your organisation runs on.",
+    href: "/work",
+  },
+  {
+    icon: "layout",
+    title: "Custom websites",
+    blurb: "Fast, modern sites for business, NGO, political & personal brands.",
+    href: "/work",
+  },
+  {
+    icon: "receipt",
+    title: "Fintech & M-Pesa",
+    blurb: "SACCO systems, payments, savings & investment tools with M-Pesa built in.",
+    href: "/work",
+  },
+  {
+    icon: "chart",
+    title: "SaaS & dashboards",
+    blurb: "Multi-tenant products and data dashboards, built to scale — like StackUp.",
+    href: "/work/stackup",
+  },
+  {
+    icon: "cap",
+    title: "E-learning & LMS",
+    blurb: "Online courses, learning platforms and training tools that teach at scale.",
+    href: "/work",
+  },
+  {
+    icon: "code",
+    title: "Mobile apps & consulting",
+    blurb: "Android & iOS apps, plus technology strategy from the first idea to launch.",
+    href: "/contact",
+  },
+];
+
 /* -------------------------------- Nav ----------------------------------- */
 
 export const nav = [
