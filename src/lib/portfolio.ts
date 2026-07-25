@@ -654,6 +654,49 @@ export const projects: Project[] = [
     ],
   },
   {
+    slug: "talitha-kum-kenya",
+    title: "Talitha Kum International Kenya",
+    summary:
+      "A dignified, mission-first website for RAHT — Religious Against Human Trafficking, Kenya — the national anti-trafficking network of over 40 religious institutes, part of the global Talitha Kum family.",
+    type: "Client project",
+    year: "2026",
+    role: "Design & web development",
+    stack: ["WordPress", "PHP", "Responsive Design"],
+    tags: ["Web", "Non-profit", "Client"],
+    featured: true,
+    cover: { from: "from-green-700", to: "to-ink-900", initials: "TK" },
+    logo: "/logos/talitha-kum-kenya.webp",
+    logoBg: "#ffffff",
+    category: "NGOs",
+    links: { live: "https://talithakumraht.org" },
+    problem:
+      "RAHT-Kenya unites more than 40 religious institutes against human trafficking, but its message — the vision, the four-Ps approach, how to report a case, get help or get involved — needed one credible, nationwide online home that the network and the public could rely on.",
+    approach:
+      "I designed and built a warm, dignified site led by the network's vision — 'A world free from human trafficking' — and its mission to uphold human dignity. The journey is organised around the four Ps (Prevention, Protection, Partnership, Prayer), with clear report / get-help and get-involved paths, news and an about section, all easy for the team to keep current.",
+    architecture: [
+      "WordPress CMS so the team can publish news and update content without a developer.",
+      "A four-Ps framework structuring how the mission and programmes are told.",
+      "Prominent report / get-help and get-involved calls-to-action throughout.",
+      "Fast, mobile-first and SEO-ready so the message reaches a largely mobile audience.",
+    ],
+    highlights: [
+      "A mission-first hero that leads with the network's vision and dignity.",
+      "The four Ps — Prevention, Protection, Partnership, Prayer — made clear and navigable.",
+      "Report / get-help and get-involved paths that turn awareness into action.",
+    ],
+    impact: [
+      { value: "40+", label: "Religious institutes" },
+      { value: "4 Ps", label: "Guiding framework" },
+      { value: "Nationwide", label: "Reach across Kenya" },
+    ],
+    media: [
+      {
+        src: "/mockups/talitha-kum-kenya.webp",
+        alt: "Talitha Kum International Kenya (RAHT) — 'A world free from human trafficking' homepage",
+      },
+    ],
+  },
+  {
     slug: "dennis-wamalwa",
     title: "Dr. Dennis Wamalwa",
     summary:
