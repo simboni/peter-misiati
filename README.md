@@ -1,48 +1,42 @@
-# Peter Misiati — Portfolio
+# KEYSA — Kenya Youth Support Association
 
-A tier-1 software-engineer portfolio and **directory of work** for Peter Misiati,
-Full-Stack Software Engineer. Built with **Next.js 16 (App Router)**, **React 19**,
-**TypeScript** and **Tailwind CSS v4**, and exported as a fast static site.
+The official website of the **Kenya Youth Support Association (KEYSA)**, a
+registered non-profit founded in 2020 in Namamali Ward, Matungu Constituency,
+Kakamega County, Kenya. Built with **Next.js 16 (App Router)**, **React 19**,
+**TypeScript** and **Tailwind CSS v4**, exported as a fast static site.
 
 ## Pages
 
-| Route            | Purpose                                                                   |
-| ---------------- | ------------------------------------------------------------------------- |
-| `/`              | Home — hero, stats, featured work, skills, experience, about, testimonial |
-| `/work`          | The directory — filterable grid of every project                          |
-| `/work/[slug]`   | Case study — problem, approach, architecture, highlights, impact          |
-| `/about`         | Long-form bio, principles, full skills, experience                        |
-| `/contact`       | Contact form + direct email / GitHub / LinkedIn                           |
+| Route              | Purpose                                                              |
+| ------------------ | -------------------------------------------------------------------- |
+| `/`                | Home — hero, mission, impact stats, programs, featured projects, donate CTA |
+| `/about`           | Story, vision & mission, core values, leadership bios, governance    |
+| `/programs`        | The five thematic areas at a glance                                  |
+| `/programs/[slug]` | Full program detail — rationale, activities, outcomes, related projects |
+| `/projects`        | Fundable initiatives (seeking funding) and delivered work            |
+| `/projects/[slug]` | Full project brief — background, objectives, activities, outcomes, sustainability |
+| `/donate`          | Giving impact examples, ways to give, transparency, donor FAQ        |
+| `/get-involved`    | Volunteer, mentor, coach, partner, sponsor                           |
+| `/news`            | Stories and milestones, incl. the founder's essay                    |
+| `/contact`         | Contact cards + mailto-powered contact form                          |
 
-Plus `sitemap.xml`, `robots.txt`, JSON-LD `Person` schema and per-project OG metadata.
+Plus `sitemap.xml`, `robots.txt`, a web app manifest, JSON-LD `NGO` schema,
+OG/Twitter share images, a themed 404, and light/dark themes.
 
 ## Editing content — one file
 
-**All content lives in [`src/lib/portfolio.ts`](src/lib/portfolio.ts).** Change your
-bio, add a skill, add a job — or add a whole project (which auto-creates its card on
-the home grid, an entry in the `/work` directory, its own `/work/<slug>` case-study
-page, and a sitemap entry) — by editing that one typed file. You never touch the page
+**All content lives in [`src/lib/keysa.ts`](src/lib/keysa.ts).** Programs,
+projects, team bios, values, giving examples, governance notes, articles and
+navigation are all typed data. Adding a project there auto-creates its card,
+its `/projects/<slug>` page and its sitemap entry — you never touch the page
 components.
 
-Items marked `// SAMPLE — replace` are realistic placeholders. Swap them for your real
-work. To feature a project on the home page, set `featured: true`.
+### Donation channels
 
-### Adding screenshots
-
-Each project has a `media: []` array. Drop images into `public/` and add
-`{ src: "/my-shot.png", alt: "…" }` entries — they replace the branded gradient cover
-on the case-study page.
-
-### Your résumé / CV
-
-Put a PDF in `public/` and set `profile.resumeUrl` (e.g. `"/peter-misiati-cv.pdf"`) —
-a Résumé button then appears in the hero.
-
-## Contact form delivery
-
-The form at `/contact` posts to a no-backend service ([FormSubmit](https://formsubmit.co))
-that emails each enquiry to `profile.email`. The first submission triggers a one-time
-activation email — click the link once and delivery is on for good.
+The donate page deliberately routes payment details through
+`info@keysa.org` (no account numbers published) to protect donors from
+impersonation scams. When the association is ready to publish an M-Pesa
+paybill or add a payment processor, extend `src/app/donate/page.tsx`.
 
 ## Local development
 
@@ -55,10 +49,10 @@ npm run build    # static export → ./out
 ## Deployment
 
 Static export (`output: 'export'`), so it deploys to any static host — Vercel,
-Cloudflare Pages, Netlify, GitHub Pages. Set the build command to `npm run build` and
-the output directory to `out`. Update `site.domain` in `src/lib/portfolio.ts` to your
-real domain before launch (it drives canonical URLs, the sitemap and JSON-LD).
+Cloudflare Pages, Netlify, GitHub Pages. Set the build command to `npm run
+build` and the output directory to `out`. `site.url` in `src/lib/keysa.ts`
+drives canonical URLs, the sitemap and JSON-LD.
 
 ---
 
-© 2026 Peter Misiati.
+© Kenya Youth Support Association.

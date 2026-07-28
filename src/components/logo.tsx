@@ -1,91 +1,48 @@
 import Link from "next/link";
-import { profile } from "@/lib/portfolio";
 
 /**
- * SMP brand mark — a code-tag monogram in emerald green.
- *   <LogoMark>  the "</>" glyph in a green-ringed tile (also the avatar/favicon)
- *   <Logo>      the full lockup: mark + name + ~/smp-developers, links home
+ * KEYSA wordmark, redrawn from the official logo as theme-aware text:
+ * green "Ke", red "Y", and "SA" in the current heading colour, over the
+ * association's full name. Scales crisply at any size, works on dark.
  */
-
-export function LogoMark({
-  className = "",
-  uid = "smp",
-}: {
-  className?: string;
-  /** Unique suffix for the gradient ids — override when several marks share a page. */
-  uid?: string;
-}) {
-  const ring = `${uid}-ring`;
-  const glyph = `${uid}-glyph`;
-  return (
-    <svg
-      viewBox="0 0 100 100"
-      className={className}
-      role="img"
-      aria-label={`${profile.name} logo`}
-    >
-      <defs>
-        <linearGradient id={ring} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#3ff59a" />
-          <stop offset="1" stopColor="#159a57" />
-        </linearGradient>
-        <linearGradient id={glyph} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#8ff7c2" />
-          <stop offset="1" stopColor="#2ee88a" />
-        </linearGradient>
-      </defs>
-      {/* Terminal tile with a gradient ring */}
-      <rect
-        x="3"
-        y="3"
-        width="94"
-        height="94"
-        rx="24"
-        fill="#0e1512"
-        stroke={`url(#${ring})`}
-        strokeWidth="3"
-      />
-      {/* Subtle inner top highlight for depth */}
-      <rect x="8" y="8" width="84" height="40" rx="19" fill="#ffffff" opacity="0.03" />
-      {/* The </> mark, redrawn as clean geometric strokes */}
-      <g
-        fill="none"
-        stroke={`url(#${glyph})`}
-        strokeWidth="7.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M37 36 L23 50 L37 64" />
-        <path d="M63 36 L77 50 L63 64" />
-        <path d="M56 33 L44 67" />
-      </g>
-    </svg>
-  );
-}
-
-// Alias kept for the favicon/tiny contexts.
-export const LogoBadge = LogoMark;
-
-export function Logo({
-  className = "",
-  uid = "smp",
-}: {
-  className?: string;
-  uid?: string;
-}) {
+export function Logo({ compact = false }: { compact?: boolean }) {
   return (
     <Link
       href="/"
-      className={`group flex min-w-0 items-center gap-2 sm:gap-2.5 ${className}`}
-      aria-label="SMP Developers — home"
+      aria-label="KEYSA — Kenya Youth Support Association, home"
+      className="group inline-flex items-center gap-3"
     >
-      <LogoMark
-        uid={uid}
-        className="h-7 w-7 shrink-0 rounded-[0.5rem] transition-transform duration-300 group-hover:-translate-y-0.5 sm:h-9 sm:w-9 sm:rounded-[0.6rem]"
-      />
-      <span className="truncate whitespace-nowrap font-mono text-[0.95rem] font-semibold tracking-tight sm:text-xl">
-        <span className="text-mist-600">~/</span>
-        <span className="text-green-400">smp-developers</span>
+      {/* Emblem: rising person inside a shield-leaf, flag colours */}
+      <svg
+        viewBox="0 0 40 40"
+        className="h-9 w-9 shrink-0"
+        aria-hidden
+        fill="none"
+      >
+        <path
+          d="M20 3c5 3 9.5 4 15 4v12c0 9-6.5 15.5-15 18C11.5 34.5 5 28 5 19V7c5.5 0 10-1 15-4Z"
+          className="fill-green-400"
+        />
+        <path
+          d="M20 8.5a3.1 3.1 0 1 1 0 6.2 3.1 3.1 0 0 1 0-6.2Z"
+          fill="#fff"
+        />
+        <path
+          d="M13.5 25.5c.8-4.4 3.2-7 6.5-7s5.7 2.6 6.5 7c-1.9 2.4-4 4.2-6.5 5.4-2.5-1.2-4.6-3-6.5-5.4Z"
+          fill="#fff"
+        />
+      </svg>
+      <span className="leading-none">
+        <span className="font-display text-xl font-bold tracking-tight">
+          <span className="text-green-400">Ke</span>
+          <span className="text-accent-400">Y</span>
+          <span className="text-mist-100">SA</span>
+        </span>
+        {!compact && (
+          <span className="mt-1 block text-[0.62rem] font-medium tracking-[0.08em] text-mist-500">
+            Kenya Youth Support Association
+          </span>
+        )}
       </span>
     </Link>
   );

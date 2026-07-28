@@ -1,106 +1,87 @@
 import type { Metadata } from "next";
-import { profile } from "@/lib/portfolio";
+import { site } from "@/lib/keysa";
 import { PageHero } from "@/components/page-hero";
-import { Section } from "@/components/ui";
 import { ContactForm } from "@/components/contact-form";
-import {
-  MailIcon,
-  PinIcon,
-  PhoneIcon,
-  WhatsAppIcon,
-  GitHubIcon,
-  LinkedInIcon,
-} from "@/components/icons";
+import { Reveal } from "@/components/reveal";
+import { CopyButton } from "@/components/copy-button";
+import { GlobeIcon, MailIcon, MapPinIcon } from "@/components/icons";
 
 export const metadata: Metadata = {
   title: "Contact",
-  description: `Get in touch with ${profile.name} — available for freelance projects and full-time roles.`,
+  description:
+    "Get in touch with the Kenya Youth Support Association — donations, partnerships, volunteering, media and general enquiries. We reply to every message.",
 };
 
 export default function ContactPage() {
   return (
     <>
       <PageHero
-        eyebrow="contact"
-        title="Let's build something"
-        intro="Tell me about your project or role. I read every message and reply within one working day."
+        eyebrow="Contact"
+        title="Talk to a person, not a machine"
+        lede="Every message to KEYSA is read by a board member. Whether you're a donor, a potential partner, a journalist or a young person looking for support — we want to hear from you."
       />
-      <Section>
-        <div className="grid gap-10 lg:grid-cols-12">
-          <div className="lg:col-span-5">
-            <h2 className="font-display text-2xl font-bold text-mist-100">Reach me directly</h2>
-            <p className="mt-3 leading-relaxed text-mist-400">
-              Prefer to skip the form? Any of these work — I&rsquo;m quick to respond.
-            </p>
-            <ul className="mt-8 space-y-5">
-              <ContactRow icon={<MailIcon className="h-5 w-5" />} label="email" value={profile.email} href={`mailto:${profile.email}`} />
-              <ContactRow icon={<PhoneIcon className="h-5 w-5" />} label="phone" value={profile.phone} href={`tel:${profile.phone.replace(/\s/g, "")}`} />
-              <ContactRow icon={<WhatsAppIcon className="h-5 w-5" />} label="whatsapp" value="Chat with me" href={`https://wa.me/${profile.whatsapp}`} external />
-              {profile.socials.github && (
-                <ContactRow icon={<GitHubIcon className="h-5 w-5" />} label="github" value="View my code" href={profile.socials.github} external />
-              )}
-              {profile.socials.linkedin && (
-                <ContactRow icon={<LinkedInIcon className="h-5 w-5" />} label="linkedin" value="Connect with me" href={profile.socials.linkedin} external />
-              )}
-              <ContactRow icon={<PinIcon className="h-5 w-5" />} label="based in" value={profile.location} />
-            </ul>
 
-            <div className="mt-8 rounded-xl border border-ink-600 bg-ink-800 p-6">
-              <div className="flex items-center gap-2 font-mono text-sm text-green-400">
-                <span className="relative flex h-2.5 w-2.5">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
-                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-green-400" />
+      <section className="py-16 sm:py-20">
+        <div className="container-page grid gap-10 lg:grid-cols-[0.85fr_1.15fr]">
+          <div className="space-y-5">
+            <Reveal>
+              <div className="win p-7">
+                <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-green-400/10 text-green-400">
+                  <MailIcon className="h-5.5 w-5.5" />
                 </span>
-                {profile.availability}
+                <h2 className="mt-4 font-display text-lg font-bold text-mist-100">Email</h2>
+                <p className="mt-1 text-sm text-mist-400">
+                  The fastest way to reach the team.
+                </p>
+                <div className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-ink-600 bg-ink-900 px-4 py-3">
+                  <a
+                    href={`mailto:${site.email}`}
+                    className="truncate text-sm font-medium text-green-400 hover:underline"
+                  >
+                    {site.email}
+                  </a>
+                  <CopyButton value={site.email} label="email address" />
+                </div>
               </div>
+            </Reveal>
+            <Reveal delay={80}>
+              <div className="win p-7">
+                <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-green-400/10 text-green-400">
+                  <MapPinIcon className="h-5.5 w-5.5" />
+                </span>
+                <h2 className="mt-4 font-display text-lg font-bold text-mist-100">
+                  Where we work
+                </h2>
+                <p className="mt-1 text-sm leading-relaxed text-mist-400">
+                  {site.location}. Our programs currently serve Namamali Ward and the
+                  wider Matungu Constituency.
+                </p>
+              </div>
+            </Reveal>
+            <Reveal delay={160}>
+              <div className="win p-7">
+                <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-green-400/10 text-green-400">
+                  <GlobeIcon className="h-5.5 w-5.5" />
+                </span>
+                <h2 className="mt-4 font-display text-lg font-bold text-mist-100">Online</h2>
+                <p className="mt-1 text-sm leading-relaxed text-mist-400">
+                  {site.domain} — and our community channels, where meeting updates
+                  and program news are shared first.
+                </p>
+              </div>
+            </Reveal>
+          </div>
+
+          <Reveal delay={100}>
+            <div>
+              <h2 className="mb-4 font-display text-xl font-bold text-mist-100">
+                Send us a message
+              </h2>
+              <ContactForm />
             </div>
-          </div>
-
-          <div className="lg:col-span-7">
-            <ContactForm />
-          </div>
+          </Reveal>
         </div>
-      </Section>
+      </section>
     </>
   );
-}
-
-function ContactRow({
-  icon,
-  label,
-  value,
-  href,
-  external,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  href?: string;
-  external?: boolean;
-}) {
-  const body = (
-    <>
-      <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-ink-600 bg-ink-800 text-green-400">
-        {icon}
-      </span>
-      <span>
-        <span className="block font-mono text-xs text-mist-600">{label}</span>
-        <span className="block text-mist-100">{value}</span>
-      </span>
-    </>
-  );
-  if (href) {
-    return (
-      <li>
-        <a
-          href={href}
-          {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-          className="flex items-center gap-4 transition-opacity hover:opacity-80"
-        >
-          {body}
-        </a>
-      </li>
-    );
-  }
-  return <li className="flex items-center gap-4">{body}</li>;
 }

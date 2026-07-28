@@ -1,101 +1,88 @@
 @import "tailwindcss";
 
 /* --------------------------------------------------------------------------
-   SMP — software-engineer portfolio design system
-   "Terminal" — deep ink surfaces, emerald-green signal, monospace accents.
-   Fonts: Space Grotesk (display) · Inter (body) · JetBrains Mono (code)
+   KEYSA — Kenya Youth Support Association design system
+   "Harambee" — warm paper surfaces, forest-green signal, amber sunrise accent.
+   Fonts: Space Grotesk (display) · Inter (body)
 --------------------------------------------------------------------------- */
 @theme {
-  /* Default theme: Light — paper surfaces, deep emerald accent.
-     (Dark and Midnight override these variables below.) */
+  /* Default theme: Light — warm paper surfaces, deep forest accent.
+     (Dark overrides the same variables below.) */
 
   /* Ink — surfaces (backgrounds → borders) */
-  --color-ink-950: #e7ebe8;
-  --color-ink-900: #f6f8f6; /* page background */
-  --color-ink-850: #eff2ef;
+  --color-ink-950: #e9ece6;
+  --color-ink-900: #f8f9f5; /* page background */
+  --color-ink-850: #f1f4ec;
   --color-ink-800: #ffffff; /* card surface */
-  --color-ink-700: #e9ede9; /* raised surface */
-  --color-ink-600: #d8deda; /* borders */
-  --color-ink-500: #bcc6bf; /* strong border / hover */
+  --color-ink-700: #ecefe6; /* raised surface */
+  --color-ink-600: #dde2d4; /* borders */
+  --color-ink-500: #c2c9b6; /* strong border / hover */
 
-  /* Green — the brand signal */
-  --color-green-300: #07603c;
-  --color-green-400: #0a9d61; /* primary accent */
-  --color-green-500: #0a8a55;
-  --color-green-600: #0b7449;
-  --color-green-700: #0a5c3b;
+  /* Green — the brand signal (forest) */
+  --color-green-300: #0c5b34;
+  --color-green-400: #157f47; /* primary accent */
+  --color-green-500: #116b3c;
+  --color-green-600: #0e5a33;
+  --color-green-700: #0b4829;
+
+  /* Red — the brand accent from the KEYSA logo (CTAs, highlights) */
+  --color-accent-300: #b3232e;
+  --color-accent-400: #dc2f3c;
+  --color-accent-500: #c22530;
+  --color-accent-600: #a01e28;
 
   /* Mist — foreground text */
-  --color-mist-100: #111814; /* headings */
-  --color-mist-200: #232e28;
-  --color-mist-300: #333f38;
-  --color-mist-400: #516057; /* body */
-  --color-mist-500: #6c7a71;
-  --color-mist-600: #97a29a; /* faint / meta */
+  --color-mist-100: #151b12; /* headings */
+  --color-mist-200: #26301f;
+  --color-mist-300: #37422e;
+  --color-mist-400: #56624b; /* body */
+  --color-mist-500: #71806a;
+  --color-mist-600: #9aa791; /* faint / meta */
 
-  /* Text color used on top of the accent (buttons, active pills) */
+  /* Text color used on top of the accents (buttons, active pills) */
   --color-on-accent: #ffffff;
+  --color-on-red: #ffffff;
 
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   --font-display: var(--font-space), var(--font-inter), ui-sans-serif, sans-serif;
-  --font-mono: var(--font-jetbrains), ui-monospace, "SFMono-Regular", monospace;
 }
 
 /* --------------------------------------------------------------------------
-   Themes — the default (dark) palette lives in @theme above; the other two
-   override the same custom properties, so every utility re-skins for free.
-   Applied via data-theme on <html>, persisted in localStorage ("smp-theme").
+   Themes — light lives in @theme above; dark overrides the same custom
+   properties so every utility re-skins for free.
+   Applied via data-theme on <html>, persisted in localStorage ("keysa-theme").
 --------------------------------------------------------------------------- */
 :root {
   color-scheme: light;
 }
 
-/* Dark — deep ink surfaces, emerald signal (the original look) */
+/* Dark — deep evergreen surfaces, luminous green + amber */
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --color-ink-950: #060907;
-  --color-ink-900: #0a0f0c;
-  --color-ink-850: #0d130f;
-  --color-ink-800: #101712;
-  --color-ink-700: #18211b;
-  --color-ink-600: #223029;
-  --color-ink-500: #33453b;
-  --color-green-300: #8bf7bd;
-  --color-green-400: #2ee88a;
-  --color-green-500: #14cf78;
-  --color-green-600: #0aa25e;
-  --color-green-700: #0a7548;
-  --color-mist-100: #e9f1ec;
-  --color-mist-200: #d3dfd8;
-  --color-mist-300: #b7c7bd;
-  --color-mist-400: #93a89c;
-  --color-mist-500: #728379;
-  --color-mist-600: #55645b;
-  --color-on-accent: #060907;
-}
-
-/* Midnight — deep navy surfaces, sky accent */
-:root[data-theme="midnight"] {
-  color-scheme: dark;
-  --color-ink-950: #030710;
-  --color-ink-900: #060b16;
-  --color-ink-850: #0a101d;
-  --color-ink-800: #0d1523;
-  --color-ink-700: #151f31;
-  --color-ink-600: #20304a;
-  --color-ink-500: #314564;
-  --color-green-300: #8fd4ff;
-  --color-green-400: #3fb2ff;
-  --color-green-500: #1f97e8;
-  --color-green-600: #0f79c4;
-  --color-green-700: #0c5d99;
-  --color-mist-100: #e9eff6;
-  --color-mist-200: #d1dbe7;
-  --color-mist-300: #b7c5d6;
-  --color-mist-400: #93a4ba;
-  --color-mist-500: #71839b;
-  --color-mist-600: #53637a;
-  --color-on-accent: #041019;
+  --color-ink-950: #050804;
+  --color-ink-900: #0a0f08;
+  --color-ink-850: #0d130a;
+  --color-ink-800: #11180d;
+  --color-ink-700: #1a2314;
+  --color-ink-600: #26331d;
+  --color-ink-500: #3a4d2d;
+  --color-green-300: #a3f0bc;
+  --color-green-400: #3ddc7d;
+  --color-green-500: #1fc465;
+  --color-green-600: #149a4e;
+  --color-green-700: #0e733b;
+  --color-accent-300: #ffaeb4;
+  --color-accent-400: #ff5a64;
+  --color-accent-500: #f0404c;
+  --color-accent-600: #cf2a36;
+  --color-mist-100: #edf3e8;
+  --color-mist-200: #d6e0cf;
+  --color-mist-300: #bac8b0;
+  --color-mist-400: #96a78a;
+  --color-mist-500: #74856a;
+  --color-mist-600: #566349;
+  --color-on-accent: #050804;
+  --color-on-red: #ffffff;
 }
 
 html {
@@ -131,7 +118,7 @@ body {
     }
   }
 
-  /* Faint blueprint grid used behind hero / section bands */
+  /* Faint topographic grid used behind hero / section bands */
   .bg-grid {
     background-image:
       linear-gradient(color-mix(in oklab, var(--color-mist-100) 3%, transparent) 1px, transparent 1px),
@@ -145,8 +132,13 @@ body {
     background:
       radial-gradient(
         48rem 26rem at 78% -12%,
-        color-mix(in oklab, var(--color-green-400) 7%, transparent),
+        color-mix(in oklab, var(--color-green-400) 8%, transparent),
         transparent 62%
+      ),
+      radial-gradient(
+        40rem 24rem at 8% 108%,
+        color-mix(in oklab, var(--color-accent-400) 5%, transparent),
+        transparent 60%
       );
   }
 
@@ -154,12 +146,8 @@ body {
   .win {
     border: 1px solid var(--color-ink-600);
     background: var(--color-ink-800);
-    border-radius: 0.85rem;
-    box-shadow: 0 24px 50px -32px rgba(0, 0, 0, 0.45);
-  }
-
-  .glow-ring {
-    box-shadow: 0 0 0 1px rgba(46, 232, 138, 0.35), 0 0 34px -6px rgba(46, 232, 138, 0.4);
+    border-radius: 1rem;
+    box-shadow: 0 24px 50px -32px rgba(15, 40, 20, 0.35);
   }
 
   .text-balance {
@@ -174,20 +162,34 @@ body {
     text-transform: uppercase;
     color: var(--color-mist-500);
   }
-}
 
-/* Blinking terminal cursor */
-@keyframes blink {
-  0%, 49% { opacity: 1; }
-  50%, 100% { opacity: 0; }
-}
-.cursor {
-  display: inline-block;
-  width: 0.6ch;
-  height: 1.05em;
-  transform: translateY(0.14em);
-  background: var(--color-green-400);
-  opacity: 0.85;
+  /* Kenyan-flag inspired tricolor rule used as a signature detail
+     (black · red · green, like the flag — and the KEYSA logo) */
+  .tricolor {
+    height: 4px;
+    border-radius: 999px;
+    background: linear-gradient(
+      90deg,
+      var(--color-mist-100) 0 33%,
+      var(--color-accent-400) 33% 66%,
+      var(--color-green-400) 66% 100%
+    );
+  }
+
+  /* Long-form article text */
+  .prose-ngo p {
+    margin-bottom: 1.25rem;
+    line-height: 1.85;
+  }
+  .prose-ngo p:first-of-type::first-letter {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 3.2em;
+    line-height: 0.85;
+    float: left;
+    padding-right: 0.12em;
+    color: var(--color-green-400);
+  }
 }
 
 /* --------------------------------------------------------------------------
@@ -216,29 +218,6 @@ body {
   }
 }
 
-/* Cursor-following green spotlight for cards */
-.spotlight {
-  position: relative;
-  isolation: isolate;
-}
-.spotlight::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  border-radius: inherit;
-  opacity: 0;
-  transition: opacity 0.3s ease;
-  pointer-events: none;
-  background: radial-gradient(
-    18rem 18rem at var(--mx, 50%) var(--my, 50%),
-    color-mix(in oklab, var(--color-mist-100) 5%, transparent),
-    transparent 60%
-  );
-}
-.spotlight:hover::before { opacity: 1; }
-.spotlight > * { position: relative; z-index: 1; }
-
 @keyframes floatY {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-20px); }
@@ -251,7 +230,7 @@ body {
   position: absolute;
   border-radius: 999px;
   filter: blur(80px);
-  opacity: 0.6;
+  opacity: 0.5;
   pointer-events: none;
 }
 .hero-stagger > * { animation: riseIn 0.7s cubic-bezier(0.16, 1, 0.3, 1) both; }
@@ -262,21 +241,6 @@ body {
 .hero-stagger > *:nth-child(5) { animation-delay: 0.37s; }
 .hero-stagger > *:nth-child(6) { animation-delay: 0.45s; }
 
-/* Logo marquee — a single row sliding slowly to the left, looping seamlessly.
-   The track holds two identical copies; translating by -50% shows the seam-free
-   loop point. Each item owns its trailing gap (margin) so the halves are equal. */
-@keyframes marquee-left {
-  from { transform: translateX(0); }
-  to { transform: translateX(-50%); }
-}
-.marquee-track {
-  display: flex;
-  width: max-content;
-  animation: marquee-left var(--marquee-duration, 88s) linear infinite;
-  will-change: transform;
-}
-.marquee:hover .marquee-track { animation-play-state: paused; }
-
 @media (prefers-reduced-motion: reduce) {
   .reveal {
     opacity: 1 !important;
@@ -284,6 +248,4 @@ body {
     transition: none !important;
   }
   .hero-orb, .hero-stagger > * { animation: none !important; }
-  .cursor { animation: none !important; }
-  .marquee-track { animation: none !important; transform: none !important; }
 }

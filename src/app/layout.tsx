@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
-import { Inter, JetBrains_Mono, Space_Grotesk } from "next/font/google";
+import { Inter, Space_Grotesk } from "next/font/google";
 import "./globals.css";
-import { profile, site } from "@/lib/portfolio";
+import { site } from "@/lib/keysa";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 
@@ -11,40 +11,33 @@ const space = Space_Grotesk({
   subsets: ["latin"],
   display: "swap",
 });
-const jetbrains = JetBrains_Mono({
-  variable: "--font-jetbrains",
-  subsets: ["latin"],
-  display: "swap",
-});
-
-const siteUrl = `https://${site.domain}`;
 
 export const metadata: Metadata = {
-  metadataBase: new URL(siteUrl),
+  metadataBase: new URL(site.url),
   title: {
     default: site.title,
-    template: `%s | ${profile.name}`,
+    template: `%s | ${site.shortName}`,
   },
   description: site.description,
   keywords: [
-    "Simboni Misiati Peter",
-    "SMP",
-    "SMP Developers",
-    "software engineer Kenya",
-    "web developer Kenya",
-    "WordPress developer",
-    "Laravel developer",
-    "tech consultant",
-    "microfinance software",
-    "Nairobi software engineer",
+    "KEYSA",
+    "Kenya Youth Support Association",
+    "youth empowerment Kenya",
+    "NGO Kakamega County",
+    "youth NGO Kenya",
+    "TVET scholarships Kenya",
+    "youth sports Kenya",
+    "climate action Kenya",
+    "donate youth Kenya",
+    "Matungu Constituency",
   ],
-  authors: [{ name: profile.name }],
-  creator: profile.name,
+  authors: [{ name: site.name }],
+  creator: site.name,
   openGraph: {
     type: "website",
-    locale: "en_US",
-    url: siteUrl,
-    siteName: profile.name,
+    locale: "en_KE",
+    url: site.url,
+    siteName: site.name,
     title: site.title,
     description: site.description,
   },
@@ -56,17 +49,25 @@ export const metadata: Metadata = {
   robots: { index: true, follow: true },
 };
 
-const personSchema = {
+const ngoSchema = {
   "@context": "https://schema.org",
-  "@type": "Person",
-  name: profile.name,
-  jobTitle: profile.role,
-  email: `mailto:${profile.email}`,
-  url: siteUrl,
-  description: profile.valueProp,
-  sameAs: [profile.socials.github, profile.socials.linkedin, profile.socials.x].filter(
-    Boolean,
-  ),
+  "@type": "NGO",
+  name: site.name,
+  alternateName: site.shortName,
+  url: site.url,
+  email: site.email,
+  logo: `${site.url}/keysa-logo.png`,
+  foundingDate: String(site.founded),
+  description: site.description,
+  address: {
+    "@type": "PostalAddress",
+    addressLocality: "Namamali Ward, Matungu Constituency",
+    addressRegion: "Kakamega County",
+    addressCountry: "KE",
+  },
+  areaServed: "Kenya",
+  keywords:
+    "youth empowerment, education, TVET, sports, talents, technology, financial literacy, community development, climate action",
 };
 
 export default function RootLayout({
@@ -76,22 +77,24 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${inter.variable} ${space.variable} ${jetbrains.variable} h-full antialiased`}
+      className={`${inter.variable} ${space.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col bg-ink-900">
         {/* Apply the stored theme before first paint (default: light). */}
         <script
           dangerouslySetInnerHTML={{
             __html:
-              "(function(){try{var t=localStorage.getItem('smp-theme');if(t==='dark'||t==='midnight'){document.documentElement.setAttribute('data-theme',t);}}catch(e){}})();",
+              "(function(){try{var t=localStorage.getItem('keysa-theme');if(t==='dark'){document.documentElement.setAttribute('data-theme',t);}}catch(e){}})();",
           }}
         />
         <script
           type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(personSchema) }}
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(ngoSchema) }}
         />
         <SiteHeader />
-        <main className="flex-1">{children}</main>
+        <main id="main" className="flex-1">
+          {children}
+        </main>
         <SiteFooter />
       </body>
     </html>
