@@ -1,0 +1,88 @@
+@import "tailwindcss";
+
+/* --------------------------------------------------------------------------
+   THE WAMBOKA RECORD — civic-ledger design system
+   "Audit report meets campaign" — warm paper surfaces, Kenya-green signal,
+   red reserved for flags, mono figures like a ledger.
+   Fonts: Fraunces (display) · Inter (body) · IBM Plex Mono (figures)
+--------------------------------------------------------------------------- */
+@theme {
+  /* Paper — surfaces (backgrounds → borders) */
+  --color-paper-950: #ece7dd;
+  --color-paper-900: #f8f5ef; /* page background */
+  --color-paper-850: #f2eee6;
+  --color-paper-800: #fffdf9; /* card surface */
+  --color-paper-700: #efeadf; /* raised surface */
+  --color-paper-600: #ddd6c7; /* borders */
+  --color-paper-500: #c3bba8; /* strong border / hover */
+
+  /* Green — the civic signal (Kenya green) */
+  --color-green-300: #0b5c33;
+  --color-green-400: #0d7a43; /* primary accent */
+  --color-green-500: #0c6b3b;
+  --color-green-600: #0b5c33;
+  --color-green-700: #094a29;
+
+  /* Red — flags and cautions, used sparingly */
+  --color-flag-500: #b02a24;
+  --color-flag-600: #8f211c;
+
+  /* Amber — "reported, not yet official" status */
+  --color-amber-500: #9a6206;
+  --color-amber-100: #f6e8cd;
+
+  /* Ink — foreground text */
+  --color-ink-100: #17130c; /* headings */
+  --color-ink-200: #2b261c;
+  --color-ink-300: #3f3a2e;
+  --color-ink-400: #565040; /* body */
+  --color-ink-500: #736c58;
+  --color-ink-600: #9c947d; /* faint / meta */
+
+  --color-on-accent: #ffffff;
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-fraunces), Georgia, "Times New Roman", serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, "SFMono-Regular", monospace;
+}
+
+:root {
+  color-scheme: light;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--font-sans);
+  color: var(--color-ink-400);
+  background: var(--color-paper-900);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--color-green-400);
+  color: var(--color-on-accent);
+}
+
+/* Ruled-paper texture for the ledger sections */
+.ledger-rule {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 31px,
+    color-mix(in srgb, var(--color-paper-600) 55%, transparent) 32px
+  );
+}
+
+/* Kenya band — the thin black/red/green flag rule */
+.kenya-band {
+  background: linear-gradient(
+    to right,
+    #17130c 0 33.3%,
+    #b02a24 33.3% 66.6%,
+    #0d7a43 66.6% 100%
+  );
+}
