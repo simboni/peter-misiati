@@ -546,6 +546,8 @@ export const team: TeamMember[] = [
     name: "Dr. John Paul Ngeso Aketch",
     role: "Founding Member · Treasurer & Resource Mobiliser",
     initials: "JP",
+    linkedin:
+      "https://www.linkedin.com/in/dr-ngeso-aketch-john-paul-ph-d-56371379/",
     bio: [
       "Dr. John Paul is an educator par excellence, administrator and youth advocate. He holds a PhD and a Master's in Educational Administration and Planning from The Catholic University of Eastern Africa, and a Bachelor of Education from Saint Mary's University of Minnesota (Tangaza University College).",
       "His career spans youth and community work across Kenya, South Sudan, Malawi, Zambia and the DR Congo, and roles as Admissions Coordinator and Lecturer at Tangaza University College. He currently serves as Principal Administration Officer at the Kenya National Qualifications Authority (KNQA), helping shape Kenya's education standards.",
