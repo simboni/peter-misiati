@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { articles, getArticle, site } from "@/lib/keysa";
@@ -71,6 +72,23 @@ export default async function ArticlePage({
 
       <article className="py-16 sm:py-20">
         <div className="container-page">
+          {article.image && (
+            <figure className="mx-auto mb-12 max-w-3xl">
+              <Image
+                src={article.image.src}
+                alt={article.image.alt}
+                width={1600}
+                height={900}
+                priority
+                className="w-full rounded-2xl border border-ink-600 object-cover shadow-[0_24px_50px_-32px_rgba(15,40,20,0.45)]"
+              />
+              {article.image.caption && (
+                <figcaption className="mt-3 text-center text-xs leading-relaxed text-mist-500">
+                  {article.image.caption}
+                </figcaption>
+              )}
+            </figure>
+          )}
           <div className="prose-ngo mx-auto max-w-2xl text-base text-mist-300">
             {article.body.map((p) => (
               <p key={p.slice(0, 48)}>{p}</p>

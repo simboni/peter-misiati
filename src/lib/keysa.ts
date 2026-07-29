@@ -655,6 +655,8 @@ export type Article = {
   date: string;
   isoDate: string;
   excerpt: string;
+  /** Optional lead image in /public/news/. */
+  image?: { src: string; alt: string; caption?: string };
   body: string[];
 };
 
@@ -670,6 +672,12 @@ export const articles: Article[] = [
     isoDate: "2026-07-30",
     excerpt:
       "KEYSA convened young people in Nairobi for a forum linking economic sustainability with anti-trafficking awareness — practical strategies for stronger livelihoods, and the knowledge to recognise and resist exploitation.",
+    image: {
+      src: "/news/nairobi-forum.jpg",
+      alt: "Young people at KEYSA's Nairobi youth empowerment forum, following a presentation on the push and pull factors behind human trafficking",
+      caption:
+        "Forum participants in Nairobi examine the push and pull factors that expose young people to trafficking.",
+    },
     body: [
       "KEYSA held a youth empowerment forum in Nairobi focused on promoting economic sustainability while raising awareness about human trafficking — two struggles that are, in reality, one. Traffickers prey on economic desperation; secure livelihoods are the strongest protection a young person can have.",
       "The forum equipped participants with knowledge and practical strategies to enhance their livelihoods: understanding the push and pull factors that drive risky migration and exploitation, building income security, and making informed decisions about opportunities that sound too good to be true — because many of them are.",
