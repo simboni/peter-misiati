@@ -543,7 +543,7 @@ export const team: TeamMember[] = [
     ],
   },
   {
-    name: "Dr. John Paul Ngeso Aketch",
+    name: "Dr. Ngeso Aketch John Paul, Ph.D",
     role: "Founding Member · Treasurer & Resource Mobiliser",
     initials: "JP",
     linkedin:
