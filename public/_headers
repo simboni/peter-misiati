@@ -1,0 +1,10 @@
+# Netlify headers — shipped inside the deploy folder so they apply on
+# prebuilt deploys (Drop / CLI / GitHub Actions), where netlify.toml isn't read.
+/*
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+
+/_next/static/*
+  Cache-Control: public, max-age=31536000, immutable

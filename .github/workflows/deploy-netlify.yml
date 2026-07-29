@@ -1,0 +1,40 @@
+# Builds the site on GitHub's free runners and hands Netlify the finished
+# files. Netlify never runs a build, so deploys cost ZERO Netlify build
+# minutes — only bandwidth, which static sites barely use.
+#
+# One-time setup (repo → Settings → Secrets and variables → Actions):
+#   NETLIFY_AUTH_TOKEN  — Netlify: User settings → Applications → New access token
+#   NETLIFY_SITE_ID     — Netlify: Site configuration → Site details → Site ID
+name: Deploy to Netlify
+
+on:
+  push:
+    branches: [main, claude/keysa-ngo-website-rj3rg1]
+  workflow_dispatch: {}
+
+concurrency:
+  group: netlify-deploy
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build static site
+        run: npm run build
+
+      - name: Deploy prebuilt files to Netlify
+        run: npx --yes netlify-cli deploy --prod --dir=out --no-build
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
