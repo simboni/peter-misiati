@@ -247,3 +247,19 @@ export function PhoneIcon(props: IconProps) {
     </svg>
   );
 }
+
+export function FacebookIcon(props: IconProps) {
+  return (
+    <svg {...base(props)} fill="currentColor" stroke="none">
+      <path d="M13.6 21v-7.3h2.45l.37-2.85H13.6V9.03c0-.82.23-1.39 1.41-1.39h1.5V5.09c-.26-.03-1.15-.11-2.19-.11-2.17 0-3.66 1.32-3.66 3.76v2.1H8.2v2.85h2.46V21h2.94Z" />
+    </svg>
+  );
+}
+
+export function LinkedInIcon(props: IconProps) {
+  return (
+    <svg {...base(props)} fill="currentColor" stroke="none">
+      <path d="M6.94 8.5a1.44 1.44 0 1 0 0-2.88 1.44 1.44 0 0 0 0 2.88ZM5.7 10.2h2.48V18H5.7v-7.8Zm4.3 0h2.38v1.07h.03c.33-.63 1.14-1.29 2.35-1.29 2.51 0 2.97 1.65 2.97 3.8V18h-2.48v-3.74c0-.89-.02-2.04-1.24-2.04-1.24 0-1.43.97-1.43 1.97V18H10V10.2Z" />
+    </svg>
+  );
+}

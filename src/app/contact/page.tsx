@@ -68,6 +68,14 @@ export default function ContactPage() {
                   {site.domain} — and our community channels, where meeting updates
                   and program news are shared first.
                 </p>
+                <a
+                  href={site.facebook}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-4 inline-flex items-center gap-2 rounded-full border border-ink-500 px-4 py-2 text-xs font-semibold text-mist-300 transition-colors hover:border-green-400 hover:text-mist-100"
+                >
+                  Follow KEYSA on Facebook
+                </a>
               </div>
             </Reveal>
           </div>

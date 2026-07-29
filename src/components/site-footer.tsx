@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { nav, programs, site } from "@/lib/keysa";
 import { Logo } from "@/components/logo";
-import { HeartIcon, MailIcon, MapPinIcon } from "@/components/icons";
+import { FacebookIcon, HeartIcon, MailIcon, MapPinIcon } from "@/components/icons";
 
 export function SiteFooter() {
   return (
@@ -26,6 +26,15 @@ export function SiteFooter() {
           >
             <MailIcon className="h-4 w-4 shrink-0" />
             {site.email}
+          </a>
+          <a
+            href={site.facebook}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-4 inline-flex items-center gap-2 rounded-full border border-ink-600 px-4 py-2 text-xs font-semibold text-mist-400 transition-colors hover:border-green-400 hover:text-mist-100"
+          >
+            <FacebookIcon className="h-4 w-4" />
+            Follow us on Facebook
           </a>
         </div>
 

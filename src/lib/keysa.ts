@@ -17,15 +17,24 @@ export const site = {
   location: "Namamali Ward, Matungu Constituency, Kakamega County, Kenya",
   founded: 2020,
   registered: 2023,
+  facebook: "https://www.facebook.com/profile.php?id=61583833030180",
 };
 
 export const identity = {
   vision:
     "To unlock the full potential of every young person by equipping them with the tools necessary to be confident, competent, and compassionate leaders of tomorrow.",
   mission:
+    "To empower youth by providing them with opportunities and resources in education, sports, technology and financial literacy.",
+  /** The founding commitment statement, used as supporting copy. */
+  commitment:
     "To cultivate and empower young people, fostering sustainable and self-reliant communities through a focus on leadership, mentorship, and community engagement.",
-  missionShort:
-    "To empower youths by providing them with opportunities and resources in education, sports, technology and financial literacy.",
+  objectives: [
+    "To provide youth with the knowledge, skills and values necessary to lead productive and fulfilling lives.",
+    "To enable youth to unlock their full potential — empowering them with the opportunities and support they need to thrive, benefiting both the individual and society as a whole.",
+    "To equip youth with technology skills that build employability, economic growth, digital inclusion, critical thinking and problem-solving — and responsible digital citizenship.",
+    "To equip youth with financial literacy that builds a strong foundation, promotes financial responsibility, fosters independence, encourages entrepreneurship and innovation, mitigates financial risks and bridges socio-economic gaps.",
+    "To encourage youth to become active in community development programs through participation — fostering growth, building capacity to contribute to community well-being, and taking charge of sustainable development.",
+  ],
 };
 
 export type CoreValue = {
@@ -515,6 +524,9 @@ export type TeamMember = {
   name: string;
   role: string;
   initials: string;
+  /** Portrait in /public/team/ — falls back to initials when absent. */
+  photo?: string;
+  linkedin?: string;
   bio: string[];
 };
 
@@ -523,6 +535,7 @@ export const team: TeamMember[] = [
     name: "Edmond Ongoma Juma",
     role: "Founder · Chairperson & Program Director",
     initials: "EJ",
+    linkedin: "https://www.linkedin.com/in/edmond-juma-3a8760229/",
     bio: [
       "Edmond is a dedicated development professional with over a decade of experience in social work and project management. He holds a Master's in Project Planning and Management and a Bachelor's in Development Studies from The Catholic University of Eastern Africa, and a Diploma in Development Studies and Social Work from Marist International University College.",
       "As Director of the James Ryken Center for Hope in Bungoma, he has worked tirelessly to support and rehabilitate street children. His earlier roles include Project Coordinator with Evolutionary Community Oriented Practitioners and Project Officer with Talitha Kum International Kenya, where he confronted human trafficking head-on.",
@@ -530,11 +543,11 @@ export const team: TeamMember[] = [
     ],
   },
   {
-    name: "John Paul Ngeso Aketch",
+    name: "Dr. John Paul Ngeso Aketch",
     role: "Founding Member · Treasurer & Resource Mobiliser",
     initials: "JP",
     bio: [
-      "John Paul is an educator par excellence, administrator and youth advocate. He holds a Master's in Educational Administration and Planning from The Catholic University of Eastern Africa, where he is currently pursuing PhD studies, and a Bachelor of Education from Saint Mary's University of Minnesota (Tangaza University College).",
+      "Dr. John Paul is an educator par excellence, administrator and youth advocate. He holds a PhD and a Master's in Educational Administration and Planning from The Catholic University of Eastern Africa, and a Bachelor of Education from Saint Mary's University of Minnesota (Tangaza University College).",
       "His career spans youth and community work across Kenya, South Sudan, Malawi, Zambia and the DR Congo, and roles as Admissions Coordinator and Lecturer at Tangaza University College. He currently serves as Principal Administration Officer at the Kenya National Qualifications Authority (KNQA), helping shape Kenya's education standards.",
       "At KEYSA he leads resource mobilisation, applying his fundraising and project-management expertise to youth empowerment.",
     ],
@@ -543,6 +556,7 @@ export const team: TeamMember[] = [
     name: "Peter Misiati Simboni",
     role: "Founding Member · Secretary",
     initials: "PM",
+    linkedin: "https://www.linkedin.com/in/peter-simboni-97b9a1106/",
     bio: [
       "Peter serves as Secretary of the association and one of its official signatories, keeping KEYSA's governance rigorous and its records transparent.",
       "A technology professional by background, he champions KEYSA's digital skills agenda — the belief that rural youth deserve a real route into the digital economy.",
@@ -641,6 +655,24 @@ export type Article = {
 };
 
 export const articles: Article[] = [
+  {
+    slug: "nairobi-youth-empowerment-forum",
+    title: "Youth Empowerment Forum in Nairobi: Livelihoods That Close the Door on Traffickers",
+    tag: "Event report",
+    eyebrow: "News & events · Nairobi",
+    author: "KEYSA Communications",
+    authorRole: "News & Events",
+    date: "July 2026",
+    isoDate: "2026-07-30",
+    excerpt:
+      "KEYSA convened young people in Nairobi for a forum linking economic sustainability with anti-trafficking awareness — practical strategies for stronger livelihoods, and the knowledge to recognise and resist exploitation.",
+    body: [
+      "KEYSA held a youth empowerment forum in Nairobi focused on promoting economic sustainability while raising awareness about human trafficking — two struggles that are, in reality, one. Traffickers prey on economic desperation; secure livelihoods are the strongest protection a young person can have.",
+      "The forum equipped participants with knowledge and practical strategies to enhance their livelihoods: understanding the push and pull factors that drive risky migration and exploitation, building income security, and making informed decisions about opportunities that sound too good to be true — because many of them are.",
+      "Sessions combined presentations with open discussion, giving young people space to ask hard questions about job offers abroad, online recruitment, and the warning signs of trafficking. Participants left with concrete steps to reduce their vulnerability and with networks they can turn to when an opportunity needs verifying.",
+      "This forum is part of KEYSA's growing anti-trafficking and youth-livelihoods work, which also includes our participation in the 4th International Conference on Human Trafficking at Tangaza University. We believe informed, economically empowered young people are the hardest targets traffickers will ever meet — and the strongest builders of secure, sustainable futures for their communities.",
+    ],
+  },
   {
     slug: "human-trafficking-conference-2026",
     title:

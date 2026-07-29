@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import {
   coreValues,
   governance,
@@ -12,8 +13,10 @@ import { Reveal } from "@/components/reveal";
 import { ProgramIcon } from "@/components/program-icon";
 import {
   ArrowRightIcon,
+  CheckIcon,
   EyeIcon,
   HeartIcon,
+  LinkedInIcon,
   TargetIcon,
 } from "@/components/icons";
 
@@ -86,6 +89,39 @@ export default function AboutPage() {
         </div>
       </section>
 
+      {/* Objectives */}
+      <section className="border-t border-ink-600 py-16 sm:py-20">
+        <div className="container-page">
+          <Reveal>
+            <SectionHeading
+              eyebrow="Our objectives"
+              title="Five commitments that guide everything we run"
+              lede="Every program and project is designed to advance these objectives."
+            />
+          </Reveal>
+          <ol className="mt-10 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {identity.objectives.map((objective, i) => (
+              <Reveal key={objective.slice(0, 40)} delay={i * 60}>
+                <li className="flex h-full items-start gap-4 rounded-2xl border border-ink-600 bg-ink-800 p-6">
+                  <span className="font-display text-3xl font-bold text-green-400/40">
+                    {String(i + 1).padStart(2, "0")}
+                  </span>
+                  <p className="text-sm leading-relaxed text-mist-400">{objective}</p>
+                </li>
+              </Reveal>
+            ))}
+            <Reveal delay={identity.objectives.length * 60}>
+              <li className="flex h-full flex-col justify-center rounded-2xl border border-dashed border-green-400/40 bg-green-400/5 p-6">
+                <p className="flex items-start gap-2.5 text-sm font-medium leading-relaxed text-mist-200">
+                  <CheckIcon className="mt-0.5 h-4 w-4 shrink-0 text-green-400" />
+                  Our founding commitment: {identity.commitment}
+                </p>
+              </li>
+            </Reveal>
+          </ol>
+        </div>
+      </section>
+
       {/* Values */}
       <section className="border-y border-ink-600 bg-ink-850 py-16 sm:py-20">
         <div className="container-page">
@@ -131,24 +167,45 @@ export default function AboutPage() {
               <Reveal key={member.name} delay={i * 90}>
                 <article className="flex h-full flex-col rounded-2xl border border-ink-600 bg-ink-800 p-7">
                   <div className="flex items-center gap-4">
-                    <span
-                      aria-hidden
-                      className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-green-400 font-display text-lg font-bold text-on-accent"
-                    >
-                      {member.initials}
-                    </span>
-                    <div>
+                    {member.photo ? (
+                      <Image
+                        src={member.photo}
+                        alt={`Portrait of ${member.name}`}
+                        width={112}
+                        height={112}
+                        className="h-16 w-16 shrink-0 rounded-full border border-ink-600 object-cover"
+                      />
+                    ) : (
+                      <span
+                        aria-hidden
+                        className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-green-400 font-display text-lg font-bold text-on-accent"
+                      >
+                        {member.initials}
+                      </span>
+                    )}
+                    <div className="min-w-0">
                       <h3 className="font-display text-lg font-bold leading-tight text-mist-100">
                         {member.name}
                       </h3>
                       <p className="mt-1 text-xs font-semibold text-green-400">{member.role}</p>
                     </div>
                   </div>
-                  <div className="mt-5 space-y-3 text-sm leading-relaxed text-mist-400">
+                  <div className="mt-5 flex-1 space-y-3 text-sm leading-relaxed text-mist-400">
                     {member.bio.map((p) => (
                       <p key={p.slice(0, 40)}>{p}</p>
                     ))}
                   </div>
+                  {member.linkedin && (
+                    <a
+                      href={member.linkedin}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-5 inline-flex items-center gap-2 self-start rounded-full border border-ink-500 px-4 py-2 text-xs font-semibold text-mist-300 transition-colors hover:border-green-400 hover:text-mist-100"
+                    >
+                      <LinkedInIcon className="h-4 w-4" />
+                      LinkedIn profile
+                    </a>
+                  )}
                 </article>
               </Reveal>
             ))}
