@@ -33,7 +33,7 @@ export default function NewsPage() {
                   className="group flex h-full flex-col rounded-2xl border border-ink-600 bg-ink-800 p-7 transition-all duration-300 hover:-translate-y-1 hover:border-green-400/50"
                 >
                   <div className="flex items-center gap-2">
-                    <Chip tone="green">Essay</Chip>
+                    <Chip tone="green">{article.tag}</Chip>
                     <span className="inline-flex items-center gap-1.5 text-xs text-mist-500">
                       <CalendarIcon className="h-3.5 w-3.5" />
                       {article.date}
@@ -49,7 +49,7 @@ export default function NewsPage() {
                     {article.excerpt}
                   </p>
                   <span className="mt-5 inline-flex items-center gap-1.5 text-sm font-semibold text-green-400">
-                    Read the essay
+                    Read more
                     <ArrowRightIcon className="h-4 w-4 transition-transform group-hover:translate-x-1" />
                   </span>
                 </Link>

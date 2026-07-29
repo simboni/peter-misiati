@@ -54,7 +54,7 @@ export default async function ArticlePage({
         <div className="absolute inset-0 glow-bg" aria-hidden />
         <div className="container-page relative py-16 sm:py-20">
           <div className="hero-stagger mx-auto max-w-3xl text-center">
-            <Eyebrow className="justify-center">From our founder</Eyebrow>
+            <Eyebrow className="justify-center">{article.eyebrow}</Eyebrow>
             <h1 className="font-display text-3xl font-bold tracking-tight text-mist-100 sm:text-5xl text-balance">
               {article.title}
             </h1>
@@ -88,16 +88,16 @@ export default async function ArticlePage({
             <div className="mx-auto flex max-w-2xl flex-col items-center gap-5 text-center">
               <Chip tone="green">Put these words to work</Chip>
               <h2 className="font-display text-2xl font-bold text-mist-100 text-balance">
-                Education draws out what’s already within. Help us reach the youth
-                waiting for that chance.
+                Words become change when someone acts. Stand with the young people
+                behind this work.
               </h2>
               <div className="flex flex-wrap justify-center gap-3">
                 <Button href="/donate/" variant="donate">
                   <HeartIcon className="h-4 w-4" />
                   Donate
                 </Button>
-                <Button href="/programs/education/" variant="ghost">
-                  Our education program
+                <Button href="/programs/" variant="ghost">
+                  Explore our programs
                   <ArrowRightIcon className="h-4 w-4" />
                 </Button>
               </div>

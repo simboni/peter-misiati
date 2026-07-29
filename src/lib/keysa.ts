@@ -628,6 +628,10 @@ export const governance = [
 export type Article = {
   slug: string;
   title: string;
+  /** Short label on the news card, e.g. "Essay", "Event report". */
+  tag: string;
+  /** Kicker above the article title, e.g. "From our founder". */
+  eyebrow: string;
   author: string;
   authorRole: string;
   date: string;
@@ -638,8 +642,32 @@ export type Article = {
 
 export const articles: Article[] = [
   {
+    slug: "human-trafficking-conference-2026",
+    title:
+      "KEYSA at the 4th International Conference on Human Trafficking",
+    tag: "Event report",
+    eyebrow: "News & events · Tangaza University",
+    author: "KEYSA Communications",
+    authorRole: "News & Events",
+    date: "July 2026",
+    isoDate: "2026-07-29",
+    excerpt:
+      "KEYSA joined state actors, faith-based organisations, researchers and anti-trafficking practitioners at Tangaza University for a two-day forum on \"Human Trafficking in a Changing World\" — and came home with resolutions we intend to turn into action.",
+    body: [
+      "KEYSA proudly participated in the recently concluded 4th International Conference on Human Trafficking, a two-day forum held at Tangaza University under the theme \"Human Trafficking in a Changing World: Interdisciplinary Pathways for Prevention, Protection, and Human Dignity.\" The conference brought together a diverse range of stakeholders — state actors as duty bearers, faith-based organisations, the private sector, higher learning institutions, civil society organisations, researchers, development partners, and anti-human trafficking practitioners committed to strengthening the fight against human trafficking.",
+      "The conference served as a strategic platform for dialogue, learning and collaboration, recognising that human trafficking has become increasingly sophisticated, technology-enabled and transnational. Participants shared experiences, research findings and innovative approaches aimed at addressing emerging trafficking trends while promoting coordinated, survivor-centred responses.",
+      "Throughout the two days, deliberations focused on five key priority areas. Delegates emphasised the need to strengthen prevention through innovation, education and community action — highlighting public awareness, digital literacy, the ethical use of artificial intelligence, and early warning systems as critical tools for reducing vulnerability to trafficking. The discussions also reinforced the importance of placing survivors at the centre of all interventions, promoting trauma-informed care, legal assistance, rehabilitation, economic reintegration, and the protection of survivors' rights and dignity.",
+      "Participants further underscored the value of multi-sector partnerships, acknowledging that governments, law enforcement agencies, faith-based organisations, academic institutions, development partners, survivor-led movements, the private sector and local communities must work together to deliver sustainable, measurable anti-trafficking responses. The conference also examined the increasing use of digital platforms, social media, cryptocurrency and online recruitment systems by criminal networks — calling for enhanced digital investigations, cybersecurity, data analytics and ethical technological innovation to counter these evolving threats.",
+      "Another major outcome was the commitment to influence policy, research and sustainable action. Delegates recommended strengthening legislation, institutional reforms, academic research and safeguarding systems, while promoting evidence-based policymaking and international cooperation to enhance prevention, protection, prosecution and partnerships.",
+      "As an organisation dedicated to protecting vulnerable children and youth from exploitation, KEYSA reaffirmed its commitment to implementing the conference resolutions through community awareness programmes, youth empowerment initiatives, strategic partnerships, advocacy and survivor-centred interventions. Combating human trafficking requires collective responsibility and continuous collaboration among all stakeholders — a responsibility we carry into every ward and village where we work.",
+      "The conference concluded with a shared commitment to build stronger partnerships, deepen knowledge of emerging trafficking trends, promote innovative solutions and develop practical recommendations that contribute to safer communities — a future where every individual lives free from exploitation, violence and modern slavery. KEYSA remains committed to translating these deliberations into meaningful action that protects vulnerable populations and advances human dignity across Kenya.",
+    ],
+  },
+  {
     slug: "crafting-a-legacy",
     title: "Crafting a Legacy Through Education and Personal Growth",
+    tag: "Essay",
+    eyebrow: "From our founder",
     author: "Edmond Ongoma Juma",
     authorRole: "Founder & Program Director",
     date: "2024",
