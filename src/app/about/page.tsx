@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Image from "next/image";
 import {
   coreValues,
   governance,
@@ -8,6 +7,7 @@ import {
   team,
 } from "@/lib/keysa";
 import { PageHero } from "@/components/page-hero";
+import { TeamCard } from "@/components/team-card";
 import { Button, SectionHeading } from "@/components/ui";
 import { Reveal } from "@/components/reveal";
 import { ProgramIcon } from "@/components/program-icon";
@@ -16,7 +16,6 @@ import {
   CheckIcon,
   EyeIcon,
   HeartIcon,
-  LinkedInIcon,
   TargetIcon,
 } from "@/components/icons";
 
@@ -162,51 +161,10 @@ export default function AboutPage() {
               lede="An elected board of chairperson, treasurer and secretary — all founding members and official signatories — leads a wider team of eleven founding members."
             />
           </Reveal>
-          <div className="mt-12 grid gap-5 lg:grid-cols-3">
+          <div className="mt-12 grid items-start gap-5 lg:grid-cols-3">
             {team.map((member, i) => (
               <Reveal key={member.name} delay={i * 90}>
-                <article className="flex h-full flex-col rounded-2xl border border-ink-600 bg-ink-800 p-7">
-                  <div className="flex items-center gap-4">
-                    {member.photo ? (
-                      <Image
-                        src={member.photo}
-                        alt={`Portrait of ${member.name}`}
-                        width={112}
-                        height={112}
-                        className="h-16 w-16 shrink-0 rounded-full border border-ink-600 object-cover"
-                      />
-                    ) : (
-                      <span
-                        aria-hidden
-                        className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-green-400 font-display text-lg font-bold text-on-accent"
-                      >
-                        {member.initials}
-                      </span>
-                    )}
-                    <div className="min-w-0">
-                      <h3 className="font-display text-lg font-bold leading-tight text-mist-100">
-                        {member.name}
-                      </h3>
-                      <p className="mt-1 text-xs font-semibold text-green-400">{member.role}</p>
-                    </div>
-                  </div>
-                  <div className="mt-5 flex-1 space-y-3 text-sm leading-relaxed text-mist-400">
-                    {member.bio.map((p) => (
-                      <p key={p.slice(0, 40)}>{p}</p>
-                    ))}
-                  </div>
-                  {member.linkedin && (
-                    <a
-                      href={member.linkedin}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="mt-5 inline-flex items-center gap-2 self-start rounded-full border border-ink-500 px-4 py-2 text-xs font-semibold text-mist-300 transition-colors hover:border-green-400 hover:text-mist-100"
-                    >
-                      <LinkedInIcon className="h-4 w-4" />
-                      LinkedIn profile
-                    </a>
-                  )}
-                </article>
+                <TeamCard member={member} />
               </Reveal>
             ))}
           </div>
