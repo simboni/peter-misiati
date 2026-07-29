@@ -1,9 +1,10 @@
 import Link from "next/link";
 
 /**
- * KEYSA wordmark, redrawn from the official logo as theme-aware text:
- * green "Ke", red "Y", and "SA" in the current heading colour, over the
- * association's full name. Scales crisply at any size, works on dark.
+ * KEYSA wordmark, redrawn from the official logo as theme-aware SVG + text:
+ * black "K" with its keyhole cut-out, red "e", green "Y", black "SA" —
+ * the keyhole emblem carries the logo's key motif. Crisp at any size,
+ * legible on both themes.
  */
 export function Logo({ compact = false }: { compact?: boolean }) {
   return (
@@ -12,30 +13,22 @@ export function Logo({ compact = false }: { compact?: boolean }) {
       aria-label="KEYSA — Kenya Youth Support Association, home"
       className="group inline-flex items-center gap-3"
     >
-      {/* Emblem: rising person inside a shield-leaf, flag colours */}
-      <svg
-        viewBox="0 0 40 40"
-        className="h-9 w-9 shrink-0"
-        aria-hidden
-        fill="none"
-      >
+      {/* Emblem: the keyhole from the official logo's "K" */}
+      <svg viewBox="0 0 40 40" className="h-9 w-9 shrink-0" aria-hidden fill="none">
+        <rect width="40" height="40" rx="9" className="fill-mist-100" />
+        <circle cx="20" cy="15.5" r="6" className="fill-ink-900" />
+        <path d="M20 18.5 26 31.5H14L20 18.5Z" className="fill-ink-900" />
+        {/* key bit peeking through, in brand red */}
         <path
-          d="M20 3c5 3 9.5 4 15 4v12c0 9-6.5 15.5-15 18C11.5 34.5 5 28 5 19V7c5.5 0 10-1 15-4Z"
-          className="fill-green-400"
-        />
-        <path
-          d="M20 8.5a3.1 3.1 0 1 1 0 6.2 3.1 3.1 0 0 1 0-6.2Z"
-          fill="#fff"
-        />
-        <path
-          d="M13.5 25.5c.8-4.4 3.2-7 6.5-7s5.7 2.6 6.5 7c-1.9 2.4-4 4.2-6.5 5.4-2.5-1.2-4.6-3-6.5-5.4Z"
-          fill="#fff"
+          d="M24.5 24.5h6v2.4h-2v2h-2v-2h-2v-2.4Z"
+          className="fill-accent-400"
         />
       </svg>
       <span className="leading-none">
         <span className="font-display text-xl font-bold tracking-tight">
-          <span className="text-green-400">Ke</span>
-          <span className="text-accent-400">Y</span>
+          <span className="text-mist-100">K</span>
+          <span className="text-accent-400">e</span>
+          <span className="text-green-400">Y</span>
           <span className="text-mist-100">SA</span>
         </span>
         {!compact && (

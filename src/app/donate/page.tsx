@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { givingExamples, governance, programs, site } from "@/lib/keysa";
+import { donation, givingExamples, governance, programs, site } from "@/lib/keysa";
 import { PageHero } from "@/components/page-hero";
 import { Button, Chip, SectionHeading } from "@/components/ui";
 import { Reveal } from "@/components/reveal";
@@ -47,7 +47,7 @@ export default function DonatePage() {
   const donateMailto = `mailto:${site.email}?subject=${encodeURIComponent(
     "Donation to KEYSA",
   )}&body=${encodeURIComponent(
-    "Hello KEYSA team,\n\nI would like to support your work. Please send me the donation details.\n\nAmount / type of support: \nProgram or project (optional): \nName: ",
+    "Hello KEYSA team,\n\nI would like to support your work.\n\nAmount / type of support: \nChannel (M-Pesa / bank / in-kind): \nM-Pesa transaction code (if already sent): \nProgram or project (optional): \nName: ",
   )}`;
 
   return (
@@ -106,47 +106,99 @@ export default function DonatePage() {
             />
           </Reveal>
           <div className="mt-10 grid gap-5 lg:grid-cols-3">
+            {/* M-Pesa — Kenya's fastest channel, so it leads */}
             <Reveal delay={0}>
+              <div className="win flex h-full flex-col p-7">
+                <div className="flex items-center justify-between">
+                  <Chip tone="green">M-Pesa · fastest in Kenya</Chip>
+                </div>
+                <h3 className="mt-4 font-display text-lg font-bold text-mist-100">
+                  Lipa na M-Pesa
+                </h3>
+                <div className="mt-4 space-y-3">
+                  <div className="rounded-xl border border-green-400/30 bg-green-400/5 px-4 py-3">
+                    <p className="text-[0.65rem] font-semibold uppercase tracking-wider text-mist-500">
+                      Paybill (business no.)
+                    </p>
+                    <div className="mt-1 flex items-center justify-between gap-3">
+                      <span className="font-display text-2xl font-bold tracking-wide text-green-300">
+                        {donation.paybill}
+                      </span>
+                      <CopyButton value={donation.paybill} label="paybill number" />
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-green-400/30 bg-green-400/5 px-4 py-3">
+                    <p className="text-[0.65rem] font-semibold uppercase tracking-wider text-mist-500">
+                      Account number
+                    </p>
+                    <div className="mt-1 flex items-center justify-between gap-3">
+                      <span className="font-display text-2xl font-bold tracking-wide text-green-300">
+                        {donation.accountNumber}
+                      </span>
+                      <CopyButton value={donation.accountNumber} label="account number" />
+                    </div>
+                  </div>
+                </div>
+                <ol className="mt-4 flex-1 list-inside list-decimal space-y-1.5 text-xs leading-relaxed text-mist-400">
+                  <li>Open M-Pesa → Lipa na M-Pesa → Pay Bill</li>
+                  <li>
+                    Business no. <span className="font-semibold text-mist-200">{donation.paybill}</span>{" "}
+                    (NCBA Bank)
+                  </li>
+                  <li>
+                    Account no.{" "}
+                    <span className="font-semibold text-mist-200">{donation.accountNumber}</span>
+                  </li>
+                  <li>Enter amount and your PIN, then confirm</li>
+                </ol>
+                <p className="mt-4 border-t border-ink-600 pt-3 text-xs leading-relaxed text-mist-500">
+                  Before confirming, check the recipient shows{" "}
+                  <span className="font-semibold text-mist-300">{donation.accountName}</span>.
+                </p>
+              </div>
+            </Reveal>
+
+            {/* Bank transfer */}
+            <Reveal delay={80}>
               <div className="win flex h-full flex-col p-7">
                 <Chip tone="green">Bank transfer</Chip>
                 <h3 className="mt-4 font-display text-lg font-bold text-mist-100">
-                  Direct to our NCBA account
+                  Direct to our {donation.bankName} account
                 </h3>
-                <p className="mt-2 flex-1 text-sm leading-relaxed text-mist-400">
-                  The association banks with NCBA Bank under the account name{" "}
-                  <span className="font-semibold text-mist-200">
-                    Youth Support Association
-                  </span>
-                  . Email us and we’ll send the account number and branch details,
-                  plus a written acknowledgement of your gift.
-                </p>
-                <div className="mt-5 flex items-center justify-between gap-3 rounded-xl border border-ink-600 bg-ink-900 px-4 py-3">
-                  <span className="truncate text-sm font-medium text-mist-200">
+                <dl className="mt-4 flex-1 divide-y divide-ink-600 rounded-xl border border-ink-600 bg-ink-900">
+                  {[
+                    { label: "Account name", value: donation.accountName },
+                    { label: "Bank", value: donation.bankName },
+                    { label: "Account number", value: donation.accountNumber, copy: true },
+                    { label: "Branch", value: donation.branch },
+                  ].map((row) => (
+                    <div
+                      key={row.label}
+                      className="flex items-center justify-between gap-3 px-4 py-3"
+                    >
+                      <div className="min-w-0">
+                        <dt className="text-[0.65rem] font-semibold uppercase tracking-wider text-mist-500">
+                          {row.label}
+                        </dt>
+                        <dd className="truncate text-sm font-semibold text-mist-100">
+                          {row.value}
+                        </dd>
+                      </div>
+                      {row.copy && <CopyButton value={row.value} label={row.label} />}
+                    </div>
+                  ))}
+                </dl>
+                <p className="mt-4 text-xs leading-relaxed text-mist-500">
+                  Ideal for larger and international gifts. Email{" "}
+                  <a href={`mailto:${site.email}`} className="text-green-400 hover:underline">
                     {site.email}
-                  </span>
-                  <CopyButton value={site.email} label="email address" />
-                </div>
-              </div>
-            </Reveal>
-            <Reveal delay={80}>
-              <div className="win flex h-full flex-col p-7">
-                <Chip tone="green">Mobile money</Chip>
-                <h3 className="mt-4 font-display text-lg font-bold text-mist-100">
-                  M-Pesa
-                </h3>
-                <p className="mt-2 flex-1 text-sm leading-relaxed text-mist-400">
-                  For donors in Kenya, M-Pesa is the fastest way to give. Contact us
-                  for the current till/paybill details — we confirm every mobile
-                  contribution with a receipt referencing your transaction code.
+                  </a>{" "}
+                  after transferring and we’ll send a written acknowledgement.
                 </p>
-                <div className="mt-5">
-                  <Button href={donateMailto} variant="primary" className="w-full">
-                    <MailIcon className="h-4 w-4" />
-                    Request M-Pesa details
-                  </Button>
-                </div>
               </div>
             </Reveal>
+
+            {/* In-kind */}
             <Reveal delay={160}>
               <div className="win flex h-full flex-col p-7">
                 <Chip tone="green">In-kind & major gifts</Chip>
@@ -158,7 +210,11 @@ export default function DonatePage() {
                   professional time, or fund an entire project as a named partner.
                   We’ll build a package around your goals — with reporting to match.
                 </p>
-                <div className="mt-5">
+                <div className="mt-5 space-y-3">
+                  <Button href={donateMailto} variant="primary" className="w-full">
+                    <MailIcon className="h-4 w-4" />
+                    Email the team
+                  </Button>
                   <Button href="/contact/" variant="ghost" className="w-full">
                     Talk to our team
                   </Button>
@@ -167,10 +223,12 @@ export default function DonatePage() {
             </Reveal>
           </div>
           <Reveal delay={220}>
-            <p className="mt-8 text-center text-xs leading-relaxed text-mist-500">
-              We publish payment details only through direct correspondence to protect
-              donors from impersonation scams. Always verify channel details with{" "}
-              {site.email} before sending funds.
+            <p className="mx-auto mt-8 max-w-2xl text-center text-xs leading-relaxed text-mist-500">
+              These are KEYSA’s only official payment details — Paybill{" "}
+              <span className="font-semibold text-mist-300">{donation.paybill}</span>, account{" "}
+              <span className="font-semibold text-mist-300">{donation.accountNumber}</span> (
+              {donation.accountName}, {donation.bankName}). If anyone gives you different
+              details claiming to represent KEYSA, verify first at {site.email}.
             </p>
           </Reveal>
         </div>

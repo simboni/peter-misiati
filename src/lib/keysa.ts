@@ -570,6 +570,15 @@ export const impactStats: {
 /* Donation content                                                    */
 /* ------------------------------------------------------------------ */
 
+/** Official payment channels — the only details donors should trust. */
+export const donation = {
+  accountName: "Youth Support Association",
+  bankName: "NCBA Bank",
+  accountNumber: "9672560012",
+  branch: "Galleria, Karen",
+  paybill: "880100",
+};
+
 export const givingExamples = [
   {
     amount: "Ksh 3,500",
