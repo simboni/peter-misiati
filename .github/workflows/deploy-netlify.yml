@@ -5,11 +5,11 @@
 # One-time setup (repo → Settings → Secrets and variables → Actions):
 #   NETLIFY_AUTH_TOKEN  — Netlify: User settings → Applications → New access token
 #   NETLIFY_SITE_ID     — Netlify: Site configuration → Site details → Site ID
-name: Deploy to Netlify
+name: Deploy to Netlify (manual, optional)
 
+# Manual-only: GitHub Pages (deploy-pages.yml) is the primary, credit-free
+# host. Run this from the Actions tab only if a Netlify deploy is wanted.
 on:
-  push:
-    branches: [main, claude/keysa-ngo-website-rj3rg1]
   workflow_dispatch: {}
 
 concurrency:

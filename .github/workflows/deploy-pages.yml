@@ -1,0 +1,56 @@
+# Free hosting on GitHub Pages — no third-party credits, no build minutes,
+# no bandwidth charges. Builds on GitHub's runners and publishes directly.
+#
+# One-time setup: repo Settings → Pages → Source: "GitHub Actions".
+# (Pages on a personal account requires the repo to be public.)
+#
+# Site URL: https://<owner>.github.io/peter-misiati/
+# For a custom domain (www.keysa.org): add it in Settings → Pages, then
+# set PAGES_BASE_PATH below to "" so links resolve from the domain root.
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main, claude/keysa-ngo-website-rj3rg1]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages-deploy
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build static site
+        run: npm run build
+        env:
+          # Serving from https://<owner>.github.io/peter-misiati/ needs this
+          # sub-path prefix. Clear it once a custom domain is attached.
+          PAGES_BASE_PATH: /peter-misiati
+      - run: touch out/.nojekyll
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: out
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
