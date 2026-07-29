@@ -7,11 +7,11 @@
 # Site URL: https://<owner>.github.io/peter-misiati/
 # For a custom domain (www.keysa.org): add it in Settings → Pages, then
 # set PAGES_BASE_PATH below to "" so links resolve from the domain root.
-name: Deploy to GitHub Pages
+name: Deploy to GitHub Pages (manual, optional)
 
+# Manual-only backup: Netlify (deploy-netlify.yml) is the primary host.
+# Run from the Actions tab if free GitHub Pages hosting is ever wanted.
 on:
-  push:
-    branches: [main, claude/keysa-ngo-website-rj3rg1]
   workflow_dispatch: {}
 
 permissions:

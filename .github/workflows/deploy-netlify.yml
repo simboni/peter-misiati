@@ -1,15 +1,15 @@
-# Builds the site on GitHub's free runners and hands Netlify the finished
-# files. Netlify never runs a build, so deploys cost ZERO Netlify build
-# minutes — only bandwidth, which static sites barely use.
+# Builds on GitHub's free runners and hands Netlify the finished files
+# (--no-build), so deploys consume no Netlify build minutes.
 #
 # One-time setup (repo → Settings → Secrets and variables → Actions):
 #   NETLIFY_AUTH_TOKEN  — Netlify: User settings → Applications → New access token
 #   NETLIFY_SITE_ID     — Netlify: Site configuration → Site details → Site ID
-name: Deploy to Netlify (manual, optional)
+# Until both secrets exist, the deploy step skips cleanly instead of failing.
+name: Deploy to Netlify
 
-# Manual-only: GitHub Pages (deploy-pages.yml) is the primary, credit-free
-# host. Run this from the Actions tab only if a Netlify deploy is wanted.
 on:
+  push:
+    branches: [main, claude/keysa-ngo-website-rj3rg1]
   workflow_dispatch: {}
 
 concurrency:
@@ -33,7 +33,20 @@ jobs:
       - name: Build static site
         run: npm run build
 
+      - name: Check Netlify credentials
+        id: creds
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+        run: |
+          if [ -n "$NETLIFY_AUTH_TOKEN" ] && [ -n "$NETLIFY_SITE_ID" ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::NETLIFY_AUTH_TOKEN / NETLIFY_SITE_ID not set — build verified, deploy skipped."
+          fi
+
       - name: Deploy prebuilt files to Netlify
+        if: steps.creds.outputs.ok == 'true'
         run: npx --yes netlify-cli deploy --prod --dir=out --no-build
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
