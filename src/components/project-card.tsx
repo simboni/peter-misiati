@@ -31,7 +31,7 @@ export function ProjectCard({ project }: { project: Project }) {
         </span>
         <span className="inline-flex items-center gap-1.5">
           <MapPinIcon className="h-3.5 w-3.5" />
-          Namamali Ward
+          Kakamega County
         </span>
       </div>
       <span className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-green-400">

@@ -44,7 +44,7 @@ export default function HomePage() {
           <div className="hero-stagger">
             <p className="inline-flex items-center gap-2 rounded-full border border-green-400/30 bg-green-400/10 px-4 py-1.5 text-xs font-semibold text-green-300">
               <MapPinIcon className="h-3.5 w-3.5" />
-              Kakamega County, Kenya · Founded {site.founded}
+              Western Kenya & Nairobi · Founded {site.founded}
             </p>
             <h1 className="mt-6 font-display text-4xl font-bold leading-[1.08] tracking-tight text-mist-100 sm:text-6xl text-balance">
               Every young person deserves the tools to{" "}
@@ -87,7 +87,7 @@ export default function HomePage() {
                 {[
                   "Youth are the primary drivers of any nation's development",
                   "Inclusive by design — every background, equal opportunity",
-                  "Community-rooted since day one in Namamali Ward",
+                  "Serving Bungoma, Kakamega, Busia and Nairobi counties",
                 ].map((line) => (
                   <p key={line} className="flex items-start gap-2.5 text-sm text-mist-400">
                     <CheckIcon className="mt-0.5 h-4 w-4 shrink-0 text-green-400" />

@@ -61,11 +61,11 @@ const ngoSchema = {
   description: site.description,
   address: {
     "@type": "PostalAddress",
-    addressLocality: "Namamali Ward, Matungu Constituency",
+    addressLocality: "Matungu Constituency",
     addressRegion: "Kakamega County",
     addressCountry: "KE",
   },
-  areaServed: "Kenya",
+  areaServed: ["Bungoma County", "Kakamega County", "Busia County", "Nairobi County"],
   keywords:
     "youth empowerment, education, TVET, sports, talents, technology, financial literacy, community development, climate action",
 };

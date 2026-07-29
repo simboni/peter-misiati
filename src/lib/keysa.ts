@@ -14,7 +14,7 @@ export const site = {
   description:
     "KEYSA empowers young people in Kakamega County, Kenya through education, sports and talents, technology, financial literacy and community development — cultivating confident, competent and compassionate leaders of tomorrow.",
   email: "info@keysa.org",
-  location: "Namamali Ward, Matungu Constituency, Kakamega County, Kenya",
+  location: "Western Kenya — Bungoma, Kakamega & Busia Counties — and Nairobi",
   founded: 2020,
   registered: 2023,
   facebook: "https://www.facebook.com/profile.php?id=61583833030180",
@@ -102,7 +102,7 @@ export const programs: Program[] = [
     summary:
       "We sponsor vulnerable students by covering their school necessities and prioritise access to Technical and Vocational Education and Training (TVET), giving young people the educational foundation they need to succeed.",
     description: [
-      "Education sits at the heart of everything KEYSA does. Many young people in Namamali Ward and across Kakamega County are locked out of learning not by ability, but by circumstance — school fees, learning materials, family hardship, or the stigma that follows a teenage pregnancy.",
+      "Education sits at the heart of everything KEYSA does. Many young people across Bungoma, Kakamega and Busia counties are locked out of learning not by ability, but by circumstance — school fees, learning materials, family hardship, or the stigma that follows a teenage pregnancy.",
       "We sponsor students by covering their school necessities, and we place special emphasis on Technical and Vocational Education and Training (TVET): practical, marketable skills that lead directly to employment or self-employment. For young mothers and school-leavers, TVET is often the fastest, most dignified route back into education and towards independence.",
       "Beyond fees and materials, we surround every learner with mentorship, counselling and life-skills workshops — because staying in education is as much about support as it is about money.",
     ],
@@ -200,7 +200,7 @@ export const programs: Program[] = [
       "We mobilise young people to give back through campaigns, volunteer activities and climate action — from tree planting to climate-smart agriculture — building resilient, self-reliant communities.",
     description: [
       "KEYSA believes empowered youth become empowering citizens. We encourage young people to give back to their communities through campaigns and volunteer activities that foster empathy, social responsibility and a sense of belonging.",
-      "Climate action is a growing pillar of this work. Namamali Ward depends on agriculture, and erratic weather, droughts and floods hit hardest here. We train youth in climate-smart agriculture, water conservation and renewable energy; run reforestation campaigns with a goal of 100,000 indigenous and fruit trees; and support youth-led green enterprises — turning environmental stewardship into livelihoods.",
+      "Climate action is a growing pillar of this work. Western Kenya depends on agriculture, and erratic weather, droughts and floods hit hardest here. We train youth in climate-smart agriculture, water conservation and renewable energy; run reforestation campaigns with a goal of 100,000 indigenous and fruit trees; and support youth-led green enterprises — turning environmental stewardship into livelihoods.",
       "We also protect the most vulnerable: our community sensitisation work raises awareness of human trafficking, child labour and exploitation, in partnership with local leaders, law enforcement and human rights organisations.",
     ],
     activities: [
@@ -535,6 +535,7 @@ export const team: TeamMember[] = [
     name: "Edmond Ongoma Juma",
     role: "Founder · Chairperson & Program Director",
     initials: "EJ",
+    photo: "/team/edmond-juma.jpg",
     linkedin: "https://www.linkedin.com/in/edmond-juma-3a8760229/",
     bio: [
       "Edmond is a dedicated development professional with over a decade of experience in social work and project management. He holds a Master's in Project Planning and Management and a Bachelor's in Development Studies from The Catholic University of Eastern Africa, and a Diploma in Development Studies and Social Work from Marist International University College.",
@@ -549,15 +550,16 @@ export const team: TeamMember[] = [
     linkedin:
       "https://www.linkedin.com/in/dr-ngeso-aketch-john-paul-ph-d-56371379/",
     bio: [
-      "Dr. John Paul is an educator par excellence, administrator and youth advocate. He holds a PhD and a Master's in Educational Administration and Planning from The Catholic University of Eastern Africa, and a Bachelor of Education from Saint Mary's University of Minnesota (Tangaza University College).",
-      "His career spans youth and community work across Kenya, South Sudan, Malawi, Zambia and the DR Congo, and roles as Admissions Coordinator and Lecturer at Tangaza University College. He currently serves as Principal Administration Officer at the Kenya National Qualifications Authority (KNQA), helping shape Kenya's education standards.",
-      "At KEYSA he leads resource mobilisation, applying his fundraising and project-management expertise to youth empowerment.",
+      "Dr. Ngeso Aketch is an educator par excellence, administrator, author and youth advocate. He holds a PhD and a Master of Education (Educational Administration and Planning) from The Catholic University of Eastern Africa, and a Bachelor of Education from Saint Mary's University of Minnesota (Tangaza University). He currently serves as Principal Officer, Registration and Accreditation.",
+      "His career spans high-school teaching and administration in Bungoma, Kitale and Nairobi; university roles as Admissions Coordinator and Teaching Practice Coordinator at Tangaza University and MKU; and volunteer teaching and social work with the Xaverian Brothers in DR Congo (Lubumbashi and Likasi), Jesuit Refugee Services in Nimule (South Sudan), the KNH Referral Hospital chaplaincy and the Ministry of Gender, Children and Social Development. His path includes international leadership training in Rome (2014) and an international paper presentation in the USA (2017).",
+      "A published author and motivational speaker — including with the SOS Children's Villages Next Economy program in Nairobi — his research spans public administration, education, gender and inclusion. At KEYSA he leads resource mobilisation, applying strategic networking and fundraising expertise to youth empowerment.",
     ],
   },
   {
     name: "Peter Misiati Simboni",
     role: "Founding Member · Secretary",
     initials: "PM",
+    photo: "/team/peter-simboni.jpg",
     linkedin: "https://www.linkedin.com/in/peter-simboni-97b9a1106/",
     bio: [
       "Peter serves as Secretary of the association and one of its official signatories, keeping KEYSA's governance rigorous and its records transparent.",

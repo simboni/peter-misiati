@@ -17,7 +17,7 @@ import {
 export const metadata: Metadata = {
   title: "Donate",
   description:
-    "Support KEYSA's work with vulnerable youth in Kakamega County — fund TVET scholarships, sports and talent programs, climate action and more. Bank transfer, M-Pesa and in-kind giving welcome.",
+    "Support KEYSA's work with vulnerable youth across Western Kenya and Nairobi — fund TVET scholarships, sports and talent programs, climate action and more. Bank transfer, M-Pesa and in-kind giving welcome.",
 };
 
 const faqItems = [
@@ -76,7 +76,7 @@ export default function DonatePage() {
             <SectionHeading
               eyebrow="Impact of a gift"
               title="What your support buys on the ground"
-              lede="Figures drawn from our actual project budgets in Namamali Ward."
+              lede="Figures drawn from our actual project budgets in Western Kenya."
             />
           </Reveal>
           <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

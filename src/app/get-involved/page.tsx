@@ -17,7 +17,7 @@ import {
 export const metadata: Metadata = {
   title: "Get Involved",
   description:
-    "Volunteer, mentor, coach, partner or sponsor with KEYSA — there are many ways beyond donating to help empower young people in Kakamega County.",
+    "Volunteer, mentor, coach, partner or sponsor with KEYSA — there are many ways beyond donating to help empower young people across Western Kenya and Nairobi.",
 };
 
 const roles = [

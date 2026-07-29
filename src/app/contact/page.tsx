@@ -53,8 +53,9 @@ export default function ContactPage() {
                   Where we work
                 </h2>
                 <p className="mt-1 text-sm leading-relaxed text-mist-400">
-                  {site.location}. Our programs currently serve Namamali Ward and the
-                  wider Matungu Constituency.
+                  {site.location}. Rooted in Matungu, Kakamega County — where KEYSA was
+                  founded — our programs serve youth across Bungoma, Kakamega,
+                  Busia and Nairobi counties.
                 </p>
               </div>
             </Reveal>

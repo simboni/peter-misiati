@@ -23,7 +23,7 @@ import {
 export const metadata: Metadata = {
   title: "About Us",
   description:
-    "The story, vision, values, leadership and governance of the Kenya Youth Support Association (KEYSA) — a registered non-profit empowering youth in Kakamega County since 2020.",
+    "The story, vision, values, leadership and governance of the Kenya Youth Support Association (KEYSA) — a registered non-profit empowering youth across Bungoma, Kakamega, Busia and Nairobi counties since 2020.",
 };
 
 export default function AboutPage() {
@@ -32,7 +32,7 @@ export default function AboutPage() {
       <PageHero
         eyebrow="About KEYSA"
         title="Rooted in the community, built for its youth"
-        lede="The Kenya Youth Support Association was founded in 2020 in Namamali Ward, Matungu Constituency, by people deeply rooted in the local community — with one conviction: youth are the primary drivers of any nation's development."
+        lede="The Kenya Youth Support Association was founded in 2020 in Matungu, Kakamega County, by people deeply rooted in the local community. Today we serve young people across Bungoma, Kakamega and Busia counties and in Nairobi — with one conviction: youth are the primary drivers of any nation's development."
       />
 
       {/* Story */}
