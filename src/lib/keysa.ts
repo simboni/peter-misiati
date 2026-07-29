@@ -657,6 +657,8 @@ export type Article = {
   excerpt: string;
   /** Optional lead image in /public/news/. */
   image?: { src: string; alt: string; caption?: string };
+  /** Additional photos rendered after the article body. */
+  gallery?: { src: string; alt: string; caption?: string }[];
   body: string[];
 };
 
@@ -697,6 +699,20 @@ export const articles: Article[] = [
     isoDate: "2026-07-29",
     excerpt:
       "KEYSA joined state actors, faith-based organisations, researchers and anti-trafficking practitioners at Tangaza University for a two-day forum on \"Human Trafficking in a Changing World\" — and came home with resolutions we intend to turn into action.",
+    image: {
+      src: "/news/httc-2026-group.jpg",
+      alt: "Delegates of the 4th International Conference on Human Trafficking gathered outside Nuru House at Tangaza University",
+      caption:
+        "Delegates from government, faith-based organisations, academia and civil society outside Nuru House, Tangaza University.",
+    },
+    gallery: [
+      {
+        src: "/news/httc-2026-pledge.jpg",
+        alt: "Conference participants raise their hands in a collective pledge to end human trafficking and modern slavery",
+        caption:
+          "Hands up to end modern slavery — participants seal the conference with a collective pledge.",
+      },
+    ],
     body: [
       "KEYSA proudly participated in the recently concluded 4th International Conference on Human Trafficking, a two-day forum held at Tangaza University under the theme \"Human Trafficking in a Changing World: Interdisciplinary Pathways for Prevention, Protection, and Human Dignity.\" The conference brought together a diverse range of stakeholders — state actors as duty bearers, faith-based organisations, the private sector, higher learning institutions, civil society organisations, researchers, development partners, and anti-human trafficking practitioners committed to strengthening the fight against human trafficking.",
       "The conference served as a strategic platform for dialogue, learning and collaboration, recognising that human trafficking has become increasingly sophisticated, technology-enabled and transnational. Participants shared experiences, research findings and innovative approaches aimed at addressing emerging trafficking trends while promoting coordinated, survivor-centred responses.",

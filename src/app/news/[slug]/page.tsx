@@ -97,6 +97,27 @@ export default async function ArticlePage({
               — {article.author}, {article.authorRole}, {site.shortName}
             </p>
           </div>
+
+          {article.gallery && article.gallery.length > 0 && (
+            <div className="mx-auto mt-12 max-w-3xl space-y-10">
+              {article.gallery.map((photo) => (
+                <figure key={photo.src}>
+                  <Image
+                    src={photo.src}
+                    alt={photo.alt}
+                    width={1600}
+                    height={1066}
+                    className="w-full rounded-2xl border border-ink-600 object-cover shadow-[0_24px_50px_-32px_rgba(15,40,20,0.45)]"
+                  />
+                  {photo.caption && (
+                    <figcaption className="mt-3 text-center text-xs leading-relaxed text-mist-500">
+                      {photo.caption}
+                    </figcaption>
+                  )}
+                </figure>
+              ))}
+            </div>
+          )}
         </div>
       </article>
 
