@@ -1,0 +1,119 @@
+@import "tailwindcss";
+
+/* --------------------------------------------------------------------------
+   SMP Insurance Agency — design system
+   Trust-first financial services: deep navy surfaces of authority, airy
+   off-white pages, and a single warm amber reserved exclusively for CTAs.
+   Fonts: Plus Jakarta Sans (display) · Inter (body)
+--------------------------------------------------------------------------- */
+@theme {
+  /* Navy — the brand. Headings, header/footer, dark bands. */
+  --color-navy-950: #081b33;
+  --color-navy-900: #0b2545;
+  --color-navy-800: #10305a;
+  --color-navy-700: #13315c;
+  --color-navy-600: #1d4477;
+  --color-navy-500: #2a5691;
+  --color-navy-400: #4272ae;
+  --color-navy-300: #7fa3cd;
+  --color-navy-200: #b3c9e2;
+  --color-navy-100: #d8e4f2;
+  --color-navy-50: #eef4fa;
+
+  /* Paper — page + card surfaces (light, airy = trustworthy) */
+  --color-paper-50: #ffffff; /* cards */
+  --color-paper-100: #f7f9fc; /* page background */
+  --color-paper-200: #eef2f7; /* raised/alt sections */
+  --color-paper-300: #dfe6ee; /* borders */
+  --color-paper-400: #c3cedb; /* strong borders / hover */
+
+  /* Slate — body text on light surfaces */
+  --color-slate-900: #14202e; /* headings on light */
+  --color-slate-700: #33445a; /* body */
+  --color-slate-500: #5b6b80; /* secondary */
+  --color-slate-400: #8494a8; /* faint/meta */
+
+  /* Amber — reserved for calls to action ONLY */
+  --color-cta-300: #fcd34d;
+  --color-cta-400: #fbbf24;
+  --color-cta-500: #f59e0b;
+  --color-cta-600: #d97706;
+
+  /* Semantic — covered / not covered */
+  --color-good-500: #0e9f6e;
+  --color-good-600: #0b7a55;
+  --color-bad-500: #e02424;
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-jakarta), var(--font-inter), ui-sans-serif, sans-serif;
+}
+
+:root {
+  color-scheme: light;
+}
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 6rem;
+}
+
+body {
+  background: var(--color-paper-100);
+  color: var(--color-slate-700);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  /* Backstop: nothing may widen the page into horizontal scroll on mobile */
+  overflow-x: clip;
+}
+
+::selection {
+  background: color-mix(in oklab, var(--color-navy-500) 22%, transparent);
+  color: var(--color-navy-950);
+}
+
+/* Visible focus for keyboard users — WCAG */
+:focus-visible {
+  outline: 2px solid var(--color-navy-500);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* --------------------------------------------------------------------------
+   Reveal-on-scroll (progressive enhancement; content visible without JS)
+--------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: no-preference) {
+  .reveal {
+    opacity: 0;
+    transform: translateY(14px);
+    transition:
+      opacity 0.55s ease,
+      transform 0.55s ease;
+  }
+  .reveal.is-visible {
+    opacity: 1;
+    transform: none;
+  }
+  html.no-js .reveal {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Marquee for partner names */
+@keyframes marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+.animate-marquee {
+  animation: marquee 40s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-marquee {
+    animation: none;
+  }
+}
