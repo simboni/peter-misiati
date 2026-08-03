@@ -13,8 +13,12 @@ screen.
                                               → M2 heat observations noted
 06:30  FEED ISSUE                 Feeder      → M5 issue feed to groups (~1 min)
 07:00  ROUTINE HEALTH             Herdsman    → M6 spray/dip if due, batch action
-08:00  MILK DISPATCH              Manager     → M4 delivery to co-op, quality result
-                                              → receipt: litres + KES value
+07:30  MILK ALLOCATION            Manager     → M4 split across channels, must balance
+08:00  CO-OP DROP                 Rider       → M4 delivery note + quality result
+08:00  DELIVERY ROUND             Rider       → M4 institutions + households
+                                              → prefilled from standing orders
+                                              → cash/M-Pesa collected or onto the tab
+                                              → receipt: litres, cash, credit, over-limit
 09:00  MANAGER ROUND              Manager     → M11 today's action list
                                               → M6 treatments, M2 services, PD
                                               → approve pending staff entries
@@ -190,7 +194,101 @@ spraying across 60 animals is one action, not sixty.
 
 ---
 
-## 4.5 The feed and margin flow
+## 4.5 The milk sales flow — three channels, one round
+
+Milk leaves the farm three ways and each needs different handling. The screens
+are generated from standing orders so the rider taps exceptions, not entries.
+
+```
+  🥛 MORNING MILK RECORDED — 187 L available
+        ↓
+  ┌─────────────────────────────────────────────────────────────┐
+  │  WHERE IS TODAY'S MILK GOING?                               │
+  │                                                              │
+  │  🏢 Co-operative      [ 120 ] L   @ KES 52   → KES  6,240   │
+  │  🏫 Institutions       [  40 ] L   (2 stops, see round)      │
+  │  🏠 Households         [  22 ] L   (11 customers, see round) │
+  │  🍼 Calves             [   4 ] L   valued KES 288            │
+  │  🏡 Home + staff       [   1 ] L   valued KES  72            │
+  │                                                              │
+  │  Allocated 187 L of 187 L  ✓ balanced          [ CONFIRM ]  │
+  └─────────────────────────────────────────────────────────────┘
+        ↓
+  ┌── A. CO-OPERATIVE DROP ──────────────────────────────────────┐
+  │  member no · litres · delivery note no.                      │
+  │  quality at reception: lactometer · alcohol test · butterfat  │
+  │  ├─ ACCEPTED → recorded at the co-op rate                    │
+  │  └─ REJECTED → channel becomes REJECTED, reason captured,     │
+  │       and it counts as a LOSS, not a sale                    │
+  │  💰 Paid MONTHLY, less check-off → see §4.7 reconciliation    │
+  └───────────────────────────────────────────────────────────────┘
+
+  ┌── B. INSTITUTION ROUND ──────────────────────────────────────┐
+  │  Generated from standing orders for today (weekday-aware)     │
+  │                                                               │
+  │  St Mary's School    [ 30 ] L  @ 60   ⏸ term ends 8 Aug      │
+  │  Bahati Hotel        [ 10 ] L  @ 65                          │
+  │                                                               │
+  │  Each drop → DELIVERY NOTE, counter-signed on the phone       │
+  │  💰 CREDIT — invoiced monthly, due on terms                   │
+  │  ⚠ St Mary's: KES 48,000 outstanding, 41 days                │
+  └───────────────────────────────────────────────────────────────┘
+
+  ┌── C. HOUSEHOLD ROUND ────────────────────────────────────────┐
+  │  Generated from standing orders. Rider edits exceptions only.  │
+  │                                                               │
+  │  Mama Njeri     [ 2.0 ] L  ✓   balance KES 3,640             │
+  │  Mwalimu Otieno [ 1.0 ] L  ✓   balance KES     0  paid cash  │
+  │  Wanjiru        [ 2.0 ] L  ⛔  OVER LIMIT — KES 6,200, 62 d  │
+  │                                 [ deliver anyway ] [ skip ]   │
+  │  Kiptoo         [ 0.0 ] L      travelling, paused             │
+  │                                                               │
+  │  💰 Cash / M-Pesa on the spot, OR onto the tab               │
+  └───────────────────────────────────────────────────────────────┘
+        ↓
+  ┌─ Round receipt ──────────────────────────────────────────────┐
+  │  ✓ Morning round complete — by Otieno · Ref RD8K2            │
+  │    Delivered 62 L to 13 customers                            │
+  │    Collected  KES 1,540 cash · KES 900 M-Pesa                │
+  │    On credit  KES 1,860                                      │
+  │  ⚠ 1 customer over limit — Wanjiru, KES 6,200                │
+  └───────────────────────────────────────────────────────────────┘
+```
+
+**The credit-limit warning fires before delivery, not after default.** That is
+the single cheapest bad-debt control available, and it is the thing an exercise
+book structurally cannot do.
+
+### The settlement flow
+
+```
+  📅 SETTLEMENT DAY (per customer — weekly or month-end)
+        ↓
+  Statement generated per customer:
+     opening balance + litres taken × rate − payments = closing balance
+        ↓
+  ├─ HOUSEHOLD  → SMS the statement, collect cash or M-Pesa
+  │                "Mama Njeri: 56 L in July @ KES 65 = KES 3,640. Ref HH2M4"
+  ├─ INSTITUTION→ issue INVOICE for the period, due on terms
+  │                LPO reference attached, delivery notes listed
+  └─ CO-OP      → THEY send US a statement → reconcile (§4.7)
+        ↓
+  💰 PAYMENT RECORDED
+     staff-recorded payments enter PENDING until the manager approves
+        ↓
+  📊 DEBTOR AGING refreshed
+     current · 30 · 60 · 90+ days, worst offenders named
+```
+
+**Channel mix is a managed decision, not an accident.** The month-end view shows
+the **blended price per litre** across all channels alongside bad debt written
+off, so the owner can see the real trade: the co-op is lower-priced but pays
+reliably and gives access to check-off credit; direct sales earn more per litre
+but the farm carries the debt risk. Neither number means much alone.
+
+---
+
+## 4.6 The feed and margin flow
 
 ```
   🛒 PURCHASE                                           Manager
@@ -223,7 +321,7 @@ spraying across 60 animals is one action, not sixty.
 
 ---
 
-## 4.6 The month-end money flow
+## 4.7 The month-end money flow
 
 ```
   📄 CO-OP STATEMENT ARRIVES                            Manager
@@ -257,7 +355,7 @@ spraying across 60 animals is one action, not sixty.
 
 ---
 
-## 4.7 The approval and trust flow
+## 4.8 The approval and trust flow
 
 Segregation of duties, made visible. SME theft in Kenya concentrates precisely
 where one person controls an entire transaction process.
@@ -282,15 +380,16 @@ is proof they delivered the milk, and proof they were paid.
 
 ---
 
-## 4.8 The seasonal and periodic rhythm
+## 4.9 The seasonal and periodic rhythm
 
 | Cadence | What happens | Modules |
 | ------- | ------------ | ------- |
 | **Twice daily** | Milk entry, feed issue | M3, M5 |
-| **Daily** | Milk disposal and reconciliation, action list, owner digest, M-Pesa reconcile | M4, M11, M9 |
-| **Weekly** | Tick spraying/dipping (ECF areas), feed stock check and ordering, review flagged entries | M6, M5 |
+| **Daily** | Milk allocation across channels, delivery round, disposal reconciliation, action list, owner digest, M-Pesa reconcile | M4, M11, M9 |
+| **Weekly** | Tick spraying/dipping (ECF areas), feed stock check and ordering, review flagged entries, **weekly-terms customer settlements** | M6, M5, M4 |
 | **Fortnightly** | Heat detection review — are we catching 70% of heats? | M2, M10 |
-| **Monthly** | Payroll and statutory remittance (due the 9th), co-op statement reconciliation, CMT screening across the lactating herd, body condition scoring, weigh growing stock, cow league table, month close | M8, M4, M6, M1, M10 |
+| **Monthly** | Payroll and statutory remittance (due the 9th), co-op statement reconciliation, **customer statements and institutional invoices**, **debtor aging review and write-off decisions**, CMT screening across the lactating herd, body condition scoring, weigh growing stock, cow league table, month close | M8, M4, M6, M1, M10 |
+| **Termly** | **School customers pause and resume** — standing orders carry a pause window so the volume forecast survives the holidays | M4 |
 | **Quarterly** | Deworming, cost of production review, cull decisions | M6, M10, M7 |
 | **Every 6 months** | FMD vaccination, hoof trimming | M6 |
 | **Annually** | LSD, anthrax, blackquarter vaccination; brucellosis testing; KDB permit and county business permit renewal; insurance valuation | M6, M9 |
@@ -299,7 +398,7 @@ is proof they delivered the milk, and proof they were paid.
 
 ---
 
-## 4.9 The offline flow
+## 4.10 The offline flow
 
 Every write follows the same path, and it never waits for the network.
 
@@ -333,7 +432,7 @@ online-only manager screens.
 
 ---
 
-## 4.10 Onboarding a new farm
+## 4.11 Onboarding a new farm
 
 The rollout is part of the product. *"The technology itself will only get us so
 far"* — Mercy Corps, after 16 million smallholders.

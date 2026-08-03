@@ -37,12 +37,18 @@ alone and be better off than with its notebook.
 - Herd import from spreadsheet — the one heavy data-entry day
 - **The milk sheet**: bulk entry, prefilled from yesterday, colostrum
   auto-detected, out-of-range warns and saves flagged, running total, receipt
-- Milk disposal by channel, daily reconciliation with visible variance
+- Milk allocation across channels, daily reconciliation with visible variance
+- **Customers and the three sales channels** — co-op/processor, institution,
+  household — with per-customer pricing
+- **Standing orders and the delivery round**, prefilled, rider edits exceptions
+- **Customer ledger**: delivery debits, payment credits, running balance,
+  credit-limit warning before delivery
 - Daily printable sheet mirroring the paper layout
 - Owner's daily SMS digest
 
 **Exit criterion:** the whole herd's morning milking is recorded in under three
-minutes, offline, and the owner gets an SMS with litres and value by 18:30.
+minutes offline; the delivery round for 13 customers takes under two minutes; and
+the owner gets an SMS with litres, value and cash-versus-credit by 18:30.
 
 ---
 
@@ -81,9 +87,12 @@ calving, and treating one cow visibly locks her milk on tomorrow's sheet.
 - M-Pesa transaction records + **CSV statement import and daily reconcile**
 - Animal purchases and sales with Kenyan price drivers
 - The cull list, ranked by margin
+- **Customer statements, institutional invoices, debtor aging and write-offs**
+- **Blended price per litre across channels**, against bad debt written off
 
-**Exit criterion:** the owner can answer "which of my cows are losing me money"
-and "what did milk actually cost me to produce this month."
+**Exit criterion:** the owner can answer "which of my cows are losing me money",
+"what did milk actually cost me to produce this month", and "who owes me what,
+and for how long."
 
 ---
 
@@ -182,6 +191,9 @@ Each traces to a research finding, and each is falsifiable on the actual farm.
 | 8 | Deliberately wrong prefilled default | The herdsman doesn't catch it — the label isn't clear enough |
 | 9 | Try to make an unapproved staff payment affect a report | It succeeds |
 | 10 | Print the daily sheet, ask the manager to find yesterday's evening milking | Takes more than 10 seconds |
+| 10a | Run a 13-customer household round on the rider's phone, offline | Takes more than 2 minutes, or any balance is wrong afterwards |
+| 10b | Deliver to a customer already over their credit limit | The warning does not fire **before** the delivery is recorded |
+| 10c | Allocate 187 L across channels where the parts sum to 185 | The 2 L discrepancy is not surfaced |
 | 11 | Show the owner one report, ask "what should you do this week?" | They must read a number twice to answer |
 | 12 | Payroll for a herdsman on KES 12,000 | PAYE is not zero, or NSSF/SHIF/Housing Levy are skipped |
 

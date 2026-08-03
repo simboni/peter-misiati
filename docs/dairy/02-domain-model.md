@@ -302,18 +302,28 @@ results and quality-adjusted pricing, not litres × a flat rate.
 
 ### Milk disposal — every litre must be accounted for
 
-| Channel | Revenue |
-| ------- | ------- |
-| `COOP_DELIVERY` — co-operative / Collection & Bulking Enterprise | Yes, monthly |
-| `PROCESSOR_DIRECT` — Brookside, New KCC, Githunguri, Meru, Daima, Bio Foods | Yes, monthly |
-| `DIRECT_SALE` / hawking — neighbours, hotels, schools, milk ATMs | Yes, **cash daily, higher price** |
-| `HOME_CONSUMPTION` | No, but value it at market price for true profitability |
-| `CALF_FEEDING` | No, but a real cost of rearing |
-| `STAFF_RATION` | No — a labour cost in kind |
-| `SPOILAGE` | Loss |
-| `REJECTED` — failed alcohol/lactometer/organoleptic at reception | Loss |
-| `WITHHELD_TREATMENT` | Loss — **track separately as a KPI** |
-| `WITHHELD_COLOSTRUM` | Not a loss, fed to calf |
+| Channel | Revenue | Payment mechanics |
+| ------- | ------- | ----------------- |
+| `COOP` — co-operative / Collection & Bulking Enterprise | Yes | **Monthly, less check-off deductions.** Lowest price, guaranteed offtake |
+| `PROCESSOR` — Brookside, New KCC, Githunguri, Meru, Daima, Bio Foods | Yes | Monthly, quality-adjusted |
+| `INSTITUTION` — schools, hospitals, hotels, restaurants, colleges | Yes | **Credit terms, invoiced.** Delivery note per drop, often against an LPO. Seasonal — schools stop in the holidays |
+| `HOUSEHOLD` — neighbours, doorstep delivery | Yes | **Running tab settled weekly or monthly.** Highest price per litre, and the farm carries the debt risk |
+| `SHOP` / `MILK_ATM` — milk bars, dispensers, retailers | Yes | Cash or short credit; bulk-ish volumes at a middle price |
+| `HOME_CONSUMPTION` | No | Value at market price, or the profitability figure is wrong |
+| `CALF_FEEDING` | No | A real cost of rearing — roughly 465 litres per heifer reared |
+| `STAFF_RATION` | No | A labour cost in kind |
+| `SPOILAGE` | Loss | |
+| `REJECTED` — failed alcohol/lactometer/organoleptic at reception | Loss | |
+| `WITHHELD_TREATMENT` | Loss | **Track separately as a KPI** |
+| `WITHHELD_COLOSTRUM` | Not a loss | Fed to the calf |
+
+**The three sales channels are three different businesses.** The co-operative is
+low-price, reliable, and comes with access to check-off credit. Institutions pay
+better but on terms, need paperwork per delivery, and go quiet during school
+holidays. Households pay best of all, in small daily volumes, on a running tab —
+which makes direct sales a **receivables problem** as much as a sales one. The
+channel mix is a decision the owner should manage deliberately, using the blended
+price per litre against bad debt written off.
 
 **Daily reconciliation constraint:** `Σ(session yields per cow) = Σ(disposals)`.
 Surface the discrepancy — unexplained shrinkage between parlour and can is the

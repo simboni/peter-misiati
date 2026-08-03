@@ -316,15 +316,20 @@ create table milk_disposal (        -- where the day's milk went
   id          uuid primary key,
   farm_id     uuid not null,
   disposed_on date not null,
+  session     text check (session in ('MORNING','NOON','EVENING')),
   channel     text not null check (channel in (
-                'COOP_DELIVERY','PROCESSOR_DIRECT','DIRECT_SALE','HOME_CONSUMPTION',
-                'CALF_FEEDING','STAFF_RATION','SPOILAGE','REJECTED',
-                'WITHHELD_TREATMENT','WITHHELD_COLOSTRUM')),
+                -- revenue channels
+                'COOP','PROCESSOR','INSTITUTION','HOUSEHOLD','SHOP','MILK_ATM',
+                -- non-revenue, but valued
+                'HOME_CONSUMPTION','CALF_FEEDING','STAFF_RATION',
+                -- losses
+                'SPOILAGE','REJECTED','WITHHELD_TREATMENT','WITHHELD_COLOSTRUM')),
+  customer_id uuid references customer(id),   -- null for home/calf/loss channels
   litres      numeric(8,2) not null,
-  counterparty_id uuid references counterparty(id),
   rate_kes_per_litre numeric(8,2),      -- imputed at market price for non-revenue channels
   value_kes   numeric(14,2),
-  -- quality, per delivery
+  settlement  text check (settlement in ('CASH','MPESA','CREDIT','COOP_CHECKOFF','NONE')),
+  -- quality, captured per bulk delivery
   butterfat_pct numeric(4,2),
   protein_pct   numeric(4,2),
   snf_pct       numeric(4,2),
@@ -333,6 +338,7 @@ create table milk_disposal (        -- where the day's milk went
   accepted      boolean,
   reject_reason text,
   delivery_note_no text,
+  delivered_by  uuid references app_user(id),  -- the route rider, for accountability
   recorded_by uuid not null references app_user(id)
 );
 ```
@@ -354,7 +360,7 @@ from ( … ) t;
 create table milk_statement (
   id             uuid primary key,
   farm_id        uuid not null,
-  counterparty_id uuid not null references counterparty(id),  -- the co-op
+  customer_id    uuid not null references customer(id),   -- the co-op or processor
   member_no      text,
   period_start   date not null,
   period_end     date not null,
@@ -384,6 +390,132 @@ create table milk_statement_deduction (
 **The reconciliation view** compares `coop_litres` against the farm's own
 `milk_disposal` rows for the period, and each deduction against a matching
 recorded expense. Unmatched deductions are the whole point.
+
+### Customers, standing orders and the credit ledger
+
+The three sales channels behave differently enough that they need real modelling.
+A co-operative pays monthly against its own record. An institution needs a
+delivery note per drop and an invoice on terms. A household takes two litres a
+day on a running tab and settles at month end — which makes it a **receivables
+problem**, and bad debt is the main way direct sales lose money.
+
+```sql
+create table customer (
+  id             uuid primary key,
+  farm_id        uuid not null references farm(id),
+  name           text not null,
+  customer_type  text not null check (customer_type in
+                   ('COOP','PROCESSOR','INSTITUTION','HOUSEHOLD','SHOP','MILK_ATM')),
+  institution_kind text check (institution_kind in
+                   ('SCHOOL','HOSPITAL','HOTEL','RESTAURANT','COLLEGE','OTHER')),
+  phone          text,
+  location       text,
+  route_id       uuid references delivery_route(id),
+  -- commercial terms
+  default_rate_kes_per_litre numeric(8,2),      -- per-customer pricing
+  payment_terms  text not null default 'CASH' check (payment_terms in
+                   ('CASH','DAILY','WEEKLY','FORTNIGHTLY','MONTHLY','NET_30','NET_60')),
+  settlement_day smallint,                      -- day of month/week the tab is settled
+  credit_limit_kes numeric(14,2),               -- stop supply above this
+  -- institutional paperwork
+  lpo_number     text,
+  contract_ref   text,
+  kra_pin        text,                          -- needed if we must issue a tax invoice
+  requires_invoice boolean not null default false,
+  requires_delivery_note boolean not null default false,
+  -- lifecycle
+  active         boolean not null default true,
+  suspended_reason text,                        -- 'ARREARS', 'SCHOOL_HOLIDAY'…
+  started_on     date,
+  ended_on       date
+);
+
+create table delivery_route (
+  id          uuid primary key,
+  farm_id     uuid not null,
+  name        text not null,                    -- 'Village round', 'Town institutions'
+  rider_id    uuid references app_user(id),
+  session     text check (session in ('MORNING','NOON','EVENING'))
+);
+
+create table standing_order (       -- "Mama Njeri takes 2 L every morning"
+  id            uuid primary key,
+  farm_id       uuid not null,
+  customer_id   uuid not null references customer(id),
+  litres        numeric(6,2) not null,
+  session       text not null check (session in ('MORNING','NOON','EVENING')),
+  -- day-of-week pattern: schools stop at weekends and holidays
+  days_of_week  smallint[] not null default '{1,2,3,4,5,6,7}',
+  rate_kes_per_litre numeric(8,2),   -- overrides customer default
+  active_from   date not null,
+  active_to     date,
+  paused_from   date,                -- school holidays, customer travelling
+  paused_to     date
+);
+```
+
+**The standing order is what makes the daily round two taps instead of forty.**
+The delivery sheet is generated from standing orders, prefilled, and the rider
+only edits exceptions — the same pattern as the milk sheet.
+
+```sql
+create table customer_ledger_entry (    -- APPEND ONLY. The running tab.
+  id            uuid primary key,
+  farm_id       uuid not null,
+  customer_id   uuid not null references customer(id),
+  entry_date    date not null,
+  entry_type    text not null check (entry_type in
+                  ('DELIVERY','PAYMENT','ADJUSTMENT','WRITE_OFF','OPENING_BALANCE')),
+  litres        numeric(8,2),                   -- for DELIVERY
+  rate_kes_per_litre numeric(8,2),
+  debit_kes     numeric(14,2) default 0,        -- what they owe us
+  credit_kes    numeric(14,2) default 0,        -- what they paid
+  milk_disposal_id uuid references milk_disposal(id),
+  payment_method text check (payment_method in ('CASH','MPESA','BANK','CHEQUE')),
+  mpesa_ref     text,
+  note          text,
+  recorded_by   uuid not null references app_user(id),
+  approved_by   uuid references app_user(id)    -- payments by staff are PENDING first
+);
+
+create table sales_invoice (        -- institutions only
+  id            uuid primary key,
+  farm_id       uuid not null,
+  customer_id   uuid not null references customer(id),
+  invoice_no    text not null,
+  issued_on     date not null,
+  period_start  date,
+  period_end    date,
+  total_litres  numeric(10,2),
+  subtotal_kes  numeric(14,2) not null,
+  tax_kes       numeric(14,2) default 0,
+  total_kes     numeric(14,2) not null,
+  due_on        date,
+  status        text not null default 'ISSUED'
+                  check (status in ('DRAFT','ISSUED','PART_PAID','PAID','OVERDUE','WRITTEN_OFF')),
+  lpo_number    text,
+  etims_ref     text,                            -- if the farm is VAT-registered
+  unique (farm_id, invoice_no)
+);
+```
+
+**Derived, and shown on the customer screen:**
+
+```sql
+create view customer_balance as
+select customer_id, farm_id,
+       sum(debit_kes) - sum(credit_kes)                    as balance_kes,
+       max(entry_date) filter (where entry_type = 'PAYMENT') as last_paid_on,
+       current_date - max(entry_date)
+         filter (where entry_type = 'PAYMENT')             as days_since_payment
+from customer_ledger_entry
+group by customer_id, farm_id;
+```
+
+Plus a **debtor aging bucket** (current / 30 / 60 / 90+ days) and a
+**credit-limit breach flag** that warns the rider *before* the next delivery —
+the cheapest possible bad-debt control, and the one thing an exercise book cannot
+do.
 
 ---
 
@@ -628,12 +760,17 @@ attendance approaching 30 days raises an alert, because under the Employment Act
 ## 5.9 Money
 
 ```sql
-create table counterparty (         -- suppliers, buyers, service providers, co-ops
+-- `counterparty` is who we BUY from and who provides services.
+-- `customer` (§5.5) is who we SELL MILK to.
+-- A co-operative is legitimately both — it buys our milk and sells us feed and AI
+-- on check-off — so it gets a row in each, linked by `counterparty.customer_id`.
+create table counterparty (         -- suppliers, service providers, co-ops
   id            uuid primary key,
   farm_id       uuid not null,
   name          text not null,
+  customer_id   uuid references customer(id),   -- set where the same entity also buys our milk
   types         text[] not null,    -- {'AGROVET','FEED_MILLER','HAY','AI_PROVIDER','VET',
-                                    --  'TRANSPORTER','COOP','PROCESSOR','BUYER','BROKER'}
+                                    --  'TRANSPORTER','COOP','PROCESSOR','BROKER'}
   provider_kind text check (provider_kind in
                   ('FARM_STAFF','AI_TECH','PARAVET','VET','COOP_VET','COUNTY')),
   kvb_reg_no    text,               -- Kenya Veterinary Board, where applicable
@@ -760,6 +897,10 @@ link is a no-op.
 create index on milk_record   (farm_id, recorded_on desc, animal_id);
 create index on milk_record   (farm_id, animal_id, recorded_on desc);
 create index on milk_disposal (farm_id, disposed_on desc);
+create index on milk_disposal (farm_id, customer_id, disposed_on desc);
+create index on customer_ledger_entry (farm_id, customer_id, entry_date desc);
+create index on standing_order (farm_id, session) where active_to is null;
+create index on sales_invoice (farm_id, status, due_on) where status in ('ISSUED','PART_PAID','OVERDUE');
 create index on health_event  (farm_id, animal_id, occurred_on desc);
 create index on health_event  (farm_id, milk_clear_at) where milk_clear_at is not null;
 create index on service       (farm_id, animal_id, served_on desc);

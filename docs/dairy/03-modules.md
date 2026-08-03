@@ -163,11 +163,65 @@ already use).
 
 ## M4 — Milk Sales & Disposal
 
-**Who uses it:** manager; owner reviews.
+**Who uses it:** manager and route rider; owner reviews.
 
-**Does:** where every litre went. Co-op or processor delivery, direct/hawked
-sales, home consumption, calf feeding, staff ration, spoilage, rejection at
-reception, and treatment withholding.
+**Does:** where every litre went, and who owes what for it.
+
+### The three sales channels
+
+The client sells through co-operatives, institutions and individual households.
+These are not variations on "direct sale" — they are three different businesses
+with different paperwork, different money, and different failure modes. The
+module models each properly.
+
+| | **Co-operative / processor** | **Institution** | **Household** |
+| - | --- | --- | --- |
+| Who | Co-op, CBE, Brookside, New KCC, Githunguri, Meru, Daima | Schools, hospitals, hotels, restaurants, colleges | Neighbours, doorstep customers |
+| Volume | The bulk of production, one drop | 20–200 L, scheduled | 1–3 L each, many customers |
+| Price | Lowest — the floor price | Middle, contracted | **Highest** |
+| Paperwork | Member number, delivery note | **Delivery note per drop + invoice on terms**, often an LPO | A tab in an exercise book |
+| Payment | **Monthly, less check-off deductions** | **Credit terms** — 30/60 days | **Running tab, settled weekly or monthly** |
+| Quality testing | At reception, drives price | On acceptance | None |
+| Main risk | Rejection at reception; opaque deductions | **Slow payment; holiday seasonality** | **Bad debt; volume disputes** |
+| Upside | Guaranteed offtake, check-off credit access | Steady contracted volume | Best margin per litre |
+
+**Each channel gets what it actually needs:**
+
+- **Co-operative** — member number on every delivery, quality result per drop,
+  and the month-end statement reconciliation described below.
+- **Institution** — a **delivery note per drop with a counter-signature**, an
+  invoice covering the period, payment terms with a due date, and **arrears
+  aging**. School customers pause over holidays rather than being deleted, so
+  the standing order carries a `paused_from`/`paused_to` window and the volume
+  forecast doesn't collapse every December.
+- **Household** — a **standing order** ("Mama Njeri, 2 L every morning"), a
+  running ledger, and a settlement day. The delivery sheet is generated from the
+  standing orders, prefilled, and the rider edits only the exceptions — the same
+  two-tap pattern as the milk sheet.
+
+### The receivables problem, which is the real one
+
+Direct sales carry the best price and the worst risk. A household taking two
+litres a day at KES 70 owes about KES 4,200 by month end, and the traditional
+control — an exercise book at the farm — cannot tell you who is drifting until
+the money is already gone.
+
+So the module carries a proper **customer ledger**: every delivery is a debit,
+every payment a credit, with a running balance, days since last payment, and
+**debtor aging in current / 30 / 60 / 90+ buckets**. A **credit limit per
+customer** warns the rider *before* the next delivery rather than after the
+default. Payments recorded by staff sit `PENDING` until the manager approves,
+because this is the point in a Kenyan farm where cash most often goes missing.
+
+**Gives back at entry:** the rider finishes the round and sees the day's takings
+split into cash collected versus credit extended, plus a named list of anyone
+over their limit.
+
+### Everything else the milk goes to
+
+Home consumption, calf feeding, staff ration, spoilage, rejection at reception,
+and treatment withholding — all valued at market price even where no money
+changes hands, so the owner can see the true cost of "free" milk.
 
 **The reconciliation constraint:** `Σ(session yields) = Σ(disposals)`. The
 difference is surfaced, not hidden — unexplained shrinkage between parlour and
@@ -189,11 +243,16 @@ own delivery records**.
 grievance in Kenya, and no competitor answers it.
 
 **Gives back at entry:** value of today's milk in KES, immediately, split by
-channel — including the imputed value of home consumption and staff ration, so
-the owner sees the true cost of "free" milk.
+channel — and the **blended price per litre across all channels**, which is the
+number that tells the owner whether the channel mix is right. Selling everything
+to the co-op is safe and cheap; selling everything direct is lucrative and risky.
+The blended price plus the bad-debt figure is how that trade-off gets managed
+instead of guessed.
 
-**Screens:** record delivery · record direct sale · daily disposal summary ·
-co-op statement entry · reconciliation view.
+**Screens:** delivery round (generated from standing orders) · record co-op
+delivery · customer list with balances · customer ledger · record payment ·
+debtor aging · invoices · daily disposal summary · co-op statement entry ·
+reconciliation view.
 
 ---
 
