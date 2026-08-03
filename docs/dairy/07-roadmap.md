@@ -42,7 +42,13 @@ alone and be better off than with its notebook.
   household — with per-customer pricing
 - **Standing orders and the delivery round**, prefilled, rider edits exceptions
 - **Customer ledger**: delivery debits, payment credits, running balance,
-  credit-limit warning before delivery
+  credit-limit warning before delivery. Supports **both** cash-on-delivery and
+  running tabs — which of these dominates is an open question (see
+  [08](08-open-questions.md)), so neither is assumed
+- **Effective-dated price lists** per channel and per customer — price swings ~40%
+  intra-year, so a static rate column would be wrong most of the year
+- **Coded loss reasons** on disposal, and a mandatory daily reconciliation with a
+  variance threshold. Farm-level losses run 1.3–6.4% of value
 - Daily printable sheet mirroring the paper layout
 - Owner's daily SMS digest
 
@@ -89,6 +95,11 @@ calving, and treating one cow visibly locks her milk on tomorrow's sheet.
 - The cull list, ranked by margin
 - **Customer statements, institutional invoices, debtor aging and write-offs**
 - **Blended price per litre across channels**, against bad debt written off
+- **LPOs as first-class objects**; eTIMS invoice reference capture
+- **Late-payment interest calculator** at the CBK base rate, per LN 20/2021 —
+  applied to overdue institutional invoices *and* co-op statements
+- **Compliance register**: KDB permit, milk transport permit, county business
+  permit, and food handler certificates with **six-month** expiry alerts
 
 **Exit criterion:** the owner can answer "which of my cows are losing me money",
 "what did milk actually cost me to produce this month", and "who owes me what,

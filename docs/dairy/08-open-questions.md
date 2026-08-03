@@ -36,23 +36,53 @@ any number is hard-coded.
     being remitted? This determines whether payroll is a feature or a confronting
     change.
 
+### About milk sales — and one that needs primary research
+
+17. **What is today's channel split?** Roughly what share goes to the
+    co-operative, to institutions, and to households?
+18. **Is the farm rural or urban for regulatory purposes?** This is not a
+    preference — it determines whether direct raw-milk sale is lawful at all.
+19. **Does the farm deliver, or do customers collect?** Delivery probably
+    requires a milk carriage permit.
+20. **Which permits does the farm currently hold, and when do they expire?**
+    KDB permit, milk transport permit, county business permit, food handler
+    certificates for everyone touching milk (these expire every six months).
+21. **Do institutional customers issue LPOs? What are the actual payment terms,
+    and what do they actually pay in?** The gap between contract terms and
+    reality is the number that matters.
+22. **Is the farm's ownership AGPO-qualifying** (70%+ youth, women, or persons
+    with disabilities)? If so, 30% of county procurement is reserved, which is a
+    real edge on school tenders.
+
+> **⚠ The household question needs primary research, not more desk research.**
+> There is no published data on farm-to-neighbour milk credit in Kenya — not the
+> cash-versus-tab split, not typical daily volume, not default rates. The one
+> relevant sourced finding actually cuts *against* the month-end-tab assumption:
+> informal-chain payment is reported as prompt, often daily or weekly.
+>
+> **Ten interviews with the client's own milk customers will beat every source I
+> could reach.** Ask: how much do you take a day, do you pay each time or at the
+> end of a period, how is it recorded, cash or M-Pesa, and has the farm ever lost
+> money on you. Until then the schema stays permissive — both models supported,
+> neither assumed.
+
 ### About scope and money
 
-11. **"Steady cow"** — the brief lists it as a class but it isn't in Kenyan
+23. **"Steady cow"** — the brief lists it as a class but it isn't in Kenyan
     extension literature. What does the client mean?
-12. **Does the farm sell breeding stock?** If in-calf heifer sales are a real
+24. **Does the farm sell breeding stock?** If in-calf heifer sales are a real
     revenue line, the animal passport and KLBA registration matter much more.
-13. **Is there a vet on retainer, or per-call?** And is vet cost paid in cash or
+25. **Is there a vet on retainer, or per-call?** And is vet cost paid in cash or
     through co-op check-off?
-14. **What does the client expect to pay, and who pays for hosting long-term?**
+26. **What does the client expect to pay, and who pays for hosting long-term?**
     You chose free tiers, which is workable — but note the Vercel Hobby
     commercial-use restriction in
     [06-architecture.md §6.3](06-architecture.md#63-hosting-under-a-zero-budget).
     The go-live plan is Oracle Cloud Always Free in Johannesburg at $0/month.
-15. **Is reselling this to other farms a real intention or a maybe?** It's built
+27. **Is reselling this to other farms a real intention or a maybe?** It's built
     multi-tenant either way, but it changes how much we invest in onboarding
     self-service.
-16. **Who owns the code and the data?** Worth settling in writing before Phase 0,
+28. **Who owns the code and the data?** Worth settling in writing before Phase 0,
     especially if resale is intended.
 
 ---
@@ -80,6 +110,15 @@ documents.
 | 12 | **In-calf heifer price band** | Two Kenyan listing sites disagree (140k–260k vs 130k–180k). Keep configurable, never hard-code | Local market |
 | 13 | **Milk chilling window** | "Within 2–3 hours to ≤4 °C" is commonly quoted but the legal window wasn't confirmed | Dairy Produce Safety Regulations 2021 |
 | 14 | **Para-vet visit charges** | KES 500–2,000 is an estimate | Local practice |
+| 15 | **⚠ Rural/urban rule for direct raw-milk sale** | Reported as: raw milk may be sold direct to neighbouring consumers **in rural areas only**; urban requires pasteurisation. One search summary flatly contradicted this, claiming raw sale is illegal everywhere. **This determines which channels the client may lawfully use** | [LN 16/2021](https://new.kenyalaw.org/akn/ke/act/ln/2021/16/eng@2022-12-31) and [LN 22/2021](https://new.kenyalaw.org/akn/ke/act/ln/2021/22/eng@2022-12-31); [full regulations PDF](https://infotradekenya.go.ke/media/DAIRY-INDUSTRY-REGULATIONS-2021.pdf) |
+| 16 | **⚠ Raw milk to schools and hospitals** | Very likely requires pasteurisation. If so, the institutional channel is only open to the client with a processing step or a partner | Same, plus KDB directly |
+| 17 | **⚠ Milk carriage permit for own-vehicle delivery** | Inference that gate collection needs no permit but farm delivery does. KES 1,000/yr + 600 application | [KDB permit fees](https://www.kdb.go.ke/permit-categories-and-fees/) |
+| 18 | **VAT: exempt or zero-rated?** | Sources contradict within a single page. **They are not interchangeable** — they differ on input-tax recovery. Weight of evidence favours *exempt* for unprocessed milk | VAT Act 2013 First Schedule; the client's accountant |
+| 19 | **eTIMS obligation** | KRA rescinded the under-KES-5m exemption in 2024 and launched eTIMS Lite, stating all traders must transmit electronically. Institutional buyers will demand a compliant invoice regardless | KRA directly |
+| 20 | **5% withholding tax on produce sold to co-ops** | Appears in the National Treasury medium-term plan. If enacted it changes co-op net receipts and needs a deduction line | National Treasury / KRA |
+| 21 | **CBK base rate** | Needed to compute LN 20/2021 late-payment interest. Store as versioned reference data | CBK |
+| 22 | **Institutional delivery-note mechanics** | The duplicate-note, counter-signature and monthly-consolidated-invoice chain is inference. Highly likely but unconfirmed | The client's actual institutional customers |
+| 23 | **School holiday gap** | The three-term calendar implies ~12–14 weeks/year of near-zero offtake, but no source quantifies it | The client's school customers |
 
 ---
 
@@ -132,7 +171,14 @@ Flagged honestly rather than papered over.
 3. **The Swahili-versus-English conclusion rests on essentially one study** of the
    M-Pesa app. Treat it as a hypothesis to test on the actual staff, not settled
    fact.
-4. **The "20–300 head segment is underserved" claim has partial evidence.** The
+4. **Household milk-credit mechanics are entirely unpublished.** No source
+   describes the farm-to-neighbour tab convention, typical daily volume, or
+   default rates. The relevant academic work covers peri-urban informal *vendors*,
+   not farms selling to neighbours. An earlier draft of this blueprint asserted
+   month-end tabs as fact; that has been corrected to an open question, and the
+   schema now supports both cash-on-delivery and running tabs without preferring
+   either.
+5. **The "20–300 head segment is underserved" claim has partial evidence.** The
    literature returns results on smallholders and on large commercial farms, with
    little on the band between. Validate with primary interviews rather than
    treating it as established.

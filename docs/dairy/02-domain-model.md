@@ -326,8 +326,66 @@ channel mix is a decision the owner should manage deliberately, using the blende
 price per litre against bad debt written off.
 
 **Daily reconciliation constraint:** `Σ(session yields per cow) = Σ(disposals)`.
-Surface the discrepancy — unexplained shrinkage between parlour and can is the
-classic milk-theft signal, and the farm will want to see it.
+
+**This must be a daily mandatory step with a variance threshold, not a monthly
+report** — because the losses are large and sourced:
+
+| Loss reason | Share of farm-level losses |
+| ----------- | -------------------------- |
+| **Spillage** | 30–38% |
+| **Spoilage** | 19–24.7% |
+| **Forced consumption / calves** | 22–23.8% |
+| **Rejection due to adulteration** | 13.5% |
+| Non-collection | 17% (second study) |
+
+Total farm-level loss runs **1.3–6.4% of value**, sometimes over 6% of
+production. At KES 52/litre a 200-cow farm is losing six figures a year through a
+gap nobody measures. So `milk_disposal` carries a **coded loss reason**, not free
+text — you cannot fix what you cannot group.
+
+There is an uncomfortable inversion worth designing for: **adulteration with
+water accounts for 65.5% of reported supplier problems** (plus chemicals 18%,
+physical dirt 13.5%), and it is documented as something suppliers *do*, not only
+something done to them. A system that reconciles volumes tightly is partly an
+internal control against the farm's own staff. Rejected milk is also reported as
+being sent back to suppliers with some returning to the food chain — so rejection
+is a loss the farm eats, and must be recorded as such rather than silently
+dropping the sale.
+
+### Prices by channel, and why price cannot be a static field
+
+| Channel | KES/litre to the farmer | Confidence |
+| ------- | ----------------------- | ---------- |
+| Co-operative / CBE | 40–52 | sourced |
+| Processor direct (New KCC, Brookside, Meru, Githunguri) | ~50–52 | sourced |
+| Milk ATM / dispenser operator | 50–55 | sourced |
+| Milk bar / shop | 50–60 | inferred `[?]` |
+| School / hospital contract | 55–70 | inferred `[?]` |
+| Hotel / restaurant | 60–80 | inferred `[?]` |
+| Household at the farm gate | 60–70 | inferred `[?]` |
+| Household doorstep delivery | 70–90 | inferred `[?]` |
+
+Anchors: the national farm-gate benchmark is **KES 52/litre from 1 August 2026**;
+retail sits at **~KES 74.38**; cost of production is **KES 30–37**. The
+institutional and household figures are interpolated between the sourced
+farm-gate and retail numbers — **do not present them to the client as researched
+prices.**
+
+**Milk ATM economics are the clearest intermediary margin available:** operators
+buy at KES 50–55 and dispense at 60–70, taking ~KES 15/litre. A farm selling
+direct to households at 70 is capturing that entire margin — which is the real
+case for direct sales, and also why the debt risk is worth managing rather than
+avoiding.
+
+> **Seasonal swing is bigger than channel choice.** Raw milk was reported falling
+> from **KES 80 to KES 50–60 per litre in two months** on a rain-driven glut, with
+> price varying by distance from the collection centre. In drought, production
+> fell by almost half and prices rose. Hay moves the opposite way — KES 100–150 a
+> bale in the rains, KES 300–500 in the dry season, so margin is squeezed from
+> both ends at once.
+
+**Therefore price is effective-dated with history, never a single static column,**
+and the break-even line (cost of production) belongs on the pricing screen.
 
 ### How farmers get paid `[KE]`
 
@@ -770,6 +828,78 @@ Regulations set conditions for farms, collection centres, milk bars, dispensers,
 cottages, mini-dairies and processors, and cover labelling, calibration, records,
 storage and distribution. Milk should be chilled to ≤4 °C within a short window
 of milking, commonly quoted as 2–3 hours. `[?]`
+
+### ⚠ Selling raw milk direct — the rule that may constrain the business
+
+**The legality of direct sale depends on where the farm is.** The Dairy Industry
+Regulations 2021 are reported to permit raw milk to be sold **only by producers
+direct to neighbouring consumers in rural areas** — meaning **only pasteurised
+milk may lawfully be sold in urban areas**. `[?]`
+
+That makes **rural/urban classification a legal determinant of which sales
+channels are available**, which is an unusual thing for software to have to model,
+and it must be data rather than an assumption.
+
+The instruments are **Legal Notices 16, 20, 21 and 22 of 2021** under the Dairy
+Industry Act Cap 336: Registration/Licensing/Cess & Levy (LN 16), **Milk Sales
+Contract (LN 20)**, Imports & Exports (LN 21), Dairy Produce Safety (LN 22).
+*"A person shall not operate a dairy business unless the person holds a
+Regulatory permit issued by the Board."*
+
+| Permit | Fee (KES) |
+| ------ | --------- |
+| Farmer groups — collection, bulking, marketing raw milk | 1,800 |
+| Milk cooling facility | 2,600 |
+| **Milk transport permit, annual** | **1,000** + 600 application |
+| Milk bar — application | 600 |
+
+**Delivery is a licensing boundary.** The milk carriage permit covers transporters
+of raw milk. A customer collecting at the gate probably needs nothing; **the
+farm's own delivery vehicle probably needs the permit.** Model gate-collection
+versus delivered-sale as an attribute. `[?] inference — verify`
+
+**Penalties are small but that is not the risk.** General contravention is a fine
+of ≤ KES 10,000 or ≤ 3 months; selling without a permit ≤ KES 5,000 (first
+offence). For a 100-cow farm that is under two days' output — it cannot deter.
+**The real exposure is seizure and destruction of the milk, and licence
+suspension.**
+
+Which matters more than usual right now, because the policy direction has turned:
+
+> **In May 2026 the Agriculture & Livestock CS announced a nationwide crackdown
+> on milk hawking**, declaring it a public health hazard and telling brokers and
+> informal traders to exit the raw milk business, alongside distribution of 230
+> bulk milk coolers worth ~KES 1.43 billion to co-operatives. County-level
+> enforcement is following.
+
+Historically this was nominal — ~80% of Kenyan milk moves informally, licensing
+among informal actors is low, and the safety agency *"is unable to undertake any
+proactive, random sampling in informal milk markets."* That gap may now be
+closing.
+
+**Design consequence:** the system should make compliance cheap rather than treat
+it as overhead — hold permit numbers and expiry dates, warn before lapse, and
+produce the traceability records an inspector asks for.
+
+**Raw milk to schools and hospitals is very unlikely to be lawful.**
+Institutional catering is exactly where pasteurisation will be enforced. Verify
+before building any school-supply workflow. `[?]`
+
+**Food handler medical certificates are valid six months** — short enough to need
+automated expiry reminders, not a once-a-year checklist item.
+
+### LN 20/2021 — a computable entitlement nobody claims
+
+The Milk Sales Contract regulations apply to sales by an aggregator, producer
+organisation or registered entity to a buyer for processing or resale. Buyers
+must pay **after the end of the month of supply**, and **late payment attracts
+simple monthly interest at the prevailing CBK base rate.**
+
+This is a right the software can calculate and most farmers will never exercise
+because nobody computes it. It is worth building — and it is not theoretical:
+**New KCC failed to pay KES 300 million in arrears to farmers.** Counterparty
+risk runs both ways, so track payment performance for co-operatives and
+processors exactly as for institutions.
 
 ### Traceability
 

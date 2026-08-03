@@ -336,7 +336,11 @@ create table milk_disposal (        -- where the day's milk went
   lactometer_reading numeric(6,4),
   alcohol_test  text check (alcohol_test in ('PASS','FAIL')),
   accepted      boolean,
-  reject_reason text,
+  -- coded, never free text: spillage 30–38%, spoilage 19–25%, calves 22%,
+  -- adulteration rejection 13.5%, non-collection 17% of farm-level losses
+  loss_reason   text check (loss_reason in
+                  ('SPILLAGE','SPOILAGE','SOURED','ADULTERATION','NON_COLLECTION',
+                   'FAILED_ALCOHOL','FAILED_LACTOMETER','ORGANOLEPTIC','OTHER')),
   delivery_note_no text,
   delivered_by  uuid references app_user(id),  -- the route rider, for accountability
   recorded_by uuid not null references app_user(id)
@@ -410,19 +414,28 @@ create table customer (
                    ('SCHOOL','HOSPITAL','HOTEL','RESTAURANT','COLLEGE','OTHER')),
   phone          text,
   location       text,
+  -- ⚠ LEGAL DETERMINANT: raw milk may be sold direct to neighbouring consumers
+  -- in RURAL areas only; urban sale requires pasteurisation. Model it, never assume it.
+  area_class     text not null default 'RURAL' check (area_class in ('RURAL','URBAN')),
+  -- ⚠ LICENSING BOUNDARY: our own delivery vehicle likely needs a milk carriage
+  -- permit; gate collection by the customer likely does not.
+  fulfilment     text not null default 'DELIVERED'
+                   check (fulfilment in ('GATE_COLLECTION','DELIVERED')),
   route_id       uuid references delivery_route(id),
   -- commercial terms
-  default_rate_kes_per_litre numeric(8,2),      -- per-customer pricing
   payment_terms  text not null default 'CASH' check (payment_terms in
-                   ('CASH','DAILY','WEEKLY','FORTNIGHTLY','MONTHLY','NET_30','NET_60')),
+                   ('CASH','DAILY','WEEKLY','FORTNIGHTLY','MONTHLY','NET_30','NET_60','NET_90')),
   settlement_day smallint,                      -- day of month/week the tab is settled
   credit_limit_kes numeric(14,2),               -- stop supply above this
   -- institutional paperwork
-  lpo_number     text,
   contract_ref   text,
   kra_pin        text,                          -- needed if we must issue a tax invoice
   requires_invoice boolean not null default false,
   requires_delivery_note boolean not null default false,
+  agpo_category  text check (agpo_category in ('YOUTH','WOMEN','PWD')),
+  -- payment behaviour, tracked for co-ops and processors too (New KCC: KES 300m arrears)
+  avg_days_to_pay numeric(6,1),
+  worst_days_to_pay int,
   -- lifecycle
   active         boolean not null default true,
   suspended_reason text,                        -- 'ARREARS', 'SCHOOL_HOLIDAY'…
@@ -457,6 +470,34 @@ create table standing_order (       -- "Mama Njeri takes 2 L every morning"
 **The standing order is what makes the daily round two taps instead of forty.**
 The delivery sheet is generated from standing orders, prefilled, and the rider
 only edits exceptions — the same pattern as the milk sheet.
+
+### Price is effective-dated, never a column on `customer`
+
+Raw milk was reported falling from **KES 80 to KES 50–60 per litre in two
+months** on a rain-driven glut, and rising sharply in drought. A ~40% intra-year
+swing means any model treating price as a static per-customer attribute is wrong
+most of the year.
+
+```sql
+create table price_list (
+  id             uuid primary key,
+  farm_id        uuid not null,
+  scope          text not null check (scope in ('CHANNEL','CUSTOMER')),
+  customer_type  text,                        -- when scope = CHANNEL
+  customer_id    uuid references customer(id),-- when scope = CUSTOMER
+  rate_kes_per_litre numeric(8,2) not null,
+  min_litres     numeric(8,2),                -- volume break tiers
+  effective_from date not null,
+  effective_to   date,
+  reason         text,                        -- 'dry season', 'glut', 'contract renewal'
+  set_by         uuid not null references app_user(id)
+);
+```
+
+Resolution order at the point of sale: customer-specific override → channel
+default → farm default, each filtered to the effective date. The pricing screen
+shows the **cost of production line (KES 30–37/litre)** alongside, so nobody
+prices below break-even by accident.
 
 ```sql
 create table customer_ledger_entry (    -- APPEND ONLY. The running tab.
@@ -493,9 +534,43 @@ create table sales_invoice (        -- institutions only
   due_on        date,
   status        text not null default 'ISSUED'
                   check (status in ('DRAFT','ISSUED','PART_PAID','PAID','OVERDUE','WRITTEN_OFF')),
-  lpo_number    text,
-  etims_ref     text,                            -- if the farm is VAT-registered
+  lpo_id        uuid references purchase_order(id),
+  -- KRA rescinded the under-KES-5m eTIMS exemption in 2024 (eTIMS Lite).
+  -- Institutional buyers need a compliant invoice to claim the expense, so they
+  -- will demand one regardless of our own threshold position.
+  etims_ref     text,
   unique (farm_id, invoice_no)
+);
+
+-- An LPO is borrowable collateral in Kenya, so it is a first-class object
+create table purchase_order (
+  id            uuid primary key,
+  farm_id       uuid not null,
+  customer_id   uuid not null references customer(id),
+  lpo_number    text not null,
+  issued_on     date,
+  expires_on    date,
+  value_kes     numeric(14,2),
+  litres_committed numeric(10,2),
+  status        text not null default 'OPEN'
+                  check (status in ('OPEN','FULFILLED','EXPIRED','CANCELLED'))
+);
+
+-- Permits, licences and certificates, with expiry alerting.
+-- Food handler certificates are valid SIX months — too short for an annual checklist.
+create table compliance_document (
+  id            uuid primary key,
+  farm_id       uuid not null,
+  doc_type      text not null check (doc_type in
+                  ('KDB_PERMIT','MILK_TRANSPORT_PERMIT','COUNTY_BUSINESS_PERMIT',
+                   'FOOD_HANDLER_CERT','TAX_COMPLIANCE_CERT','AGPO_CERT',
+                   'MILK_BAR_LICENCE','COOLING_FACILITY_PERMIT')),
+  reference_no  text,
+  holder_employee_id uuid references employee(id),   -- for food handler certs
+  issued_on     date,
+  expires_on    date not null,
+  cost_kes      numeric(14,2),
+  document_url  text
 );
 ```
 
@@ -512,10 +587,24 @@ from customer_ledger_entry
 group by customer_id, farm_id;
 ```
 
-Plus a **debtor aging bucket** (current / 30 / 60 / 90+ days) and a
+Plus a **debtor aging bucket** (0–30 / 31–60 / 61–90 / 90+ days) and a
 **credit-limit breach flag** that warns the rider *before* the next delivery —
 the cheapest possible bad-debt control, and the one thing an exercise book cannot
 do.
+
+**Two rules that are easy to miss and expensive to retrofit:**
+
+1. **A channel's legality depends on `customer.area_class`**, not on a global
+   setting. Raw milk direct to neighbouring consumers is a rural-area permission.
+2. **An institutional delivery creates a receivable, not revenue.** Public-sector
+   payment runs 30–90+ days. If the schema conflates the two, the farm's cash
+   position is overstated by a quarter's sales.
+
+**Late-payment interest is computable** under LN 20/2021 — buyers must pay after
+the end of the month of supply, and late payment attracts simple monthly interest
+at the prevailing CBK base rate. Store the base rate as versioned reference data
+(`reference_value.kind = 'CBK_BASE_RATE'`) and compute the entitlement on overdue
+invoices and co-op statements alike.
 
 ---
 

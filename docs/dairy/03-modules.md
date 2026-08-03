@@ -187,24 +187,72 @@ module models each properly.
 
 **Each channel gets what it actually needs:**
 
-- **Co-operative** — member number on every delivery, quality result per drop,
-  and the month-end statement reconciliation described below.
+- **Co-operative** — member number on every delivery, quality result per drop, the
+  month-end statement reconciliation described below, and a **late-payment
+  interest calculator**: under LN 20/2021 buyers must pay after the end of the
+  month of supply, and late payment attracts simple monthly interest at the CBK
+  base rate. Most farmers never claim it because nobody computes it. New KCC once
+  failed to pay KES 300m in arrears, so **track co-op and processor payment
+  performance exactly as for institutions** — counterparty risk runs both ways.
 - **Institution** — a **delivery note per drop with a counter-signature**, an
-  invoice covering the period, payment terms with a due date, and **arrears
-  aging**. School customers pause over holidays rather than being deleted, so
-  the standing order carries a `paused_from`/`paused_to` window and the volume
-  forecast doesn't collapse every December.
+  invoice covering the period with an **eTIMS reference field**, payment terms
+  with a due date, **LPO number, value and expiry** as a first-class object (a
+  farm holding a school LPO can borrow against it), and **arrears aging in
+  0–30 / 31–60 / 61–90 / 90+ buckets**. School customers pause over holidays
+  rather than being deleted, so the standing order carries a
+  `paused_from`/`paused_to` window and the volume forecast doesn't collapse every
+  December.
+  **Public institutions**: worth flagging **AGPO** to the client — 30% of all
+  public procurement is reserved for enterprises at least 70% owned and managed
+  by youth, women or persons with disabilities, and it binds all 47 counties. If
+  the farm's ownership qualifies, that is a real edge on county school tenders,
+  and it needs a valid KRA Tax Compliance Certificate.
 - **Household** — a **standing order** ("Mama Njeri, 2 L every morning"), a
   running ledger, and a settlement day. The delivery sheet is generated from the
   standing orders, prefilled, and the rider edits only the exceptions — the same
   two-tap pattern as the milk sheet.
 
-### The receivables problem, which is the real one
+### ⚠ Correction: household payment behaviour is an open question, not a fact
 
-Direct sales carry the best price and the worst risk. A household taking two
-litres a day at KES 70 owes about KES 4,200 by month end, and the traditional
-control — an exercise book at the farm — cannot tell you who is drifting until
-the money is already gone.
+An earlier draft of this document asserted that Kenyan households buy on a
+running tab settled at month end. **No source supports that.** Targeted research
+found no published description of the exercise-book credit convention, no figure
+for typical household daily volume, and no bad-debt rate — nobody appears to have
+published on farm-to-neighbour milk credit at all. The substantial study in this
+space covers *peri-urban informal milk vendors*, not commercial farms selling to
+neighbours.
+
+Worse for the assumption: one sourced finding **cuts against it** — in the
+informal chain, payment for milk delivered is reported as **prompt, often daily
+or weekly**, unlike formal trade.
+
+What *is* sourced is that credit selling is structurally normal in the trade, and
+that **"with few strategies to recoup costs from customers who fail to repay,
+failure to collect debt may cause default."** The risk is real; its size is
+unmeasured.
+
+**So the design is deliberately permissive rather than opinionated:** support
+cash-on-delivery *and* a running tab, farm-collection *and* delivery, and an
+arbitrary settlement day per customer. Let real usage reveal the distribution.
+Ten interviews with the client's own customers will beat every published source
+on this question — see [08-open-questions.md](08-open-questions.md).
+
+### The receivables problem, where it does apply
+
+Wherever credit *is* extended, direct sales carry the best price and the worst
+risk, and the traditional control — an exercise book at the farm — cannot tell
+you who is drifting until the money is already gone. This is unambiguously true
+of institutions, where it is not a judgement call at all:
+
+> Public-sector payment delays run **30 to 90 days, "and in many cases
+> significantly longer."** Kenyan public pending bills reached **KES 465.87
+> billion as of March 2026**. In one survey **over 68% of Kenyan SMEs had turned
+> down or delayed a confirmed supply contract** for lack of upfront capital.
+
+**An institutional delivery therefore creates a receivable, not revenue.** If the
+schema conflates the two, the farm's cash position is systematically overstated by
+30–90 days of sales. This is the single most expensive thing to get wrong here and
+the hardest to retrofit.
 
 So the module carries a proper **customer ledger**: every delivery is a debit,
 every payment a credit, with a running balance, days since last payment, and
