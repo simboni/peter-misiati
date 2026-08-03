@@ -2,7 +2,9 @@ import Link from "next/link";
 import { redirect, notFound } from "next/navigation";
 import { currentUser } from "@/lib/auth";
 import { getInvoice, issueInvoiceNo, invoiceMessage, waLink, BUSINESS } from "@/lib/credit";
+import { getPrintSettings, receiptFromInvoice } from "@/lib/print-settings";
 import { formatKes, formatAmount, formatQty, formatDateTime } from "@/lib/units";
+import { ThermalPrint } from "@/components/thermal-print";
 import { PrintButton } from "./print-button";
 
 export const dynamic = "force-dynamic";
@@ -35,12 +37,17 @@ const PRINT_CSS = `
  * from `items` — reprinting January's invoice must show January's price even
  * after the drum price has moved twice since.
  */
-export default async function InvoicePage(props: { params: Promise<{ id: string }> }) {
+export default async function InvoicePage(props: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ new?: string }>;
+}) {
   const user = await currentUser();
   if (!user) redirect("/login");
 
-  // `params` is a Promise in Next.js 16 — synchronous access was removed.
+  // `params` and `searchParams` are Promises in Next.js 16 — synchronous access
+  // was removed.
   const { id } = await props.params;
+  const { new: justSold } = await props.searchParams;
   const saleId = Number(id);
   if (!Number.isInteger(saleId)) notFound();
 
@@ -56,6 +63,11 @@ export default async function InvoicePage(props: { params: Promise<{ id: string 
   }
 
   const { sale, lines, tenders, balanceCents } = invoice;
+
+  // The thermal copy is built from the same snapshotted figures as the sheet
+  // below, so the two can never disagree about what was charged.
+  const printer = getPrintSettings();
+  const receipt = receiptFromInvoice(invoice, printer);
 
   return (
     <div>
@@ -198,16 +210,36 @@ export default async function InvoicePage(props: { params: Promise<{ id: string 
       </div>
 
       {/* --------------------------------------------------------- actions */}
-      <div className="no-print mt-4 flex gap-2">
-        <PrintButton />
-        <a
-          href={waLink(sale.customer_phone ?? "", invoiceMessage(invoice))}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex-1 rounded-xl bg-good-soft px-4 py-3 text-center text-sm font-bold text-good"
-        >
-          Share on WhatsApp
-        </a>
+      <div className="no-print mt-4 space-y-2">
+        {/*
+          The till printer first: it is the copy the customer walks out with.
+          Auto-print only fires when the sale has just been taken (`?new=1`) —
+          opening an old invoice to check a figure must not burn a roll.
+        */}
+        <ThermalPrint
+          receipt={receipt}
+          paper={printer.paper}
+          auto={printer.autoPrint && justSold === "1" && sale.status === "completed"}
+        />
+
+        <div className="flex gap-2">
+          <PrintButton />
+          <a
+            href={waLink(sale.customer_phone ?? "", invoiceMessage(invoice))}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex-1 rounded-xl bg-good-soft px-4 py-3 text-center text-sm font-bold text-good"
+          >
+            Share on WhatsApp
+          </a>
+        </div>
+
+        <p className="text-center text-[11px] text-muted">
+          &ldquo;Print&rdquo; makes the A5 paper copy.{" "}
+          <Link href="/settings/printer" className="font-semibold text-brand">
+            Printer settings
+          </Link>
+        </p>
       </div>
 
       <div className="no-print mt-4 flex gap-4 text-sm font-bold text-brand">
