@@ -62,7 +62,7 @@ export function MoreMenu({ isOwner }: { isOwner: boolean }) {
     { href: "/expenses", label: "Expenses", owner: false },
     { href: "/stocktake", label: "Stock take", owner: false },
     { href: "/day-close", label: "Day close", owner: false },
-    { href: "/settings", label: "Users & settings", owner: true },
+    { href: "/settings/printer", label: "Receipt printer", owner: true },
   ].filter((l) => !l.owner || isOwner);
 
   return (
