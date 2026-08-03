@@ -530,7 +530,7 @@ describe("feed purchases and the approval boundary", () => {
     await t.close();
   });
 
-  it("writes no audit row and no expense row for a KES 35,000 purchase (observed)", async () => {
+  it("posts a KES 35,000 purchase to expenses as PENDING, not straight into the books", async () => {
     const t = await setup();
     const meal = await seedFeedItem(t.db);
     await recordPurchaseFor(
@@ -538,8 +538,14 @@ describe("feed purchases and the approval boundary", () => {
       { feedItemId: meal, purchasedOn: "2026-08-01", quantity: 10, unit: "BAG_70KG", unitPriceKes: 3_500 },
       t.d,
     );
-    expect(await t.db.select().from(s.expense).where(eq(s.expense.farmId, FARM_ID))).toHaveLength(0);
-    expect(await t.db.select().from(s.auditEntry).where(eq(s.auditEntry.farmId, FARM_ID))).toHaveLength(0);
+    // Feed is 55-65% of production cost, so a purchase has to reach the cash
+    // book or cost per litre is fiction. It arrives PENDING: staff record,
+    // managers approve, and nothing moves a report until it is approved.
+    const expenses = await t.db.select().from(s.expense).where(eq(s.expense.farmId, FARM_ID));
+    expect(expenses).toHaveLength(1);
+    expect(expenses[0].category).toBe("FEEDS");
+    expect(expenses[0].amountKes).toBe("35000.00");
+    expect(expenses[0].status).toBe("PENDING");
     await t.close();
   });
 });
@@ -582,28 +588,28 @@ describe("tenancy", () => {
     const theirs = await seedOtherFarm(t.db);
     const ghost = newId();
 
-    const a = await recordPurchaseFor(
-      t.session,
-      { feedItemId: theirs.feedItemId, purchasedOn: "2026-08-01", quantity: 1, unit: "BAG_70KG", unitPriceKes: 1 },
-      t.d,
-    );
-    const b = await recordPurchaseFor(
-      t.session,
-      { feedItemId: ghost, purchasedOn: "2026-08-01", quantity: 1, unit: "BAG_70KG", unitPriceKes: 1 },
-      t.d,
-    );
-    expect(a.ok).toBe(false);
-    expect(b.ok).toBe(false);
-    if (!a.ok && !b.ok) {
-      expect(a.error).toBe("That feed was not found.");
-      expect(a.error).toBe(b.error);
-    }
+    // The internal helpers throw; guard() turns that into an ActionResult at
+    // the action boundary. Either way the refusal is identical whether the id
+    // belongs to another farm or to nobody — distinguishing them would leak
+    // that another farm holds it.
+    const buy = (feedItemId: string) =>
+      recordPurchaseFor(
+        t.session,
+        { feedItemId, purchasedOn: "2026-08-01", quantity: 1, unit: "BAG_70KG", unitPriceKes: 1 },
+        t.d,
+      );
+    await expect(buy(theirs.feedItemId)).rejects.toThrow("That feed was not found.");
+    await expect(buy(ghost)).rejects.toThrow("That feed was not found.");
 
-    const c = await recordIssueFor(
-      t.session, { feedItemId: theirs.feedItemId, issuedOn: "2026-08-02", quantity: 1, unit: "BAG_70KG" }, t.d,
-    );
-    expect(c.ok).toBe(false);
-    if (!c.ok) expect(c.error).toContain("That feed was not found.");
+    await expect(
+      recordIssueFor(
+        t.session,
+        { feedItemId: theirs.feedItemId, issuedOn: "2026-08-02", quantity: 1, unit: "BAG_70KG" },
+        t.d,
+      ),
+    ).rejects.toThrow("That feed was not found.");
+
+    expect(await t.db.select().from(s.feedPurchase).where(eq(s.feedPurchase.farmId, FARM_ID))).toHaveLength(0);
     await t.close();
   });
 
@@ -612,18 +618,19 @@ describe("tenancy", () => {
     const theirs = await seedOtherFarm(t.db);
     const meal = await seedFeedItem(t.db);
 
-    const res = await recordIssueFor(
-      t.session,
-      { feedItemId: meal, issuedOn: "2026-08-02", quantity: 1, unit: "BAG_70KG", animalId: theirs.animalId },
-      t.d,
-    );
-    expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.error).toBe("That animal was not found.");
+    await expect(
+      recordIssueFor(
+        t.session,
+        { feedItemId: meal, issuedOn: "2026-08-02", quantity: 1, unit: "BAG_70KG", animalId: theirs.animalId },
+        t.d,
+      ),
+    ).rejects.toThrow("That animal was not found.");
     // ...and nothing was written, because every line is validated before any write.
     expect(await t.db.select().from(s.feedIssue).where(eq(s.feedIssue.farmId, FARM_ID))).toHaveLength(0);
 
-    await expect(rationAdvice(t.session, { animalId: theirs.animalId }, "2026-08-02", t.d))
-      .rejects.toThrow("That animal was not found.");
+    await expect(
+      rationAdvice(t.session, { animalId: theirs.animalId }, "2026-08-02", t.d),
+    ).rejects.toThrow("That animal was not found.");
     await expect(rationAdvice(t.session, { animalId: newId() }, "2026-08-02", t.d))
       .rejects.toThrow("That animal was not found.");
     await t.close();
@@ -644,11 +651,12 @@ describe("tenancy", () => {
   it("refuses to update or delete another farm's fodder record", async () => {
     const t = await setup();
     const theirs = await seedOtherFarm(t.db);
-    const u = await updateFodderProductionFor(t.session, theirs.fodderId, { crop: "Hijacked" }, t.d);
-    const del = await deleteFodderProductionFor(t.session, theirs.fodderId, t.d);
-    expect(u.ok).toBe(false);
-    expect(del.ok).toBe(false);
-    if (!u.ok) expect(u.error).toBe("That fodder record was not found.");
+    await expect(
+      updateFodderProductionFor(t.session, theirs.fodderId, { crop: "Hijacked" }, t.d),
+    ).rejects.toThrow("That fodder record was not found.");
+    await expect(
+      deleteFodderProductionFor(t.session, theirs.fodderId, t.d),
+    ).rejects.toThrow("That fodder record was not found.");
     const [row] = await t.db.select().from(s.fodderProduction).where(eq(s.fodderProduction.id, theirs.fodderId));
     expect(row.crop).toBe("Napier");
     await t.close();

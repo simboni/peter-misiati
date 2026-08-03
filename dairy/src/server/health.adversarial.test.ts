@@ -217,7 +217,12 @@ describe("withdrawal arithmetic", () => {
     const on = await getWithdrawalStatus(session, [animalId], "2026-08-08", t.db);
     expect(before.get(animalId)!.milkBlocked).toBe(true);
     expect(on.get(animalId)!.milkBlocked).toBe(false);
-    expect(on.get(animalId)!.message).toBeNull();
+    // Milk clears on day 7; meat runs to 28. The two are tracked separately
+    // because a cow can be fit to milk long before she is fit to sell, and
+    // collapsing them would either dump milk needlessly or send meat early.
+    expect(on.get(animalId)!.meatBlocked).toBe(true);
+    expect(on.get(animalId)!.message).toContain("slaughter");
+    expect(on.get(animalId)!.message).not.toContain("milk");
     await t.close();
   });
 
@@ -521,8 +526,8 @@ describe("S19 and ECF-ITM: the refusals that must hold", () => {
     },
   );
 
-  it.fails(
-    "DEFECT: a free-text diagnosis of 'S19' on a treatment blocks the real S19 dose",
+  it(
+    "a free-text diagnosis of 'S19' does not count as a prior S19 dose",
     async () => {
       const t = await setup();
       const heifer = await seedAnimal(t.raw, { name: "Wambui", dateOfBirth: addDays(NOW, -150) });
@@ -535,8 +540,9 @@ describe("S19 and ECF-ITM: the refusals that must hold", () => {
         t.db,
       );
 
-      // The routine key and free-text diagnosis share one column, so this now
-      // counts as a prior dose and she can never be vaccinated.
+      // The routine key and the free-text diagnosis are separate columns, so a
+      // vet's note cannot burn her once-in-a-lifetime S19 dose. If these ever
+      // share a column, this test is the thing that catches it.
       const r = await recordVaccinationFor(session, { animalId: heifer, routine: "S19" }, t.db);
       expect(r.ok).toBe(true);
       await t.close();
