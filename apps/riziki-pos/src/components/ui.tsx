@@ -122,8 +122,16 @@ export function Field({
   );
 }
 
-export const inputClass =
-  "w-full rounded-xl border border-line bg-white px-3 py-3 text-base text-ink placeholder:text-muted/70";
+/**
+ * Input styling without a width, for the few places that need a narrow box
+ * (a quantity column next to a label). Appending `w-24` to `inputClass` does
+ * not work: both are width utilities of equal specificity, and Tailwind emits
+ * `w-full` last, so it silently wins and squashes the label beside it.
+ */
+export const inputClassBase =
+  "rounded-xl border border-line bg-white px-3 py-3 text-base text-ink placeholder:text-muted/70";
+
+export const inputClass = `${inputClassBase} w-full`;
 
 /** Wide tables must scroll inside their own box, never the page. */
 export function TableWrap({ children }: { children: ReactNode }) {

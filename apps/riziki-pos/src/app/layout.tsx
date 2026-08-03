@@ -3,6 +3,7 @@ import Link from "next/link";
 import "./globals.css";
 import { currentUser } from "@/lib/auth";
 import { BottomNav } from "@/components/nav";
+import { signOut } from "@/app/actions/session";
 
 export const metadata: Metadata = {
   title: "Riziki POS",
@@ -39,12 +40,14 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                   {user.name} · {user.role === "owner" ? "Owner" : "Attendant"}
                 </div>
               </div>
-              <Link
-                href="/logout"
-                className="rounded-lg border border-line px-2.5 py-1.5 text-[11px] font-bold text-muted"
-              >
-                Sign out
-              </Link>
+              <form action={signOut}>
+                <button
+                  type="submit"
+                  className="rounded-lg border border-line px-2.5 py-1.5 text-[11px] font-bold text-muted"
+                >
+                  Sign out
+                </button>
+              </form>
             </header>
           ) : null}
 

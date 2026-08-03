@@ -11,7 +11,9 @@
 
 import { useActionState, useEffect, useState } from "react";
 import { formatKes, formatQty, formatUnits, formatDateTime } from "@/lib/units";
-import { Alert, Button, Card, Chip, Field, PageTitle, SectionLabel, inputClass } from "@/components/ui";
+import {
+  Alert, Button, Card, Chip, Field, PageTitle, SectionLabel, inputClass, inputClassBase,
+} from "@/components/ui";
 import type { BulkOption, RecentRepack } from "@/lib/stock-service";
 
 export interface RepackState {
@@ -136,7 +138,7 @@ export function RepackClient({
                   </div>
                 </div>
                 <input
-                  className={`${inputClass} w-24 shrink-0 text-right tnum`}
+                  className={`${inputClassBase} w-24 shrink-0 text-right tnum`}
                   name={`units_${p.itemId}`}
                   type="number"
                   inputMode="numeric"

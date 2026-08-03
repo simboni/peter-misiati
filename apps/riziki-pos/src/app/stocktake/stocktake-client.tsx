@@ -10,7 +10,9 @@
 
 import { useActionState, useEffect, useMemo, useState } from "react";
 import { formatKes, formatQty, formatUnits } from "@/lib/units";
-import { Alert, Button, Card, Chip, Empty, Field, PageTitle, SectionLabel, Stat, inputClass } from "@/components/ui";
+import {
+  Alert, Button, Card, Chip, Empty, Field, PageTitle, SectionLabel, Stat, inputClass, inputClassBase,
+} from "@/components/ui";
 import type { StockLine } from "@/lib/stock-service";
 
 export interface StocktakeState {
@@ -145,7 +147,7 @@ export function StocktakeClient({
                     </div>
                   </div>
                   <input
-                    className={`${inputClass} w-24 shrink-0 text-right tnum`}
+                    className={`${inputClassBase} w-24 shrink-0 text-right tnum`}
                     type="number"
                     inputMode="decimal"
                     min="0"

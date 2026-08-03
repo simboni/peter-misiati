@@ -189,7 +189,11 @@ export default async function BatchPage(props: {
               name="l"
               defaultValue={hasTarget ? String(litres) : ""}
               min="0.001"
-              step="0.1"
+              // step="any": with a 0.001 minimum, any fixed step makes the valid
+              // values 0.001, 0.101, ... 99.901 — so the browser rejects round
+              // numbers like 20 and 100, which are the only ones anyone types.
+              // The server still enforces the real minimum batch size.
+              step="any"
               inputMode="decimal"
               placeholder="20"
             />
