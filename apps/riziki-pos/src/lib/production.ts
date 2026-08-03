@@ -14,8 +14,8 @@
  *   - a batch records `formula_version_id`, never a bare `formula_id`.
  */
 
-import { all, get, run, tx, postMovement, audit } from "./db.ts";
-import { scaleMilli, businessDate, fromMilli } from "./units.ts";
+import { all, get, run, tx, postMovement, audit, updateAverageCost } from "./db.ts";
+import { scaleMilli, businessDate, fromMilli, toMilli } from "./units.ts";
 
 export type Unit = "kg" | "L" | "pcs";
 
@@ -615,7 +615,12 @@ export function recordYield(input: RecordYieldInput): { batchNo: string; varianc
       target_milli: number;
       actual_milli: number | null;
       status: string;
-    }>(`SELECT id, batch_no, target_milli, actual_milli, status FROM batches WHERE id = ?`, input.batchId);
+      cost_cents: number;
+    }>(
+      `SELECT id, batch_no, target_milli, actual_milli, status, cost_cents
+         FROM batches WHERE id = ?`,
+      input.batchId,
+    );
 
     if (!batch) throw new Error("That batch no longer exists.");
     if (batch.status !== "completed") throw new Error("That batch was voided.");
@@ -626,6 +631,49 @@ export function recordYield(input: RecordYieldInput): { batchNo: string; varianc
     run(`UPDATE batches SET actual_milli = ? WHERE id = ?`, input.actualMilli, input.batchId);
 
     if (input.outputItemId && input.actualMilli > 0) {
+      const out = get<{ size_milli: number; name: string }>(
+        `SELECT size_milli, name FROM items WHERE id = ?`,
+        input.outputItemId,
+      );
+      const units = out && out.size_milli > 0 ? input.actualMilli / out.size_milli : 0;
+
+      // Bottling consumes packaging. Only whole containers are filled, so the
+      // remainder of a part-filled bottle stays as bulk rather than eating a
+      // jerrican that was never used.
+      const wholeUnits = Math.floor(units);
+      let packagingCents = 0;
+      if (wholeUnits > 0) {
+        const bom = all<{ packaging_item_id: number; qty_per_unit: number; cost_cents: number; name: string }>(
+          `SELECT ip.packaging_item_id, ip.qty_per_unit, i.cost_cents, i.name
+             FROM item_packaging ip
+             JOIN items i ON i.id = ip.packaging_item_id
+            WHERE ip.item_id = ?`,
+          input.outputItemId,
+        );
+        for (const p of bom) {
+          const pieces = p.qty_per_unit * wholeUnits;
+          packagingCents += pieces * p.cost_cents;
+          postMovement({
+            itemId: p.packaging_item_id,
+            deltaMilli: -toMilli(pieces),
+            reason: "batch_consume",
+            refType: "batch",
+            refId: input.batchId,
+            userId: input.userId,
+            note: `${batch.batch_no} · ${pieces} × ${p.name}`,
+          });
+        }
+      }
+
+      // The whole point of costing a batch is that the bottle carries the cost.
+      // Reagents plus packaging, spread over what was ACTUALLY produced — using
+      // the target would understate cost per litre by whatever the batch lost.
+      // This runs before the stock movement because the weighted average is
+      // computed against stock on hand; posting first counts the new units twice.
+      if (units > 0) {
+        updateAverageCost(input.outputItemId, units, batch.cost_cents + packagingCents);
+      }
+
       postMovement({
         itemId: input.outputItemId,
         deltaMilli: input.actualMilli,

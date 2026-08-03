@@ -377,6 +377,32 @@ export function seed(): { chemicals: number; items: number; formulas: number } {
     postMovement({ itemId: id, deltaMilli: toMilli(p.qty), reason: "opening", userId: ownerId, note: "opening count" });
   }
 
+  // --- what each finished product is packed into -------------------------
+  // Bottling consumes these, and their cost lands in the product's cost, so a
+  // 500 ml bottle is not reported as pure profit.
+  const capId = itemIds["pack:Bottle cap"];
+  const labelId = itemIds["pack:Product label"];
+  for (const f of FINISHED) {
+    const outId = itemIds[`finished:${f.name}`];
+    if (!outId) continue;
+    const container =
+      f.size <= 0.5 ? "500 ml bottle" : f.size <= 1 ? "1 L bottle" : f.size <= 5 ? "5 L jerrican" : "20 L jerrican";
+    const containerId = itemIds[`pack:${container}`];
+    for (const [pid, qty] of [
+      [containerId, 1],
+      [capId, 1],
+      [labelId, 1],
+    ] as Array<[number | undefined, number]>) {
+      if (!pid) continue;
+      run(
+        `INSERT OR IGNORE INTO item_packaging (item_id, packaging_item_id, qty_per_unit) VALUES (?, ?, ?)`,
+        outId,
+        pid,
+        qty,
+      );
+    }
+  }
+
   // --- opening stock from the stock-take sheet ---------------------------
   for (const [key, sizes] of Object.entries(OPENING)) {
     for (const [sizeKey, units] of Object.entries(sizes)) {

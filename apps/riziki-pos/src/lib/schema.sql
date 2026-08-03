@@ -206,6 +206,18 @@ CREATE TABLE IF NOT EXISTS repack_lines (
   qty_milli INTEGER NOT NULL CHECK (qty_milli > 0)
 );
 
+-- What one unit of a finished product is packed into: a bottle, a cap, a label.
+-- Without this, packaging is bought and counted but never consumed, so the
+-- jerrican count never falls and a fifth of the cost of a small bottle is
+-- missing from its margin.
+CREATE TABLE IF NOT EXISTS item_packaging (
+  id                 INTEGER PRIMARY KEY,
+  item_id            INTEGER NOT NULL REFERENCES items(id),
+  packaging_item_id  INTEGER NOT NULL REFERENCES items(id),
+  qty_per_unit       INTEGER NOT NULL CHECK (qty_per_unit > 0),
+  UNIQUE (item_id, packaging_item_id)
+);
+
 -- ------------------------------------------------------------ customers & sales
 
 CREATE TABLE IF NOT EXISTS customers (
