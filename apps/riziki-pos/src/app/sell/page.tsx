@@ -161,6 +161,10 @@ export default async function SellPage() {
       items={items}
       topSellerIds={topSellerItemIds(6)}
       customers={customers}
+      // The counter may still be looking at this page hours later, served from
+      // the service worker cache with no network. Stamping the read means a
+      // stale stock count can be labelled as stale instead of read as gospel.
+      stockAsOf={new Date().toISOString()}
       action={sellAction}
     />
   );

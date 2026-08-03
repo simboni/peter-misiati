@@ -3,6 +3,8 @@ import Link from "next/link";
 import "./globals.css";
 import { currentUser } from "@/lib/auth";
 import { BottomNav } from "@/components/nav";
+import OfflineStatus from "@/components/offline-status";
+import RegisterSW from "@/components/register-sw";
 import { signOut } from "@/app/actions/session";
 
 export const metadata: Metadata = {
@@ -25,6 +27,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang="en">
       <body className="min-h-dvh">
+        <RegisterSW />
         <div className="mx-auto min-h-dvh max-w-lg bg-white shadow-sm">
           {user ? (
             <header className="no-print flex items-center gap-2.5 border-b border-line px-4 py-3">
@@ -40,6 +43,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                   {user.name} · {user.role === "owner" ? "Owner" : "Attendant"}
                 </div>
               </div>
+              <OfflineStatus />
               <form action={signOut}>
                 <button
                   type="submit"

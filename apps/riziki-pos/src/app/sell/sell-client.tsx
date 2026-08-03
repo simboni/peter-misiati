@@ -16,9 +16,18 @@
  */
 
 import Link from "next/link";
-import { useActionState, useEffect, useMemo, useRef, useState, startTransition } from "react";
+import {
+  useActionState,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  startTransition,
+} from "react";
 import type { PayMethod, Tier } from "@/lib/sales";
-import { formatKes, formatUnits } from "@/lib/units";
+import { countOutbox, enqueueSale, onOutboxChange, type QueuedSalePayload } from "@/lib/offline";
+import { formatDateTime, formatKes, formatUnits } from "@/lib/units";
 import { Alert, Button, Chip, SectionLabel, inputClass } from "@/components/ui";
 
 // ------------------------------------------------------------- wire types
@@ -79,9 +88,30 @@ export type SellState =
       totalCents: number;
       paidCents: number;
       outstandingCents: number;
+    }
+  /**
+   * Saved on the phone, not yet on the till. This is a success, not an error —
+   * the customer has paid and can leave — so it reads like one.
+   */
+  | {
+      status: "queued";
+      clientUuid: string;
+      totalCents: number;
+      queuedAt: string;
+      /** `offline` = the phone knew; `unreachable` = it thought it was online. */
+      reason: "offline" | "unreachable";
     };
 
 export const IDLE: SellState = { status: "idle" };
+
+/**
+ * How long to wait for the till before deciding the sale belongs in the outbox.
+ *
+ * Safaricom's failure mode is not a clean disconnection — it is a request that
+ * hangs. A spinner that never resolves in front of a queue is exactly what
+ * sends the shop back to the paper notebook, so there is a deadline.
+ */
+const TILL_TIMEOUT_MS = 12_000;
 
 // ------------------------------------------------------------------ helpers
 
@@ -101,6 +131,73 @@ function newUuid(): string {
   b[8] = (b[8] & 0x3f) | 0x80;
   const h = Array.from(b, (n) => n.toString(16).padStart(2, "0")).join("");
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
+/** `navigator.onLine` is a hint, not a fact — but a false one is worth acting on. */
+function seemsOnline(): boolean {
+  return typeof navigator === "undefined" || navigator.onLine !== false;
+}
+
+function withDeadline<T>(work: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("the till did not answer")), ms);
+    work.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
+
+/**
+ * Move a cart into the outbox.
+ *
+ * The owner PIN and the credit acknowledgement are deliberately dropped: a PIN
+ * must never sit at rest on the shared counter phone, and the credit-limit
+ * warning is an interactive check that cannot be answered by a queue. Both are
+ * asked again at send time if they are still needed.
+ */
+async function queueSale(
+  payload: SalePayload,
+  reason: "offline" | "unreachable",
+): Promise<SellState> {
+  const totalCents = payload.lines.reduce((sum, l) => sum + l.unitPriceCents * l.units, 0);
+  const queuedAt = new Date().toISOString();
+
+  const queued: QueuedSalePayload = {
+    clientUuid: payload.clientUuid,
+    tier: payload.tier,
+    lines: payload.lines.map((l) => ({ ...l })),
+    tenders: payload.tenders.map((t) => ({
+      method: t.method,
+      amountCents: t.amountCents,
+      // An absent code must stay absent rather than become the string
+      // "undefined" once IndexedDB and JSON have both had a turn at it.
+      ...(t.mpesaCode ? { mpesaCode: t.mpesaCode } : {}),
+    })),
+    customerId: payload.customerId,
+    queuedAt,
+    totalCents,
+  };
+
+  try {
+    await enqueueSale(queued);
+    return { status: "queued", clientUuid: payload.clientUuid, totalCents, queuedAt, reason };
+  } catch {
+    // The one case where the counter must be told to reach for the notebook:
+    // there is no network AND no storage. Never a silent failure.
+    return {
+      status: "error",
+      message:
+        "This phone cannot reach the till and cannot save the sale either. " +
+        "Write it down and enter it when the connection is back.",
+    };
+  }
 }
 
 function listPrice(item: SellItem, tier: Tier): number {
@@ -140,11 +237,14 @@ export default function SellClient({
   items,
   topSellerIds,
   customers,
+  stockAsOf,
   action,
 }: {
   items: SellItem[];
   topSellerIds: number[];
   customers: SellCustomer[];
+  /** When the server read these stock counts. Shown whenever they may be stale. */
+  stockAsOf: string;
   action: (prev: SellState, payload: SalePayload) => Promise<SellState>;
 }) {
   const [tier, setTier] = useState<Tier>("retail");
@@ -156,11 +256,43 @@ export default function SellClient({
   const [amountInput, setAmountInput] = useState("");
   const [customerId, setCustomerId] = useState<number | null>(null);
   const [ownerPin, setOwnerPin] = useState("");
-  const [receipt, setReceipt] = useState<Extract<SellState, { status: "done" }> | null>(null);
+  const [receipt, setReceipt] = useState<Extract<
+    SellState,
+    { status: "done" } | { status: "queued" }
+  > | null>(null);
+
+  // The counter needs to know, without asking, whether what it sees is live.
+  const [online, setOnline] = useState(true);
+  const [waiting, setWaiting] = useState(0);
 
   const uuid = useRef<string>(newUuid());
-  const [state, submit, pending] = useActionState(action, IDLE);
-  const handled = useRef<number>(0);
+
+  /**
+   * Every submit goes through here, online or not.
+   *
+   * Wrapping the server action rather than branching before it means the queue
+   * catches all three failures the same way: a phone that knows it is offline,
+   * a phone that thinks it is online but is not, and a request that hangs. In
+   * every case the sale ends up somewhere durable and the counter is told so.
+   *
+   * A sale that was in fact recorded before the deadline is not lost work: the
+   * replay carries the same `client_uuid`, the till answers "already recorded",
+   * and the outbox drops it. That is the whole point of the uuid.
+   */
+  const submitSale = useCallback(
+    async (prev: SellState, payload: SalePayload): Promise<SellState> => {
+      if (!seemsOnline()) return queueSale(payload, "offline");
+      try {
+        return await withDeadline(action(prev, payload), TILL_TIMEOUT_MS);
+      } catch {
+        return queueSale(payload, "unreachable");
+      }
+    },
+    [action],
+  );
+
+  const [state, submit, pending] = useActionState(submitSale, IDLE);
+  const handled = useRef<string>("");
 
   const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
 
@@ -180,10 +312,21 @@ export default function SellClient({
   // --- after a completed sale, start clean --------------------------------
   // Resetting the tier is the point: a toggle left on wholesale silently
   // mis-prices every sale for the rest of the day.
+  //
+  // A queued sale resets exactly like a recorded one. The customer has paid and
+  // walked off; making the counter treat "saved here" differently from "saved
+  // there" is how a queue builds up behind one confused attendant.
   useEffect(() => {
-    if (state.status !== "done" || handled.current === state.saleId) return;
-    handled.current = state.saleId;
-    setReceipt(state);
+    const key =
+      state.status === "done"
+        ? `sale:${state.saleId}`
+        : state.status === "queued"
+          ? `queued:${state.clientUuid}`
+          : "";
+    if (!key || handled.current === key) return;
+
+    handled.current = key;
+    setReceipt(state as Extract<SellState, { status: "done" } | { status: "queued" }>);
     setCart([]);
     setTenders([]);
     setAmountInput("");
@@ -194,6 +337,32 @@ export default function SellClient({
     setSheet("none");
     uuid.current = newUuid();
   }, [state]);
+
+  // --- connection and outbox ----------------------------------------------
+  useEffect(() => {
+    let alive = true;
+    const recount = () => {
+      void countOutbox().then((n) => {
+        if (alive) setWaiting(n);
+      });
+    };
+
+    setOnline(navigator.onLine);
+    recount();
+
+    const goOnline = () => setOnline(true);
+    const goOffline = () => setOnline(false);
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+    const stopWatching = onOutboxChange(recount);
+
+    return () => {
+      alive = false;
+      window.removeEventListener("online", goOnline);
+      window.removeEventListener("offline", goOffline);
+      stopWatching();
+    };
+  }, []);
 
   // --- cart ---------------------------------------------------------------
 
@@ -334,15 +503,42 @@ export default function SellClient({
 
       {receipt ? (
         <div className="mb-3">
-          <Alert tone={receipt.outstandingCents > 0 ? "warn" : "good"}>
-            Sale #{receipt.saleId} recorded — {formatKes(receipt.totalCents)}.{" "}
-            {receipt.outstandingCents > 0
-              ? `${formatKes(receipt.outstandingCents)} on credit.`
-              : "Paid in full."}{" "}
-            <Link href="/sales" className="font-bold underline">
-              View
-            </Link>
-          </Alert>
+          {receipt.status === "queued" ? (
+            /* Never a spinner, never a shrug: the sale is somewhere durable and
+               the counter is told exactly where, and what happens next. */
+            <Alert tone="warn">
+              Saved on this phone — {formatKes(receipt.totalCents)}.{" "}
+              {receipt.reason === "offline"
+                ? "There is no network."
+                : "The till did not answer."}{" "}
+              It will send itself as soon as the connection is back. Nothing is lost.
+            </Alert>
+          ) : (
+            <Alert tone={receipt.outstandingCents > 0 ? "warn" : "good"}>
+              Sale #{receipt.saleId} recorded — {formatKes(receipt.totalCents)}.{" "}
+              {receipt.outstandingCents > 0
+                ? `${formatKes(receipt.outstandingCents)} on credit.`
+                : "Paid in full."}{" "}
+              <Link href="/sales" className="font-bold underline">
+                View
+              </Link>
+            </Alert>
+          )}
+        </div>
+      ) : null}
+
+      {/* Stock read from the till at a moment in time. Offline — or with sales
+          still sitting in the outbox — that moment has passed, so say when it
+          was rather than letting a stale count read as today's truth. */}
+      {!online || waiting > 0 ? (
+        <div className="mb-3 rounded-xl border border-line bg-wash px-3.5 py-2.5 text-xs text-muted">
+          <span className="font-bold text-ink">
+            {online ? "Sending saved sales" : "Offline — you can keep selling."}
+          </span>{" "}
+          Stock counts below are as of {formatDateTime(stockAsOf)} and do not include
+          {waiting > 0
+            ? ` the ${waiting} sale${waiting === 1 ? "" : "s"} still waiting to send.`
+            : " anything sold since."}
         </div>
       ) : null}
 
@@ -609,12 +805,16 @@ export default function SellClient({
             onClick={() => complete(state.status === "credit")}
           >
             {pending
-              ? "Recording…"
+              ? online
+                ? "Recording…"
+                : "Saving on this phone…"
               : state.status === "credit"
                 ? "Sell on credit anyway"
-                : outstandingCents > 0
-                  ? `Complete — ${formatKes(outstandingCents)} on credit`
-                  : `Complete sale — ${formatKes(totalCents)}`}
+                : !online
+                  ? `Save offline — ${formatKes(totalCents)}`
+                  : outstandingCents > 0
+                    ? `Complete — ${formatKes(outstandingCents)} on credit`
+                    : `Complete sale — ${formatKes(totalCents)}`}
           </Button>
 
           {mpesaIncomplete ? (
