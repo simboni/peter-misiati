@@ -1,0 +1,284 @@
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
+import { currentUser, requireOwner } from "@/lib/auth";
+import {
+  formulaById,
+  currentVersion,
+  versionById,
+  versionsOf,
+  formulaItems,
+  listChemicals,
+  createFormulaVersion,
+} from "@/lib/production";
+import { formatQty, fromMilli, toMilli, formatDateTime } from "@/lib/units";
+import {
+  PageTitle,
+  Card,
+  Chip,
+  Alert,
+  SectionLabel,
+  TableWrap,
+  Th,
+  Td,
+  LinkButton,
+  Empty,
+} from "@/components/ui";
+import { EditFormulaForm, type SaveState } from "./edit-form";
+
+export const dynamic = "force-dynamic";
+
+/**
+ * Save an edited recipe.
+ *
+ * Note what this does NOT do: it never touches the version being edited. A
+ * batch mixed last week points at that row, and its cost and composition have
+ * to keep telling the truth.
+ */
+async function saveFormula(_prev: SaveState, formData: FormData): Promise<SaveState> {
+  "use server";
+
+  const formulaId = Number(formData.get("formulaId"));
+  let version: number;
+
+  try {
+    const owner = await requireOwner();
+
+    const refLitres = Number(formData.get("refLitres"));
+    if (!Number.isFinite(refLitres) || refLitres <= 0) {
+      return { error: "Enter the reference batch size in litres." };
+    }
+
+    const chemicalIds = formData.getAll("chemicalId").map((v) => Number(v));
+    const quantities = formData.getAll("qty").map((v) => Number(v));
+
+    const items = chemicalIds
+      .map((chemicalId, i) => ({
+        chemicalId,
+        qtyMilli: Number.isFinite(quantities[i]) ? toMilli(quantities[i]) : 0,
+      }))
+      .filter((row) => row.chemicalId > 0 && row.qtyMilli > 0);
+
+    if (!items.length) {
+      return { error: "Give at least one ingredient a quantity above zero." };
+    }
+
+    ({ version } = createFormulaVersion({
+      formulaId,
+      refSizeMilli: toMilli(refLitres),
+      steps: String(formData.get("steps") ?? "").trim(),
+      note: String(formData.get("note") ?? "").trim(),
+      items,
+      userId: owner.id,
+    }));
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not save the formula." };
+  }
+
+  revalidatePath(`/formulas/${formulaId}`);
+  revalidatePath("/formulas");
+  // Outside the catch: redirect works by throwing, and swallowing it would
+  // leave the owner staring at a form that had already saved.
+  redirect(`/formulas/${formulaId}?saved=${version}`);
+}
+
+export default async function FormulaDetailPage(props: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ v?: string; edit?: string; saved?: string }>;
+}) {
+  // `params` and `searchParams` are Promises in Next.js 16.
+  const { id } = await props.params;
+  const { v, edit, saved } = await props.searchParams;
+
+  // Gate before a single ingredient is read.
+  try {
+    await requireOwner();
+  } catch {
+    if (!(await currentUser())) redirect("/login");
+    return (
+      <div>
+        <PageTitle title="Formula" />
+        <Alert tone="bad">The recipes are the owner&rsquo;s.</Alert>
+      </div>
+    );
+  }
+
+  const formulaId = Number(id);
+  const formula = formulaById(formulaId);
+  if (!formula) {
+    return (
+      <div>
+        <PageTitle title="Formula" />
+        <Empty>That formula does not exist.</Empty>
+        <LinkButton href="/formulas">Back to formulas</LinkButton>
+      </div>
+    );
+  }
+
+  const versions = versionsOf(formulaId);
+  const current = currentVersion(formulaId);
+  const shown = (v ? versionById(Number(v)) : current) ?? current;
+
+  if (!shown || shown.formula_id !== formulaId) {
+    return (
+      <div>
+        <PageTitle title={formula.name} />
+        <Empty>This formula has no recorded version yet.</Empty>
+      </div>
+    );
+  }
+
+  const items = formulaItems(shown.id);
+  const editing = edit === "1";
+
+  if (editing) {
+    return (
+      <div>
+        <PageTitle
+          title={`Edit ${formula.name}`}
+          subtitle={`Editing from version ${shown.version}`}
+        />
+        <EditFormulaForm
+          action={saveFormula}
+          formulaId={formulaId}
+          chemicals={listChemicals()}
+          refLitres={String(fromMilli(shown.ref_size_milli))}
+          steps={shown.steps}
+          note={shown.note}
+          rows={items.map((i) => ({
+            chemicalId: i.chemical_id,
+            qty: String(fromMilli(i.qty_milli)),
+          }))}
+          cancelHref={`/formulas/${formulaId}`}
+        />
+      </div>
+    );
+  }
+
+  const steps = shown.steps.split("\n").map((s) => s.trim()).filter(Boolean);
+
+  return (
+    <div>
+      <PageTitle
+        title={formula.name}
+        subtitle={`Version ${shown.version} · quantities per ${formatQty(shown.ref_size_milli, "L")}`}
+      />
+
+      {saved ? (
+        <div className="mb-3">
+          <Alert tone="good">
+            Saved as version {saved}. The previous version is kept exactly as it was.
+          </Alert>
+        </div>
+      ) : null}
+
+      {!shown.is_current ? (
+        <div className="mb-3">
+          <Alert tone="warn">
+            This is version {shown.version}, superseded by version {current?.version}. It is shown
+            because batches were mixed from it.{" "}
+            <Link href={`/formulas/${formulaId}`} className="font-bold underline">
+              Show the current version
+            </Link>
+          </Alert>
+        </div>
+      ) : null}
+
+      {shown.note.trim() ? (
+        <div className="mb-3">
+          <Alert tone="warn">
+            <span className="block text-[11px] font-bold uppercase tracking-[0.1em]">
+              Open question from the sheet
+            </span>
+            <span className="mt-1 block font-medium">{shown.note}</span>
+          </Alert>
+        </div>
+      ) : null}
+
+      <SectionLabel>Ingredients per {formatQty(shown.ref_size_milli, "L")}</SectionLabel>
+      {items.length ? (
+        <TableWrap>
+          <thead>
+            <tr>
+              <Th>Chemical</Th>
+              <Th align="right">Quantity</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((i) => (
+              <tr key={i.id}>
+                <Td>{i.chemical_name}</Td>
+                <Td align="right">{formatQty(i.qty_milli, i.canonical_unit)}</Td>
+              </tr>
+            ))}
+          </tbody>
+        </TableWrap>
+      ) : (
+        <Empty>No ingredients recorded on this version.</Empty>
+      )}
+
+      <SectionLabel>Mixing steps</SectionLabel>
+      <Card>
+        {steps.length ? (
+          <ol className="list-decimal space-y-1.5 pl-5 text-sm">
+            {steps.map((s, i) => (
+              <li key={i}>{s}</li>
+            ))}
+          </ol>
+        ) : (
+          <p className="text-sm text-muted">
+            No steps written down yet — add them so anyone can mix this.
+          </p>
+        )}
+      </Card>
+
+      <div className="mt-4 flex gap-2">
+        <LinkButton href={`/formulas/${formulaId}?edit=1${v ? `&v=${v}` : ""}`} variant="primary">
+          Edit recipe
+        </LinkButton>
+        <LinkButton href={`/batch?f=${formulaId}`}>Mix a batch</LinkButton>
+      </div>
+
+      <SectionLabel>Version history</SectionLabel>
+      <div className="space-y-2">
+        {versions.map((ver) => (
+          <Card key={ver.id} className={ver.id === shown.id ? "border-brand" : ""}>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-sm font-bold">
+                  Version {ver.version}{" "}
+                  <span className="font-normal text-muted">
+                    · {formatQty(ver.ref_size_milli, "L")} batch
+                  </span>
+                </div>
+                <div className="mt-0.5 text-xs text-muted">
+                  {formatDateTime(ver.created_at)} ·{" "}
+                  {ver.batch_count === 0
+                    ? "not yet mixed"
+                    : `${ver.batch_count} ${ver.batch_count === 1 ? "batch" : "batches"} mixed`}
+                </div>
+              </div>
+              <div className="flex shrink-0 flex-col items-end gap-1.5">
+                {ver.is_current ? <Chip tone="good">Current</Chip> : <Chip>Superseded</Chip>}
+                {ver.id === shown.id ? null : (
+                  <Link
+                    href={`/formulas/${formulaId}?v=${ver.id}`}
+                    className="text-xs font-bold text-brand"
+                  >
+                    View
+                  </Link>
+                )}
+              </div>
+            </div>
+          </Card>
+        ))}
+      </div>
+
+      <div className="mt-4">
+        <Link href="/formulas" className="text-sm font-bold text-brand">
+          ← All formulas
+        </Link>
+      </div>
+    </div>
+  );
+}
