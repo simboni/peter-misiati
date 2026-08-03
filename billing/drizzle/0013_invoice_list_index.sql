@@ -1,0 +1,1 @@
+CREATE INDEX `invoice_org_type_created_idx` ON `invoice` (`organization_id`,`type`,`created_at`);

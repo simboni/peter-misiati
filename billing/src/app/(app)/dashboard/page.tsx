@@ -1,9 +1,8 @@
 import Link from "next/link";
-import { and, eq, desc } from "drizzle-orm";
 import { requireOrg, getOrgProfile } from "@/server/org";
-import { schema } from "@/server/db";
 import { formatMoney, formatAmount } from "@/server/money";
 import { fmtDate } from "@/server/queries";
+import { loadDashboard } from "@/server/dashboard";
 import { StatusBadge } from "@/components/status-badge";
 import { EmptyState } from "@/components/page-header";
 import { Accordion } from "@/components/accordion";
@@ -38,75 +37,30 @@ export default async function DashboardPage() {
   // Generate any recurring invoices that have come due since the last visit.
   await runDueRecurring(db, organizationId);
 
-  // Fetch everything the dashboard needs in one parallel batch (one D1
-  // round-trip's worth of latency instead of five sequential ones).
-  const [profile, invoices, payments, expenses] = await Promise.all([
+  const now = new Date();
+  // All figures come back pre-aggregated from SQL (a handful of rows), plus the
+  // org profile — fetched together so it's one round-trip's worth of latency.
+  const [profile, d] = await Promise.all([
     getOrgProfile(db, organizationId),
-    db
-      .select({
-        id: schema.invoice.id,
-        number: schema.invoice.number,
-        status: schema.invoice.status,
-        total: schema.invoice.total,
-        balanceDue: schema.invoice.balanceDue,
-        dueDate: schema.invoice.dueDate,
-        issueDate: schema.invoice.issueDate,
-        createdAt: schema.invoice.createdAt,
-        clientId: schema.invoice.clientId,
-        clientName: schema.client.name,
-      })
-      .from(schema.invoice)
-      .leftJoin(schema.client, eq(schema.client.id, schema.invoice.clientId))
-      .where(and(eq(schema.invoice.organizationId, organizationId), eq(schema.invoice.type, "invoice")))
-      .orderBy(desc(schema.invoice.createdAt)),
-    db
-      .select({ amount: schema.payment.amount, paidAt: schema.payment.paidAt })
-      .from(schema.payment)
-      .where(eq(schema.payment.organizationId, organizationId)),
-    db
-      .select({ amount: schema.expense.amount, date: schema.expense.expenseDate })
-      .from(schema.expense)
-      .where(eq(schema.expense.organizationId, organizationId)),
+    loadDashboard(db, organizationId, now),
   ]);
   const cur = profile?.currency ?? "KES";
 
-  const now = new Date();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const {
+    totalInvoiced,
+    totalPaid,
+    outstanding,
+    overdue,
+    overdueCount,
+    openCount,
+    monthRevenue,
+    monthExpenses,
+    monthNet,
+    recent,
+    topClients,
+    noData,
+  } = d;
 
-  const issued = invoices.filter((i) => i.status !== "draft" && i.status !== "void");
-  const totalInvoiced = issued.reduce((a, i) => a + i.total, 0);
-  const totalPaid = payments.reduce((a, p) => a + p.amount, 0);
-  const outstanding = invoices
-    .filter((i) => i.status !== "void")
-    .reduce((a, i) => a + i.balanceDue, 0);
-  const overdueList = invoices.filter(
-    (i) => i.status !== "void" && i.balanceDue > 0 && i.dueDate && new Date(i.dueDate) < now,
-  );
-  const overdue = overdueList.reduce((a, i) => a + i.balanceDue, 0);
-  const monthRevenue = payments
-    .filter((p) => new Date(p.paidAt) >= monthStart)
-    .reduce((a, p) => a + p.amount, 0);
-  const monthExpenses = expenses
-    .filter((e) => new Date(e.date) >= monthStart)
-    .reduce((a, e) => a + e.amount, 0);
-  const monthNet = monthRevenue - monthExpenses;
-
-  // Top clients by invoiced value
-  const byClient = new Map<string, { name: string; total: number }>();
-  for (const i of issued) {
-    const k = i.clientId;
-    const prev = byClient.get(k) ?? { name: i.clientName ?? "—", total: 0 };
-    prev.total += i.total;
-    byClient.set(k, prev);
-  }
-  const topClients = [...byClient.entries()]
-    .map(([id, v]) => ({ id, ...v }))
-    .sort((a, b) => b.total - a.total)
-    .slice(0, 5);
-
-  const recent = invoices.slice(0, 6);
-
-  const openCount = invoices.filter((i) => i.status !== "void" && i.balanceDue > 0).length;
   // Whole-shilling formatting for the compact stat chips (no cents, so the
   // figures never get clipped in their narrow cards).
   const whole = (v: number) => formatAmount(v).replace(/\.\d+$/, "");
@@ -122,7 +76,7 @@ export default async function DashboardPage() {
       cur,
       chips: [
         { text: `${openCount} open invoice${openCount === 1 ? "" : "s"}` },
-        ...(overdue > 0 ? [{ text: `${overdueList.length} overdue · ${whole(overdue)}`, amber: true }] : []),
+        ...(overdue > 0 ? [{ text: `${overdueCount} overdue · ${whole(overdue)}`, amber: true }] : []),
       ],
       link: { href: "/invoices", label: "View all →" },
     },
@@ -157,8 +111,6 @@ export default async function DashboardPage() {
     { href: "/receipts", label: "Receipts", icon: "receipt" },
     { href: "/reports", label: "Reports", icon: "chart" },
   ];
-
-  const noData = invoices.length === 0 && payments.length === 0;
 
   return (
     <div className="space-y-6">

@@ -287,6 +287,10 @@ export const invoice = sqliteTable(
     index("invoice_org_idx").on(t.organizationId),
     index("invoice_client_idx").on(t.clientId),
     uniqueIndex("invoice_org_number_idx").on(t.organizationId, t.number),
+    // Serves the list + dashboard: filter by (org, type) and return newest-first
+    // without a temp B-tree sort. createdAt last so ORDER BY created_at is an
+    // index range scan and LIMIT becomes a cheap top-N.
+    index("invoice_org_type_created_idx").on(t.organizationId, t.type, t.createdAt),
   ],
 );
 
