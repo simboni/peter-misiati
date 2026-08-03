@@ -30,8 +30,11 @@ export default async function LoginPage(props: {
 
   // First run on a fresh machine: load the shop's chemicals, formulas and stock.
   seed();
+  // Ordered by id so the list is stable: the owner is the first account created,
+  // and staff added later append to the end rather than reshuffling the dropdown
+  // under someone who signs in by muscle memory.
   const users = all<{ id: number; name: string; role: string }>(
-    `SELECT id, name, role FROM users WHERE active = 1 ORDER BY role DESC, id`,
+    `SELECT id, name, role FROM users WHERE active = 1 ORDER BY id`,
   );
 
   return (

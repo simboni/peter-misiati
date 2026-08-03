@@ -214,6 +214,9 @@ CREATE TABLE IF NOT EXISTS customers (
   phone              TEXT    NOT NULL DEFAULT '',
   kind               TEXT    NOT NULL DEFAULT 'retail' CHECK (kind IN ('retail', 'wholesale')),
   credit_limit_cents INTEGER NOT NULL DEFAULT 0 CHECK (credit_limit_cents >= 0),
+  -- Wholesale buyers increasingly need an eTIMS invoice to claim the purchase as
+  -- an expense, and that invoice must carry their KRA PIN.
+  kra_pin            TEXT    NOT NULL DEFAULT '',
   active             INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1))
 );
 

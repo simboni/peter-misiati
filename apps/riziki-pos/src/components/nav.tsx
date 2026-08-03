@@ -55,6 +55,7 @@ export function BottomNav({ isOwner }: { isOwner: boolean }) {
 /** Secondary links that don't earn a tab. */
 export function MoreMenu({ isOwner }: { isOwner: boolean }) {
   const links = [
+    { href: "/sales", label: "Sales history", owner: false },
     { href: "/formulas", label: "Formulas", owner: true },
     { href: "/repack", label: "Repack", owner: false },
     { href: "/purchases", label: "Suppliers & purchases", owner: false },

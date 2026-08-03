@@ -83,16 +83,28 @@ export function closeDb(): void {
 
 // --------------------------------------------------------------- primitives
 
+/**
+ * node:sqlite hands back rows with a null prototype. React refuses to serialise
+ * those from a Server Component to a Client Component ("Classes or null
+ * prototypes are not supported"), so every row is copied into a plain object
+ * here — once, centrally — rather than leaving each screen to remember.
+ */
+function plain<T>(row: unknown): T {
+  return Object.assign({}, row) as T;
+}
+
 export function all<T = Record<string, unknown>>(sql: string, ...params: unknown[]): T[] {
-  return db()
+  const rows = db()
     .prepare(sql)
-    .all(...(params as never[])) as T[];
+    .all(...(params as never[]));
+  return rows.map((r) => plain<T>(r));
 }
 
 export function get<T = Record<string, unknown>>(sql: string, ...params: unknown[]): T | undefined {
-  return db()
+  const row = db()
     .prepare(sql)
-    .get(...(params as never[])) as T | undefined;
+    .get(...(params as never[]));
+  return row === undefined ? undefined : plain<T>(row);
 }
 
 export function run(sql: string, ...params: unknown[]): { lastInsertRowid: number; changes: number } {
