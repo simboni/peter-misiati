@@ -1,0 +1,173 @@
+<!doctype html><html><head><meta charset="utf-8">
+<style>
+  @page { size: A4; margin: 11mm 12mm; }
+  *{margin:0;padding:0;box-sizing:border-box}
+  :root{--ink:#121a16;--body:#2f3a34;--muted:#5d6b63;--accent:#0a7d4f;--line:#d8e0da;--chip:#eef4f0}
+  body{font-family:'DejaVu Sans','Liberation Sans',Arial,Helvetica,sans-serif;color:var(--body);font-size:9.3pt;line-height:1.36}
+  a{color:var(--accent);text-decoration:none}
+  h1{font-size:20pt;color:var(--ink);letter-spacing:-.3px;line-height:1.1}
+  .role{font-size:11pt;color:var(--accent);font-weight:700;margin-top:3px}
+  .contact{margin-top:7px;font-size:8.9pt;color:var(--muted);line-height:1.6}
+  .contact b{color:var(--ink);font-weight:600}
+  header{border-bottom:2px solid var(--accent);padding-bottom:9px}
+  h2{font-size:9.1pt;text-transform:uppercase;letter-spacing:1.3px;color:var(--accent);
+     margin:10px 0 5px;padding-bottom:3px;border-bottom:1px solid var(--line);font-weight:700}
+  p.sum{text-align:justify}
+  .sk{display:grid;grid-template-columns:118px 1fr;gap:3px 10px;font-size:9.2pt}
+  .sk dt{color:var(--ink);font-weight:700}
+  .job{margin-bottom:7px;page-break-inside:avoid}
+  .jh{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+  .jt{color:var(--ink);font-weight:700;font-size:10pt}
+  .jc{color:var(--accent);font-weight:600}
+  .jd{color:var(--muted);font-size:8.7pt;white-space:nowrap}
+  ul{margin:3px 0 0 15px}
+  li{margin-bottom:1.5px}
+  .proj{margin-bottom:6.5px;page-break-inside:avoid}
+  .pt{color:var(--ink);font-weight:700}
+  .plink{font-size:8.6pt}
+  .meta{color:var(--muted);font-size:8.5pt;font-style:italic}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:0 22px}
+  .ed{margin-bottom:6px}
+  .ed b{color:var(--ink)}
+  .ed span{display:block;color:var(--muted);font-size:8.7pt}
+  .avail{background:var(--chip);border-left:3px solid var(--accent);padding:7px 11px;font-size:9.2pt}
+  .avail b{color:var(--ink)}
+</style></head>
+<body>
+
+<header>
+  <h1>Simboni Misiati Peter</h1>
+  <div class="role">Full-Stack Developer &mdash; Interactive Web Products &amp; SaaS</div>
+  <div class="contact">
+    <b>Portfolio:</b> <a href="https://smp-developers.com">smp-developers.com</a> &nbsp;·&nbsp;
+    <b>Code:</b> github.com/simboni &nbsp;·&nbsp;
+    <b>Email:</b> info@smp-developers.com &nbsp;·&nbsp; <b>Phone / WhatsApp:</b> +254 706 289 514<br>
+    <b>Location:</b> Nairobi, Kenya (remote, EAT / UTC+3 &mdash; daily overlap with EU &amp; US-East) &nbsp;·&nbsp;
+    <b>English:</b> Professional working proficiency (C1)
+  </div>
+</header>
+
+<h2>Profile</h2>
+<p class="sum">Full-stack engineer with <b>10+ years&rsquo; experience and 100+ delivered projects</b>, specialising in
+<b>interactive, multi-tenant web products</b> &mdash; not brochure sites. I design and build complete systems end to end:
+typed React/Next.js front-ends over NestJS, Laravel and Node APIs, on PostgreSQL, with authentication, payments,
+real-time state and admin tooling. My work is security-first (database-enforced tenant isolation, signed tokens,
+audit logs, CI gates) and correctness-first (integer-cents accounting, double-entry ledgers, unit tests).
+I hold an <b>MSc in Software Engineering</b> and ship independently from architecture through deployment.</p>
+
+<h2>Technical Skills</h2>
+<dl class="sk">
+  <dt>Frontend</dt><dd>React 19, Next.js 15/16 (App Router, Server Actions, SSG), TypeScript, Tailwind CSS v4, Livewire, responsive UI &amp; state management</dd>
+  <dt>Backend &amp; APIs</dt><dd>NestJS, Node.js, Laravel 12 / PHP 8.4, Python / Django, REST APIs, raw SQL, server actions, cron &amp; background jobs</dd>
+  <dt>Databases</dt><dd>PostgreSQL 16 (Row-Level Security, migrations), MySQL, SQLite / Cloudflare D1, Supabase, Redis, Drizzle ORM</dd>
+  <dt>Auth &amp; security</dt><dd>Argon2id hashing, JWT (two-stage, workspace-scoped), rotating refresh tokens, better-auth, RBAC, append-only audit logs, encryption at rest</dd>
+  <dt>Payments</dt><dd>M-Pesa Daraja STK Push, Kopo Kopo, subscriptions &amp; auto-receipting, double-entry ledgers, VAT/tax logic</dd>
+  <dt>Architecture</dt><dd>Multi-tenant SaaS, modular monoliths, monorepos (pnpm, shared types), PWAs, offline-first sync, event/audit trails</dd>
+  <dt>Testing &amp; CI</dt><dd>Unit-tested domain logic, CI pipelines with security gates (cross-tenant isolation asserted on every push), Git &amp; GitHub</dd>
+  <dt>Cloud &amp; DevOps</dt><dd>Fly.io, Cloudflare Workers/Pages, Vercel, Railway, Render, Docker, Caddy</dd>
+  <dt>Mobile</dt><dd>Capacitor (Android/iOS shells sharing one typed contract with web &amp; API)</dd>
+</dl>
+
+<h2>Selected Products &amp; Systems</h2>
+
+<div class="proj">
+  <span class="pt">StackUp</span> &mdash; multi-tenant work-management SaaS (own product) &middot;
+  <a class="plink" href="https://www.stackup.co.ke">stackup.co.ke</a> &middot;
+  <a class="plink" href="https://github.com/simboni/smp-planning">github.com/simboni/smp-planning</a>
+  <div class="meta">NestJS 11 · PostgreSQL 16 · Next.js 15 · React 19 · TypeScript · Capacitor · Fly.io</div>
+  <ul>
+    <li>Architected an open, self-hostable ClickUp alternative: Workspaces &rarr; Spaces &rarr; Folders &rarr; Lists &rarr; Tasks, with List/Board/Calendar/Gantt views, Docs, Goals, Dashboards, Time Tracking and Automations.</li>
+    <li><b>Security-first multi-tenancy:</b> fail-closed PostgreSQL Row-Level Security &mdash; the app role is NOBYPASSRLS, every workspace table FORCEs RLS, and missing workspace context denies every query.</li>
+    <li>Argon2id passwords, two-stage JWTs (identity &rarr; workspace-scoped access), rotating refresh tokens and an append-only audit log; a <b>CI gate asserts cross-workspace isolation on every push</b>.</li>
+    <li>One pnpm monorepo with shared types serving three clients: REST API, web app and Capacitor Android build.</li>
+  </ul>
+</div>
+
+<div class="proj">
+  <span class="pt">TallyPay</span> &mdash; multi-tenant billing &amp; payments SaaS &middot;
+  <a class="plink" href="https://tallypay.co.ke">tallypay.co.ke</a>
+  <div class="meta">Next.js 16 (Server Actions) · Cloudflare Workers/D1 · Drizzle ORM · better-auth · M-Pesa</div>
+  <ul>
+    <li>Built the full money cycle &mdash; quotation &rarr; invoice (deposit, balance, 16% VAT) &rarr; receipt &mdash; with isolated per-business workspaces, a free/Pro white-label split and a cross-tenant admin console.</li>
+    <li><b>Correct-by-design accounting:</b> money as integer KES cents and VAT in basis points, unit-tested; every query scoped by <i>requireOrg()</i>.</li>
+    <li>M-Pesa STK Push collection with automatic receipting and per-vendor credentials encrypted at rest; A4 PDF share links via Cloudflare Browser Rendering and transactional email.</li>
+  </ul>
+</div>
+
+<div class="proj">
+  <span class="pt">64 Theatre</span> &mdash; production ticketing platform with offline gate scanning
+  <div class="meta">Laravel 12 · PHP 8.4 · PostgreSQL 16 · Redis 7 · Livewire · Filament · M-Pesa Daraja</div>
+  <ul>
+    <li>Designed a modular Laravel monolith for online ticket sales: public event pages, M-Pesa STK checkout, SMS/email delivery and a Filament admin.</li>
+    <li><b>Offline-first gate scanner:</b> HMAC-signed QR tickets verify without internet; database constraints guarantee each ticket redeems exactly once.</li>
+    <li>Double-entry money ledger recording every sale for reconciliation.</li>
+  </ul>
+</div>
+
+<div class="proj">
+  <span class="pt">Naveedex</span> &mdash; trading-journal SaaS &middot;
+  <a class="plink" href="https://naveedex.com">naveedex.com</a>
+  <div class="meta">Next.js · React · TypeScript · Supabase (auth + PostgreSQL) · Vercel</div>
+  <ul>
+    <li>Complete SaaS: authentication, subscription payments (Kopo Kopo), admin panel, scheduled cron jobs and a knowledge base.</li>
+    <li>Strategy/setup library with performance analytics, one-click PDF &amp; Excel export (jsPDF, xlsx) and shareable image trade-cards.</li>
+  </ul>
+</div>
+
+<div class="proj">
+  <span class="pt">Zuri Hotels &amp; Resorts</span> &middot; <a class="plink" href="https://zuriplaceresort.com">zuriplaceresort.com</a>
+  <span class="meta">&nbsp;| HTML/CSS/JS · Docker · Caddy · Railway</span> &nbsp;&middot;&nbsp;
+  <span class="pt">Fit Generations</span> &middot; <a class="plink" href="https://fitgenerationsgym.com">fitgenerationsgym.com</a>
+  <span class="meta">&nbsp;| Next.js 16</span>
+  <ul>
+    <li>Client web builds with containerised deployment and booking/enquiry funnels &mdash; further live work at smp-developers.com.</li>
+  </ul>
+</div>
+
+<h2>Experience</h2>
+
+<div class="job">
+  <div class="jh"><span class="jt">Full-Stack Developer &mdash; Freelance &amp; Contract</span><span class="jd">2015 &ndash; Present</span></div>
+  <div class="jc">Independent &mdash; clients across Kenya &amp; remote</div>
+  <ul>
+    <li>Delivered 100+ projects for 20+ clients &mdash; SaaS products, fintech and payment systems, ERP and microfinance platforms, ticketing, e-learning tools and web applications.</li>
+    <li>Own the entire lifecycle solo: requirements and data modelling, API and schema design, UI implementation, testing, deployment, monitoring and handover.</li>
+    <li>Integrate third-party systems end to end &mdash; mobile money (M-Pesa Daraja, Kopo Kopo), SMS gateways, transactional email, PDF generation and scheduled jobs.</li>
+  </ul>
+</div>
+
+<div class="job">
+  <div class="jh"><span class="jt">Founder &amp; Senior Developer</span><span class="jd">2023 &ndash; Present</span></div>
+  <div class="jc">SMP Developers &mdash; Nairobi, Kenya</div>
+  <ul>
+    <li>Lead architecture and development of web platforms, systems and mobile apps; coordinate collaborators and review code to keep quality and delivery on schedule.</li>
+    <li>Building StackUp as an in-house SaaS product alongside client engagements.</li>
+  </ul>
+</div>
+
+<div class="job">
+  <div class="jh"><span class="jt">Chairman &amp; Director</span><span class="jd">2015 &ndash; Present</span></div>
+  <div class="jc">SMP Eventures Ltd &mdash; Kenya</div>
+  <ul>
+    <li>Lead a multi-disciplinary team turning client and internal product ideas into delivered software.</li>
+  </ul>
+</div>
+
+<h2>Education &amp; Certification</h2>
+<div class="two">
+  <div>
+    <div class="ed"><b>MSc, Software Engineering</b><span>Jomo Kenyatta University of Agriculture &amp; Technology (JKUAT) &middot; 2023 &ndash; 2025</span></div>
+    <div class="ed"><b>Programming Certificate &mdash; Software &amp; App Development</b><span>JKUAT &middot; Git, JavaScript, iOS, Android, PHP, Laravel, Python, Django &middot; 2024 &ndash; Present</span></div>
+  </div>
+  <div>
+    <div class="ed"><b>WordPress Development &mdash; Certification &amp; Practice</b><span>Custom themes, Elementor, DIVI, Gutenberg &middot; 2015 &ndash; 2025</span></div>
+    <div class="ed"><b>Languages</b><span>English &mdash; professional working proficiency (C1) &middot; Swahili &mdash; native</span></div>
+  </div>
+</div>
+
+<h2>Availability</h2>
+<div class="avail"><b>Open to part-time freelance work, 10&ndash;20 hours per week</b>, fully remote. Based in Nairobi (EAT / UTC+3)
+with reliable high-speed internet and a full working-day overlap with Europe and US-East mornings. Comfortable owning
+features end to end from a written brief with minimal supervision.</div>
+
+</body></html>
