@@ -18,7 +18,9 @@
  * approval and an always-reachable public callback. Records plus a CSV
  * reconcile deliver most of the value at a fraction of the cost.
  */
+import { createHash } from "node:crypto";
 import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import type { PgliteDatabase } from "drizzle-orm/pglite";
 import { z } from "zod";
 import * as s from "@/db/schema";
 import type { Db } from "@/db";
@@ -60,6 +62,124 @@ export async function resolveDb(database?: Db): Promise<Db> {
 
 function requireCap(session: Session, capability: Capability): void {
   if (!can(session.role, capability)) throw new NotPermittedError(capability);
+}
+
+/**
+ * The loosest database handle every module here agrees on.
+ *
+ * `feed.ts`, `health.ts` and `breeding.ts` each hold their own alias for the
+ * same Drizzle-on-PGlite handle. Typing the shared helpers against the base
+ * `PgliteDatabase<typeof s>` lets all of them — and the production `Db`, which
+ * extends it — call in without a cast.
+ */
+export type AnyDb = PgliteDatabase<typeof s>;
+
+/* ------------------------------------------------------------------ */
+/* The one place a module posts its own cost into the cash book        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A UUID derived from the row the expense belongs to.
+ *
+ * This is what makes posting an expense from another module safe to replay:
+ * the offline outbox can flush the same feed purchase, treatment or AI service
+ * twice and `onConflictDoNothing` collapses the second posting instead of
+ * charging the farm for it again. It also gives modules whose table has no
+ * `expenseId` column a way to FIND the expense they posted.
+ */
+export function linkedExpenseId(sourceTable: string, sourceId: string): string {
+  const h = createHash("sha256").update(`expense:${sourceTable}:${sourceId}`).digest("hex");
+  return [
+    h.slice(0, 8),
+    h.slice(8, 12),
+    `4${h.slice(13, 16)}`,
+    `${((parseInt(h[16], 16) & 0x3) | 0x8).toString(16)}${h.slice(17, 20)}`,
+    h.slice(20, 32),
+  ].join("-");
+}
+
+/** How a cost was settled, translated into how the cash book records it. */
+export function settlementToPaymentMethod(
+  settledBy: "CASH" | "CREDIT" | "COOP_CHECKOFF" | null | undefined,
+): s.PaymentMethod | null {
+  if (!settledBy) return null;
+  return settledBy;
+}
+
+export interface LinkedExpenseInput {
+  /** The table the cost was captured on — `feed_purchase`, `health_event`, … */
+  sourceTable: string;
+  /** The row id. Together with `sourceTable` it derives the expense id. */
+  sourceId: string;
+  incurredOn: ISODate;
+  category: s.ExpenseCategory;
+  description: string;
+  amountKes: number;
+  counterpartyId?: string | null;
+  /**
+   * CASH / CREDIT / COOP_CHECKOFF, taken from the module's own
+   * `costSettledBy`. A co-operative check-off never leaves the till — it is
+   * netted off the milk cheque — so it is recorded as `COOP_CHECKOFF` rather
+   * than as cash out. It is STILL a cost of production, and it still has to
+   * appear here, because the co-op statement reconciliation in M4 matches its
+   * check-off deductions against exactly these rows.
+   */
+  costSettledBy?: "CASH" | "CREDIT" | "COOP_CHECKOFF" | null;
+}
+
+/**
+ * Post a cost that another module captured into the cash book.
+ *
+ * PENDING like every other expense — a herdsman recording a treatment cost has
+ * recorded it, not approved it (R10). No capability check: this is an internal
+ * helper reached only through an action that has already checked one.
+ *
+ * Returns the expense id, or null when there was no money to post.
+ */
+export async function postLinkedExpense(
+  db: AnyDb,
+  session: Session,
+  input: LinkedExpenseInput,
+): Promise<string | null> {
+  const amount = money(input.amountKes);
+  if (!(amount > 0)) return null;
+
+  // `expense.counterpartyId` is a real foreign key, but the columns that feed
+  // it are not — `feedPurchase.supplierId` is a bare uuid. An id that is not
+  // this farm's supplier is dropped rather than allowed to fail the insert:
+  // losing the supplier link is a blemish, losing the purchase is a bug.
+  let counterpartyId: string | null = null;
+  if (input.counterpartyId) {
+    const [cp] = await db
+      .select({ id: s.counterparty.id })
+      .from(s.counterparty)
+      .where(
+        and(
+          eq(s.counterparty.id, input.counterpartyId),
+          eq(s.counterparty.farmId, session.farmId),
+        ),
+      );
+    counterpartyId = cp?.id ?? null;
+  }
+
+  const id = linkedExpenseId(input.sourceTable, input.sourceId);
+  await db
+    .insert(s.expense)
+    .values({
+      id,
+      farmId: session.farmId,
+      incurredOn: input.incurredOn,
+      category: input.category,
+      description: input.description,
+      counterpartyId,
+      amountKes: dec(amount),
+      paymentMethod: settlementToPaymentMethod(input.costSettledBy),
+      status: "PENDING",
+      recordedBy: session.userId,
+    })
+    .onConflictDoNothing();
+
+  return id;
 }
 
 /* ------------------------------------------------------------------ */
@@ -616,6 +736,20 @@ export interface CostOfProduction {
   feedSharePct: number;
   benchmark: { lowKes: number; highKes: number };
   verdict: string;
+  /**
+   * The other side of the sum. Milk comes from `milkDisposal` (see
+   * `milkRevenueBetween`), everything else from approved `income` rows.
+   */
+  revenue: {
+    milkSoldKes: number;
+    milkImputedKes: number;
+    otherIncomeKes: number;
+    totalKes: number;
+    perLitreKes: number;
+  };
+  /** Full economic margin: revenue less the full cost. */
+  marginKes: number;
+  marginPerLitreKes: number;
 }
 
 /**
@@ -648,6 +782,22 @@ export async function costOfProduction(
     );
 
   const litresProduced = await litresProducedBetween(db, session.farmId, from, to);
+
+  // THE REVENUE SEAM. Milk is derived from `milkDisposal`; `income` carries
+  // everything else. Never both for the same litre — see `milkRevenueBetween`.
+  const milk = await milkRevenueBetween(db, session.farmId, from, to);
+  const [otherIncomeAgg] = await db
+    .select({ total: sql<string>`coalesce(sum(${s.income.amountKes}), 0)` })
+    .from(s.income)
+    .where(
+      and(
+        eq(s.income.farmId, session.farmId),
+        eq(s.income.status, "APPROVED"),
+        gte(s.income.receivedOn, from),
+        lte(s.income.receivedOn, to),
+      ),
+    );
+  const otherIncomeKes = num(otherIncomeAgg?.total);
 
   const byCategoryMap = new Map<s.ExpenseCategory, number>();
   let cashTotal = 0;
@@ -696,6 +846,8 @@ export async function costOfProduction(
     }))
     .sort((a, b) => b.amountKes - a.amountKes);
 
+  const revenueTotal = money(milk.totalKes + otherIncomeKes);
+
   return {
     from,
     to,
@@ -715,6 +867,15 @@ export async function costOfProduction(
       highKes: COST_OF_PRODUCTION_KES_PER_LITRE.high,
     },
     verdict: costVerdict(litresProduced, perLitre(fullTotal)),
+    revenue: {
+      milkSoldKes: milk.soldKes,
+      milkImputedKes: milk.imputedKes,
+      otherIncomeKes,
+      totalKes: revenueTotal,
+      perLitreKes: perLitre(revenueTotal),
+    },
+    marginKes: money(revenueTotal - fullTotal),
+    marginPerLitreKes: money(perLitre(revenueTotal) - perLitre(fullTotal)),
   };
 }
 
@@ -739,7 +900,14 @@ function costVerdict(litresProduced: number, fullPerLitre: number): string {
 export interface MonthToDate {
   from: ISODate;
   to: ISODate;
+  /** milkSoldKes + milkImputedKes + otherIncomeKes. */
   incomeKes: number;
+  /** Milk sold through a paying channel — from `milkDisposal`, not `income`. */
+  milkSoldKes: number;
+  /** Home use, calves and staff ration, valued but never paid. */
+  milkImputedKes: number;
+  /** Approved `income` rows: animal sales, manure, fodder, other. */
+  otherIncomeKes: number;
   expenseKes: number;
   netKes: number;
   litresProduced: number;
@@ -813,7 +981,14 @@ export async function monthToDate(
       ),
     );
 
-  const incomeKes = num(incomeAgg?.total);
+  // THE REVENUE SEAM. `income` no longer carries milk — the build agents left
+  // this at zero and it is why the month looked like a loss on every farm that
+  // sells through the co-op. Milk revenue is DERIVED from `milkDisposal`;
+  // `income` supplies animal sales, manure and fodder. Adding milk income rows
+  // as well would double-count every shilling. See `milkRevenueBetween`.
+  const milk = await milkRevenueBetween(db, session.farmId, from, to);
+  const otherIncomeKes = num(incomeAgg?.total);
+  const incomeKes = money(otherIncomeKes + milk.totalKes);
   const expenseKes = num(expenseAgg?.total);
   const netKes = money(incomeKes - expenseKes);
   const litresProduced = await litresProducedBetween(db, session.farmId, from, to);
@@ -828,6 +1003,11 @@ export async function monthToDate(
   if (litresProduced > 0) {
     parts.push(`${Math.round(litresProduced)} L produced, ${kes(cashCostPerLitreKes, 2)} of cash cost per litre.`);
   }
+  if (milk.imputedKes > 0) {
+    parts.push(
+      `${kes(milk.imputedKes)} of that is milk you did not sell — ${Math.round(milk.imputedLitres)} L to the house, the calves and the staff, counted at what it would have fetched.`,
+    );
+  }
   if (pendingCount > 0) {
     parts.push(
       `${pendingCount} ${pendingCount === 1 ? "entry is" : "entries are"} waiting for approval (${kes(pendingKes)}) and ${pendingCount === 1 ? "is" : "are"} not counted above.`,
@@ -838,6 +1018,9 @@ export async function monthToDate(
     from,
     to,
     incomeKes,
+    milkSoldKes: milk.soldKes,
+    milkImputedKes: milk.imputedKes,
+    otherIncomeKes,
     expenseKes,
     netKes,
     litresProduced,
@@ -1338,6 +1521,108 @@ export const INCOME_SOURCE_LABEL: Record<string, string> = {
 
 export function incomeSourceLabel(src: string): string {
   return INCOME_SOURCE_LABEL[src] ?? src;
+}
+
+/* ------------------------------------------------------------------ */
+/* MILK REVENUE — derived, never posted                                */
+/* ------------------------------------------------------------------ */
+
+export interface MilkRevenue {
+  /** Litres that left through a paying channel, and what they fetched. */
+  soldLitres: number;
+  soldKes: number;
+  /** Home use, calves and the staff ration, valued at the imputed rate. */
+  imputedLitres: number;
+  imputedKes: number;
+  /** Spillage, spoilage, rejections, withheld milk. Valued, but never revenue. */
+  lostLitres: number;
+  /** soldKes + imputedKes — the figure every revenue report uses. */
+  totalKes: number;
+}
+
+/**
+ * ══════════════════════════════════════════════════════════════════════
+ *  MILK REVENUE IS DERIVED FROM `milkDisposal`. IT IS NEVER AN `income`
+ *  ROW. DO NOT "FIX" THIS BY POSTING INCOME AS WELL.
+ *
+ *  `milkDisposal` already carries `valueKes` and is the anchor of the
+ *  daily produced-vs-disposed reconciliation — every litre milked is
+ *  accounted for there exactly once, whether it was sold, drunk, fed to
+ *  a calf or spilled. Posting an `income` row for the same litres would
+ *  create a second source of truth and double-count every shilling of
+ *  milk money on every report that reads both.
+ *
+ *  So: `income` is for NON-MILK revenue only — animal sales (written by
+ *  `recordSale` in M7), manure, fodder, other. No code path in this
+ *  system writes `income.source = "MILK"`; if you ever find one, that is
+ *  the bug, not this function.
+ *
+ *  Imputed channels are included on purpose. Home consumption, calf
+ *  feeding and the staff ration bring in no cash, but they cost exactly
+ *  as much to produce as a litre that was sold. Counting only the sold
+ *  litres against every litre produced understates the return of every
+ *  farm that drinks its own milk — which is all of them.
+ *
+ *  Loss channels are excluded from revenue and reported separately: a
+ *  spilled litre is not income, and pretending otherwise hides the very
+ *  number the loss coding exists to surface.
+ * ══════════════════════════════════════════════════════════════════════
+ */
+export async function milkRevenueBetween(
+  db: AnyDb,
+  farmId: string,
+  from: ISODate,
+  to: ISODate,
+): Promise<MilkRevenue> {
+  const rows = await db
+    .select({
+      channel: s.milkDisposal.channel,
+      litres: s.milkDisposal.litres,
+      valueKes: s.milkDisposal.valueKes,
+      rateKesPerLitre: s.milkDisposal.rateKesPerLitre,
+    })
+    .from(s.milkDisposal)
+    .where(
+      and(
+        eq(s.milkDisposal.farmId, farmId),
+        gte(s.milkDisposal.disposedOn, from),
+        lte(s.milkDisposal.disposedOn, to),
+      ),
+    );
+
+  const revenue = new Set<string>(s.REVENUE_CHANNELS);
+  const loss = new Set<string>(s.LOSS_CHANNELS);
+
+  let soldLitres = 0;
+  let soldKes = 0;
+  let imputedLitres = 0;
+  let imputedKes = 0;
+  let lostLitres = 0;
+
+  for (const r of rows) {
+    const litres = num(r.litres);
+    // valueKes is written at disposal time; the rate is the fallback for rows
+    // imported or corrected without it.
+    const value = r.valueKes != null ? num(r.valueKes) : litres * num(r.rateKesPerLitre);
+    if (revenue.has(r.channel)) {
+      soldLitres += litres;
+      soldKes += value;
+    } else if (loss.has(r.channel)) {
+      lostLitres += litres;
+    } else {
+      imputedLitres += litres;
+      imputedKes += value;
+    }
+  }
+
+  return {
+    soldLitres: money(soldLitres),
+    soldKes: money(soldKes),
+    imputedLitres: money(imputedLitres),
+    imputedKes: money(imputedKes),
+    lostLitres: money(lostLitres),
+    totalKes: money(soldKes + imputedKes),
+  };
 }
 
 /** Litres PRODUCED, superseded corrections removed. */

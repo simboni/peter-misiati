@@ -651,20 +651,77 @@ export async function runPayroll(
       daysByEmployee.set(a.employeeId, money((daysByEmployee.get(a.employeeId) ?? 0) + num(a.days)));
     }
 
+    /* ---------------------------------------------------------------- *
+     * STAFF MILK RATION → PAYSLIP (the money seam).
+     *
+     * Almost every Kenyan dairy sends its herdsman home with milk. It is
+     * pay, and it costs the farm exactly what a sold litre would have
+     * fetched — which is why `recordDisposal` already values a
+     * `STAFF_RATION` disposal at the imputed market rate and stores it on
+     * `milkDisposal.valueKes`. That row is the single source of truth.
+     *
+     * So the ration is READ from the month's disposals, never re-entered
+     * here, and it is never posted as an expense either: milk given to
+     * staff was produced by this farm, not bought, and the cost of
+     * producing it is already in feed, labour and everything else. Adding
+     * a LABOUR expense for it would charge the farm twice for one litre.
+     *
+     * It is a cost IN KIND: `computePayslip` puts it in `costToFarmKes`
+     * and deliberately keeps it out of `totalDeductionsKes`, so nobody's
+     * net pay drops because they took milk.
+     *
+     * Split evenly across everyone on the run — `milkDisposal` has no
+     * employee column, and an even share is the honest reading of "the
+     * staff took 60 litres this month".
+     * ---------------------------------------------------------------- */
+    const rationRows = await db
+      .select({
+        litres: s.milkDisposal.litres,
+        valueKes: s.milkDisposal.valueKes,
+        rateKesPerLitre: s.milkDisposal.rateKesPerLitre,
+      })
+      .from(s.milkDisposal)
+      .where(
+        and(
+          eq(s.milkDisposal.farmId, session.farmId),
+          eq(s.milkDisposal.channel, "STAFF_RATION"),
+          gte(s.milkDisposal.disposedOn, periodMonth),
+          lte(s.milkDisposal.disposedOn, periodEnd),
+        ),
+      );
+    const rationTotalKes = money(
+      rationRows.reduce(
+        (t, r) =>
+          t + (r.valueKes != null ? num(r.valueKes) : num(r.litres) * num(r.rateKesPerLitre)),
+        0,
+      ),
+    );
+    const rationPerHeadKes =
+      employees.length > 0 ? money(rationTotalKes / employees.length) : 0;
+    let rationAllocatedKes = 0;
+
     const payslips: PayslipRow[] = [];
     let totalGrossKes = 0;
     let totalNetKes = 0;
     let totalEmployerCostKes = 0;
 
-    for (const e of employees) {
+    for (const [index, e] of employees.entries()) {
       const wagePeriod = (e.wagePeriod ?? "MONTHLY") as "MONTHLY" | "DAILY";
       const daysWorked = daysByEmployee.get(e.id) ?? 0;
+      // The last slip takes the rounding remainder, so the payslips add back
+      // up to exactly what the disposals recorded — to the cent.
+      const milkRationKes =
+        index === employees.length - 1
+          ? money(rationTotalKes - rationAllocatedKes)
+          : rationPerHeadKes;
+      rationAllocatedKes = money(rationAllocatedKes + milkRationKes);
       const slip = computePayslip(
         {
           basicKes: num(e.basicWageKes),
           housingProvided: e.housingProvided,
           daysWorked,
           wagePeriod,
+          milkRationKes,
         },
         rates,
       );

@@ -59,6 +59,7 @@ import {
   type FeedUnit,
   type MarginOverFeed,
 } from "@/lib/domain/feed";
+import { postLinkedExpense } from "./money";
 
 /* ---------------------------------------------------------------- */
 /* Plumbing                                                          */
@@ -283,6 +284,8 @@ export interface PurchaseResult {
   totalCostKes: number;
   costPerKgKes: number;
   balanceKg: number;
+  /** The PENDING cash-book entry this purchase posted. Null if it was free. */
+  expenseId: string | null;
   receiptLines: string[];
 }
 
@@ -313,6 +316,37 @@ export async function recordPurchaseFor(
   const perKg = costPerKg(totalCostKes, totalKg);
 
   const id = input.id ?? newId();
+
+  /* ---------------------------------------------------------------- *
+   * FEED PURCHASE → EXPENSE (the money seam).
+   *
+   * Buying feed is money out, so it belongs in the cash book like any
+   * other cost: PENDING, category FEEDS, until a manager approves it.
+   *
+   * WHAT MUST NOT HAPPEN HERE: the feed cost figures in this module do
+   * NOT read the expense. `costPerKgByItem`, `marginOverFeedCost` and
+   * `feedCostByAnimal` (M7) all read `feedPurchase.totalCostKes`
+   * directly, on purpose — the cull list must name a loss-making cow
+   * whether or not anyone has got round to approving the feed invoice.
+   * Gating it on approval would silently empty the one screen that pays
+   * for the system.
+   *
+   * So the same shilling is visible twice, and is counted once in each
+   * place: `costOfProduction` reads the APPROVED expense, feed reporting
+   * reads the purchase. Nothing adds the two together, and nothing here
+   * ever posts a second expense — the id is derived from the purchase,
+   * so an offline double-flush lands on the same row.
+   * ---------------------------------------------------------------- */
+  const expenseId = await postLinkedExpense(db, session, {
+    sourceTable: "feed_purchase",
+    sourceId: id,
+    incurredOn: input.purchasedOn,
+    category: "FEEDS",
+    description: `${quantity} ${UNIT_LABEL[input.unit]} ${item.name}`,
+    amountKes: totalCostKes,
+    counterpartyId: input.supplierId ?? null,
+  });
+
   await db
     .insert(s.feedPurchase)
     .values({
@@ -326,6 +360,7 @@ export async function recordPurchaseFor(
       unitWeightKg: dec(weight.unitWeightKg, 3),
       unitPriceKes: dec(unitPrice),
       totalCostKes: dec(totalCostKes),
+      expenseId,
       recordedBy: session.userId,
     })
     .onConflictDoNothing();
@@ -338,6 +373,7 @@ export async function recordPurchaseFor(
     `KES ${totalCostKes.toFixed(2)} — KES ${perKg.toFixed(2)} a kilo.`,
     dmPct > 0 ? `KES ${costPerKgDm(perKg, dmPct).toFixed(2)} per kg of dry matter.` : "",
     `Store now holds ${balanceKg} kg.`,
+    expenseId ? "Recorded in the cash book as feeds. It waits for a manager to approve it." : "",
   ].filter(Boolean);
 
   const ref = await writeReceipt(db, session, {
@@ -348,7 +384,7 @@ export async function recordPurchaseFor(
   });
 
   return actionOk(
-    { id, totalKg, totalCostKes, costPerKgKes: perKg, balanceKg, receiptLines },
+    { id, totalKg, totalCostKes, costPerKgKes: perKg, balanceKg, expenseId, receiptLines },
     `${item.name}: ${totalKg} kg in at KES ${perKg.toFixed(2)} a kilo.`,
     ref,
   );

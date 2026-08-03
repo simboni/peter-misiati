@@ -38,6 +38,8 @@ import {
 import { REF_PREFIX, newId, refCode } from "@/lib/ids";
 import { dec, num } from "@/lib/money";
 import { addDays, ageDays, fromDate, today, type ISODate } from "@/lib/domain/dates";
+import { deriveClass, isMilking, type AnimalFacts } from "@/lib/domain/animal";
+import { breedingCalendar } from "@/lib/domain/breeding";
 import {
   KENYA_ROUTINES,
   checkRoutineEligibility,
@@ -68,6 +70,69 @@ const Uuid = z.string().uuid();
 export const UNKNOWN_PERIOD_LOOKBACK_DAYS = 45;
 /** How recently she must have been milked to count as "milking today". */
 export const MILKING_LOOKBACK_DAYS = 14;
+
+/**
+ * M1 writes one alert per scheduled routine, keyed `<animalId>:ROUTINE_<code>`.
+ * Recording the event here is what closes it — an alert nobody can clear is an
+ * alert everybody learns to ignore.
+ *
+ * The prefix is duplicated rather than imported from `./herd`, because `herd.ts`
+ * opens the production database at module scope and this module must stay
+ * importable without one.
+ */
+const ROUTINE_ALERT_PREFIX = "ROUTINE_";
+
+/** Close M1's schedule reminder for a routine, for every animal it was given to. */
+async function resolveRoutineAlerts(
+  db: DbLike,
+  session: Session,
+  animalIds: string[],
+  routine: string | null | undefined,
+  outcome: string,
+): Promise<void> {
+  if (!routine || animalIds.length === 0) return;
+  await db
+    .update(s.alert)
+    .set({ resolvedAt: new Date(), outcome, resolvedBy: session.userId })
+    .where(
+      and(
+        eq(s.alert.farmId, session.farmId),
+        eq(s.alert.kind, `${ROUTINE_ALERT_PREFIX}${routine}`),
+        inArray(s.alert.animalId, [...new Set(animalIds)]),
+        isNull(s.alert.resolvedAt),
+      ),
+    );
+}
+
+/**
+ * How many doses of this routine an animal has already had.
+ *
+ * Counted off `healthEvent.routine`, the column that exists for exactly this.
+ * It used to be counted off the free-text `diagnosis`, where a typo — or a vet
+ * writing "S19 booster" — would hand a heifer a second brucellosis shot that
+ * cannot be undone.
+ */
+async function priorRoutineDoses(
+  db: DbLike,
+  session: Session,
+  animalIds: string[],
+  routine: string,
+): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (animalIds.length === 0) return out;
+  const rows = await db
+    .select({ animalId: s.healthEvent.animalId })
+    .from(s.healthEvent)
+    .where(
+      and(
+        eq(s.healthEvent.farmId, session.farmId),
+        eq(s.healthEvent.routine, routine),
+        inArray(s.healthEvent.animalId, [...new Set(animalIds)]),
+      ),
+    );
+  for (const r of rows) out.set(r.animalId, (out.get(r.animalId) ?? 0) + 1);
+  return out;
+}
 
 /**
  * A deterministic UUID from stable parts.
@@ -143,6 +208,59 @@ async function requireAnimal(db: DbLike, session: Session, animalId: string) {
 
 function nameOf(a: { name: string | null; tag: string }): string {
   return a.name ?? a.tag;
+}
+
+/* ---------------------------------------------------------------- */
+/* HEALTH COST → EXPENSE (the money seam)                            */
+/* ---------------------------------------------------------------- */
+
+/**
+ * Post the cost of a treatment, vaccination or routine batch into the cash
+ * book as a PENDING expense, category VETERINARY.
+ *
+ * TWO THINGS THIS SEAM HAS TO GET RIGHT, both of which bite quietly:
+ *
+ * 1. **`costSettledBy` is honoured, not ignored.** A co-operative check-off
+ *    never leaves the till — the co-op pays the vet and nets it off the milk
+ *    cheque — so the expense is stamped `COOP_CHECKOFF` rather than cash. It
+ *    still IS a cost of production and still has to be here: M4's statement
+ *    reconciliation matches the co-op's `VET` deduction against exactly this
+ *    row, and an expense that was never written is an "unmatched deduction"
+ *    the farm cannot explain. Stamping the method also keeps the M-Pesa
+ *    reconciler from demanding a statement line for money that never moved.
+ *
+ * 2. **The vet shilling is reported twice and counted once.**
+ *    `animalLifetimeValue` and `cullList` (M7) read `healthEvent.costKes`
+ *    directly, because they attribute cost to ONE ANIMAL and must not wait on
+ *    an approval; `costOfProduction` (M9) reads the APPROVED expense, because
+ *    a farm-wide cost total that moves before a manager has seen it is exactly
+ *    what R10 exists to prevent. They are two views of the same fact, never
+ *    two facts: no report adds them together, `costOfProduction` never reads
+ *    `healthEvent.costKes`, and M7 never reads the expense. The expense id is
+ *    derived from the health event, so a replayed offline flush posts once.
+ */
+async function postHealthExpense(
+  db: DbLike,
+  session: Session,
+  args: {
+    sourceId: string;
+    occurredOn: ISODate;
+    costKes: number | string | null | undefined;
+    costSettledBy?: "CASH" | "CREDIT" | "COOP_CHECKOFF" | null;
+    description: string;
+  },
+): Promise<string | null> {
+  if (args.costKes == null || args.costKes === "") return null;
+  const { postLinkedExpense } = await import("./money");
+  return postLinkedExpense(db, session, {
+    sourceTable: "health_event",
+    sourceId: args.sourceId,
+    incurredOn: args.occurredOn,
+    category: "VETERINARY",
+    description: args.description,
+    amountKes: num(args.costKes),
+    costSettledBy: args.costSettledBy ?? null,
+  });
 }
 
 /**
@@ -486,6 +604,17 @@ export async function recordTreatmentFor(
   }
 
   const id = input.id ?? newId();
+
+  // The money seam. See `postHealthExpense` for why this is posted here and
+  // why `animalLifetimeValue` still reads `costKes` instead of the expense.
+  const expenseId = await postHealthExpense(db, session, {
+    sourceId: id,
+    occurredOn,
+    costKes: input.costKes,
+    costSettledBy: input.costSettledBy,
+    description: `${product.name} for ${nameOf(animal)}`,
+  });
+
   await db
     .insert(s.healthEvent)
     .values({
@@ -496,6 +625,11 @@ export async function recordTreatmentFor(
       occurredOn,
       signs: input.signs ?? null,
       diagnosis: input.diagnosis ?? (isDryCowTherapy ? DRY_COW_THERAPY : null),
+      // Stored explicitly rather than re-deduced from route + notForLactating
+      // on every read. `listDryCowProducts` offers any INTRAMAMMARY product,
+      // so the deduction misses a dry cow tube whose label flag was never set —
+      // and the 96-hour-after-calving leg then silently never applies.
+      isDryCowTherapy,
       productId: product.id,
       batchNo: input.batchNo ?? null,
       expiry: input.expiry ?? null,
@@ -510,6 +644,7 @@ export async function recordTreatmentFor(
       performedByExt: input.performedByExt ?? null,
       costKes: input.costKes == null || input.costKes === "" ? null : dec(num(input.costKes)),
       costSettledBy: input.costSettledBy ?? null,
+      expenseId,
       outcome: "ONGOING",
       followUpOn: input.followUpOn ?? null,
       recordedBy: session.userId,
@@ -729,6 +864,7 @@ export async function getWithdrawalStatus(
       occurredOn: s.healthEvent.occurredOn,
       treatmentEndOn: s.healthEvent.treatmentEndOn,
       route: s.healthEvent.route,
+      isDryCowTherapy: s.healthEvent.isDryCowTherapy,
       milkClearAt: s.healthEvent.milkClearAt,
       meatClearAt: s.healthEvent.meatClearAt,
       productId: s.healthEvent.productId,
@@ -777,7 +913,10 @@ export async function getWithdrawalStatus(
       const meatClearOn = e.meatClearAt ?? null;
       const end = e.treatmentEndOn ?? e.occurredOn;
 
-      if (e.route === "INTRAMAMMARY" && e.notForLactating) {
+      // The explicit flag first, the old deduction second, so a dry-off written
+      // by M2 extends to calving + 96 h even when the tube's label flag is
+      // missing — and rows written before the column existed still work.
+      if (e.isDryCowTherapy || (e.route === "INTRAMAMMARY" && e.notForLactating)) {
         const calvedAfter = calvings
           .filter((c) => c.damId === animal.id && c.calvedOn >= end)
           .map((c) => c.calvedOn)[0] ?? null;
@@ -975,9 +1114,31 @@ export async function recordRoutineBatchFor(
     return actionError("Pick at least one product.");
   }
 
-  const animals = await resolveHerd(db, session, input.animalIds, input.group, occurredOn);
+  let animals = await resolveHerd(db, session, input.animalIds, input.group, occurredOn);
   if (animals.length === 0) {
     return actionError("No animals matched. Pick the animals or a group with animals in it.");
+  }
+
+  /* ONCE IN A LIFETIME, enforced on the batch path too.
+   *
+   * Disbudding is the one that gets here — it is done to a pen of calves at
+   * once, not animal by animal on the vaccination screen, so the refusal that
+   * guards S19 and ECF-ITM never saw it. Skipping the animals who have already
+   * had it is the enforcement: refusing the whole batch would mean the other
+   * nineteen calves never get recorded, which is how a paper register wins.
+   */
+  const batchRule = input.routine ? routineRule(input.routine) : undefined;
+  const skipped: string[] = [];
+  if (batchRule?.onceInLifetime && input.routine) {
+    const prior = await priorRoutineDoses(db, session, animals.map((a) => a.id), input.routine);
+    const eligible = animals.filter((a) => (prior.get(a.id) ?? 0) === 0);
+    for (const a of animals) if ((prior.get(a.id) ?? 0) > 0) skipped.push(nameOf(a));
+    if (eligible.length === 0) {
+      return actionError(
+        `${batchRule.label} is given once in a lifetime and every animal you picked has had it.`,
+      );
+    }
+    animals = eligible;
   }
 
   const products = await db
@@ -996,10 +1157,32 @@ export async function recordRoutineBatchFor(
       );
     }
   }
+  if (skipped.length > 0 && batchRule) {
+    warnings.push(
+      `${skipped.join(", ")} ${skipped.length === 1 ? "has" : "have"} already had ${batchRule.label} — it is given once in a lifetime, so ${skipped.length === 1 ? "she was" : "they were"} left out.`,
+    );
+  }
 
   const eventType: RoutineEventType = input.eventType ?? "DIPPING";
   const nowWithheld: RoutineBatchResult["nowWithheld"] = [];
   let eventsWritten = 0;
+
+  /* The money seam for a batch.
+   *
+   * `costKes` on a batch is the cost PER ANIMAL PER PRODUCT — that is how it
+   * is stored on each row, and how M7 attributes it to each cow. The cash book
+   * wants the invoice, so ONE expense carries the whole batch and every row of
+   * the batch points at it. Sixty rows, one expense, one shilling total: the
+   * id comes from the batch, so a re-flushed batch does not buy the dip twice.
+   */
+  const batchCostKes = num(input.costKes) * animals.length * products.length;
+  const batchExpenseId = await postHealthExpense(db, session, {
+    sourceId: `batch:${batchId}`,
+    occurredOn,
+    costKes: input.costKes == null || input.costKes === "" ? null : batchCostKes,
+    costSettledBy: input.costSettledBy,
+    description: `${products.map((p) => p.name).join(" and ")} — ${animals.length} animal${animals.length === 1 ? "" : "s"}`,
+  });
 
   for (const animal of animals) {
     for (const product of products) {
@@ -1017,7 +1200,10 @@ export async function recordRoutineBatchFor(
           animalId: animal.id,
           eventType,
           occurredOn,
-          diagnosis: input.routine ?? null,
+          // The routine code belongs in `routine`, which is what it is for.
+          // It used to be written into free-text `diagnosis`, where the
+          // once-for-life count and the due-list both had to guess.
+          routine: input.routine ?? null,
           productId: product.id,
           dose: input.dose ?? null,
           route: input.route ?? (eventType === "DIPPING" ? "TOPICAL" : null),
@@ -1027,6 +1213,7 @@ export async function recordRoutineBatchFor(
           performedByUser: session.userId,
           costKes: input.costKes == null || input.costKes === "" ? null : dec(num(input.costKes)),
           costSettledBy: input.costSettledBy ?? null,
+          expenseId: batchExpenseId,
           outcome: "RECOVERED",
           recordedBy: session.userId,
         })
@@ -1043,6 +1230,10 @@ export async function recordRoutineBatchFor(
       }
     }
   }
+
+  // M1 put a `ROUTINE_<code>` reminder on each of these animals at
+  // registration. Doing the thing is what closes it.
+  await resolveRoutineAlerts(db, session, animals.map((a) => a.id), input.routine, "DONE");
 
   const productNames = products.map((p) => p.name).join(" and ");
   const message = `${productNames} given to ${animals.length} animal${animals.length === 1 ? "" : "s"} on ${plainDate(
@@ -1072,12 +1263,127 @@ export async function recordRoutineBatchFor(
 }
 
 /**
+ * M1's class derivation, recomputed here from the same events.
+ *
+ * `herd.ts` owns this rule, but it opens the production database at module
+ * scope, so importing it would make this module un-importable without one.
+ * The facts are therefore assembled to `factsFor`'s exact recipe — abortions
+ * excluded from parity, the expected calving date taken from the service a
+ * positive diagnosis pointed at — and handed to the same pure `deriveClass`.
+ * Same input, same function, same answer.
+ */
+async function derivedClasses(
+  db: DbLike,
+  session: Session,
+  animals: Array<{ id: string; sex: "F" | "M"; dateOfBirth: ISODate | null }>,
+  asOf: ISODate,
+): Promise<Map<string, s.AnimalClass>> {
+  const farmId = session.farmId;
+  const [rows, calvings, outcomes, services, pds, dryOffs, weights, exits] = await Promise.all([
+    db.select().from(s.animal).where(eq(s.animal.farmId, farmId)),
+    db.select().from(s.calving).where(eq(s.calving.farmId, farmId)),
+    db.select().from(s.calvingOutcome).where(eq(s.calvingOutcome.farmId, farmId)),
+    db.select().from(s.service).where(eq(s.service.farmId, farmId)),
+    db.select().from(s.pregnancyCheck).where(eq(s.pregnancyCheck.farmId, farmId)),
+    db.select().from(s.dryOff).where(eq(s.dryOff.farmId, farmId)),
+    db.select().from(s.weightObservation).where(eq(s.weightObservation.farmId, farmId)),
+    db.select().from(s.animalExit).where(eq(s.animalExit.farmId, farmId)),
+  ]);
+
+  const aborted = new Set<string>();
+  const outcomesByCalving = new Map<string, string[]>();
+  for (const o of outcomes) {
+    const list = outcomesByCalving.get(o.calvingId) ?? [];
+    list.push(o.outcome);
+    outcomesByCalving.set(o.calvingId, list);
+  }
+  for (const [calvingId, list] of outcomesByCalving) {
+    if (list.length > 0 && list.every((x) => x === "ABORTION")) aborted.add(calvingId);
+  }
+
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const out = new Map<string, s.AnimalClass>();
+
+  for (const a of animals) {
+    const row = byId.get(a.id);
+    if (!row) continue;
+    out.set(a.id, deriveClass(animalFacts(row, asOf, { calvings, aborted, services, pds, dryOffs, weights, exits }), asOf));
+  }
+  return out;
+}
+
+/** The fact bundle `deriveClass` needs, built to M1's `factsFor` recipe. */
+function animalFacts(
+  animal: typeof s.animal.$inferSelect,
+  asOf: ISODate,
+  src: {
+    calvings: (typeof s.calving.$inferSelect)[];
+    aborted: Set<string>;
+    services: (typeof s.service.$inferSelect)[];
+    pds: (typeof s.pregnancyCheck.$inferSelect)[];
+    dryOffs: (typeof s.dryOff.$inferSelect)[];
+    weights: (typeof s.weightObservation.$inferSelect)[];
+    exits: (typeof s.animalExit.$inferSelect)[];
+  },
+): AnimalFacts {
+  const calvings = src.calvings
+    .filter((c) => c.damId === animal.id && c.calvedOn <= asOf && !src.aborted.has(c.id))
+    .sort((x, y) => x.calvedOn.localeCompare(y.calvedOn));
+  const services = src.services
+    .filter((r) => r.animalId === animal.id && r.servedOn <= asOf)
+    .sort((x, y) => x.servedOn.localeCompare(y.servedOn));
+  const pds = src.pds
+    .filter((r) => r.animalId === animal.id && r.checkedOn <= asOf)
+    .sort((x, y) => x.checkedOn.localeCompare(y.checkedOn));
+  const dryOffs = src.dryOffs
+    .filter((r) => r.animalId === animal.id && r.driedOn <= asOf)
+    .sort((x, y) => x.driedOn.localeCompare(y.driedOn));
+  const weights = src.weights
+    .filter((r) => r.animalId === animal.id && r.observedOn <= asOf && r.weightKg != null)
+    .sort((x, y) => x.observedOn.localeCompare(y.observedOn));
+  const exit = src.exits.find((r) => r.animalId === animal.id && r.exitDate <= asOf) ?? null;
+
+  const lastService = services.at(-1) ?? null;
+  const positives = pds.filter((p) => p.result === "POSITIVE");
+  const negatives = pds.filter((p) => p.result === "NEGATIVE");
+  const lastPositive = positives.at(-1) ?? null;
+
+  let edd: ISODate | null = lastService?.expectedCalvingOn ?? null;
+  if (lastPositive?.serviceId) {
+    const tied = services.find((r) => r.id === lastPositive.serviceId);
+    if (tied?.expectedCalvingOn) edd = tied.expectedCalvingOn;
+  }
+  if (!edd && lastService) {
+    edd = breedingCalendar(lastService.servedOn, animal.primaryBreed).expectedCalvingOn;
+  }
+
+  return {
+    sex: animal.sex,
+    dateOfBirth: animal.dateOfBirth,
+    castrated: animal.castrated,
+    classOverride: animal.classOverride,
+    parity: calvings.length,
+    lastCalvingOn: calvings.at(-1)?.calvedOn ?? null,
+    lastServiceOn: lastService?.servedOn ?? null,
+    pdPositiveOn: lastPositive?.checkedOn ?? null,
+    pdNegativeOn: negatives.at(-1)?.checkedOn ?? null,
+    driedOffOn: dryOffs.at(-1)?.driedOn ?? null,
+    expectedCalvingOn: edd,
+    latestWeightKg: weights.at(-1)?.weightKg != null ? num(weights.at(-1)!.weightKg) : null,
+    culled: exit?.reason === "CULLED",
+  };
+}
+
+/**
  * Who is in this group?
  *
- * Group membership is read from the herd's own evidence rather than a typed
- * column: sex and age for the young stock, and whether she has actually been
- * milked lately for LACTATING/DRY. Class derivation proper lives in M1; this
- * stays deliberately simple so a batch never silently misses an animal.
+ * Sex and age for the young stock. For LACTATING and DRY the answer now comes
+ * from M1's derivation FIRST — a cow M1 calls DRY_COW is dry here too, even
+ * though her last milk record is only a day old, because a dry-off does not
+ * erase the fortnight of milkings before it. Recent milk records are kept as a
+ * second signal for animals M1 cannot classify (a bought-in cow with no
+ * calving on file reads as a heifer), so a batch still never silently misses
+ * an animal that is plainly in milk.
  */
 async function resolveHerd(
   db: DbLike,
@@ -1135,8 +1441,19 @@ async function resolveHerd(
     ).map((r) => r.animalId),
   );
 
+  const classes =
+    group === "LACTATING" || group === "DRY"
+      ? await derivedClasses(db, session, present, asOf)
+      : new Map<string, s.AnimalClass>();
+
   return present.filter((a) => {
     const days = ageDays(a.dateOfBirth, asOf);
+    const cls = classes.get(a.id);
+    // M1's word is final where it has one. DRY_COW and SPRINGER are the two it
+    // reaches only on the evidence of a dry-off or a due calving, and both mean
+    // "not in milk" no matter what last week's milk sheet says.
+    const m1Dry = cls === "DRY_COW" || cls === "SPRINGER";
+    const m1Milking = cls != null && isMilking(cls);
     switch (group) {
       case "CALVES":
         return days !== null && days < 90;
@@ -1145,9 +1462,12 @@ async function resolveHerd(
       case "BULLS":
         return a.sex === "M";
       case "LACTATING":
-        return a.sex === "F" && milkingIds.has(a.id);
+        return a.sex === "F" && !m1Dry && (m1Milking || milkingIds.has(a.id));
       case "DRY":
-        return a.sex === "F" && !milkingIds.has(a.id) && (days === null || days >= 730);
+        return (
+          a.sex === "F" &&
+          (m1Dry || (!m1Milking && !milkingIds.has(a.id) && (days === null || days >= 730)))
+        );
       default:
         return true;
     }
@@ -1162,6 +1482,7 @@ const BatchForm = z.object({
   routine: z.string().optional(),
   dose: z.string().optional(),
   costKes: z.string().optional(),
+  costSettledBy: z.enum(["CASH", "CREDIT", "COOP_CHECKOFF"]).optional(),
 });
 
 export async function recordRoutineBatch(
@@ -1243,21 +1564,15 @@ export async function recordVaccinationFor(
   const rule = routineRule(input.routine);
   if (!rule) return actionError(`"${input.routine}" is not a routine this app knows.`);
 
-  const given = await db
-    .select({ id: s.healthEvent.id })
-    .from(s.healthEvent)
-    .where(
-      and(
-        eq(s.healthEvent.farmId, session.farmId),
-        eq(s.healthEvent.animalId, animal.id),
-        eq(s.healthEvent.diagnosis, rule.routine),
-      ),
-    );
+  // Prior doses come off `healthEvent.routine` — the dedicated column — not
+  // off free-text `diagnosis`. A vet who types "S19 booster" must not be able
+  // to hand a heifer a second brucellosis shot, and that is a one-way door.
+  const given = await priorRoutineDoses(db, session, [animal.id], rule.routine);
 
   const eligibility = checkRoutineEligibility(rule, {
     sex: animal.sex,
     ageDays: ageDays(animal.dateOfBirth, occurredOn),
-    alreadyGivenCount: given.length,
+    alreadyGivenCount: given.get(animal.id) ?? 0,
   });
 
   if (!eligibility.eligible) {
@@ -1280,6 +1595,17 @@ export async function recordVaccinationFor(
   });
 
   const id = input.id ?? newId();
+
+  // The money seam, same rule as a treatment: PENDING, VETERINARY, and a
+  // check-off is stamped as such rather than posted as cash out.
+  const expenseId = await postHealthExpense(db, session, {
+    sourceId: id,
+    occurredOn,
+    costKes: input.costKes,
+    costSettledBy: input.costSettledBy,
+    description: `${rule.label} for ${nameOf(animal)}`,
+  });
+
   await db
     .insert(s.healthEvent)
     .values({
@@ -1288,9 +1614,11 @@ export async function recordVaccinationFor(
       animalId: animal.id,
       eventType: "VACCINATION",
       occurredOn,
-      // Routine key. See the schema note in the build report: healthEvent has
-      // no `routine` column, so the code lives here and the label is looked up.
-      diagnosis: rule.routine,
+      // The routine CODE goes in the dedicated column; `diagnosis` keeps the
+      // human label, so the cow card reads "Brucellosis S19" and nothing
+      // load-bearing has to parse free text.
+      routine: rule.routine,
+      diagnosis: rule.label,
       productId: product?.id ?? null,
       batchNo: input.batchNo ?? null,
       expiry: input.expiry ?? null,
@@ -1302,10 +1630,15 @@ export async function recordVaccinationFor(
       performedByExt: input.performedByExt ?? null,
       costKes: input.costKes == null || input.costKes === "" ? null : dec(num(input.costKes)),
       costSettledBy: input.costSettledBy ?? null,
+      expenseId,
       outcome: "RECOVERED",
       recordedBy: session.userId,
     })
     .onConflictDoNothing();
+
+  // M1 set a `ROUTINE_<code>` reminder for her at registration; this is the
+  // event it was waiting for.
+  await resolveRoutineAlerts(db, session, [animal.id], rule.routine, "DONE");
 
   const due = nextDueOn(rule, occurredOn);
   const message = due
@@ -1502,11 +1835,13 @@ export async function dueRoutines(
   const events = await db
     .select({
       animalId: s.healthEvent.animalId,
-      routine: s.healthEvent.diagnosis,
+      // The routine column, not the free-text diagnosis. "Mastitis, left fore"
+      // is a diagnosis; it is not a dose of anything and must not read as one.
+      routine: s.healthEvent.routine,
       occurredOn: s.healthEvent.occurredOn,
     })
     .from(s.healthEvent)
-    .where(and(eq(s.healthEvent.farmId, session.farmId), isNotNull(s.healthEvent.diagnosis)))
+    .where(and(eq(s.healthEvent.farmId, session.farmId), isNotNull(s.healthEvent.routine)))
     .orderBy(desc(s.healthEvent.occurredOn));
 
   const lastGiven = new Map<string, ISODate>();
@@ -1588,6 +1923,7 @@ export async function animalHealthHistory(
       eventType: s.healthEvent.eventType,
       signs: s.healthEvent.signs,
       diagnosis: s.healthEvent.diagnosis,
+      routine: s.healthEvent.routine,
       dose: s.healthEvent.dose,
       cmtScore: s.healthEvent.cmtScore,
       costKes: s.healthEvent.costKes,
@@ -1603,7 +1939,7 @@ export async function animalHealthHistory(
   const statuses = await getWithdrawalStatus(session, [animal.id], today(), db);
 
   const entries: HistoryEntry[] = rows.map((r) => {
-    const rule = r.diagnosis ? routineRule(r.diagnosis) : undefined;
+    const rule = r.routine ? routineRule(r.routine) : undefined;
     const title = rule
       ? rule.label
       : r.eventType === "OBSERVATION"

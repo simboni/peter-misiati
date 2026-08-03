@@ -65,6 +65,8 @@ import {
   type ScheduleItem,
   type AnimalRow,
 } from "./herd";
+import { postLinkedExpense } from "./money";
+import { DRY_COW_THERAPY, stableId } from "./health";
 
 /* ================================================================== */
 /* Alert vocabulary                                                    */
@@ -391,6 +393,35 @@ export async function recordService(
     }
 
     const id = v.id ?? newId();
+
+    /* ---------------------------------------------------------------- *
+     * BREEDING COST → EXPENSE (the money seam).
+     *
+     * An AI straw and the technician's call-out are money out, so they go
+     * into the cash book PENDING, category BREEDING — and `costSettledBy`
+     * is honoured: a co-op check-off is stamped `COOP_CHECKOFF`, because
+     * the money never left the till, it came off the milk cheque. That
+     * stamp is not decoration. M4's co-op statement reconciliation matches
+     * the co-op's `AI` deduction to a BREEDING expense of the same amount;
+     * before this seam existed there was nothing to match and every real
+     * check-off showed up as a deduction with nothing behind it.
+     *
+     * NOTE — `service` has no `expenseId` column in `schema.ts`, unlike
+     * `pregnancyCheck`, `feedPurchase` and `healthEvent`. Rather than edit
+     * a schema four agents depend on, the expense id is DERIVED from the
+     * service id (`linkedExpenseId("service", id)`), so the link is still
+     * recomputable in both directions and a replay still posts once.
+     * ---------------------------------------------------------------- */
+    const expenseId = await postLinkedExpense(db, session, {
+      sourceTable: "service",
+      sourceId: id,
+      incurredOn: servedOn,
+      category: "BREEDING",
+      description: `${v.serviceType} for ${displayName(animal)}${v.strawCode ? `, straw ${v.strawCode}` : ""}`,
+      amountKes: v.costKes ?? 0,
+      costSettledBy: v.costSettledBy ?? null,
+    });
+
     await db
       .insert(s.service)
       .values({
@@ -473,7 +504,7 @@ export async function recordService(
       prefix: REF_PREFIX.BREEDING,
       kind: "SERVICE",
       summary,
-      payload: { animalId: v.animalId, serviceId: id, calendar },
+      payload: { animalId: v.animalId, serviceId: id, calendar, expenseId },
     });
 
     updateTag(`breeding:${session.farmId}`);
@@ -574,6 +605,13 @@ const PdInput = z.object({
   monthsPregnant: z.coerce.number().min(0).max(10).optional(),
   performedBy: z.string().uuid().optional(),
   costKes: z.coerce.number().min(0).optional(),
+  /**
+   * `pregnancyCheck` has no `costSettledBy` column, so this is carried only as
+   * far as the expense it posts. Left out, the PD inherits how the service it
+   * belongs to was settled — a co-op AI technician who does the 60-day check
+   * puts both on the same check-off.
+   */
+  costSettledBy: z.enum(["CASH", "CREDIT", "COOP_CHECKOFF"]).optional(),
 });
 
 export interface PregnancyCheckResult {
@@ -625,6 +663,21 @@ export async function recordPregnancyCheck(
     const dryOffDueOn = edd ? addDays(edd, -DRY_PERIOD_DAYS) : null;
 
     const id = v.id ?? newId();
+
+    // The money seam, same rule as a service: PENDING, BREEDING, check-off
+    // honoured. `pregnancyCheck.expenseId` DOES exist, so the link is stored.
+    // Where the PD carries no settlement of its own it inherits the service's,
+    // because it is usually the same technician on the same check-off.
+    const expenseId = await postLinkedExpense(db, session, {
+      sourceTable: "pregnancy_check",
+      sourceId: id,
+      incurredOn: checkedOn,
+      category: "BREEDING",
+      description: `Pregnancy check (${v.method.toLowerCase()}) for ${who}`,
+      amountKes: v.costKes ?? 0,
+      costSettledBy: v.costSettledBy ?? service?.costSettledBy ?? null,
+    });
+
     await db
       .insert(s.pregnancyCheck)
       .values({
@@ -638,6 +691,7 @@ export async function recordPregnancyCheck(
         monthsPregnant: v.monthsPregnant != null ? dec(v.monthsPregnant, 1) : null,
         performedBy: v.performedBy ?? null,
         costKes: v.costKes != null ? dec(v.costKes) : null,
+        expenseId,
         recordedBy: session.userId,
       })
       .onConflictDoNothing();
@@ -1140,11 +1194,12 @@ export async function recordDryOff(
     }
 
     let milkClearOn: ISODate | null = null;
+    let dctProduct: typeof s.product.$inferSelect | undefined;
     if (v.dryCowTherapyProductId) {
-      const product = await db.query.product.findFirst({
+      dctProduct = await db.query.product.findFirst({
         where: eq(s.product.id, v.dryCowTherapyProductId),
       });
-      if (!product || (product.farmId != null && product.farmId !== session.farmId)) {
+      if (!dctProduct || (dctProduct.farmId != null && dctProduct.farmId !== session.farmId)) {
         return actionError("That product was not found.");
       }
       milkClearOn = dryCowTherapyClearOn(driedOn, edd);
@@ -1166,6 +1221,49 @@ export async function recordDryOff(
         recordedBy: session.userId,
       })
       .onConflictDoNothing();
+
+    /* ---------------------------------------------------------------- *
+     * DRY COW THERAPY → HEALTH EVENT. Closing the loop.
+     *
+     * Infusing a dry cow tube IS a treatment, and the hard block that keeps
+     * her milk out of the can reads `healthEvent.milkClearAt` — nothing else.
+     * Until this row existed, drying off with therapy raised a CRITICAL alert
+     * and computed a clear date that no query anywhere consulted: the milk
+     * sheet showed her clear, and the only thing standing between a 30-day
+     * antibiotic residue and the co-op's tank was somebody reading a reminder.
+     *
+     * `isDryCowTherapy` is set explicitly so `getWithdrawalStatus` extends the
+     * date to calving + 96 hours once she actually calves — the stored date
+     * here uses the EXPECTED calving, which is a forecast and may be early.
+     * The id is derived from the dry-off, so a re-flushed offline entry
+     * infuses her once.
+     * ---------------------------------------------------------------- */
+    if (dctProduct) {
+      const meatClearOn =
+        dctProduct.meatWithdrawalDays != null
+          ? addDays(driedOn, dctProduct.meatWithdrawalDays)
+          : null;
+      await db
+        .insert(s.healthEvent)
+        .values({
+          id: stableId(id, "dry-cow-therapy"),
+          farmId: session.farmId,
+          animalId: v.animalId,
+          eventType: "TREATMENT",
+          occurredOn: driedOn,
+          diagnosis: DRY_COW_THERAPY,
+          isDryCowTherapy: true,
+          productId: dctProduct.id,
+          route: "INTRAMAMMARY",
+          treatmentEndOn: driedOn,
+          milkClearAt: milkClearOn ? new Date(`${milkClearOn}T00:00:00.000Z`) : null,
+          meatClearAt: meatClearOn,
+          performedByUser: session.userId,
+          outcome: "ONGOING",
+          recordedBy: session.userId,
+        })
+        .onConflictDoNothing();
+    }
 
     await resolveAlerts(session, v.animalId, [ALERT_KIND.DRY_OFF_DUE], "DRIED_OFF");
 
