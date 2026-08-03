@@ -39,3 +39,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# POS app
+apps/riziki-pos/.next/
+apps/riziki-pos/data/
+apps/riziki-pos/node_modules/

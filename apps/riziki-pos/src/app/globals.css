@@ -1,0 +1,66 @@
+@import "tailwindcss";
+
+/*
+  Riziki POS — visual system.
+  Brand teal + green carried over from the shop's own signage. Designed
+  phone-first: the counter device is an Android phone, not a desktop.
+*/
+
+@theme {
+  --color-ink: #14262b;
+  --color-muted: #5d7278;
+  --color-line: #d9e5e6;
+  --color-wash: #f2f8f8;
+  --color-brand: #0e7c86;
+  --color-brand-dark: #0a5f67;
+  --color-brand-soft: #e2f0f1;
+  --color-leaf: #5a9c2f;
+  --color-good: #2e7d32;
+  --color-good-soft: #e6f2e6;
+  --color-warn: #a3690e;
+  --color-warn-soft: #f8efdc;
+  --color-bad: #c62828;
+  --color-bad-soft: #fbe7e7;
+}
+
+html,
+body {
+  background: #eef3f4;
+  color: var(--color-ink);
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, "DejaVu Sans", sans-serif;
+}
+
+/* Numbers that sit in columns must line up. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Keyboard users must always be able to see where they are. */
+:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Only the receipt shows up on paper. */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: #fff;
+  }
+}
