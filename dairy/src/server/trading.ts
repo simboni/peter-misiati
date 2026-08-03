@@ -262,6 +262,12 @@ export interface SaleResult {
   /** R7 — the whole point of showing this now, not next month. */
   lifetime: AnimalLifetimeValue;
   priceDrivers: string[];
+  /**
+   * Things the seller must be told but which do not stop the sale — chiefly a
+   * live meat withdrawal on a cow going to another farmer. Lawful, so it does
+   * not block; consequential, so it must not be silent either.
+   */
+  warnings: string[];
 }
 
 
@@ -446,7 +452,6 @@ export async function recordSale(
     }
 
     const lifetime = await animalLifetimeValue(session, v.animalId, v.exitDate, database);
-    void warnings;
 
     const priceDrivers: string[] = [];
     if (v.monthsPregnant) priceDrivers.push(`${v.monthsPregnant} months in calf`);
@@ -469,8 +474,13 @@ export async function recordSale(
     });
 
     return actionOk(
-      { exitId, incomeId, refCode: ref, lifetime, priceDrivers },
-      `${animal.tag} sold for ${kes(v.priceKes)}. ${lifetime.summary}`,
+      { exitId, incomeId, refCode: ref, lifetime, priceDrivers, warnings },
+      // The warning leads. A meat withdrawal the buyer does not know about is
+      // the one thing on this receipt that can still hurt somebody.
+      [
+        ...warnings,
+        `${animal.tag} sold for ${kes(v.priceKes)}. ${lifetime.summary}`,
+      ].join(" "),
       ref,
     );
   });

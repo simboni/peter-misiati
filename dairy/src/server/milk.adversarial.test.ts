@@ -18,6 +18,7 @@ import { FARM_ID, fakeSession, seedAnimal, seedFarm, seedProduct, seedUser } fro
 import * as s from "@/db/schema";
 import { newId } from "@/lib/ids";
 import { addDays, today } from "@/lib/domain/dates";
+import { ASSUMED_MILK_WITHDRAWAL_DAYS } from "@/lib/domain/health";
 import {
   approveMilkRecord,
   correctMilkRecord,
@@ -31,9 +32,11 @@ import {
 import { getWithdrawalStatus, recordTreatmentFor, type DbLike } from "./health";
 
 /**
- * The withdrawal engine in `milk.ts` compares `milkClearAt` with the REAL wall
- * clock, so every withdrawal assertion has to be anchored to it rather than to
- * a frozen literal date.
+ * The withdrawal engine in `milk.ts` judges a milking against the DATE OF THE
+ * MILKING, falling back to the wall clock only when no date is supplied. Tests
+ * that go through `milkSheet` / `recordMilkBatch` are therefore anchored to a
+ * real date rather than a frozen literal, so they still mean the same thing
+ * next August.
  */
 const NOW = today();
 const OTHER_FARM = "22222222-2222-4222-8222-222222222222";
@@ -303,37 +306,130 @@ describe("withdrawal: the only hard block in the system", () => {
     await close();
   });
 
-  /* ---- DEFECT: a product with NO recorded withdrawal period reads CLEAR ---- */
+  /* ---- a product with NO recorded withdrawal period is HELD, not waved on --- */
 
-  it.fails(
-    "DEFECT: a product with a NULL withdrawal period is presented as clear on the sheet",
-    async () => {
-      const { db, close, session } = await setup();
-      const cow = await seedCow(db, { name: "Muthoni", calvedOn: addDays(NOW, -120) });
-      // The agrovet had no label to hand. Unknown is NOT zero.
-      const unknown = await seedProduct(db, {
-        name: "Unlabelled penicillin",
-        milkWithdrawalDays: null,
-        meatWithdrawalDays: null,
-        labelSource: null,
-      });
-      await recordTreatmentFor(session, { animalId: cow, productId: unknown }, db as unknown as DbLike);
+  it("holds a cow whose product has a NULL withdrawal period, on the assumed window", async () => {
+    const { db, close, session } = await setup();
+    const cow = await seedCow(db, { name: "Muthoni", calvedOn: addDays(NOW, -120) });
+    // The agrovet had no label to hand. Unknown is NOT zero.
+    const unknown = await seedProduct(db, {
+      name: "Unlabelled penicillin",
+      milkWithdrawalDays: null,
+      meatWithdrawalDays: null,
+      labelSource: null,
+    });
+    await recordTreatmentFor(session, { animalId: cow, productId: unknown }, db as unknown as DbLike);
 
-      // The contract module knows perfectly well she is not clear…
-      const st = await getWithdrawalStatus(session, [cow], NOW, db as unknown as DbLike);
-      expect(st.get(cow)!.unknownPeriod).toBe(true);
+    // The contract module knows she is not clear…
+    const st = await getWithdrawalStatus(session, [cow], NOW, db as unknown as DbLike);
+    expect(st.get(cow)!.unknownPeriod).toBe(true);
 
-      // …but the sheet the milk is actually poured against says nothing at all.
-      const sheet = await milkSheet(session, NOW, "MORNING", db);
-      expect(sheet.rows[0].lockMessage ?? sheet.rows[0].warning).not.toBeNull();
+    // …and the sheet the milk is actually poured against now says so too.
+    const sheet = await milkSheet(session, NOW, "MORNING", db);
+    expect(sheet.rows[0].locked).toBe(true);
+    expect(sheet.rows[0].lockReason).toBe("WITHDRAWAL_UNKNOWN");
+    expect(sheet.rows[0].saleable).toBe(false);
+    expect(ASSUMED_MILK_WITHDRAWAL_DAYS).toBe(7);
+    expect(sheet.rows[0].milkClearOn).toBe(addDays(NOW, 7));
+    expect(sheet.rows[0].lockMessage).toMatch(/Unlabelled penicillin/);
+    expect(sheet.rows[0].lockMessage).toMatch(/Check the label/i);
 
-      const res = await recordMilkBatch(session, batch([{ animalId: cow, litres: 12 }]), db);
-      expect(res.ok).toBe(true);
-      if (!res.ok) return;
-      expect(res.data.saleableL).toBe(0);
-      await close();
-    },
-  );
+    const res = await recordMilkBatch(session, batch([{ animalId: cow, litres: 12 }]), db);
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.saleableL).toBe(0);
+    expect(res.data.totalL).toBe(12); // recorded, never refused
+    const [row] = await db.select().from(s.milkRecord).where(eq(s.milkRecord.farmId, FARM_ID));
+    expect(row.saleable).toBe(false);
+    expect(row.notSaleableReason).toBe("WITHDRAWAL_UNKNOWN");
+    await close();
+  });
+
+  it("does not hold a cow on a genuine ZERO-day withdrawal — zero is a number, not a gap", async () => {
+    const { db, close, session } = await setup();
+    const cow = await seedCow(db, { name: "Wairimu", calvedOn: addDays(NOW, -120) });
+    const zero = await seedProduct(db, {
+      name: "Multivitamin injection",
+      productType: "MINERAL",
+      milkWithdrawalDays: 0,
+      meatWithdrawalDays: 0,
+    });
+    await recordTreatmentFor(session, { animalId: cow, productId: zero }, db as unknown as DbLike);
+
+    expect((await withdrawalMap(db, FARM_ID, NOW)).has(cow)).toBe(false);
+    const sheet = await milkSheet(session, NOW, "MORNING", db);
+    expect(sheet.rows[0].locked).toBe(false);
+    expect(sheet.rows[0].lockReason).toBeNull();
+    expect(sheet.rows[0].saleable).toBe(true);
+
+    const res = await recordMilkBatch(session, batch([{ animalId: cow, litres: 12 }]), db);
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.saleableL).toBe(12);
+    expect(res.data.withheldL).toBe(0);
+    await close();
+  });
+
+  it("stops holding an unknown-period cow after sixty days, however bad the entry", async () => {
+    const { db, close, session } = await setup();
+    const cow = await seedCow(db, { name: "Kanini", calvedOn: addDays(NOW, -300) });
+    const unknown = await seedProduct(db, {
+      name: "Unlabelled penicillin",
+      milkWithdrawalDays: null,
+      meatWithdrawalDays: null,
+      labelSource: null,
+    });
+    // MAX_WITHDRAWAL_LOOKBACK_DAYS = 60. Without the bound, an unknown period
+    // has no clear date to expire and would fence her off the tank forever.
+    await recordTreatmentFor(
+      session,
+      { animalId: cow, productId: unknown, occurredOn: addDays(NOW, -90) },
+      db as unknown as DbLike,
+    );
+
+    expect((await withdrawalMap(db, FARM_ID, NOW)).has(cow)).toBe(false);
+    const sheet = await milkSheet(session, NOW, "MORNING", db);
+    expect(sheet.rows[0].locked).toBe(false);
+    const res = await recordMilkBatch(session, batch([{ animalId: cow, litres: 12 }]), db);
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.saleableL).toBe(12);
+    await close();
+  });
+
+  /**
+   * STILL OPEN, and the reason unknown-period milk can still reach a paying
+   * channel. `recordMilkBatch` and `dayProduction` both total the day with
+   * `if (notSaleableReason === "WITHDRAWAL")`, so a WITHDRAWAL_UNKNOWN row is
+   * counted into NEITHER `withheldL` nor `colostrumL`. The litres are stamped
+   * unsaleable on the record and then disappear from every total built on top
+   * of it: the batch receipt grows no "withheld" line, `allocateMilk` raises no
+   * warning, `reconcileDay` still reports "all accounted for", and
+   * `withdrawalGuard` sees `withheldL === 0` and declines to fence anything off.
+   */
+  it.fails("DEFECT: WITHDRAWAL_UNKNOWN litres are counted as neither withheld nor colostrum", async () => {
+    const { db, close, session } = await setup();
+    const cow = await seedCow(db, { name: "Muthoni", calvedOn: addDays(NOW, -120) });
+    const unknown = await seedProduct(db, {
+      name: "Unlabelled penicillin",
+      milkWithdrawalDays: null,
+      meatWithdrawalDays: null,
+      labelSource: null,
+    });
+    await recordTreatmentFor(session, { animalId: cow, productId: unknown }, db as unknown as DbLike);
+
+    const res = await recordMilkBatch(session, batch([{ animalId: cow, litres: 12 }]), db);
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.withheldL).toBe(12);
+    expect(res.data.receiptLines.join(" ")).toMatch(/12 L withheld/);
+
+    const day = await dayProduction(session, NOW, db);
+    expect(day.withheldL).toBe(12);
+    // The day must add up: every litre is saleable, withheld or colostrum.
+    expect(day.saleableL + day.withheldL + day.colostrumL).toBe(day.totalL);
+    await close();
+  });
 
   /* ---- DEFECT: a treatment recorded after the milk stays saleable ---- */
 
@@ -359,35 +455,62 @@ describe("withdrawal: the only hard block in the system", () => {
     },
   );
 
-  /* ---- DEFECT: the block is evaluated against the clock, not the milking date ---- */
+  /* ---- the block is evaluated against the MILKING DATE, not the clock ---- */
 
-  it.fails(
-    "DEFECT: milk BACK-DATED into a withdrawal window is saved as saleable",
-    async () => {
-      const { db, close, session } = await setup();
-      const cow = await seedCow(db, { name: "Wanjiru", calvedOn: "2019-11-01" });
-      const p = await seedProduct(db, { milkWithdrawalDays: 7 });
-      // Treated 1 Jan 2020 — her milk was not saleable until 8 Jan 2020.
-      await recordTreatmentFor(
-        session,
-        { animalId: cow, productId: p, occurredOn: "2020-01-01" },
-        db as unknown as DbLike,
-      );
+  it("withholds milk BACK-DATED into a withdrawal window, years after the fact", async () => {
+    const { db, close, session } = await setup();
+    const cow = await seedCow(db, { name: "Wanjiru", calvedOn: "2019-11-01" });
+    const p = await seedProduct(db, { milkWithdrawalDays: 7 });
+    // Treated 1 Jan 2020 — her milk was not saleable until 8 Jan 2020.
+    await recordTreatmentFor(
+      session,
+      { animalId: cow, productId: p, occurredOn: "2020-01-01" },
+      db as unknown as DbLike,
+    );
 
-      // The phone was offline for a week and flushes the 3 Jan sheet now.
-      const res = await recordMilkBatch(
-        session,
-        batch([{ animalId: cow, litres: 12 }], "2020-01-03"),
-        db,
-      );
-      expect(res.ok).toBe(true);
-      if (!res.ok) return;
-      expect(res.data.withheldL).toBe(12);
-      expect(res.data.saleableL).toBe(0);
-      await close();
-    },
-  );
+    // The phone was offline and flushes the 3 Jan 2020 sheet now.
+    const res = await recordMilkBatch(
+      session,
+      batch([{ animalId: cow, litres: 12 }], "2020-01-03"),
+      db,
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.withheldL).toBe(12);
+    expect(res.data.saleableL).toBe(0);
+    expect(res.data.locked[0].reason).toBe("WITHDRAWAL");
 
+    const [row] = await db.select().from(s.milkRecord).where(eq(s.milkRecord.farmId, FARM_ID));
+    expect(row.saleable).toBe(false);
+    expect(row.notSaleableReason).toBe("WITHDRAWAL");
+
+    // The mirror case, so this is a DATE test and not a "block everything" test:
+    // the 8 Jan sheet, flushed in the same breath, is clear.
+    const after = await recordMilkBatch(
+      session,
+      batch([{ animalId: cow, litres: 12 }], "2020-01-08"),
+      db,
+    );
+    expect(after.ok).toBe(true);
+    if (!after.ok) return;
+    expect(after.data.saleableL).toBe(12);
+    expect(after.data.withheldL).toBe(0);
+
+    // And the sheet agrees when either day's book is re-opened.
+    expect((await milkSheet(session, "2020-01-03", "MORNING", db)).rows[0].locked).toBe(true);
+    expect((await milkSheet(session, "2020-01-08", "MORNING", db)).rows[0].locked).toBe(false);
+    await close();
+  });
+
+  /**
+   * STILL OPEN, and the other half of the milking-date fix. `withdrawalMap`
+   * now takes `asOf` and bounds the query BELOW — `occurredOn >= asOf - 60` —
+   * but puts no bound ABOVE it, so a treatment given today is still matched
+   * against a sheet from sixty days ago and her clear date (today + 7) is
+   * trivially "in the future" of that sheet. Milk drawn long before the needle
+   * went in is condemned. Wrong in the safe direction, but it writes off good
+   * milk and is the sort of thing that gets the app worked around.
+   */
   it.fails(
     "DEFECT: milk recorded for a date BEFORE the treatment is wrongly condemned",
     async () => {
@@ -404,7 +527,7 @@ describe("withdrawal: the only hard block in the system", () => {
       );
       expect(res.ok).toBe(true);
       if (!res.ok) return;
-      // 14 L of good milk written off because the block ignores the milking date.
+      // 14 L of good milk written off: the treatment post-dates the milking.
       expect(res.data.saleableL).toBe(14);
       expect(res.data.withheldL).toBe(0);
       await close();
@@ -619,6 +742,65 @@ describe("offline replay", () => {
 
     expect(await db.select().from(s.milkRecord).where(eq(s.milkRecord.farmId, FARM_ID))).toHaveLength(1);
     expect(await db.select().from(s.receipt).where(eq(s.receipt.farmId, FARM_ID))).toHaveLength(1);
+    await close();
+  });
+
+  it("replays a withheld batch idempotently, and it is still withheld every time", async () => {
+    // The withdrawal path now does a product join and a date-bounded lookup on
+    // every call. Replay must not turn a held cow loose, nor duplicate her.
+    const { db, close, session } = await setup();
+    const cow = await seedCow(db, { name: "Njeri", calvedOn: addDays(NOW, -120) });
+    const p = await seedProduct(db, { milkWithdrawalDays: 7 });
+    await recordTreatmentFor(session, { animalId: cow, productId: p }, db as unknown as DbLike);
+    const input = batch([{ id: newId(), animalId: cow, litres: 12.5 }]);
+
+    const r1 = await recordMilkBatch(session, input, db);
+    const r2 = await recordMilkBatch(session, input, db);
+    expect(r1.ok && r2.ok).toBe(true);
+    if (!r1.ok || !r2.ok) return;
+    expect(r1.refCode).toBe(r2.refCode);
+    expect(r1.data.withheldL).toBe(12.5);
+    expect(r2.data.duplicateCount).toBe(1);
+    expect(r2.data.savedCount).toBe(0);
+
+    const rows = await db.select().from(s.milkRecord).where(eq(s.milkRecord.farmId, FARM_ID));
+    expect(rows).toHaveLength(1);
+    expect(rows[0].saleable).toBe(false);
+    expect(rows[0].notSaleableReason).toBe("WITHDRAWAL");
+    // One milking receipt, not three. (The treatment wrote its own receipt too,
+    // hence the filter on kind rather than a bare count.)
+    expect(
+      await db.select().from(s.receipt).where(and(eq(s.receipt.farmId, FARM_ID), eq(s.receipt.kind, "MILK"))),
+    ).toHaveLength(1);
+    await close();
+  });
+
+  it("replays an UNKNOWN-period batch idempotently and keeps the assumed lock", async () => {
+    const { db, close, session } = await setup();
+    const cow = await seedCow(db, { name: "Muthoni", calvedOn: addDays(NOW, -120) });
+    const unknown = await seedProduct(db, {
+      name: "Unlabelled penicillin",
+      milkWithdrawalDays: null,
+      meatWithdrawalDays: null,
+      labelSource: null,
+    });
+    await recordTreatmentFor(session, { animalId: cow, productId: unknown }, db as unknown as DbLike);
+    const input = batch([{ id: newId(), animalId: cow, litres: 12.5 }]);
+
+    const r1 = await recordMilkBatch(session, input, db);
+    const r2 = await recordMilkBatch(session, input, db);
+    const r3 = await recordMilkBatch(session, input, db);
+    expect(r1.ok && r2.ok && r3.ok).toBe(true);
+    if (!r1.ok || !r2.ok || !r3.ok) return;
+    expect(r1.refCode).toBe(r3.refCode);
+
+    const rows = await db.select().from(s.milkRecord).where(eq(s.milkRecord.farmId, FARM_ID));
+    expect(rows).toHaveLength(1);
+    expect(rows[0].saleable).toBe(false);
+    expect(rows[0].notSaleableReason).toBe("WITHDRAWAL_UNKNOWN");
+    expect(
+      await db.select().from(s.receipt).where(and(eq(s.receipt.farmId, FARM_ID), eq(s.receipt.kind, "MILK"))),
+    ).toHaveLength(1);
     await close();
   });
 

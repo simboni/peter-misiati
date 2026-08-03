@@ -248,6 +248,12 @@ export async function withdrawalMap(
       assumed = true;
     }
 
+    // A treatment given AFTER the milking cannot condemn it. Without this the
+    // window is one-sided and a dose given today writes off a sheet from two
+    // months ago, which is wrong in the safe direction but still throws away
+    // good milk.
+    const givenOn = r.treatmentEndOn ?? r.occurredOn;
+    if (givenOn > at.toISOString().slice(0, 10)) continue;
     if (!clear || clear <= at) continue;
 
     const existing = map.get(r.animalId);
@@ -276,6 +282,14 @@ const MAX_WITHDRAWAL_LOOKBACK_DAYS = 60;
  * window and the farm needs to go and read the bottle.
  */
 export type LockReason = "WITHDRAWAL" | "WITHDRAWAL_UNKNOWN" | "COLOSTRUM";
+
+/**
+ * Both withdrawal reasons keep milk out of the can. Only the message differs —
+ * one states a clear date, the other admits we are guessing at it.
+ */
+export function isWithheldReason(r: LockReason | null | undefined): boolean {
+  return r === "WITHDRAWAL" || r === "WITHDRAWAL_UNKNOWN";
+}
 
 export interface MilkSheetRow {
   animalId: string;
@@ -664,7 +678,10 @@ export async function recordMilkBatch(
 
       result.totalL = money(result.totalL + litres);
       if (saleable) result.saleableL = money(result.saleableL + litres);
-      if (notSaleableReason === "WITHDRAWAL") result.withheldL = money(result.withheldL + litres);
+      // WITHDRAWAL_UNKNOWN counts as withheld too. Stamping a row unsaleable
+      // and then leaving it out of the withheld total is how the milk gets
+      // stamped AND sold: every downstream guard reads this number.
+      if (isWithheldReason(notSaleableReason)) result.withheldL = money(result.withheldL + litres);
       if (notSaleableReason === "COLOSTRUM") result.colostrumL = money(result.colostrumL + litres);
 
       if (check.flagged) {
@@ -1111,7 +1128,7 @@ export async function dayProduction(
     if (r.saleable) {
       saleableL = money(saleableL + l);
     } else {
-      if (r.notSaleableReason === "WITHDRAWAL") withheldL = money(withheldL + l);
+      if (isWithheldReason(r.notSaleableReason)) withheldL = money(withheldL + l);
       if (r.notSaleableReason === "COLOSTRUM") colostrumL = money(colostrumL + l);
       withheldAnimals.push({
         animalId: r.animalId,

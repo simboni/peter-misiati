@@ -69,6 +69,8 @@ import {
   sessionLabel,
   type DayProduction,
   withdrawalMap,
+  isWithheldReason,
+  lactatingHerd,
 } from "./milk";
 
 /* ---------------------------------------------------------------- */
@@ -189,7 +191,7 @@ export async function withdrawalGuard(
   excludeDisposalId?: string,
 ): Promise<WithdrawalGuard> {
   const day = await dayProduction(session, date, dbo);
-  const treated = day.withheldAnimals.filter((a) => a.reason === "WITHDRAWAL");
+  const treated = day.withheldAnimals.filter((a) => isWithheldReason(a.reason));
 
   const base: WithdrawalGuard = {
     saleableL: day.saleableL,
@@ -208,6 +210,14 @@ export async function withdrawalGuard(
   // block and no warning at all. Ask the HEALTH record directly, so the warning
   // does not depend on the sheet already being filled in.
   const underWithdrawal = await withdrawalMap(dbo, session.farmId, date);
+  // Restrict to cows actually in the tank today. A dry cow inside her 30-day
+  // dry-cow-therapy window is under withdrawal but is not being milked, and
+  // warning about her would be a false alarm — which is exactly how a warning
+  // stops being read.
+  const milkingToday = new Set((await lactatingHerd(dbo, session.farmId, date)).map((h) => h.id));
+  for (const id of [...underWithdrawal.keys()]) {
+    if (!milkingToday.has(id)) underWithdrawal.delete(id);
+  }
   if (underWithdrawal.size > 0) {
     const names: string[] = [];
     let anyAssumed = false;
@@ -223,7 +233,7 @@ export async function withdrawalGuard(
       base.message =
         `${names.join(", ")} ${names.length === 1 ? "is" : "are"} under withdrawal today` +
         (anyAssumed ? " (and the withdrawal period was never recorded, so we are assuming the worst)" : "") +
-        `. Their milk must not go in this can. Record the milking first so the litres can be held back properly.`;
+        `. ${names.length === 1 ? "Her" : "Their"} milk must not go in this can. Record the milking first so the litres can be held back properly.`;
       base.animals = base.animals.length ? base.animals : [];
       return base;
     }
@@ -245,6 +255,13 @@ export async function withdrawalGuard(
 
   const forcedL = money(litres - room);
   const names = treated.map((a) => a.name).join(", ");
+  // Say plainly when we are holding milk on an assumed window rather than a
+  // recorded one — otherwise the farm never learns it has a label to go and
+  // read, and the guess quietly becomes permanent.
+  const anyAssumed = treated.some((a) => a.reason === "WITHDRAWAL_UNKNOWN");
+  const assumedNote = anyAssumed
+    ? " For at least one of them the withdrawal period was never recorded, so we are holding the milk on a safe estimate — check the label and enter the real period."
+    : "";
   return {
     ...base,
     forcedL,
@@ -252,7 +269,7 @@ export async function withdrawalGuard(
     message:
       `Only ${room} L of today's milk may be sold. ${names} ${treated.length === 1 ? "was" : "were"} treated, ` +
       `so ${forcedL} L is held back and recorded as withheld. Do not put it in the can — a rejected load costs the whole ` +
-      `chilling plant, and the co-op passes that bill back to us.`,
+      `chilling plant, and the co-op passes that bill back to us.${assumedNote}`,
   };
 }
 
@@ -349,7 +366,7 @@ export async function allocateMilk(session: Session, date: ISODate, dbo?: Db): P
   if (!reconciliation.balanced) warnings.push(reconciliation.message);
   if (production.withheldL > 0) {
     const names = production.withheldAnimals
-      .filter((a) => a.reason === "WITHDRAWAL")
+      .filter((a) => isWithheldReason(a.reason))
       .map((a) => a.name);
     if (names.length) {
       warnings.push(
