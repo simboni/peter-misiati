@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>TallyPay — No connection</title>
+  <style>
+    :root { --brand:#059669; --brand-dark:#047857; --ink:#0f172a; --muted:#64748b; }
+    * { box-sizing: border-box; }
+    html, body { height:100%; margin:0; }
+    body {
+      background:#f8fafc; color:var(--ink);
+      font-family:-apple-system, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      -webkit-font-smoothing:antialiased;
+      display:grid; place-items:center; padding:24px;
+      padding-top:calc(24px + env(safe-area-inset-top, 0px));
+    }
+    .card { text-align:center; max-width:340px; width:100%; }
+    .logo {
+      width:64px; height:64px; margin:0 auto 20px; border-radius:18px;
+      background:linear-gradient(135deg, var(--brand), var(--brand-dark));
+      display:grid; place-items:center;
+      box-shadow:0 14px 30px -12px rgba(4,120,87,.55);
+    }
+    .logo svg { width:34px; height:34px; }
+    h1 { font-size:22px; font-weight:800; margin:0 0 8px; letter-spacing:-.01em; }
+    p { font-size:15px; line-height:1.55; color:var(--muted); margin:0 0 24px; }
+    button {
+      -webkit-tap-highlight-color:transparent;
+      appearance:none; border:0; cursor:pointer;
+      width:100%; padding:15px 20px; border-radius:14px;
+      background:var(--brand); color:#fff; font-size:16px; font-weight:700;
+      font-family:inherit; transition:transform .08s ease, filter .12s ease;
+      box-shadow:0 10px 22px -10px rgba(4,120,87,.6);
+    }
+    button:active { transform:scale(.97); filter:brightness(.95); }
+    button[disabled] { opacity:.7; }
+    .spin {
+      display:inline-block; width:18px; height:18px; vertical-align:-3px; margin-right:8px;
+      border:3px solid rgba(255,255,255,.4); border-top-color:#fff; border-radius:50%;
+      animation:spin .8s linear infinite;
+    }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    .hint { margin-top:16px; font-size:13px; color:var(--muted); }
+    @media (prefers-color-scheme: dark) {
+      body { background:#0b1220; color:#e7eef8; }
+      p, .hint { color:#93a3bb; }
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo" aria-hidden="true">
+      <!-- TallyPay tally + check mark -->
+      <svg viewBox="0 0 64 64" fill="none">
+        <g stroke="#fff" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="20" y1="22" x2="20" y2="42" />
+          <line x1="29" y1="22" x2="29" y2="42" />
+          <path d="M36 34 L43 42 L52 22" />
+        </g>
+      </svg>
+    </div>
+    <h1>Can’t reach TallyPay</h1>
+    <p>You appear to be offline. Check your internet connection, then try again.</p>
+    <button id="retry" type="button">Try again</button>
+    <div class="hint">TallyPay needs a connection to load your invoices and payments.</div>
+  </div>
+
+  <script>
+    // This page is bundled inside the app and shown by Capacitor's errorPath when
+    // the live site can't load. "Try again" navigates back to the real app; if the
+    // network is still down, Capacitor simply shows this page again.
+    var TARGET = "https://tallypay.co.ke/dashboard";
+    var btn = document.getElementById("retry");
+
+    function retry() {
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spin"></span>Reconnecting…';
+      // Small delay so the spinner is visible before the WebView swaps documents.
+      setTimeout(function () { window.location.replace(TARGET); }, 250);
+    }
+
+    btn.addEventListener("click", retry);
+    // Auto-recover the moment the device regains connectivity.
+    window.addEventListener("online", retry);
+  </script>
+</body>
+</html>

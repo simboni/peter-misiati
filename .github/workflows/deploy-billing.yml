@@ -1,0 +1,71 @@
+name: Deploy billing app
+
+# Runs the billing/ tests on every push, and — once the Cloudflare secrets are
+# set — builds the OpenNext bundle, applies the D1 migrations, and deploys to
+# Cloudflare Workers. Without the secrets the deploy steps are skipped (the job
+# still passes), so the PR stays green until you're ready.
+#
+# One-time setup (see billing/README.md):
+#   1. `cd billing && npx wrangler d1 create billing-db` and paste the printed
+#      database_id into billing/wrangler.jsonc.
+#   2. Add two repository secrets: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID.
+#   3. Set the app's Worker secrets once (BETTER_AUTH_SECRET, BETTER_AUTH_URL,
+#      optional RESEND_* / KOPOKOPO_*) via `wrangler secret put`.
+# After that, every push here deploys automatically.
+
+on:
+  push:
+    branches:
+      - claude/new-project-setup-cniwcp
+      - claude/multivendor-billing-platform-ph3rwt
+    paths:
+      - "billing/**"
+      - ".github/workflows/deploy-billing.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-billing-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: billing
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      # "true" only when both deploy secrets are present.
+      HAS_CF: ${{ secrets.CLOUDFLARE_API_TOKEN != '' && secrets.CLOUDFLARE_ACCOUNT_ID != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: billing/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Deploy not configured (skipping)
+        if: env.HAS_CF != 'true'
+        run: echo "::notice::Deploy skipped — add CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID repo secrets to enable automatic deploys."
+
+      - name: Apply D1 migrations (remote)
+        if: env.HAS_CF == 'true'
+        run: npx wrangler d1 migrations apply billing-db --remote
+
+      - name: Build & deploy (OpenNext → Cloudflare Workers)
+        if: env.HAS_CF == 'true'
+        run: |
+          npm run cf:build
+          npm run cf:deploy

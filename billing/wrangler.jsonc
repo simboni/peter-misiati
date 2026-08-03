@@ -1,0 +1,27 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "billing-platform",
+  "account_id": "dc39d55aacd54d46748d7802b4764948",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-07-07",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "billing-db",
+      // Real D1 database id (Cloudflare account dc39d55a…). Local dev uses --local
+      // and ignores this value.
+      "database_id": "9c647f9a-70c4-48ad-ba68-84774abd8aea",
+      "migrations_dir": "drizzle"
+    }
+  ],
+  // Cloudflare Browser Rendering — powers the downloadable PDF (/d/<token>/pdf).
+  // Optional: if omitted, the app simply hides the "Download PDF" button.
+  "browser": {
+    "binding": "BROWSER"
+  }
+}

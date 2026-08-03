@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // The billing/ app is a separate, self-contained project with its own
+    // toolchain — it must not be linted/compiled by the marketing site.
+    "billing/**",
   ]),
 ]);
 

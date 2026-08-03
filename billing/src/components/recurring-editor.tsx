@@ -1,0 +1,409 @@
+"use client";
+
+import { useActionState, useMemo, useState } from "react";
+import Link from "next/link";
+import { SubmitButton } from "./submit-button";
+import { saveRecurringAction, type FormState } from "@/server/actions/recurring";
+import { calcTotals } from "@/server/totals";
+import { parseAmount, parseQty, parseRate, formatMoney } from "@/server/money";
+import { AutoTextarea } from "./auto-textarea";
+import type { Client, Item, RecurringInvoice, RecurringInvoiceLine } from "@/server/db/schema";
+
+type EditorLine = {
+  key: string;
+  itemId: string;
+  title: string;
+  description: string;
+  quantity: string;
+  unitPrice: string;
+  taxRate: string;
+};
+
+let counter = 0;
+const newKey = () => `r${counter++}`;
+// VAT starts blank — the user enters a rate only if the line is taxable.
+const emptyLine = (): EditorLine => ({
+  key: newKey(),
+  itemId: "",
+  title: "",
+  description: "",
+  quantity: "1",
+  unitPrice: "",
+  taxRate: "",
+});
+
+function toDateInput(d?: Date | null): string {
+  if (!d) return "";
+  return new Date(d).toISOString().slice(0, 10);
+}
+
+const FREQ_LABEL: Record<string, string> = {
+  weekly: "week",
+  monthly: "month",
+  quarterly: "quarter",
+  yearly: "year",
+};
+
+export function RecurringEditor({
+  clients,
+  items,
+  defaultCurrency,
+  defaultVatRateBps,
+  defaultTerms,
+  schedule,
+  lines: existingLines,
+}: {
+  clients: Pick<Client, "id" | "name" | "currency">[];
+  items: Pick<Item, "id" | "name" | "description" | "unitPrice" | "taxRateBps" | "unit">[];
+  defaultCurrency: string;
+  defaultVatRateBps: number;
+  defaultTerms: string;
+  schedule?: RecurringInvoice;
+  lines?: RecurringInvoiceLine[];
+}) {
+  const [state, formAction] = useActionState<FormState, FormData>(saveRecurringAction, {});
+
+  const [lines, setLines] = useState<EditorLine[]>(() =>
+    existingLines && existingLines.length
+      ? existingLines.map((l) => ({
+          key: newKey(),
+          itemId: l.itemId ?? "",
+          title: l.title ?? l.description,
+          description: l.title ? l.description : "",
+          quantity: String(l.quantityMilli / 1000),
+          unitPrice: (l.unitPrice / 100).toFixed(2),
+          taxRate: String(l.taxRateBps / 100),
+        }))
+      : [emptyLine()],
+  );
+
+  const [clientId, setClientId] = useState<string>(schedule?.clientId ?? "");
+  const [currency, setCurrency] = useState<string>(schedule?.currency ?? defaultCurrency);
+  const [frequency, setFrequency] = useState<string>(schedule?.frequency ?? "monthly");
+  const [interval, setInterval] = useState<string>(String(schedule?.interval ?? 1));
+
+  const [discountType, setDiscountType] = useState<string>(schedule?.discountType ?? "");
+  const [discountValue, setDiscountValue] = useState<string>(
+    schedule?.discountType === "percent"
+      ? String((schedule?.discountValue ?? 0) / 100)
+      : schedule?.discountType === "fixed"
+        ? ((schedule?.discountValue ?? 0) / 100).toFixed(2)
+        : "",
+  );
+  const [depositType, setDepositType] = useState<string>(schedule?.depositType ?? "none");
+  const [depositValue, setDepositValue] = useState<string>(
+    schedule?.depositType === "percent"
+      ? String((schedule?.depositValue ?? 0) / 100)
+      : schedule?.depositType === "fixed"
+        ? ((schedule?.depositValue ?? 0) / 100).toFixed(2)
+        : "",
+  );
+  const [showMore, setShowMore] = useState<boolean>(
+    Boolean(schedule?.discountType) ||
+      (schedule?.depositType && schedule.depositType !== "none") ||
+      Boolean(schedule?.notes) ||
+      Boolean(schedule?.terms) ||
+      Boolean(schedule?.endDate) ||
+      schedule?.maxOccurrences != null,
+  );
+
+  function updateLine(key: string, patch: Partial<EditorLine>) {
+    setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
+  }
+  function pickItem(key: string, itemId: string) {
+    const it = items.find((i) => i.id === itemId);
+    if (!it) return updateLine(key, { itemId: "" });
+    updateLine(key, {
+      itemId,
+      title: it.name,
+      description: it.description ?? "",
+      unitPrice: (it.unitPrice / 100).toFixed(2),
+      taxRate: String(it.taxRateBps / 100),
+    });
+  }
+  const addLine = () => setLines((ls) => [...ls, emptyLine()]);
+  const removeLine = (key: string) => setLines((ls) => (ls.length > 1 ? ls.filter((l) => l.key !== key) : ls));
+
+  const totals = useMemo(
+    () =>
+      calcTotals({
+        lines: lines.map((l) => ({
+          quantityMilli: parseQty(l.quantity),
+          unitPrice: parseAmount(l.unitPrice),
+          taxRateBps: parseRate(l.taxRate),
+        })),
+        discountType: (discountType || null) as "percent" | "fixed" | null,
+        discountValue: discountType === "percent" ? parseRate(discountValue) : parseAmount(discountValue),
+        depositType: depositType as "none" | "percent" | "fixed",
+        depositValue: depositType === "percent" ? parseRate(depositValue) : parseAmount(depositValue),
+      }),
+    [lines, discountType, discountValue, depositType, depositValue],
+  );
+
+  const linesJson = JSON.stringify(
+    lines.map((l) => ({
+      itemId: l.itemId || null,
+      title: l.title,
+      description: l.description,
+      quantity: l.quantity,
+      unitPrice: l.unitPrice,
+      taxRate: l.taxRate,
+    })),
+  );
+
+  const money = (n: number) => formatMoney(n, currency);
+  const every = Number(interval) > 1 ? `every ${interval} ${FREQ_LABEL[frequency]}s` : `every ${FREQ_LABEL[frequency]}`;
+
+  return (
+    <form action={formAction} className="pb-24 lg:pb-0">
+      {schedule && <input type="hidden" name="id" value={schedule.id} />}
+      <input type="hidden" name="lines" value={linesJson} />
+      <input type="hidden" name="clientId" value={clientId} />
+      <input type="hidden" name="frequency" value={frequency} />
+      <input type="hidden" name="interval" value={interval} />
+      <input type="hidden" name="currency" value={currency} />
+      <input type="hidden" name="discountType" value={discountType} />
+      <input type="hidden" name="discountValue" value={discountValue} />
+      <input type="hidden" name="depositType" value={depositType} />
+      <input type="hidden" name="depositValue" value={depositValue} />
+
+      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="space-y-5">
+          {/* Client + label */}
+          <section className="card p-5 sm:p-6">
+            <div className="mb-4 flex items-center justify-between">
+              <label className="label mb-0" htmlFor="clientSel">Bill to</label>
+              <Link href="/clients/new" className="text-xs font-semibold text-brand-700 hover:underline">＋ New client</Link>
+            </div>
+            <select
+              id="clientSel"
+              className="input"
+              value={clientId}
+              onChange={(e) => {
+                setClientId(e.target.value);
+                const c = clients.find((x) => x.id === e.target.value);
+                if (c) setCurrency(c.currency);
+              }}
+              required
+            >
+              <option value="" disabled>Choose a client…</option>
+              {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            {clients.length === 0 && (
+              <p className="mt-2 text-xs text-amber-700">
+                No clients yet — <Link href="/clients/new" className="underline">add one first</Link>.
+              </p>
+            )}
+            <div className="mt-4">
+              <label className="label" htmlFor="title">Label <span className="font-normal text-muted">(optional, for your reference)</span></label>
+              <input id="title" name="title" className="input" placeholder="e.g. Monthly retainer" defaultValue={schedule?.title ?? ""} />
+            </div>
+          </section>
+
+          {/* Schedule */}
+          <section className="card p-5 sm:p-6">
+            <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-muted">Schedule</h2>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className="label" htmlFor="freqSel">Repeat</label>
+                <select id="freqSel" className="input" value={frequency} onChange={(e) => setFrequency(e.target.value)}>
+                  <option value="weekly">Weekly</option>
+                  <option value="monthly">Monthly</option>
+                  <option value="quarterly">Quarterly</option>
+                  <option value="yearly">Yearly</option>
+                </select>
+              </div>
+              <div>
+                <label className="label" htmlFor="intervalInp">Every</label>
+                <div className="flex items-center gap-2">
+                  <input id="intervalInp" className="input w-20 text-right" inputMode="numeric" value={interval}
+                    onChange={(e) => setInterval(e.target.value.replace(/[^0-9]/g, ""))} />
+                  <span className="text-sm text-muted">{FREQ_LABEL[frequency]}(s)</span>
+                </div>
+              </div>
+              <div>
+                <label className="label" htmlFor="startDate">First invoice date</label>
+                <input id="startDate" name="startDate" type="date" className="input"
+                  defaultValue={toDateInput(schedule?.startDate) || toDateInput(new Date())} />
+              </div>
+              <div>
+                <label className="label" htmlFor="dueDays">Payment due after</label>
+                <div className="flex items-center gap-2">
+                  <input id="dueDays" name="dueDays" className="input w-24 text-right" inputMode="numeric"
+                    defaultValue={String(schedule?.dueDays ?? 0)} />
+                  <span className="text-sm text-muted">days</span>
+                </div>
+              </div>
+            </div>
+            <label className="mt-4 flex items-center gap-2.5">
+              <input type="checkbox" name="autoSend" defaultChecked={schedule?.autoSend ?? false} className="h-4 w-4 rounded border-line text-brand-600" />
+              <span className="text-sm text-ink">Mark each generated invoice as <b>sent</b> automatically</span>
+            </label>
+          </section>
+
+          {/* Items */}
+          <section className="space-y-3">
+            <div className="flex items-center justify-between px-1">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">Items &amp; services</h2>
+              <span className="text-xs text-muted">{lines.length} line{lines.length === 1 ? "" : "s"}</span>
+            </div>
+
+            {lines.map((l, idx) => {
+              const amount = parseAmount(l.unitPrice) * (parseQty(l.quantity) / 1000);
+              return (
+                <div key={l.key} className="card p-4">
+                  <div className="mb-3 flex items-center justify-between">
+                    <span className="grid h-6 w-6 place-items-center rounded-full bg-brand-50 text-xs font-bold text-brand-700">{idx + 1}</span>
+                    <button type="button" onClick={() => removeLine(l.key)} disabled={lines.length === 1}
+                      className="text-xs font-medium text-muted hover:text-red-600 disabled:opacity-40">Remove</button>
+                  </div>
+                  {items.length > 0 && (
+                    <select className="input mb-2 text-sm" value={l.itemId} onChange={(e) => pickItem(l.key, e.target.value)} aria-label="Pick a saved item">
+                      <option value="">＋ Pick a saved item (autofills)</option>
+                      {items.map((it) => <option key={it.id} value={it.id}>{it.name} — {money(it.unitPrice)}</option>)}
+                    </select>
+                  )}
+                  <input className="input font-medium" placeholder="Product / service name *" value={l.title}
+                    onChange={(e) => updateLine(l.key, { title: e.target.value, itemId: "" })} />
+                  <AutoTextarea className="input mt-2 text-sm" placeholder="Description — press Enter for a new line" value={l.description}
+                    onChange={(v) => updateLine(l.key, { description: v })} />
+                  <div className="mt-3 grid grid-cols-3 gap-2">
+                    <Field label="Qty">
+                      <input className="input text-right" inputMode="decimal" value={l.quantity} onChange={(e) => updateLine(l.key, { quantity: e.target.value })} />
+                    </Field>
+                    <Field label={`Rate (${currency})`}>
+                      <input className="input text-right" inputMode="decimal" placeholder="0.00" value={l.unitPrice} onChange={(e) => updateLine(l.key, { unitPrice: e.target.value })} />
+                    </Field>
+                    <Field label="VAT %">
+                      <input className="input text-right" inputMode="decimal" value={l.taxRate} placeholder={defaultVatRateBps ? String(defaultVatRateBps / 100) : "0"} onChange={(e) => updateLine(l.key, { taxRate: e.target.value })} />
+                    </Field>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between border-t border-line pt-3">
+                    <span className="text-xs text-muted">Line total</span>
+                    <span className="font-semibold tabular-nums text-ink">{money(Math.round(amount))}</span>
+                  </div>
+                </div>
+              );
+            })}
+            <button type="button" onClick={addLine}
+              className="w-full rounded-xl border-2 border-dashed border-line py-3 text-sm font-semibold text-brand-700 transition-colors hover:border-brand-300 hover:bg-brand-50">
+              ＋ Add another item
+            </button>
+          </section>
+
+          {/* More options */}
+          <section className="card overflow-hidden">
+            <button type="button" onClick={() => setShowMore((s) => !s)} className="flex w-full items-center justify-between px-5 py-4 text-left">
+              <span className="text-sm font-semibold text-ink">Discount, deposit, notes &amp; end date</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`h-4 w-4 text-muted transition-transform ${showMore ? "rotate-180" : ""}`}>
+                <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+            {showMore && (
+              <div className="space-y-4 border-t border-line p-5">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className="label" htmlFor="endDate">Stop on <span className="font-normal text-muted">(optional)</span></label>
+                    <input id="endDate" name="endDate" type="date" className="input" defaultValue={toDateInput(schedule?.endDate)} />
+                  </div>
+                  <div>
+                    <label className="label" htmlFor="maxOccurrences">Or stop after <span className="font-normal text-muted">(optional)</span></label>
+                    <div className="flex items-center gap-2">
+                      <input id="maxOccurrences" name="maxOccurrences" className="input w-24 text-right" inputMode="numeric" defaultValue={schedule?.maxOccurrences ?? ""} />
+                      <span className="text-sm text-muted">invoices</span>
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <label className="label">Discount</label>
+                  <div className="flex gap-2">
+                    <select className="input w-40" value={discountType} onChange={(e) => setDiscountType(e.target.value)}>
+                      <option value="">No discount</option>
+                      <option value="percent">Percent %</option>
+                      <option value="fixed">Fixed amount</option>
+                    </select>
+                    {discountType && (
+                      <input className="input" inputMode="decimal" placeholder={discountType === "percent" ? "e.g. 10" : "0.00"} value={discountValue} onChange={(e) => setDiscountValue(e.target.value)} />
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <label className="label">Deposit / downpayment required</label>
+                  <div className="flex gap-2">
+                    <select className="input w-40" value={depositType} onChange={(e) => setDepositType(e.target.value)}>
+                      <option value="none">None</option>
+                      <option value="percent">Percent %</option>
+                      <option value="fixed">Fixed amount</option>
+                    </select>
+                    {depositType !== "none" && (
+                      <input className="input" inputMode="decimal" placeholder={depositType === "percent" ? "e.g. 50" : "0.00"} value={depositValue} onChange={(e) => setDepositValue(e.target.value)} />
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <label className="label" htmlFor="notes">Notes (visible to client)</label>
+                  <textarea id="notes" name="notes" rows={2} className="input" defaultValue={schedule?.notes ?? ""} />
+                </div>
+                <div>
+                  <label className="label" htmlFor="terms">Terms</label>
+                  <textarea id="terms" name="terms" rows={2} className="input" defaultValue={schedule?.terms ?? defaultTerms} />
+                </div>
+              </div>
+            )}
+          </section>
+        </div>
+
+        {/* Summary rail */}
+        <aside className="hidden lg:block">
+          <div className="card sticky top-6 p-6">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">Each invoice</h2>
+            <p className="mt-1 text-xs text-muted">Repeats {every}.</p>
+            <dl className="mt-4 space-y-2.5 text-sm">
+              <Row label="Subtotal" value={money(totals.subtotal)} />
+              {totals.discountAmount > 0 && <Row label="Discount" value={`− ${money(totals.discountAmount)}`} />}
+              <Row label="VAT" value={money(totals.taxTotal)} />
+              <div className="my-2 border-t border-line" />
+              <Row label="Total" value={money(totals.total)} strong />
+              {totals.depositAmount > 0 && <Row label="Deposit due" value={money(totals.depositAmount)} accent />}
+            </dl>
+            {state.error && <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{state.error}</p>}
+            <div className="mt-5 space-y-2">
+              <SubmitButton className="btn-primary w-full py-2.5">{schedule ? "Save schedule" : "Create schedule"}</SubmitButton>
+              <Link href="/recurring" className="btn-ghost w-full py-2.5">Cancel</Link>
+            </div>
+          </div>
+        </aside>
+      </div>
+
+      {/* Mobile action bar */}
+      <div className="editor-actionbar fixed inset-x-0 bottom-0 z-20 border-t border-line bg-surface/95 p-3 backdrop-blur lg:hidden">
+        {state.error && <p className="mb-2 rounded-lg bg-red-50 px-3 py-1.5 text-xs text-red-700">{state.error}</p>}
+        <div className="flex items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] uppercase tracking-wide text-muted">{every}</p>
+            <p className="truncate text-lg font-extrabold tabular-nums text-ink">{money(totals.total)}</p>
+          </div>
+          <SubmitButton className="btn-primary px-6 py-3">{schedule ? "Save" : "Create"}</SubmitButton>
+        </div>
+      </div>
+    </form>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-[11px] font-medium text-muted">{label}</span>
+      {children}
+    </label>
+  );
+}
+
+function Row({ label, value, strong, accent }: { label: string; value: string; strong?: boolean; accent?: boolean }) {
+  return (
+    <div className="flex items-center justify-between">
+      <dt className={accent ? "text-brand-700" : "text-muted"}>{label}</dt>
+      <dd className={`tabular-nums ${strong ? "text-xl font-extrabold text-ink" : accent ? "font-semibold text-brand-700" : "text-ink"}`}>{value}</dd>
+    </div>
+  );
+}

@@ -1,0 +1,327 @@
+@import "tailwindcss";
+
+/* ------------------------------------------------------------------ */
+/* Design tokens                                                       */
+/* ------------------------------------------------------------------ */
+@theme {
+  --color-brand-50: #ecfdf5;
+  --color-brand-100: #d1fae5;
+  --color-brand-200: #a7f3d0;
+  --color-brand-500: #10b981;
+  --color-brand-600: #059669;
+  --color-brand-700: #047857;
+  --color-brand-800: #065f46;
+  --color-brand-900: #064e3b;
+
+  --color-ink: #0f172a;
+  --color-muted: #64748b;
+  --color-line: #e2e8f0;
+  --color-canvas: #f8fafc;
+  /* Raised surfaces (cards, inputs, sidebar). Themed below so the whole app
+     re-skins by swapping these variables — no per-component dark: classes. */
+  --color-surface: #ffffff;
+  --color-surface-2: #f1f5f9;
+}
+
+/* ------------------------------------------------------------------ */
+/* Themes — Light (default) · Dark · Midnight. The switcher sets
+   data-theme on <html>; utilities read these vars, so everything reskins. */
+:root,
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-ink: #e7eef8;
+  --color-muted: #93a3bb;
+  --color-line: #263349;
+  --color-canvas: #0b1220;
+  --color-surface: #131c30;
+  --color-surface-2: #1b2540;
+}
+:root[data-theme="midnight"] {
+  color-scheme: dark;
+  --color-ink: #ece9fb;
+  --color-muted: #a8a2c8;
+  --color-line: #2c2554;
+  --color-canvas: #0b0a1a;
+  --color-surface: #171532;
+  --color-surface-2: #221d47;
+}
+
+/* Pin light tokens on a scope regardless of the chosen app theme — used for
+   printed/shared documents AND the public marketing/auth pages, which are a
+   deliberately light, branded experience and must always stay legible. */
+.doc-light,
+.theme-light {
+  color-scheme: light;
+  --color-ink: #0f172a;
+  --color-muted: #64748b;
+  --color-line: #e2e8f0;
+  --color-canvas: #f8fafc;
+  --color-surface: #ffffff;
+  --color-surface-2: #f1f5f9;
+  color: var(--color-ink);
+}
+@media print {
+  :root {
+    --color-ink: #0f172a;
+    --color-muted: #64748b;
+    --color-line: #e2e8f0;
+    --color-canvas: #ffffff;
+    --color-surface: #ffffff;
+  }
+}
+
+body {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  -webkit-font-smoothing: antialiased;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    Helvetica, Arial, sans-serif;
+}
+
+/* ------------------------------------------------------------------ */
+/* Small reusable component classes (kept minimal + readable)          */
+/* ------------------------------------------------------------------ */
+@layer components {
+  .btn,
+  .btn-primary,
+  .btn-ghost,
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2
+      text-sm font-semibold transition-colors disabled:opacity-50
+      disabled:cursor-not-allowed;
+  }
+  .btn-primary {
+    @apply bg-brand-600 text-white hover:bg-brand-700;
+  }
+  .btn-ghost {
+    @apply border border-line bg-surface text-ink hover:bg-surface-2;
+  }
+  .btn-danger {
+    @apply border border-red-200 bg-surface text-red-600 hover:bg-red-50;
+  }
+  .btn-sm {
+    @apply px-3 py-1.5 text-xs;
+  }
+
+  .input {
+    @apply w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm
+      text-ink shadow-sm outline-none placeholder:text-muted
+      focus:border-brand-500 focus:ring-2 focus:ring-brand-100;
+  }
+  .label {
+    @apply mb-1 block text-xs font-medium text-muted;
+  }
+  .card {
+    @apply rounded-xl border border-line bg-surface shadow-sm;
+  }
+
+  .badge {
+    @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs
+      font-medium;
+  }
+
+  .th {
+    @apply px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide
+      text-muted;
+  }
+  .td {
+    @apply px-4 py-3 text-sm text-ink;
+  }
+
+  /* Skeleton block — a soft shimmering placeholder used while data loads. */
+  .skeleton {
+    @apply rounded-md;
+    background: linear-gradient(
+      100deg,
+      var(--color-canvas) 30%,
+      rgba(0, 0, 0, 0.06) 50%,
+      var(--color-canvas) 70%
+    );
+    background-size: 200% 100%;
+    animation: tp-shimmer 1.25s ease-in-out infinite;
+  }
+}
+
+@keyframes tp-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ------------------------------------------------------------------ */
+/* Global tap/click feedback. Every interactive element visibly reacts  */
+/* to a press (a quick scale-down, solids also dim) so a user always    */
+/* feels the tap register and never second-guesses whether it worked.   */
+/* Disabled / busy controls are excluded so a submitting button stays   */
+/* still. Respects reduced-motion.                                      */
+/* ------------------------------------------------------------------ */
+button,
+a[href],
+[role="button"],
+summary,
+label[for],
+.tp-press {
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.08s ease, filter 0.12s ease, opacity 0.12s ease,
+    background-color 0.15s ease, border-color 0.15s ease;
+}
+button:not(:disabled):not([aria-disabled="true"]):active,
+a[href]:active,
+[role="button"]:not([aria-disabled="true"]):active,
+summary:active,
+label[for]:active,
+.tp-press:active {
+  transform: scale(0.97);
+}
+/* Solid buttons dim a touch on press for an extra beat of confirmation. */
+.btn-primary:not(:disabled):active,
+.btn-danger:not(:disabled):active {
+  filter: brightness(0.93);
+}
+/* A busy (submitting) control shows it's working, not pressable. */
+button:disabled,
+[aria-disabled="true"],
+button[data-pending="true"] {
+  cursor: default;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button, a[href], [role="button"], summary, label[for], .tp-press {
+    transition: filter 0.12s ease, background-color 0.15s ease;
+  }
+  button:active, a[href]:active, [role="button"]:active,
+  summary:active, label[for]:active, .tp-press:active {
+    transform: none;
+  }
+}
+
+/* Top navigation progress bar (shown while a route/action is pending). */
+.route-progress {
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: 3px;
+  z-index: 60;
+  background: linear-gradient(90deg, var(--color-brand-500), var(--color-brand-700));
+  transform-origin: left;
+  animation: tp-progress 1.4s ease-out forwards;
+  box-shadow: 0 0 8px color-mix(in srgb, var(--color-brand-500) 60%, transparent);
+}
+@keyframes tp-progress {
+  0% { transform: scaleX(0); opacity: 1; }
+  60% { transform: scaleX(0.75); opacity: 1; }
+  100% { transform: scaleX(1); opacity: 0; }
+}
+
+.nav-pending {
+  animation: tp-pulse 0.9s ease-in-out infinite;
+}
+@keyframes tp-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+/* ------------------------------------------------------------------ */
+/* Native app mode                                                     */
+/* Inside the installed app (Capacitor), AppShell sets                 */
+/* data-app="native" on <html>. We then swap the desktop/web chrome    */
+/* for a bottom-tab app shell. The website itself is left untouched.   */
+/* ------------------------------------------------------------------ */
+:root {
+  /* Android WebViews usually report a 0 safe-area inset even though the status
+     bar overlays the page, so reserve a sensible floor for it. */
+  --tp-safe-top: max(env(safe-area-inset-top, 0px), 26px);
+  --tp-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --tp-tabbar-h: 62px;
+  --tp-appbar-h: 56px;
+}
+
+/* Show native-only chrome only in the app; hide web-only chrome there. */
+.app-only { display: none; }
+[data-app="native"] .app-only { display: flex; }
+[data-app="native"] .web-only { display: none !important; }
+
+/* A sticky toolbar (e.g. the public document share bar) must clear the status
+   bar when the page is opened INSIDE the installed app, where there is no
+   browser chrome above it. On the plain website the browser's own bar sits
+   above, so no extra space is needed. */
+[data-app="native"] .doc-toolbar {
+  padding-top: calc(var(--tp-safe-top) + 10px) !important;
+}
+
+/* A phone-only fixed action bar (e.g. an editor's Save/Create button) is
+   anchored to bottom:0. Inside the app the emerald tab bar also sits at
+   bottom:0 (taller, z-30) and would paint over it, hiding the primary button.
+   Lift it above the tab bar there; on the website leave room for the home
+   indicator via the safe-area inset. */
+.editor-actionbar {
+  padding-bottom: calc(0.75rem + var(--tp-safe-bottom));
+}
+[data-app="native"] .editor-actionbar {
+  bottom: calc(var(--tp-tabbar-h) + var(--tp-safe-bottom)) !important;
+  z-index: 40 !important;
+  padding-bottom: 0.75rem;
+}
+
+[data-app="native"] {
+  -webkit-tap-highlight-color: transparent;
+}
+[data-app="native"] body {
+  overscroll-behavior-y: none;
+}
+/* Give the scroll area room for the fixed tab bar + let the app bar sit
+   under the status bar via the safe-area inset. */
+[data-app="native"] .app-main-wrap {
+  padding-left: 0 !important;
+}
+[data-app="native"] .app-main {
+  /* Clear the fixed title bar (top) and the fixed tab bar (bottom). */
+  padding-top: calc(var(--tp-safe-top) + var(--tp-appbar-h) + 12px) !important;
+  padding-bottom: calc(var(--tp-tabbar-h) + var(--tp-safe-bottom) + 12px) !important;
+}
+
+/* Chrome doesn't feel like a web page: no text selection, no callout. */
+[data-app="native"] .app-chrome {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* Bottom sheet (Create / More) */
+@keyframes tp-sheet-in {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+@keyframes tp-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.tp-sheet-backdrop { animation: tp-fade-in 0.18s ease-out; }
+.tp-sheet { animation: tp-sheet-in 0.26s cubic-bezier(0.22, 1, 0.36, 1); }
+@media (prefers-reduced-motion: reduce) {
+  .tp-sheet, .tp-sheet-backdrop { animation: none; }
+}
+/* Pressed feedback on tappable app chrome. */
+[data-app="native"] .tp-press { transition: transform 0.08s ease, background-color 0.15s ease; }
+[data-app="native"] .tp-press:active { transform: scale(0.94); }
+
+/* Print: A4 documents. Hide app chrome, show only the document. */
+.print-only {
+  display: none;
+}
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+  body {
+    background: #fff;
+  }
+  @page {
+    size: A4;
+    margin: 14mm;
+  }
+}
