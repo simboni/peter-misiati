@@ -526,14 +526,14 @@ describe("listHerd", () => {
     await db.insert(s.service).values([
       { id: newId(), farmId: FARM_ID, animalId: ids.served, servedOn: "2026-07-20", serviceType: "AI", expectedCalvingOn: "2027-04-27", recordedBy: USER },
       { id: newId(), farmId: FARM_ID, animalId: ids.incalf, servedOn: "2026-05-01", serviceType: "AI", expectedCalvingOn: "2027-02-06", recordedBy: USER },
-      { id: newId(), farmId: FARM_ID, animalId: ids.springer, servedOn: "2025-12-15", serviceType: "AI", expectedCalvingOn: "2026-09-22", recordedBy: USER },
+      { id: newId(), farmId: FARM_ID, animalId: ids.springer, servedOn: "2025-11-07", serviceType: "AI", expectedCalvingOn: "2026-08-15", recordedBy: USER },
       { id: newId(), farmId: FARM_ID, animalId: ids.lactatingPregnant, servedOn: "2026-04-05", serviceType: "AI", expectedCalvingOn: "2027-01-11", recordedBy: USER },
       { id: newId(), farmId: FARM_ID, animalId: ids.dry, servedOn: "2025-12-01", serviceType: "AI", expectedCalvingOn: "2026-09-08", recordedBy: USER },
     ]);
 
     await db.insert(s.pregnancyCheck).values([
       { id: newId(), farmId: FARM_ID, animalId: ids.incalf, checkedOn: "2026-07-05", method: "PALPATION", result: "POSITIVE", recordedBy: USER },
-      { id: newId(), farmId: FARM_ID, animalId: ids.springer, checkedOn: "2026-02-20", method: "PALPATION", result: "POSITIVE", recordedBy: USER },
+      { id: newId(), farmId: FARM_ID, animalId: ids.springer, checkedOn: "2026-01-12", method: "PALPATION", result: "POSITIVE", recordedBy: USER },
       { id: newId(), farmId: FARM_ID, animalId: ids.lactatingPregnant, checkedOn: "2026-06-10", method: "PALPATION", result: "POSITIVE", recordedBy: USER },
       { id: newId(), farmId: FARM_ID, animalId: ids.dry, checkedOn: "2026-02-05", method: "PALPATION", result: "POSITIVE", recordedBy: USER },
     ]);

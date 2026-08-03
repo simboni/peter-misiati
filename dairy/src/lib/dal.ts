@@ -102,12 +102,14 @@ export async function requireCapability(capability: Capability): Promise<Session
  * Every query filters on `farmId` explicitly. RLS is the second lock, not the
  * only one.
  */
-export function assertOwned<T extends { farmId: string }>(
+export function assertOwned<T extends { farmId: string | null }>(
   row: T | undefined | null,
   session: Session,
   what = "record",
 ): T {
-  if (!row || row.farmId !== session.farmId) {
+  // farmId is nullable on shared reference rows (the drug catalogue), which
+  // every farm may read but none owns.
+  if (!row || (row.farmId !== null && row.farmId !== session.farmId)) {
     // Deliberately identical for "missing" and "someone else's" — telling an
     // attacker which one it was leaks the existence of other farms' data.
     throw new Error(`That ${what} was not found.`);

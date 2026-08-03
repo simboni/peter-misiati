@@ -83,12 +83,26 @@ export type AnimalGroup = (typeof ANIMAL_GROUPS)[number];
 export const EXPENSE_CATEGORIES = [
   "FEEDS", "LABOUR", "VETERINARY", "BREEDING", "MILK_MARKETING", "UTILITIES",
   "MACHINERY", "COOLING", "RENT", "LOAN", "INSURANCE", "BEDDING", "LICENCES",
-  "MANURE", "TRANSPORT", "OTHER",
+  "MANURE", "TRANSPORT", "LIVESTOCK", "OTHER",
 ] as const;
 export type ExpenseCategory = (typeof EXPENSE_CATEGORIES)[number];
 
 export const PAYMENT_METHODS = ["CASH", "MPESA", "BANK", "COOP_CHECKOFF", "CREDIT", "CHEQUE"] as const;
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
+
+/** Who we buy from and who provides services. Shared so all modules agree. */
+export const COUNTERPARTY_TYPES = [
+  "AGROVET", "FEED_MILLER", "HAY", "AI_PROVIDER", "VET", "PARAVET",
+  "TRANSPORTER", "TRANSPORT_HIRE", "COOP", "PROCESSOR", "BROKER",
+  "SACCO", "LABOUR", "OTHER",
+] as const;
+export type CounterpartyType = (typeof COUNTERPARTY_TYPES)[number];
+
+/** Who bought the animal. Drives the price record, and differs by channel. */
+export const TRADE_COUNTERPARTY_KINDS = [
+  "FARMER", "BROKER", "COOP", "BUTCHERY", "KMC", "OTHER",
+] as const;
+export type TradeCounterpartyKind = (typeof TRADE_COUNTERPARTY_KINDS)[number];
 
 /* ------------------------------------------------------------------ */
 /* Foundation                                                          */
@@ -222,8 +236,15 @@ export const animalExit = pgTable("animal_exit", {
   monthsPregnant: numeric("months_pregnant", { precision: 3, scale: 1 }),
   dailyYieldAtSaleL: numeric("daily_yield_at_sale_l", { precision: 6, scale: 2 }),
   daysInMilkAtSale: integer("days_in_milk_at_sale"),
+  counterpartyKind: text("counterparty_kind").$type<TradeCounterpartyKind>(),
+  paymentMethod: text("payment_method").$type<PaymentMethod>(),
   recordedBy: uuid("recorded_by").notNull(),
-}, (t) => [index("animal_exit_idx").on(t.farmId, t.animalId)]);
+}, (t) => [
+  index("animal_exit_idx").on(t.farmId, t.animalId),
+  /** An animal leaves the herd once. Makes a replayed offline flush safe in
+   *  the database rather than only in application code. */
+  unique("animal_exit_uq").on(t.farmId, t.animalId),
+]);
 
 export const weightObservation = pgTable("weight_observation", {
   id: uuid("id").primaryKey(),
@@ -289,6 +310,7 @@ export const pregnancyCheck = pgTable("pregnancy_check", {
   monthsPregnant: numeric("months_pregnant", { precision: 3, scale: 1 }),
   performedBy: uuid("performed_by"),
   costKes: numeric("cost_kes", { precision: 14, scale: 2 }),
+  expenseId: uuid("expense_id"),
   recordedBy: uuid("recorded_by").notNull(),
 }, (t) => [index("pd_animal_idx").on(t.farmId, t.animalId, t.checkedOn)]);
 
@@ -384,6 +406,7 @@ export const standingOrder = pgTable("standing_order", {
   id: uuid("id").primaryKey(),
   farmId: uuid("farm_id").notNull(),
   customerId: uuid("customer_id").notNull().references(() => customer.id),
+  routeId: uuid("route_id").references(() => deliveryRoute.id),
   litres: numeric("litres", { precision: 6, scale: 2 }).notNull(),
   session: text("session").$type<MilkingSession>().notNull(),
   /** ISO weekdays 1=Mon … 7=Sun. Schools stop at weekends. */
@@ -450,6 +473,13 @@ export const milkDisposal = pgTable("milk_disposal", {
   session: text("session").$type<MilkingSession>(),
   channel: text("channel").$type<DisposalChannel>().notNull(),
   customerId: uuid("customer_id").references(() => customer.id),
+  /**
+   * Optional per-animal provenance. Bulk deliveries leave this null, but the
+   * Produce Traceability and Recall Regulations 2021 require answering "which
+   * animals contributed to which delivery" — so a withheld or single-cow
+   * disposal records the source.
+   */
+  animalId: uuid("animal_id").references(() => animal.id),
   litres: numeric("litres", { precision: 8, scale: 2 }).notNull(),
   /** Imputed at market price for home use, calves and staff ration. */
   rateKesPerLitre: numeric("rate_kes_per_litre", { precision: 8, scale: 2 }),
@@ -501,6 +531,8 @@ export const milkStatement = pgTable("milk_statement", {
 
 export const milkStatementDeduction = pgTable("milk_statement_deduction", {
   id: uuid("id").primaryKey(),
+  /** P4 — a join is not a tenancy boundary, and RLS cannot follow one. */
+  farmId: uuid("farm_id").notNull(),
   statementId: uuid("statement_id").notNull().references(() => milkStatement.id),
   deductionType: text("deduction_type").$type<
     "AI" | "FEEDS" | "VET" | "ADVANCE" | "SACCO_LOAN" | "SHARES"
@@ -625,6 +657,8 @@ export const fodderProduction = pgTable("fodder_production", {
   id: uuid("id").primaryKey(),
   farmId: uuid("farm_id").notNull(),
   plotName: text("plot_name"),
+  /** Links the harvest into the feed store, so home-grown fodder is costed. */
+  feedItemId: uuid("feed_item_id").references(() => feedItem.id),
   crop: text("crop").notNull(),
   areaAcres: numeric("area_acres", { precision: 8, scale: 3 }),
   plantedOn: date("planted_on"),
@@ -672,6 +706,18 @@ export const healthEvent = pgTable("health_event", {
   occurredOn: date("occurred_on").notNull(),
   signs: text("signs"),
   diagnosis: text("diagnosis"),
+  /**
+   * The routine code — 'S19', 'FMD', 'DIP', 'DEWORM'. Load-bearing: once-for-life
+   * enforcement counts prior doses by this, and inferring it from free-text
+   * diagnosis would let a typo hand a heifer a second S19 shot.
+   */
+  routine: text("routine"),
+  /**
+   * Explicit rather than inferred from route + notForLactating. Dry cow therapy
+   * clears at infusion + 30 days OR calving + 96 hours, whichever is later, and
+   * that rule needs to be findable rather than deduced.
+   */
+  isDryCowTherapy: boolean("is_dry_cow_therapy").notNull().default(false),
   productId: uuid("product_id").references(() => product.id),
   batchNo: text("batch_no"),
   expiry: date("expiry"),
@@ -755,6 +801,7 @@ export const payrollRun = pgTable("payroll_run", {
   approvedBy: uuid("approved_by"),
   totalGrossKes: numeric("total_gross_kes", { precision: 14, scale: 2 }),
   totalNetKes: numeric("total_net_kes", { precision: 14, scale: 2 }),
+  paidOn: date("paid_on"),
 }, (t) => [unique("payroll_period_uq").on(t.farmId, t.periodMonth)]);
 
 export const payslip = pgTable("payslip", {
@@ -798,6 +845,8 @@ export const leaveRecord = pgTable("leave_record", {
   fromDate: date("from_date").notNull(),
   toDate: date("to_date").notNull(),
   days: numeric("days", { precision: 5, scale: 2 }).notNull(),
+  recordedBy: uuid("recorded_by"),
+  approvedBy: uuid("approved_by"),
 });
 
 /* ------------------------------------------------------------------ */
@@ -813,7 +862,7 @@ export const counterparty = pgTable("counterparty", {
   farmId: uuid("farm_id").notNull(),
   name: text("name").notNull(),
   customerId: uuid("customer_id").references(() => customer.id),
-  types: text("types").array().notNull(),
+  types: text("types").array().$type<CounterpartyType[]>().notNull(),
   providerKind: text("provider_kind").$type<
     "FARM_STAFF" | "AI_TECH" | "PARAVET" | "VET" | "COOP_VET" | "COUNTY"
   >(),
@@ -848,7 +897,7 @@ export const income = pgTable("income", {
   source: text("source")
     .$type<"MILK" | "ANIMAL_SALE" | "MANURE" | "FODDER" | "OTHER">().notNull(),
   description: text("description"),
-  counterpartyId: uuid("counterparty_id"),
+  counterpartyId: uuid("counterparty_id").references(() => counterparty.id),
   customerId: uuid("customer_id").references(() => customer.id),
   amountKes: numeric("amount_kes", { precision: 14, scale: 2 }).notNull(),
   paymentMethod: text("payment_method").$type<PaymentMethod>(),
@@ -868,6 +917,8 @@ export const mpesaStatementLine = pgTable("mpesa_statement_line", {
   paidInKes: numeric("paid_in_kes", { precision: 14, scale: 2 }),
   withdrawnKes: numeric("withdrawn_kes", { precision: 14, scale: 2 }),
   balanceKes: numeric("balance_kes", { precision: 14, scale: 2 }),
+  transactionStatus: text("transaction_status"),
+  otherPartyInfo: text("other_party_info"),
   matchedExpenseId: uuid("matched_expense_id").references(() => expense.id),
   matchedIncomeId: uuid("matched_income_id").references(() => income.id),
 }, (t) => [unique("mpesa_receipt_uq").on(t.farmId, t.receiptNo)]);

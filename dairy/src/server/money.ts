@@ -71,20 +71,8 @@ function requireCap(session: Session, capability: Capability): void {
  * in `customer` as a buyer of milk, linked by `customerId` — which is exactly
  * how Kenyan dairy works.
  */
-export const COUNTERPARTY_TYPES = [
-  "AGROVET",
-  "FEED_MILLER",
-  "HAY",
-  "AI_PROVIDER",
-  "VET",
-  "TRANSPORTER",
-  "COOP",
-  "PROCESSOR",
-  "LABOUR",
-  "TRANSPORT_HIRE",
-  "OTHER",
-] as const;
-export type CounterpartyType = (typeof COUNTERPARTY_TYPES)[number];
+export const COUNTERPARTY_TYPES = s.COUNTERPARTY_TYPES;
+export type CounterpartyType = s.CounterpartyType;
 
 export const COUNTERPARTY_TYPE_LABEL: Record<CounterpartyType, string> = {
   AGROVET: "Agrovet",
@@ -93,10 +81,13 @@ export const COUNTERPARTY_TYPE_LABEL: Record<CounterpartyType, string> = {
   AI_PROVIDER: "AI provider",
   VET: "Vet practice",
   TRANSPORTER: "Transporter",
+  TRANSPORT_HIRE: "Transport hire",
+  PARAVET: "Animal health assistant",
+  BROKER: "Broker",
+  SACCO: "SACCO",
   COOP: "Co-operative",
   PROCESSOR: "Processor",
   LABOUR: "Labour contractor",
-  TRANSPORT_HIRE: "Vehicle hire",
   OTHER: "Other",
 };
 
@@ -178,7 +169,7 @@ export async function updateCounterparty(
       .update(s.counterparty)
       .set({
         ...(patch.name !== undefined ? { name: patch.name } : {}),
-        ...(patch.types !== undefined ? { types: patch.types as string[] } : {}),
+        ...(patch.types !== undefined ? { types: patch.types as s.CounterpartyType[] } : {}),
         ...(patch.phone !== undefined ? { phone: patch.phone } : {}),
         ...(patch.paymentTerms !== undefined ? { paymentTerms: patch.paymentTerms } : {}),
         ...(patch.kvbRegNo !== undefined ? { kvbRegNo: patch.kvbRegNo } : {}),
@@ -1329,6 +1320,7 @@ export const EXPENSE_CATEGORY_LABEL: Record<s.ExpenseCategory, string> = {
   LICENCES: "Licences and compliance",
   MANURE: "Manure handling",
   TRANSPORT: "Transport",
+  LIVESTOCK: "Livestock purchases",
   OTHER: "Other",
 };
 

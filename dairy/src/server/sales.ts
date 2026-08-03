@@ -2033,6 +2033,7 @@ export async function recordStatement(
         .insert(s.milkStatementDeduction)
         .values({
           id: deterministicUuidFrom(`${id}|${d.deductionType}|${d.amountKes}|${d.description ?? ""}`),
+          farmId: session.farmId,
           statementId: id,
           deductionType: d.deductionType,
           description: d.description ?? null,

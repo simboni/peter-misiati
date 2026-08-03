@@ -32,6 +32,10 @@ export function refCode(prefix: string, length = 5): string {
 
 export const REF_PREFIX = {
   MILK: "MK",
+  ANIMAL: "AN",
+  WEIGHT: "WT",
+  INVOICE: "IN",
+  STATEMENT: "ST",
   FEED: "FD",
   HEALTH: "HL",
   BREEDING: "BR",

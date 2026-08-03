@@ -19,8 +19,15 @@ export const BULLING_WEIGHT_KG = 280;
 export const BULLING_AGE_MONTHS = 14;
 export const WEANING_AGE_MONTHS = 3;
 export const HEIFER_AGE_MONTHS = 9;
-/** Last weeks before calving: udder developing, being steamed up. */
-export const SPRINGER_DAYS_BEFORE_CALVING = 56;
+/**
+ * The close-up window: udder visibly developing, ration transitioning.
+ *
+ * 21 days, matching `springerFrom` in breeding.ts. It has to be shorter than
+ * the 60-day dry period — otherwise almost every dry cow reads as a springer
+ * and DRY_COW becomes unreachable, which is the mirror of reading every
+ * springer as a dry cow.
+ */
+export const SPRINGER_DAYS_BEFORE_CALVING = 21;
 
 export interface AnimalFacts {
   sex: "F" | "M";
@@ -79,8 +86,12 @@ export function deriveClass(f: AnimalFacts, asOf: ISODate): AnimalClass {
   if (f.culled) return "CULL_COW";
 
   const status = deriveReproStatus(f, asOf);
+  // A springing cow is normally DRY, not PREGNANT — she was dried off sixty
+  // days before calving, which is exactly when she starts springing. Computing
+  // this only for PREGNANT made the DRY branch's SPRINGER arm unreachable, so
+  // a dried-off cow three weeks from calving read as DRY_COW.
   const daysToCalving =
-    f.expectedCalvingOn && status === "PREGNANT"
+    f.expectedCalvingOn && (status === "PREGNANT" || status === "DRY")
       ? daysBetween(asOf, f.expectedCalvingOn)
       : null;
   const isSpringing =

@@ -111,17 +111,18 @@ describe("deriveClass — the female ladder", () => {
     expect(deriveClass(f, ASOF)).toBe("INCALF_HEIFER");
   });
 
-  it("calls her a SPRINGER inside the last eight weeks", () => {
-    // 56 days is the boundary — inclusive.
+  it("calls her a SPRINGER inside the close-up window", () => {
+    // 21 days is the boundary — inclusive, and it matches breedingCalendar's
+    // springerFrom. Anything wider swallows the dry period whole.
     const springing = facts({
       dateOfBirth: dobForMonths(22),
       lastServiceOn: "2025-12-01",
       pdPositiveOn: "2026-02-01",
-      expectedCalvingOn: "2026-09-28", // 56 days after ASOF
+      expectedCalvingOn: "2026-08-24", // 21 days after ASOF
     });
     expect(deriveClass(springing, ASOF)).toBe("SPRINGER");
 
-    const notYet = { ...springing, expectedCalvingOn: "2026-09-29" };
+    const notYet = { ...springing, expectedCalvingOn: "2026-08-25" };
     expect(deriveClass(notYet, ASOF)).toBe("INCALF_HEIFER");
   });
 
@@ -155,14 +156,12 @@ describe("deriveClass — the female ladder", () => {
     expect(deriveClass(dry, ASOF)).toBe("DRY_COW");
   });
 
-  it("keeps a dried-off cow in the last weeks as a DRY_COW, not a SPRINGER", () => {
+  it("calls a dried-off cow SPRINGER once she is inside the close-up window", () => {
     /**
-     * Documenting current behaviour, and it is a finding rather than a
-     * preference: `deriveClass` only computes `daysToCalving` when the status is
-     * PREGNANT, but drying off makes the status DRY. The
-     * `status === "DRY" ? SPRINGER : DRY_COW` branch is therefore unreachable
-     * for cows — only never-calved heifers can ever be SPRINGER today. Raised in
-     * the build report; `animal.ts` belongs to no single agent this round.
+     * A springing cow is normally DRY, not PREGNANT — she was dried off sixty
+     * days before calving, which is exactly when she starts springing. An
+     * earlier version computed `daysToCalving` only for PREGNANT, which made
+     * the DRY branch's SPRINGER arm unreachable for cows.
      */
     const springing = facts({
       parity: 3,
@@ -170,9 +169,21 @@ describe("deriveClass — the female ladder", () => {
       lastServiceOn: "2025-11-01",
       pdPositiveOn: "2026-01-05",
       driedOffOn: "2026-06-20",
-      expectedCalvingOn: "2026-09-01", // 29 days out — visibly springing
+      expectedCalvingOn: "2026-08-17", // 14 days out — inside the close-up window
     });
-    expect(deriveClass(springing, ASOF)).toBe("DRY_COW");
+    expect(deriveReproStatus(springing, ASOF)).toBe("DRY");
+    expect(deriveClass(springing, ASOF)).toBe("SPRINGER");
+  });
+
+  it("keeps a dry cow still months from calving as a DRY_COW", () => {
+    const dry = facts({
+      parity: 3,
+      lastCalvingOn: "2025-08-01",
+      pdPositiveOn: "2026-01-05",
+      driedOffOn: "2026-06-20",
+      expectedCalvingOn: "2026-10-15", // 73 days out — well outside close-up
+    });
+    expect(deriveClass(dry, ASOF)).toBe("DRY_COW");
   });
 
   it("calls her a CULL_COW once culled, whatever else is true", () => {
