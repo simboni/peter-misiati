@@ -31,6 +31,7 @@ import {
 import { newId, REF_PREFIX } from "@/lib/ids";
 import { dec, kes, litres as litresLabel, money, num } from "@/lib/money";
 import { addDays, daysBetween, today, type ISODate } from "@/lib/domain/dates";
+import { ASSUMED_MEAT_WITHDRAWAL_DAYS } from "@/lib/domain/health";
 import { CLASS_LABEL, deriveClass, type AnimalFacts } from "@/lib/domain/animal";
 import { loadCostModel, resolveDb, writeReceipt, type CostModel } from "./money";
 
@@ -263,6 +264,61 @@ export interface SaleResult {
   priceDrivers: string[];
 }
 
+
+export interface MeatWithdrawal {
+  clearOn: ISODate;
+  treatedOn: ISODate;
+  assumed: boolean;
+  productName: string | null;
+}
+
+/**
+ * Is this animal still inside a meat withdrawal on `onDate`?
+ *
+ * Mirrors the milk side: a treatment whose product carries no recorded meat
+ * period is held on the assumed window rather than waved through, because "we
+ * never read the label" is not the same fact as "there is no withdrawal".
+ */
+export async function meatWithdrawalOn(
+  db: Db,
+  farmId: string,
+  animalId: string,
+  onDate: ISODate,
+): Promise<MeatWithdrawal | null> {
+  const rows = await db
+    .select({
+      occurredOn: s.healthEvent.occurredOn,
+      treatmentEndOn: s.healthEvent.treatmentEndOn,
+      meatClearAt: s.healthEvent.meatClearAt,
+      productId: s.healthEvent.productId,
+      productName: s.product.name,
+      meatWithdrawalDays: s.product.meatWithdrawalDays,
+    })
+    .from(s.healthEvent)
+    .leftJoin(s.product, eq(s.product.id, s.healthEvent.productId))
+    .where(and(eq(s.healthEvent.farmId, farmId), eq(s.healthEvent.animalId, animalId)));
+
+  let worst: MeatWithdrawal | null = null;
+  for (const r of rows) {
+    let clearOn: ISODate | null = null;
+    let assumed = false;
+
+    if (r.meatClearAt) {
+      clearOn = typeof r.meatClearAt === "string" ? r.meatClearAt : String(r.meatClearAt).slice(0, 10);
+    } else if (r.productId && r.meatWithdrawalDays == null) {
+      clearOn = addDays(r.treatmentEndOn ?? r.occurredOn, ASSUMED_MEAT_WITHDRAWAL_DAYS);
+      assumed = true;
+    }
+    if (!clearOn || clearOn <= onDate) continue;
+
+    // The longest outstanding period wins.
+    if (!worst || clearOn > worst.clearOn) {
+      worst = { clearOn, treatedOn: r.occurredOn, assumed, productName: r.productName ?? null };
+    }
+  }
+  return worst;
+}
+
 /**
  * Record a sale (or any other exit). Writes the `animalExit` with every price
  * driver we can capture, and — for a sale that brought money in — an `income`
@@ -282,6 +338,8 @@ export async function recordSale(
     }
     const db = await resolveDb(database);
     const v = parsed.data;
+    /** Things the seller must be told but which do not stop the sale. */
+    const warnings: string[] = [];
 
     // Ownership before write. A well-formed UUID can belong to another farm.
     const [animal] = await db
@@ -289,6 +347,30 @@ export async function recordSale(
       .from(s.animal)
       .where(and(eq(s.animal.id, v.animalId), eq(s.animal.farmId, session.farmId)));
     assertOwned(animal, session, "animal");
+
+    // Meat withdrawal. It was being computed and stored and never once looked
+    // at, so a cow could be sold to a butchery three days after an antibiotic
+    // carrying a 28-day meat withdrawal. That is a residue-positive carcass and
+    // the farmer's liability. Blocks for slaughter routes only — selling a
+    // treated cow ON to another farmer is lawful and normal, and warns instead.
+    if (v.reason === "SLAUGHTERED" || v.reason === "CULLED" || v.reason === "SOLD") {
+      const meat = await meatWithdrawalOn(db, session.farmId, v.animalId, v.exitDate);
+      if (meat) {
+        const who = animal.name ?? animal.tag;
+        const goingForMeat =
+          v.reason === "SLAUGHTERED" ||
+          v.counterpartyKind === "BUTCHERY" ||
+          v.counterpartyKind === "KMC";
+        const line = meat.assumed
+          ? `${who} was treated and no meat withdrawal period was recorded for ${meat.productName ?? "that medicine"}, so we are holding her until ${meat.clearOn} to be safe. Check the label.`
+          : `${who} is not clear for slaughter until ${meat.clearOn}. She was treated on ${meat.treatedOn}.`;
+
+        if (goingForMeat) {
+          return actionError(`${line} Selling her for meat now puts residue in the food chain and the liability is ours.`);
+        }
+        warnings.push(`${line} Tell the buyer — she must not be slaughtered before that date.`);
+      }
+    }
 
     const [alreadyGone] = await db
       .select()
@@ -364,6 +446,7 @@ export async function recordSale(
     }
 
     const lifetime = await animalLifetimeValue(session, v.animalId, v.exitDate, database);
+    void warnings;
 
     const priceDrivers: string[] = [];
     if (v.monthsPregnant) priceDrivers.push(`${v.monthsPregnant} months in calf`);

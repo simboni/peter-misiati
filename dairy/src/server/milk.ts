@@ -37,7 +37,12 @@ import {
   project305FromPeak,
   STANDARD_LACTATION_DAYS,
 } from "@/lib/domain/milk";
-import { isColostrum, COLOSTRUM_DAYS } from "@/lib/domain/health";
+import {
+  isColostrum,
+  COLOSTRUM_DAYS,
+  ASSUMED_MILK_WITHDRAWAL_DAYS,
+  assumedWithdrawalMessage,
+} from "@/lib/domain/health";
 import { daysInMilk, deriveClass, isMilking, type AnimalFacts } from "@/lib/domain/animal";
 
 /* ---------------------------------------------------------------- */
@@ -183,33 +188,94 @@ export async function lactatingHerd(
   return out.sort((x, y) => x.name.localeCompare(y.name));
 }
 
-/** Every animal whose milk is legally withheld right now, keyed by animal id. */
+export interface WithheldAnimal {
+  milkClearAt: Date;
+  /** True when the product's label period was never recorded and we are guessing. */
+  assumed: boolean;
+  productName: string | null;
+}
+
+/**
+ * Every animal whose milk must be held back, keyed by animal id.
+ *
+ * Evaluated as at `asOf`, which is the DATE OF THE MILKING and not the wall
+ * clock. A batch captured offline while a cow was blocked and flushed after her
+ * clear date must still be stored as withheld — with offline as the default
+ * path, that is a routine sequence, not an exotic one.
+ *
+ * A treatment whose product carries NO recorded withdrawal period is included
+ * here on an assumed window. "Nobody read the label" and "this drug has no
+ * withdrawal" are different facts, and collapsing them is precisely how residue
+ * reaches the churn.
+ */
 export async function withdrawalMap(
   dbo: Db,
   farmId: string,
-  now: Date = new Date(),
-): Promise<Map<string, { milkClearAt: Date }>> {
-  const rows = await dbo
-    .select()
-    .from(s.healthEvent)
-    .where(and(eq(s.healthEvent.farmId, farmId), gt(s.healthEvent.milkClearAt, now)));
+  asOf: Date | ISODate = new Date(),
+): Promise<Map<string, WithheldAnimal>> {
+  const at = asOf instanceof Date ? asOf : new Date(`${asOf}T23:59:59.999Z`);
 
-  const map = new Map<string, { milkClearAt: Date }>();
+  const rows = await dbo
+    .select({
+      animalId: s.healthEvent.animalId,
+      milkClearAt: s.healthEvent.milkClearAt,
+      occurredOn: s.healthEvent.occurredOn,
+      treatmentEndOn: s.healthEvent.treatmentEndOn,
+      productId: s.healthEvent.productId,
+      productName: s.product.name,
+      milkWithdrawalDays: s.product.milkWithdrawalDays,
+    })
+    .from(s.healthEvent)
+    .leftJoin(s.product, eq(s.product.id, s.healthEvent.productId))
+    .where(and(eq(s.healthEvent.farmId, farmId), gte(s.healthEvent.occurredOn, addDays(
+      at.toISOString().slice(0, 10),
+      -MAX_WITHDRAWAL_LOOKBACK_DAYS,
+    ))));
+
+  const map = new Map<string, WithheldAnimal>();
+
   for (const r of rows) {
-    if (!r.milkClearAt) continue;
-    const clear = r.milkClearAt instanceof Date ? r.milkClearAt : new Date(r.milkClearAt);
+    let clear: Date | null = null;
+    let assumed = false;
+
+    if (r.milkClearAt) {
+      clear = r.milkClearAt instanceof Date ? r.milkClearAt : new Date(r.milkClearAt);
+    } else if (r.productId && r.milkWithdrawalDays == null) {
+      // No label period on a product that was actually administered. Hold her
+      // on the assumed window and say plainly that we are guessing.
+      const end = r.treatmentEndOn ?? r.occurredOn;
+      clear = new Date(`${addDays(end, ASSUMED_MILK_WITHDRAWAL_DAYS)}T23:59:59.999Z`);
+      assumed = true;
+    }
+
+    if (!clear || clear <= at) continue;
+
     const existing = map.get(r.animalId);
     // The LONGEST withdrawal wins — two treatments do not shorten each other.
-    if (!existing || clear > existing.milkClearAt) map.set(r.animalId, { milkClearAt: clear });
+    if (!existing || clear > existing.milkClearAt) {
+      map.set(r.animalId, { milkClearAt: clear, assumed, productName: r.productName ?? null });
+    }
   }
   return map;
 }
+
+/**
+ * How far back to look for treatments that might still be biting. Comfortably
+ * longer than any real milk withdrawal, and bounded so a single bad data entry
+ * cannot hold a cow out of the tank forever.
+ */
+const MAX_WITHDRAWAL_LOOKBACK_DAYS = 60;
 
 /* ---------------------------------------------------------------- */
 /* The sheet                                                         */
 /* ---------------------------------------------------------------- */
 
-export type LockReason = "WITHDRAWAL" | "COLOSTRUM";
+/**
+ * WITHDRAWAL_UNKNOWN is not a softer WITHDRAWAL — it is a different fact. It
+ * means the label was never recorded, so we are holding her milk on an assumed
+ * window and the farm needs to go and read the bottle.
+ */
+export type LockReason = "WITHDRAWAL" | "WITHDRAWAL_UNKNOWN" | "COLOSTRUM";
 
 export interface MilkSheetRow {
   animalId: string;
@@ -286,7 +352,9 @@ export async function milkSheet(
         ),
       )
       .orderBy(desc(s.milkRecord.recordedOn)),
-    withdrawalMap(database, session.farmId),
+    // As at the DATE OF THE SHEET, so re-opening a past day shows the locks
+    // that actually applied then.
+    withdrawalMap(database, session.farmId, date),
   ]);
 
   const usable = live(history);
@@ -324,8 +392,17 @@ export async function milkSheet(
     if (w) {
       milkClearOn = w.milkClearAt.toISOString().slice(0, 10);
       locked = true;
-      lockReason = "WITHDRAWAL";
-      lockMessage = `Do not sell ${h.name}'s milk until ${formatDay(milkClearOn)}. She was treated — keep this milk out of the can.`;
+      if (w.assumed) {
+        lockReason = "WITHDRAWAL_UNKNOWN";
+        lockMessage = assumedWithdrawalMessage(
+          h.name,
+          w.productName ?? "that medicine",
+          formatDay(milkClearOn),
+        );
+      } else {
+        lockReason = "WITHDRAWAL";
+        lockMessage = `Do not sell ${h.name}'s milk until ${formatDay(milkClearOn)}. She was treated — keep this milk out of the can.`;
+      }
     } else if (colostrum) {
       locked = true;
       lockReason = "COLOSTRUM";
@@ -484,7 +561,9 @@ export async function recordMilkBatch(
 
     const herd = await lactatingHerd(database, session.farmId, date);
     const herdById = new Map(herd.map((h) => [h.id, h]));
-    const withheld = await withdrawalMap(database, session.farmId);
+    // As at the date being recorded — an offline batch flushed after the clear
+    // date must still be stored withheld.
+    const withheld = await withdrawalMap(database, session.farmId, date);
 
     const from = addDays(date, -LOOKBACK_DAYS);
     const history = live(
@@ -545,13 +624,15 @@ export async function recordMilkBatch(
       let notSaleableReason: LockReason | null = null;
       if (w) {
         saleable = false;
-        notSaleableReason = "WITHDRAWAL";
         const clearOn = w.milkClearAt.toISOString().slice(0, 10);
+        notSaleableReason = w.assumed ? "WITHDRAWAL_UNKNOWN" : "WITHDRAWAL";
         result.locked.push({
           animalId: row.animalId,
           name,
-          reason: "WITHDRAWAL",
-          message: `${name}'s milk is withheld until ${formatDay(clearOn)}. Do not put it in the can.`,
+          reason: notSaleableReason,
+          message: w.assumed
+            ? assumedWithdrawalMessage(name, w.productName ?? "that medicine", formatDay(clearOn))
+            : `${name}'s milk is withheld until ${formatDay(clearOn)}. Do not put it in the can.`,
         });
       } else if (colostrum) {
         saleable = false;

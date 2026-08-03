@@ -68,6 +68,7 @@ import {
   resolveDb,
   sessionLabel,
   type DayProduction,
+  withdrawalMap,
 } from "./milk";
 
 /* ---------------------------------------------------------------- */
@@ -199,7 +200,36 @@ export async function withdrawalGuard(
     animals: treated,
   };
 
-  if (!isRevenueChannel(channel) || day.withheldL <= 0) return base;
+  if (!isRevenueChannel(channel)) return base;
+
+  // DEFECT FIX: the guard used to read only the day's MILK RECORDS, so if the
+  // can went to the co-op before the sheet was typed in — the ordinary order on
+  // a farm where the rider leaves at six — a treated cow's milk sold with no
+  // block and no warning at all. Ask the HEALTH record directly, so the warning
+  // does not depend on the sheet already being filled in.
+  const underWithdrawal = await withdrawalMap(dbo, session.farmId, date);
+  if (underWithdrawal.size > 0) {
+    const names: string[] = [];
+    let anyAssumed = false;
+    for (const [animalId, w] of underWithdrawal) {
+      const known = treated.find((a) => a.animalId === animalId);
+      names.push(known?.name ?? (await animalName(dbo, session.farmId, animalId)));
+      if (w.assumed) anyAssumed = true;
+    }
+    if (day.withheldL <= 0) {
+      // Nothing recorded yet for these cows, so we cannot compute how many
+      // litres to hold back. Warn by name rather than saying nothing — R4 says
+      // do not refuse the sale, it does not say stay quiet.
+      base.message =
+        `${names.join(", ")} ${names.length === 1 ? "is" : "are"} under withdrawal today` +
+        (anyAssumed ? " (and the withdrawal period was never recorded, so we are assuming the worst)" : "") +
+        `. Their milk must not go in this can. Record the milking first so the litres can be held back properly.`;
+      base.animals = base.animals.length ? base.animals : [];
+      return base;
+    }
+  }
+
+  if (day.withheldL <= 0) return base;
 
   const existing = await dbo
     .select()
@@ -224,6 +254,16 @@ export async function withdrawalGuard(
       `so ${forcedL} L is held back and recorded as withheld. Do not put it in the can — a rejected load costs the whole ` +
       `chilling plant, and the co-op passes that bill back to us.`,
   };
+}
+
+
+/** A cow's name for a message, falling back to her tag. */
+async function animalName(dbo: Db, farmId: string, animalId: string): Promise<string> {
+  const [a] = await dbo
+    .select({ name: s.animal.name, tag: s.animal.tag })
+    .from(s.animal)
+    .where(and(eq(s.animal.farmId, farmId), eq(s.animal.id, animalId)));
+  return a?.name ?? a?.tag ?? "A treated cow";
 }
 
 /* ---------------------------------------------------------------- */

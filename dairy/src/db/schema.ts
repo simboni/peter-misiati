@@ -451,7 +451,15 @@ export const milkRecord = pgTable("milk_record", {
   session: text("session").$type<MilkingSession>().notNull(),
   litres: numeric("litres", { precision: 6, scale: 2 }).notNull(),
   saleable: boolean("saleable").notNull().default(true),
-  notSaleableReason: text("not_saleable_reason").$type<"COLOSTRUM" | "WITHDRAWAL">(),
+  /**
+   * WITHDRAWAL_UNKNOWN is a distinct fact, not a softer WITHDRAWAL: the
+   * product's label period was never recorded, so the milk is held on an
+   * assumed window until someone reads the bottle. Collapsing it into
+   * WITHDRAWAL would hide that the farm has a data gap; collapsing it into
+   * "saleable" is how residue reaches the churn.
+   */
+  notSaleableReason: text("not_saleable_reason")
+    .$type<"COLOSTRUM" | "WITHDRAWAL" | "WITHDRAWAL_UNKNOWN">(),
   /** Out of range: warned, saved anyway, queued for the manager. Never rejected. */
   flagged: boolean("flagged").notNull().default(false),
   flagReason: text("flag_reason"),

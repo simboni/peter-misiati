@@ -25,6 +25,26 @@ export interface WithdrawalResult {
 }
 
 /**
+ * What to assume when the label was never recorded.
+ *
+ * A missing withdrawal period means "nobody read the label", NOT "there is no
+ * withdrawal". Treating the two as the same is how residue reaches the churn:
+ * a herdsman injects a bottle whose label is lost, the app says nothing, and
+ * the plant load is rejected and billed back to the farm.
+ *
+ * Seven days covers essentially every common Kenyan milk withdrawal — procaine
+ * penicillin 3, long-acting oxytetracycline 4–7, sulphonamides 3–7,
+ * fluoroquinolones 6 — so it is safe without being punitive. Blocking for a
+ * month "to be sure" would dump saleable milk and teach people to work around
+ * the app, which is worse than the risk it avoids.
+ *
+ * The assumption is always SHOWN, never silent: the farm is told we are
+ * guessing and told to check the label.
+ */
+export const ASSUMED_MILK_WITHDRAWAL_DAYS = 7;
+export const ASSUMED_MEAT_WITHDRAWAL_DAYS = 28;
+
+/**
  * Compute clear dates from the PRODUCT's own label period.
  *
  * Deliberately takes the withdrawal days as an argument rather than looking a
@@ -40,6 +60,44 @@ export function computeWithdrawal(input: WithdrawalInput): WithdrawalResult {
     meatClearOn:
       meatWithdrawalDays != null ? addDays(treatmentEndOn, meatWithdrawalDays) : null,
   };
+}
+
+/**
+ * The clear date to ENFORCE, which is not always the clear date we know.
+ *
+ * When the label period is missing this falls back to the assumed window and
+ * says so. Callers must treat `assumed: true` as a lock with a visible caveat,
+ * never as "no withdrawal" — that conflation is the whole failure mode.
+ */
+export interface EffectiveWithdrawal {
+  milkClearOn: ISODate | null;
+  meatClearOn: ISODate | null;
+  assumed: boolean;
+}
+
+export function effectiveWithdrawal(input: WithdrawalInput): EffectiveWithdrawal {
+  const known = computeWithdrawal(input);
+  const milkUnknown = input.milkWithdrawalDays == null;
+  const meatUnknown = input.meatWithdrawalDays == null;
+
+  return {
+    milkClearOn:
+      known.milkClearOn ??
+      addDays(input.treatmentEndOn, ASSUMED_MILK_WITHDRAWAL_DAYS),
+    meatClearOn:
+      known.meatClearOn ??
+      addDays(input.treatmentEndOn, ASSUMED_MEAT_WITHDRAWAL_DAYS),
+    assumed: milkUnknown || meatUnknown,
+  };
+}
+
+/** The sentence shown on a locked row when we are guessing. */
+export function assumedWithdrawalMessage(
+  animalName: string,
+  productName: string,
+  clearOn: ISODate,
+): string {
+  return `We do not know how long ${animalName} must stay out of the tank — no withdrawal period was recorded for ${productName}. Holding her milk until ${clearOn} to be safe. Check the label and enter the real period.`;
 }
 
 /**
