@@ -559,9 +559,19 @@ export async function recordTreatmentFor(
 
   const occurredOn = input.occurredOn ?? today();
   const durationDays = input.durationDays ?? null;
-  const treatmentEndOn =
+  /**
+   * A course cannot end before it started.
+   *
+   * The clear date is measured from this field, so a caller passing an earlier
+   * date — by typo or on purpose — would otherwise produce a withdrawal that
+   * expired before the injection. Floored rather than rejected: R4 says warn
+   * and record, and the safe reading of a nonsense end date is "the course was
+   * a single dose today".
+   */
+  const rawEnd =
     input.treatmentEndOn ??
     (durationDays && durationDays > 1 ? addDays(occurredOn, durationDays - 1) : occurredOn);
+  const treatmentEndOn = rawEnd < occurredOn ? occurredOn : rawEnd;
 
   const route = input.route ?? (product.productType === "INTRAMAMMARY" ? "INTRAMAMMARY" : null);
 

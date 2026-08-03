@@ -252,8 +252,13 @@ export async function withdrawalMap(
     // window is one-sided and a dose given today writes off a sheet from two
     // months ago, which is wrong in the safe direction but still throws away
     // good milk.
-    const givenOn = r.treatmentEndOn ?? r.occurredOn;
-    if (givenOn > at.toISOString().slice(0, 10)) continue;
+    // Bound on when the drug FIRST went in, not when the course ends. A
+    // three-day mastitis course started this morning has treatmentEndOn two
+    // days out, and bounding on that skipped the cow entirely — leaving today's
+    // milk saleable for the whole course. Multi-day courses are the ordinary
+    // shape of a mastitis treatment, so that is the residue case this module
+    // exists to stop. Milk is condemned from the first dose.
+    if (r.occurredOn > at.toISOString().slice(0, 10)) continue;
     if (!clear || clear <= at) continue;
 
     const existing = map.get(r.animalId);

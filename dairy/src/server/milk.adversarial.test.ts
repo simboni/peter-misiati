@@ -19,6 +19,7 @@ import * as s from "@/db/schema";
 import { newId } from "@/lib/ids";
 import { addDays, today } from "@/lib/domain/dates";
 import { ASSUMED_MILK_WITHDRAWAL_DAYS } from "@/lib/domain/health";
+import { reconcileDay } from "@/lib/domain/milk";
 import {
   approveMilkRecord,
   correctMilkRecord,
@@ -398,16 +399,15 @@ describe("withdrawal: the only hard block in the system", () => {
   });
 
   /**
-   * STILL OPEN, and the reason unknown-period milk can still reach a paying
-   * channel. `recordMilkBatch` and `dayProduction` both total the day with
-   * `if (notSaleableReason === "WITHDRAWAL")`, so a WITHDRAWAL_UNKNOWN row is
-   * counted into NEITHER `withheldL` nor `colostrumL`. The litres are stamped
-   * unsaleable on the record and then disappear from every total built on top
-   * of it: the batch receipt grows no "withheld" line, `allocateMilk` raises no
-   * warning, `reconcileDay` still reports "all accounted for", and
-   * `withdrawalGuard` sees `withheldL === 0` and declines to fence anything off.
+   * FIXED. `recordMilkBatch` and `dayProduction` used to total the day with
+   * `if (notSaleableReason === "WITHDRAWAL")`, so a WITHDRAWAL_UNKNOWN row was
+   * counted into NEITHER `withheldL` nor `colostrumL`: the litres were stamped
+   * unsaleable on the record and then vanished from every total built on top of
+   * it. Both now go through `isWithheldReason`, so the litres land in
+   * `withheldL` and the day's arithmetic closes — which is what every
+   * downstream guard reads.
    */
-  it.fails("DEFECT: WITHDRAWAL_UNKNOWN litres are counted as neither withheld nor colostrum", async () => {
+  it("counts WITHDRAWAL_UNKNOWN litres into the day's withheld total, not into thin air", async () => {
     const { db, close, session } = await setup();
     const cow = await seedCow(db, { name: "Muthoni", calvedOn: addDays(NOW, -120) });
     const unknown = await seedProduct(db, {
@@ -421,13 +421,41 @@ describe("withdrawal: the only hard block in the system", () => {
     const res = await recordMilkBatch(session, batch([{ animalId: cow, litres: 12 }]), db);
     expect(res.ok).toBe(true);
     if (!res.ok) return;
+    // The litres are RECORDED in full — the block is on selling, never on writing down.
+    expect(res.data.totalL).toBe(12);
+    // ...and they land in `withheldL`, not merely on an unsaleable row.
     expect(res.data.withheldL).toBe(12);
+    expect(res.data.saleableL).toBe(0);
+    expect(res.data.colostrumL).toBe(0);
+    expect(res.data.locked.map((l) => l.reason)).toEqual(["WITHDRAWAL_UNKNOWN"]);
     expect(res.data.receiptLines.join(" ")).toMatch(/12 L withheld/);
 
+    // The row itself is stamped with the unknown reason, not plain WITHDRAWAL.
+    const [record] = await db.select().from(s.milkRecord);
+    expect(record.saleable).toBe(false);
+    expect(record.notSaleableReason).toBe("WITHDRAWAL_UNKNOWN");
+
     const day = await dayProduction(session, NOW, db);
+    expect(day.totalL).toBe(12);
     expect(day.withheldL).toBe(12);
+    expect(day.saleableL).toBe(0);
     // The day must add up: every litre is saleable, withheld or colostrum.
     expect(day.saleableL + day.withheldL + day.colostrumL).toBe(day.totalL);
+    // And she is named, with the reason that says we are guessing at the period.
+    expect(day.withheldAnimals).toEqual([
+      { animalId: cow, name: "Muthoni", litres: 12, reason: "WITHDRAWAL_UNKNOWN" },
+    ]);
+
+    // The point of the total: the day's reconciliation can now EXPLAIN the gap.
+    // Put every saleable litre in the can and the remainder is not "all
+    // accounted for" — it is exactly the withheld milk. With `withheldL` stuck
+    // at 0 the variance was unexplained and the guard fenced nothing off.
+    const recon = reconcileDay(day.totalL, [{ channel: "COOP", litres: day.saleableL }]);
+    expect(recon.balanced).toBe(false);
+    expect(recon.revenueL).toBe(0);
+    expect(recon.varianceL).toBe(day.withheldL + day.colostrumL);
+    expect(recon.message).toMatch(/unaccounted for/i);
+    expect(recon.message).not.toMatch(/all accounted for/i);
     await close();
   });
 
@@ -503,16 +531,16 @@ describe("withdrawal: the only hard block in the system", () => {
   });
 
   /**
-   * STILL OPEN, and the other half of the milking-date fix. `withdrawalMap`
-   * now takes `asOf` and bounds the query BELOW — `occurredOn >= asOf - 60` —
-   * but puts no bound ABOVE it, so a treatment given today is still matched
-   * against a sheet from sixty days ago and her clear date (today + 7) is
-   * trivially "in the future" of that sheet. Milk drawn long before the needle
-   * went in is condemned. Wrong in the safe direction, but it writes off good
-   * milk and is the sort of thing that gets the app worked around.
+   * FIXED, and the other half of the milking-date fix. `withdrawalMap` bounded
+   * the query BELOW — `occurredOn >= asOf - 60` — but put no bound ABOVE it, so
+   * a treatment given today was matched against a sheet from sixty days ago and
+   * its clear date (today + 7) was trivially "in the future" of that sheet.
+   * Milk drawn long before the needle went in was condemned. Wrong in the safe
+   * direction, but it writes off good milk and is the sort of thing that gets
+   * the app worked around. The map is now bounded on BOTH sides.
    */
-  it.fails(
-    "DEFECT: milk recorded for a date BEFORE the treatment is wrongly condemned",
+  it(
+    "does not condemn milk recorded for a date BEFORE the treatment was given",
     async () => {
       const { db, close, session } = await setup();
       const cow = await seedCow(db, { name: "Kanini", calvedOn: addDays(NOW, -200) });
@@ -520,16 +548,99 @@ describe("withdrawal: the only hard block in the system", () => {
       // Treated today. Her milk from sixty days ago was perfectly good.
       await recordTreatmentFor(session, { animalId: cow, productId: p }, db as unknown as DbLike);
 
+      const then = addDays(NOW, -60);
+
+      // The map itself is the thing that was one-sided: she is under withdrawal
+      // TODAY and was not under withdrawal on a sheet that pre-dates the dose.
+      expect((await withdrawalMap(db, FARM_ID, then)).has(cow)).toBe(false);
+      expect((await withdrawalMap(db, FARM_ID, NOW)).has(cow)).toBe(true);
+
+      // So the old sheet re-opens clear, and today's sheet is still locked.
+      const oldSheet = await milkSheet(session, then, "MORNING", db);
+      expect(oldSheet.rows[0].locked).toBe(false);
+      expect(oldSheet.rows[0].lockReason).toBeNull();
+      expect(oldSheet.rows[0].milkClearOn).toBeNull();
+      expect((await milkSheet(session, NOW, "MORNING", db)).rows[0].locked).toBe(true);
+
       const res = await recordMilkBatch(
         session,
-        batch([{ animalId: cow, litres: 14 }], addDays(NOW, -60)),
+        batch([{ animalId: cow, litres: 14 }], then),
         db,
       );
       expect(res.ok).toBe(true);
       if (!res.ok) return;
-      // 14 L of good milk written off: the treatment post-dates the milking.
+      // 14 L of good milk kept: the treatment post-dates the milking.
       expect(res.data.saleableL).toBe(14);
       expect(res.data.withheldL).toBe(0);
+      expect(res.data.locked).toEqual([]);
+
+      const [record] = await db.select().from(s.milkRecord);
+      expect(record.saleable).toBe(true);
+      expect(record.notSaleableReason).toBeNull();
+
+      // The block STILL bites on the day of the dose — the bound must not have
+      // been widened into a hole.
+      const todayRes = await recordMilkBatch(session, batch([{ animalId: cow, litres: 14 }]), db);
+      expect(todayRes.ok).toBe(true);
+      if (!todayRes.ok) return;
+      expect(todayRes.data.withheldL).toBe(14);
+      expect(todayRes.data.saleableL).toBe(0);
+      await close();
+    },
+  );
+
+  /**
+   * NEW DEFECT, opened by the upper bound above. `withdrawalMap` skips a
+   * treatment when `treatmentEndOn ?? occurredOn` is later than the milking:
+   *
+   *     const givenOn = r.treatmentEndOn ?? r.occurredOn;
+   *     if (givenOn > at.toISOString().slice(0, 10)) continue;
+   *
+   * `treatmentEndOn` is the end of the COURSE, not the moment the drug went in.
+   * A three-day course of penstrep started this morning has `occurredOn` today
+   * and `treatmentEndOn` in two days, so the whole event is skipped and today's
+   * milk — drawn from a cow with an antibiotic in her, clear date ten days out —
+   * comes back saleable. That is the residue case this module exists to stop,
+   * and multi-day courses are the ordinary shape of a mastitis treatment.
+   *
+   * The bound belongs on `occurredOn`: the milk is condemned from the first
+   * dose, not from the last. Fixing it means changing `givenOn` to
+   * `r.occurredOn` in `withdrawalMap` — which the sibling test above
+   * ("does not condemn milk recorded for a date BEFORE the treatment") still
+   * passes under, because there `occurredOn` is today and the sheet is sixty
+   * days old either way.
+   */
+  it(
+    "withholds milk from the FIRST dose of a multi-day course, not from the last",
+    async () => {
+      const { db, close, session } = await setup();
+      const cow = await seedCow(db, { name: "Ongoing", calvedOn: addDays(NOW, -120) });
+      const p = await seedProduct(db, { milkWithdrawalDays: 7 });
+
+      // A three-day course started THIS MORNING. She has the drug in her now.
+      const t = await recordTreatmentFor(
+        session,
+        { animalId: cow, productId: p, occurredOn: NOW, treatmentEndOn: addDays(NOW, 2) },
+        db as unknown as DbLike,
+      );
+      expect(t.ok).toBe(true);
+      if (!t.ok) return;
+      // Health is unambiguous: she does not clear for another ten days.
+      expect(t.data.milkClearOn).toBe(addDays(NOW, 9));
+
+      // The sheet must agree from this morning. Multi-day courses are the
+      // ordinary shape of a mastitis treatment, so bounding on the END of the
+      // course left the residue window wide open for its whole duration.
+      expect((await withdrawalMap(db, FARM_ID, NOW)).has(cow)).toBe(true);
+      const sheet = await milkSheet(session, NOW, "MORNING", db);
+      const row = sheet.rows.find((r) => r.animalId === cow)!;
+      expect(row.locked).toBe(true);
+      expect(row.lockReason).toBe("WITHDRAWAL");
+      const res = await recordMilkBatch(session, batch([{ animalId: cow, litres: 16 }]), db);
+      expect(res.ok).toBe(true);
+      if (!res.ok) return;
+      expect(res.data.withheldL).toBe(16);
+      expect(res.data.saleableL).toBe(0);
       await close();
     },
   );
@@ -547,12 +658,17 @@ describe("withdrawal: the only hard block in the system", () => {
     );
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    const escaped = r.data.milkClearOn === "1900-01-08";
+
+    // A course cannot end before it started. The end date is floored at
+    // `occurredOn`, so the withdrawal is measured from today and the 1900 date
+    // buys nothing — otherwise anyone could clear a cow by mistyping a year.
+    expect(r.data.milkClearOn).toBe(addDays(NOW, 7));
+
     const sheet = await milkSheet(session, NOW, "MORNING", db);
-    // Documented, not asserted as correct: `recordTreatmentFor` takes
-    // `treatmentEndOn` from its caller with no floor at `occurredOn`, so a
-    // caller that passes an earlier date gets a clear date in the past.
-    expect(escaped && sheet.rows[0].locked === false).toBe(true);
+    const row = sheet.rows.find((x) => x.animalId === cow)!;
+    expect(row.locked).toBe(true);
+    expect(row.lockReason).toBe("WITHDRAWAL");
+    expect(row.milkClearOn).toBe(addDays(NOW, 7));
     await close();
   });
 });

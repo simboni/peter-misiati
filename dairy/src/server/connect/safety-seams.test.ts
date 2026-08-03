@@ -329,6 +329,94 @@ describe("selling before the milking sheet has been filled in", () => {
     expect(sold.data.forcedL).toBe(0);
   });
 
+  /**
+   * The guard reads the HEALTH record now, which is a wider net than the milk
+   * sheet — and a dry cow inside her 30-day dry-cow-therapy window is caught by
+   * it while contributing nothing to the tank. Naming her on a milk sale is a
+   * false alarm, and a warning that cries wolf is a warning that stops being
+   * read. So the guard intersects the withdrawal map with the LACTATING herd.
+   */
+  it("says nothing about a dry cow inside her dry-cow-therapy window — she is not in the tank", async () => {
+    const dry = await seedMilkingCow({ name: "Wairimu", tag: "KE-0003", calvedOn: D(-300) });
+    const tube = await seedProduct(db, {
+      name: "Cepravin Dry Cow",
+      productType: "INTRAMAMMARY",
+      milkWithdrawalDays: null,
+      meatWithdrawalDays: 28,
+      notForLactating: true,
+    });
+    await db.insert(s.dryOff).values({
+      id: newId(),
+      farmId: FARM_ID,
+      animalId: dry,
+      driedOn: D(-10),
+      method: "ABRUPT",
+      dryCowTherapyProductId: tube,
+      recordedBy: USER,
+    });
+    const infused = await recordDryCowTherapyFor(session(), { animalId: dry, productId: tube, occurredOn: D(-10) }, db);
+    if (!infused.ok) throw new Error(infused.error);
+    expect(infused.data.milkClearOn).toBe(D(20));
+
+    // She genuinely IS under withdrawal — this is not the guard missing her.
+    expect((await withdrawalMap(db, FARM_ID, T0)).has(dry)).toBe(true);
+    expect((await getWithdrawalStatus(session(), [dry], T0, db)).get(dry)!.milkBlocked).toBe(true);
+    // She is simply not being milked, so she is not on the sheet at all.
+    expect((await milkSheet(session(), T0, "MORNING", db)).rows.map((r) => r.animalId)).not.toContain(dry);
+
+    const coopId = await seedCustomer(db, { customerType: "COOP" });
+    const sold = await recordDisposal(session(), { date: T0, channel: "COOP", customerId: coopId, litres: 16 }, db);
+    if (!sold.ok) throw new Error(sold.error);
+    expect(sold.data.channel).toBe("COOP");
+    expect(sold.data.blockMessage).toBeNull();
+    expect(sold.data.forcedL).toBe(0);
+  });
+
+  /**
+   * The other side of the same coin: suppressing the dry cow must not suppress
+   * a cow who IS in the tank. Same day, same farm, same unfilled sheet.
+   */
+  it("still names a LACTATING cow under withdrawal while staying quiet about the dry one", async () => {
+    const dry = await seedMilkingCow({ name: "Wairimu", tag: "KE-0003", calvedOn: D(-300) });
+    const tube = await seedProduct(db, {
+      name: "Cepravin Dry Cow",
+      productType: "INTRAMAMMARY",
+      milkWithdrawalDays: null,
+      meatWithdrawalDays: 28,
+      notForLactating: true,
+    });
+    await db.insert(s.dryOff).values({
+      id: newId(),
+      farmId: FARM_ID,
+      animalId: dry,
+      driedOn: D(-10),
+      method: "ABRUPT",
+      dryCowTherapyProductId: tube,
+      recordedBy: USER,
+    });
+    await recordDryCowTherapyFor(session(), { animalId: dry, productId: tube, occurredOn: D(-10) }, db);
+
+    // And a cow who is milking today, treated this morning.
+    const milking = await treatedButNotYetMilked();
+
+    // Health has both of them under withdrawal.
+    const board = await getWithdrawalStatus(session(), [dry, milking], T0, db);
+    expect(board.get(dry)!.milkBlocked).toBe(true);
+    expect(board.get(milking)!.milkBlocked).toBe(true);
+
+    const coopId = await seedCustomer(db, { customerType: "COOP" });
+    const sold = await recordDisposal(session(), { date: T0, channel: "COOP", customerId: coopId, litres: 16 }, db);
+    if (!sold.ok) throw new Error(sold.error);
+    const msg = sold.data.blockMessage ?? "";
+    expect(msg).toMatch(/Njeri/); // in the tank, so she is named
+    expect(msg).not.toMatch(/Wairimu/); // dry, so she is not
+    // One cow named means the pronoun must be singular — "Their milk" for one
+    // cow reads as a bug and undermines the sentence that matters most.
+    expect(msg).toMatch(/Njeri is under withdrawal today/);
+    expect(msg).toMatch(/Her milk must not go in this can/);
+    expect(msg).not.toMatch(/Their milk/);
+  });
+
   it("warns that the period itself is a guess when the label was never recorded", async () => {
     const cow = await seedMilkingCow({ name: "Njeri", tag: "KE-0001" });
     const productId = await seedProduct(db, { name: "Norocillin (label mislaid)", milkWithdrawalDays: null });
@@ -454,29 +542,63 @@ describe("a treatment whose withdrawal period nobody has recorded", () => {
   });
 
   /**
-   * DEFECT 2, third face, and the expensive one: it still reaches the co-op
-   * churn. The sheet and the record now both hold her, but `dayProduction`
-   * counts a WITHDRAWAL_UNKNOWN row into NEITHER `withheldL` nor `colostrumL`
-   * (milk.ts, `if (r.notSaleableReason === "WITHDRAWAL")`), so `withdrawalGuard`
-   * sees `day.withheldL === 0`, takes the warn-only branch meant for a sheet
-   * that has not been filled in, and lets 16 L of residue milk into the can
-   * with nothing but a message. STILL OPEN.
+   * DEFECT 2, third face, and the expensive one: it used to reach the co-op
+   * churn. The sheet and the record held her, but `dayProduction` counted a
+   * WITHDRAWAL_UNKNOWN row into NEITHER `withheldL` nor `colostrumL` (milk.ts,
+   * `if (r.notSaleableReason === "WITHDRAWAL")`), so `withdrawalGuard` saw
+   * `day.withheldL === 0`, took the warn-only branch meant for a sheet that has
+   * not been filled in, and let 16 L of residue milk into the can with nothing
+   * but a message. Both totals now go through `isWithheldReason`, so the guard
+   * has the litres it needs and forces the can into WITHHELD_TREATMENT.
    */
-  it.fails("DEFECT: unknown-period milk is warned about but still sold to the co-op", async () => {
+  it("keeps unknown-period milk out of the co-op can, not merely warned about", async () => {
     const { cow } = await treatWithUnknownPeriod();
     await recordMilkBatch(session(), { date: T0, session: "MORNING", rows: [{ animalId: cow, litres: 16 }] }, db);
 
-    // The root cause, asserted directly: her litres vanish from the day's totals.
+    // The root cause, asserted directly: her litres are in the day's totals.
     const day = await dayProduction(session(), T0, db);
+    expect(day.totalL).toBe(16);
     expect(day.withheldL).toBe(16);
+    expect(day.saleableL).toBe(0);
+    expect(day.saleableL + day.withheldL + day.colostrumL).toBe(day.totalL);
+    expect(day.withheldAnimals).toEqual([
+      { animalId: cow, name: "Njeri", litres: 16, reason: "WITHDRAWAL_UNKNOWN" },
+    ]);
 
     const coopId = await seedCustomer(db, { customerType: "COOP" });
     const sold = await recordDisposal(session(), { date: T0, channel: "COOP", customerId: coopId, litres: 16 }, db);
     if (!sold.ok) throw new Error(sold.error);
+    // Not sold. Forced, in full, into the withholding channel.
     expect(sold.data.channel).toBe("WITHHELD_TREATMENT");
+    expect(sold.data.requestedChannel).toBe("COOP");
+    expect(sold.data.litres).toBe(16);
+    expect(sold.data.forcedL).toBe(16);
+    expect(sold.data.blockMessage ?? "").toMatch(/Njeri/);
+    expect(sold.data.blockMessage ?? "").toMatch(/never recorded/i);
+
+    // Nothing at all reached a paying channel. The row keeps the co-op id —
+    // that is a record of where the can was HEADED — but it is not a sale:
+    // one row, on the withholding channel, with nothing owed.
+    const disposals = await db.select().from(s.milkDisposal);
+    expect(disposals.map((r) => r.channel)).toEqual(["WITHHELD_TREATMENT"]);
+    expect(disposals.every((r) => r.settlement === "NONE")).toBe(true);
+
+    // And the day's allocation says so out loud rather than looking like a
+    // clean 16 L sale: zero revenue litres, and the withheld warning by name.
+    const alloc = await allocateMilk(session(), T0, db);
+    expect(alloc.reconciliation.revenueL).toBe(0);
+    expect(alloc.reconciliation.lossL).toBe(16);
+    expect(alloc.maxSaleableL).toBe(0);
+    expect(alloc.warnings.join(" ")).toMatch(/16 L is withheld today/);
+    expect(alloc.warnings.join(" ")).toMatch(/Njeri/);
   });
 
-  /** What the sale DOES manage today, so the partial fix cannot silently rot. */
+  /**
+   * The farm must be TOLD we are guessing, whichever branch of the guard fires.
+   * This used to be the warn-only branch (withheldL was 0); it is now the
+   * blocked branch, and the sentence has to survive that move — a message that
+   * only admits the guess on the path nobody takes any more is no message.
+   */
   it("at least names her when the can is sold, instead of waving it through in silence", async () => {
     const { cow } = await treatWithUnknownPeriod();
     await recordMilkBatch(session(), { date: T0, session: "MORNING", rows: [{ animalId: cow, litres: 16 }] }, db);
@@ -485,6 +607,87 @@ describe("a treatment whose withdrawal period nobody has recorded", () => {
     if (!sold.ok) throw new Error(sold.error);
     expect(sold.data.blockMessage ?? "").toMatch(/Njeri/);
     expect(sold.data.blockMessage ?? "").toMatch(/never recorded/i);
+  });
+
+  /**
+   * The assumed-period sentence is the one that sends somebody to the bottle,
+   * so it must appear when — and only when — a cow held today is actually on a
+   * guessed window. Said always, it becomes noise; said never, the guess
+   * quietly becomes permanent.
+   */
+  it("adds the assumed-period sentence when an assumed cow is among those held", async () => {
+    const { cow: assumed } = await treatWithUnknownPeriod(); // Njeri, no label period
+    const known = await seedMilkingCow({ name: "Nyambura", tag: "KE-0002" });
+    const clear = await seedMilkingCow({ name: "Muthoni", tag: "KE-0004" });
+    const penstrep = await seedProduct(db, { name: "Penstrep", milkWithdrawalDays: 7 });
+    await recordTreatmentFor(session(), { animalId: known, productId: penstrep, occurredOn: T0 }, db);
+
+    await recordMilkBatch(
+      session(),
+      {
+        date: T0,
+        session: "MORNING",
+        rows: [
+          { animalId: assumed, litres: 16 },
+          { animalId: known, litres: 14 },
+          { animalId: clear, litres: 10 },
+        ],
+      },
+      db,
+    );
+    const day = await dayProduction(session(), T0, db);
+    expect(day.withheldL).toBe(30);
+    expect(day.saleableL).toBe(10);
+
+    const coopId = await seedCustomer(db, { customerType: "COOP" });
+    const sold = await recordDisposal(session(), { date: T0, channel: "COOP", customerId: coopId, litres: 40 }, db);
+    if (!sold.ok) throw new Error(sold.error);
+    expect(sold.data.forcedL).toBe(30);
+    const msg = sold.data.blockMessage ?? "";
+    expect(msg).toMatch(/Njeri/);
+    expect(msg).toMatch(/Nyambura/);
+    expect(msg).not.toMatch(/Muthoni/); // she is clear and stays out of it
+    expect(msg).toMatch(/never recorded/i);
+    expect(msg).toMatch(/check the label/i);
+    // Only the 10 clear litres reached the co-op; the 30 went to a withholding.
+    const byChannel = new Map(
+      (await db.select().from(s.milkDisposal)).map((r) => [r.channel, Number(r.litres)]),
+    );
+    expect(byChannel.get("COOP")).toBe(10);
+    expect(byChannel.get("WITHHELD_TREATMENT")).toBe(30);
+  });
+
+  it("leaves the assumed-period sentence out when every held cow has a recorded period", async () => {
+    const known = await seedMilkingCow({ name: "Nyambura", tag: "KE-0002" });
+    const clear = await seedMilkingCow({ name: "Muthoni", tag: "KE-0004" });
+    const penstrep = await seedProduct(db, { name: "Penstrep", milkWithdrawalDays: 7 });
+    await recordTreatmentFor(session(), { animalId: known, productId: penstrep, occurredOn: T0 }, db);
+
+    await recordMilkBatch(
+      session(),
+      {
+        date: T0,
+        session: "MORNING",
+        rows: [
+          { animalId: known, litres: 16 },
+          { animalId: clear, litres: 10 },
+        ],
+      },
+      db,
+    );
+
+    const coopId = await seedCustomer(db, { customerType: "COOP" });
+    const sold = await recordDisposal(session(), { date: T0, channel: "COOP", customerId: coopId, litres: 26 }, db);
+    if (!sold.ok) throw new Error(sold.error);
+    expect(sold.data.forcedL).toBe(16);
+    const msg = sold.data.blockMessage ?? "";
+    // Still blocked and still named — the block is not what is being tested.
+    expect(msg).toMatch(/Nyambura/);
+    expect(msg).toMatch(/16 L is held back/);
+    // But nothing here is a guess, so the farm is not sent chasing a label.
+    expect(msg).not.toMatch(/never recorded/i);
+    expect(msg).not.toMatch(/safe estimate/i);
+    expect(msg).not.toMatch(/check the label/i);
   });
 
   /**
@@ -1017,13 +1220,14 @@ describe("an animal under meat withdrawal", () => {
   });
 
   /**
-   * STILL OPEN. `recordSale` builds the warning for the lawful farmer-to-farmer
-   * case — "tell the buyer, she must not be slaughtered before that date" — and
-   * then throws it away: `void warnings;` at the end of the happy path, and
-   * `SaleResult` has no field to carry it. So the buyer is never told, and the
-   * next farm slaughters her inside the withdrawal in perfect ignorance.
+   * FIXED. `recordSale` built the warning for the lawful farmer-to-farmer case
+   * — "tell the buyer, she must not be slaughtered before that date" — and then
+   * threw it away: `void warnings;` at the end of the happy path, and
+   * `SaleResult` had no field to carry it. So the buyer was never told, and the
+   * next farm slaughtered her inside the withdrawal in perfect ignorance.
+   * `SaleResult.warnings` now carries it and the human message leads with it.
    */
-  it.fails("DEFECT: the meat-withdrawal warning on a farmer sale is computed and discarded", async () => {
+  it("hands the meat-withdrawal warning back to the seller on a lawful farmer sale", async () => {
     const cow = await treatedForMeat();
     const sale = await recordSale(
       session(),
@@ -1031,7 +1235,24 @@ describe("an animal under meat withdrawal", () => {
       db,
     );
     if (!sale.ok) throw new Error(sale.error);
-    expect(JSON.stringify(sale)).toMatch(/must not be slaughtered before/i);
+
+    // Carried as data, not merely buried somewhere in a sentence.
+    expect(sale.data.warnings).toHaveLength(1);
+    const warning = sale.data.warnings[0];
+    expect(warning).toMatch(/must not be slaughtered before/i);
+    // The date the next farm has to wait for — 28 days from the treatment.
+    expect(warning).toContain(D(28));
+    expect(warning).toMatch(/Wanjiku/);
+    expect(warning).toMatch(/Tell the buyer/i);
+
+    // And the message a human reads LEADS with it. A warning printed after
+    // "sold for KES 90,000" is a warning nobody reads.
+    expect((sale.message ?? "").startsWith(warning)).toBe(true);
+    expect(sale.message ?? "").toContain(D(28));
+    expect(sale.message ?? "").toContain("90,000");
+
+    // Still lawful: the sale itself went through.
+    expect(await db.select().from(s.animalExit)).toHaveLength(1);
   });
 });
 
