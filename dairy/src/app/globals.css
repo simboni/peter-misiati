@@ -1,0 +1,96 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens.
+ *
+ * Built for a phone held in a milking shed at 5am: large tap targets, high
+ * contrast, and colour that carries meaning on its own so the screen still
+ * works when the words are ignored.
+ */
+@theme {
+  --color-ink: #14201c;
+  --color-ink-2: #46574f;
+  --color-ink-3: #6d7f77;
+  --color-paper: #eef1ec;
+  --color-surface: #ffffff;
+  --color-line: #d4dcd4;
+
+  --color-brand: #0e5a47;
+  --color-brand-soft: #dceae3;
+  --color-brass: #8d6410;
+  --color-brass-soft: #f2e8d2;
+
+  /* Semantic, and deliberately separate from the brand hue. */
+  --color-ok: #0e5a47;
+  --color-warn: #8d6410;
+  --color-danger: #a03819;
+  --color-danger-soft: #f7e4dc;
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  -webkit-font-smoothing: antialiased;
+  /* No pull-to-refresh mid-entry: it loses a half-typed milking. */
+  overscroll-behavior-y: none;
+}
+
+/* Tap targets sized for a cold hand, not a mouse. */
+button,
+[role="button"],
+a.tap,
+input,
+select {
+  min-height: 48px;
+}
+
+input[type="number"] {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Hide spinners — they make a numeric field narrower and are useless on touch. */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+:focus-visible {
+  outline: 3px solid var(--color-brass);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: #fff;
+  }
+  /* The printed daily sheet mirrors the farm's existing notebook, so the paper
+     and digital records stay reconcilable. */
+  .print-sheet {
+    font-size: 11pt;
+  }
+}
