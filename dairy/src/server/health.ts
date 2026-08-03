@@ -1827,7 +1827,15 @@ export async function dueRoutines(
 
   const animals = (
     await db
-      .select({ id: s.animal.id, name: s.animal.name, tag: s.animal.tag, sex: s.animal.sex, dateOfBirth: s.animal.dateOfBirth })
+      .select({
+        id: s.animal.id,
+        name: s.animal.name,
+        tag: s.animal.tag,
+        sex: s.animal.sex,
+        dateOfBirth: s.animal.dateOfBirth,
+        // Needed to clamp first-dose due dates for bought-in adults.
+        enteredHerdOn: s.animal.enteredHerdOn,
+      })
       .from(s.animal)
       .where(eq(s.animal.farmId, session.farmId))
   ).filter((a) => !exited.has(a.id));
@@ -1868,12 +1876,26 @@ export async function dueRoutines(
       });
       if (!eligibility.eligible) continue;
 
-      // Never given: due as soon as she is old enough for the first dose.
-      const dueOn = last
-        ? nextDueOn(rule, last)
-        : rule.firstDoseMinAgeDays != null && animal.dateOfBirth
+      /**
+       * Never given: due as soon as she is old enough for the first dose — but
+       * clamped to the day she joined this herd.
+       *
+       * Without the clamp, a five-year-old cow bought in last month reads as
+       * "tick control, 2,267 days overdue", because she has no history HERE.
+       * Technically true and completely useless: it floods the week's job list
+       * with about nine items per animal and prints numbers no farmer can act
+       * on. We are not responsible for doses her previous owner did or did not
+       * give; we are responsible from the day she arrived.
+       */
+      const firstDoseDue =
+        rule.firstDoseMinAgeDays != null && animal.dateOfBirth
           ? addDays(animal.dateOfBirth, rule.firstDoseMinAgeDays)
           : asOf;
+      const dueOn = last
+        ? nextDueOn(rule, last)
+        : animal.enteredHerdOn && firstDoseDue < animal.enteredHerdOn
+          ? animal.enteredHerdOn
+          : firstDoseDue;
       if (!dueOn || dueOn > asOf) continue;
 
       out.push({

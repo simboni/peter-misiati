@@ -33,7 +33,11 @@ export default async function HomePage() {
       </header>
 
       <nav className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        {/* Capture — what a herdsman opens twice a day, first and largest. */}
+        {/* Ungated on purpose: a herdsman has jobs too, and a list he cannot
+            reach is a list nobody acts on. The sweep already filters by role. */}
+        <TaskTile href="/alerts" icon="🔔" label="Jobs" detail="What needs doing" />
+
+        {/* Capture — what a herdsman opens twice a day. */}
         <TaskTile href="/milk" icon="🥛" label="Milk" detail="Record a milking" />
         <TaskTile href="/feed" icon="🌾" label="Feed" detail="Issue and stock" />
         <TaskTile href="/health" icon="💉" label="Health" detail="Treat and dip" />
