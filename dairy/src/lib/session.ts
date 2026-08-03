@@ -1,11 +1,26 @@
 import "server-only";
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
-import { scrypt, randomBytes, timingSafeEqual } from "node:crypto";
-import { promisify } from "node:util";
+import { scrypt, randomBytes, timingSafeEqual, type ScryptOptions } from "node:crypto";
 import type { Role } from "@/db/schema";
 
-const scryptAsync = promisify(scrypt);
+/**
+ * `promisify(scrypt)` loses the options overload — TypeScript picks the
+ * three-argument signature and rejects the cost parameter — so the callback is
+ * wrapped by hand instead.
+ */
+function scryptAsync(
+  password: string,
+  salt: string,
+  keylen: number,
+  options: ScryptOptions,
+): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    scrypt(password, salt, keylen, options, (err, derived) =>
+      err ? reject(err) : resolve(derived),
+    );
+  });
+}
 
 /* ---------------------------------------------------------------- */
 /* PIN hashing                                                       */
@@ -29,7 +44,7 @@ const KEY_LEN = 64;
 export async function hashPin(pin: string): Promise<string> {
   if (!/^\d{4}$/.test(pin)) throw new Error("A PIN must be four digits.");
   const salt = randomBytes(16).toString("hex");
-  const derived = (await scryptAsync(pin, salt, KEY_LEN, { N: SCRYPT_N })) as Buffer;
+  const derived = await scryptAsync(pin, salt, KEY_LEN, { N: SCRYPT_N });
   return `scrypt$${SCRYPT_N}$${salt}$${derived.toString("hex")}`;
 }
 
@@ -37,7 +52,7 @@ export async function verifyPin(pin: string, stored: string): Promise<boolean> {
   const parts = stored.split("$");
   if (parts.length !== 4 || parts[0] !== "scrypt") return false;
   const [, nStr, salt, hex] = parts;
-  const derived = (await scryptAsync(pin, salt, KEY_LEN, { N: Number(nStr) })) as Buffer;
+  const derived = await scryptAsync(pin, salt, KEY_LEN, { N: Number(nStr) });
   const expected = Buffer.from(hex, "hex");
   if (expected.length !== derived.length) return false;
   return timingSafeEqual(derived, expected);
