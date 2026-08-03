@@ -1,0 +1,5 @@
+# The repo-root ignore file uses rooted patterns (/node_modules, /.next/, /out/)
+# which do not reach into apps/. Kept local so nothing at the root has to change.
+node_modules/
+.next/
+out/

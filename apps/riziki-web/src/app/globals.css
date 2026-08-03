@@ -1,0 +1,137 @@
+@import "tailwindcss";
+
+/*
+  Riziki Industrial Chemicals — public website.
+
+  Colours are lifted from the shop's own signage: the green of the board and the
+  teal of the lettering. Everything else is neutral so the two brand colours
+  stay the loudest thing on the page.
+
+  Built phone-first and image-light on purpose. Most customers arrive on a
+  mid-range Android over mobile data, and a page that costs them a megabyte to
+  read is a page they leave.
+*/
+
+:root {
+  color-scheme: light dark;
+
+  /*
+    Brand — identical in both themes; these are the signage colours, used only
+    as fills with nothing sitting on top of them. White on the signage green is
+    3.4:1, which fails AA, so anything carrying text uses --leaf-strong below.
+  */
+  --brand: #0e7c86;
+  --leaf: #5a9c2f;
+  --leaf-strong: #4a8226;
+
+  /* Light theme surfaces and text. */
+  --page: #f4f7f7;
+  --surface: #ffffff;
+  --surface-2: #eef4f4;
+  --ink: #14262b;
+  --muted: #566e74;
+  --line: #dbe6e6;
+  /*
+    Interactive brand colours, adjusted per theme for contrast, not for looks.
+    The light-theme teal is a step darker than the signage teal so that it still
+    clears 4.5:1 against the pale --accent-soft chips, not just against white.
+  */
+  --accent: #0b6a73;
+  --accent-strong: #084f56;
+  --accent-soft: #e2f0f1;
+  --leaf-ink: #3f7320;
+  --leaf-soft: #e9f3e0;
+  --on-brand: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --page: #0c1214;
+    --surface: #131c1f;
+    --surface-2: #18262a;
+    --ink: #e8f0f1;
+    --muted: #9db1b6;
+    --line: #24373b;
+    /* The signage teal fails contrast on a dark surface, so lift it. */
+    --accent: #4cc0ca;
+    --accent-strong: #7ad6de;
+    --accent-soft: #10333a;
+    --leaf-ink: #94ce5f;
+    --leaf-soft: #1b2c14;
+    --on-brand: #06181b;
+  }
+}
+
+/*
+  `inline` keeps the utilities pointing at the custom properties above rather
+  than copying their values, so one media query flips the whole site.
+*/
+@theme inline {
+  --color-page: var(--page);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-soft: var(--accent-soft);
+  --color-leaf: var(--leaf);
+  --color-leaf-strong: var(--leaf-strong);
+  --color-leaf-ink: var(--leaf-ink);
+  --color-leaf-soft: var(--leaf-soft);
+  --color-brand: var(--brand);
+  --color-on-brand: var(--on-brand);
+
+  --font-sans: ui-sans-serif, system-ui, "Segoe UI", Roboto, "Helvetica Neue",
+    "DejaVu Sans", sans-serif;
+}
+
+html {
+  background: var(--page);
+}
+
+body {
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-tap-highlight-color: transparent;
+  text-wrap: pretty;
+}
+
+/* Headings should break at sensible points, not leave one word alone. */
+h1,
+h2,
+h3 {
+  text-wrap: balance;
+}
+
+/* Keyboard users must always be able to see where they are. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Skip link: off-screen until it has focus. */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 100;
+}
+.skip-link:focus {
+  left: 0.5rem;
+  top: 0.5rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
