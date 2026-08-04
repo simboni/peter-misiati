@@ -361,7 +361,6 @@ export interface CowLeagueTable extends Conclusion {
  * "Most dairies have 10–15% of their herd losing money." Owned by M7, which is
  * where the cull decision lives — re-stated here would be two benchmarks.
  */
-export { EXPECTED_LOSS_MAKER_SHARE_PCT };
 
 /**
  * Every cow ranked by margin, best first, loss-makers named, one recommended

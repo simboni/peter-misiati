@@ -2486,4 +2486,3 @@ export async function recordStatementAction(
   });
 }
 
-export { refCode, REF_PREFIX };

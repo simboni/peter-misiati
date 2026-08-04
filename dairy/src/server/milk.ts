@@ -1311,4 +1311,4 @@ export async function correctMilkRecordAction(
 }
 
 export const MILK_SESSIONS = s.SESSIONS;
-export { COLOSTRUM_DAYS };
+

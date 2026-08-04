@@ -3,6 +3,8 @@ import * as s from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { PinPad } from "./pin-pad";
 
+export const dynamic = "force-dynamic";
+
 /**
  * The person picker.
  *
