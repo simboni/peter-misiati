@@ -17,6 +17,7 @@ import { createTestDb, type TestDb } from "@/db/test-db";
 import { FARM_ID, fakeSession, seedAnimal, seedFarm, seedProduct, seedUser } from "@/test/factory";
 import * as s from "@/db/schema";
 import { newId } from "@/lib/ids";
+import { num } from "@/lib/money";
 import { addDays, today } from "@/lib/domain/dates";
 import { ASSUMED_MILK_WITHDRAWAL_DAYS } from "@/lib/domain/health";
 import { reconcileDay } from "@/lib/domain/milk";
@@ -938,22 +939,45 @@ describe("offline replay", () => {
     await close();
   });
 
-  it("a batch with no client ids is NOT idempotent — the outbox must supply them", async () => {
+  it("a batch with no client ids is idempotent too — the id falls back to the milking itself", async () => {
     const { db, close, session } = await setup();
     const cow = await seedCow(db, { name: "Njeri", calvedOn: addDays(NOW, -120) });
     const input = batch([{ animalId: cow, litres: 12.5 }]);
+    const r1 = await recordMilkBatch(session, input, db);
     await recordMilkBatch(session, input, db);
-    await recordMilkBatch(session, input, db);
-    await recordMilkBatch(session, input, db);
+    const r3 = await recordMilkBatch(session, input, db);
 
-    // Documented, not desired: three receipts and three rows for one milking.
-    // Nothing in `recordMilkBatch` falls back to (farm, animal, date, session).
+    // This used to book one 12.5 L milking three times, for a day total of
+    // 37.5 L from a cow that gave 12.5. The id now derives from
+    // (farm, animal, date, session), so the retries collide.
     const rows = await db.select().from(s.milkRecord).where(eq(s.milkRecord.farmId, FARM_ID));
     const receipts = await db.select().from(s.receipt).where(eq(s.receipt.farmId, FARM_ID));
-    expect(rows).toHaveLength(3);
-    expect(receipts).toHaveLength(3);
+    expect(rows).toHaveLength(1);
+    expect(receipts).toHaveLength(1);
+    expect(r1.ok && r3.ok).toBe(true);
+    if (!r1.ok || !r3.ok) return;
+    // The same code, so a herdsman who retried does not think he has two.
+    expect(r1.refCode).toBe(r3.refCode);
+    expect(r3.data.savedCount).toBe(0);
+    expect(r3.data.duplicateCount).toBe(1);
     const day = await dayProduction(session, NOW, db);
-    expect(day.totalL).toBe(37.5); // one 12.5 L milking counted three times
+    expect(day.totalL).toBe(12.5);
+    await close();
+  });
+
+  it("the database refuses a second row for one cow's session even with a fresh id", async () => {
+    const { db, close, session } = await setup();
+    const cow = await seedCow(db, { name: "Njeri", calvedOn: addDays(NOW, -120) });
+    // Two different devices, two different client ids, same morning milking —
+    // the case client-side idempotency cannot catch.
+    await recordMilkBatch(session, batch([{ id: newId(), animalId: cow, litres: 12.5 }]), db);
+    await recordMilkBatch(session, batch([{ id: newId(), animalId: cow, litres: 11 }]), db);
+
+    const rows = await db.select().from(s.milkRecord).where(eq(s.milkRecord.farmId, FARM_ID));
+    expect(rows).toHaveLength(1);
+    expect(num(rows[0].litres)).toBe(12.5); // first one wins; the second is a correction, not a milking
+    const day = await dayProduction(session, NOW, db);
+    expect(day.totalL).toBe(12.5);
     await close();
   });
 

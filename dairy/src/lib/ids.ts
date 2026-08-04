@@ -6,7 +6,7 @@
  * `INSERT ... ON CONFLICT (id) DO NOTHING`, so a double-flush over a flaky link
  * is a no-op rather than a duplicate milk record.
  */
-import { randomUUID, randomBytes } from "node:crypto";
+import { randomUUID, randomBytes, createHash } from "node:crypto";
 
 export function newId(): string {
   // crypto.randomUUID exists in the browser too; node:crypto is only reached
@@ -14,6 +14,28 @@ export function newId(): string {
   return typeof globalThis.crypto?.randomUUID === "function"
     ? globalThis.crypto.randomUUID()
     : randomUUID();
+}
+
+/**
+ * A stable UUID derived from a seed.
+ *
+ * Used where the device did NOT supply an id but the write still has to be
+ * idempotent — an old client, a hand-built request, a replayed forced row.
+ * Seeding it with whatever makes the row unique in the world (farm, animal,
+ * date, session) means a second attempt collides with the first on the primary
+ * key instead of booking the same milking twice.
+ */
+export function deterministicUuid(seed: string): string {
+  const hex = createHash("sha256").update(seed).digest("hex");
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    // Version 4, variant 1 — shaped like a random UUID so nothing downstream
+    // has to know it was derived.
+    `4${hex.slice(13, 16)}`,
+    ((parseInt(hex[16], 16) & 0x3) | 0x8).toString(16) + hex.slice(17, 20),
+    hex.slice(20, 32),
+  ].join("-");
 }
 
 /**

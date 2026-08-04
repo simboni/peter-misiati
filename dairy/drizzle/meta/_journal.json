@@ -15,6 +15,13 @@
       "when": 1785757073764,
       "tag": "0001_gaps",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785821456189,
+      "tag": "0002_guards",
+      "breakpoints": true
     }
   ]
 }

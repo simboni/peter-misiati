@@ -11,6 +11,8 @@
  *   P6  Money is numeric, never float. Drizzle returns numeric as string.
  *   P8  Units are never implicit: quantity + unit + unitWeightKg, always.
  */
+import { sql } from "drizzle-orm";
+import type { DisposalChannel as DisposalChannelT, CustomerType as CustomerTypeT } from "@/lib/domain/channels";
 import {
   pgTable,
   text,
@@ -23,6 +25,7 @@ import {
   smallint,
   jsonb,
   unique,
+  uniqueIndex,
   index,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
@@ -47,27 +50,17 @@ export type ReproStatus = (typeof REPRO_STATUSES)[number];
 export const SESSIONS = ["MORNING", "NOON", "EVENING"] as const;
 export type MilkingSession = (typeof SESSIONS)[number];
 
-export const DISPOSAL_CHANNELS = [
-  "COOP", "PROCESSOR", "INSTITUTION", "HOUSEHOLD", "SHOP", "MILK_ATM",
-  "HOME_CONSUMPTION", "CALF_FEEDING", "STAFF_RATION",
-  "SPOILAGE", "REJECTED", "WITHHELD_TREATMENT", "WITHHELD_COLOSTRUM",
-] as const;
-export type DisposalChannel = (typeof DISPOSAL_CHANNELS)[number];
-
-/** Channels that bring money in. Everything else is valued but unpaid, or a loss. */
-export const REVENUE_CHANNELS = [
-  "COOP", "PROCESSOR", "INSTITUTION", "HOUSEHOLD", "SHOP", "MILK_ATM",
-] as const;
-/** Channels that must be blocked while an animal is under milk withdrawal. */
-export const SALEABLE_CHANNELS = REVENUE_CHANNELS;
-export const LOSS_CHANNELS = [
-  "SPOILAGE", "REJECTED", "WITHHELD_TREATMENT", "WITHHELD_COLOSTRUM",
-] as const;
-
-export const CUSTOMER_TYPES = [
-  "COOP", "PROCESSOR", "INSTITUTION", "HOUSEHOLD", "SHOP", "MILK_ATM",
-] as const;
-export type CustomerType = (typeof CUSTOMER_TYPES)[number];
+// Channel constants live in a drizzle-free module and are re-exported here, so
+// the client can import them without pulling the whole schema into its bundle.
+export {
+  DISPOSAL_CHANNELS,
+  REVENUE_CHANNELS,
+  SALEABLE_CHANNELS,
+  LOSS_CHANNELS,
+  CUSTOMER_TYPES,
+  type DisposalChannel,
+  type CustomerType,
+} from "@/lib/domain/channels";
 
 export const PAYMENT_TERMS = [
   "CASH", "DAILY", "WEEKLY", "FORTNIGHTLY", "MONTHLY", "NET_30", "NET_60", "NET_90",
@@ -370,7 +363,7 @@ export const customer = pgTable("customer", {
   id: uuid("id").primaryKey(),
   farmId: uuid("farm_id").notNull().references(() => farm.id),
   name: text("name").notNull(),
-  customerType: text("customer_type").$type<CustomerType>().notNull(),
+  customerType: text("customer_type").$type<CustomerTypeT>().notNull(),
   institutionKind: text("institution_kind")
     .$type<"SCHOOL" | "HOSPITAL" | "HOTEL" | "RESTAURANT" | "COLLEGE" | "OTHER">(),
   phone: text("phone"),
@@ -428,7 +421,7 @@ export const priceList = pgTable("price_list", {
   id: uuid("id").primaryKey(),
   farmId: uuid("farm_id").notNull(),
   scope: text("scope").$type<"CHANNEL" | "CUSTOMER">().notNull(),
-  customerType: text("customer_type").$type<CustomerType>(),
+  customerType: text("customer_type").$type<CustomerTypeT>(),
   customerId: uuid("customer_id").references(() => customer.id),
   rateKesPerLitre: numeric("rate_kes_per_litre", { precision: 8, scale: 2 }).notNull(),
   minLitres: numeric("min_litres", { precision: 8, scale: 2 }),
@@ -472,6 +465,29 @@ export const milkRecord = pgTable("milk_record", {
 }, (t) => [
   index("milk_day_idx").on(t.farmId, t.recordedOn, t.animalId),
   index("milk_animal_idx").on(t.farmId, t.animalId, t.recordedOn),
+  /**
+   * One live record per cow per session. Client-generated ids alone did NOT
+   * prevent double-counting: the sheet mints a fresh id on every page load for
+   * any unsaved row, so two phones — or one phone after a refresh — recorded
+   * 12 L twice and the day read 24 L. That flows into the withdrawal guard's
+   * saleable pool, margin over feed cost, the cull list and the co-op
+   * reconciliation, wrong in the farm's favour, which is the direction nobody
+   * checks.
+   *
+   * Partial on `supersedes_id is null` so corrections stay possible — a
+   * correction row carries the id it replaces and is outside the index.
+   */
+  uniqueIndex("milk_one_per_session_uq")
+    .on(t.farmId, t.animalId, t.recordedOn, t.session)
+    .where(sql`${t.supersedesId} is null`),
+  /**
+   * The manager's review queue was a bitmap heap scan over every milk record
+   * ever written — 20 ms to return zero rows on a two-year farm. Partial, so
+   * the index only holds the handful of rows actually awaiting review.
+   */
+  index("milk_flagged_idx")
+    .on(t.farmId, t.recordedOn)
+    .where(sql`${t.flagged} and ${t.approvedBy} is null`),
 ]);
 
 export const milkDisposal = pgTable("milk_disposal", {
@@ -479,7 +495,7 @@ export const milkDisposal = pgTable("milk_disposal", {
   farmId: uuid("farm_id").notNull(),
   disposedOn: date("disposed_on").notNull(),
   session: text("session").$type<MilkingSession>(),
-  channel: text("channel").$type<DisposalChannel>().notNull(),
+  channel: text("channel").$type<DisposalChannelT>().notNull(),
   customerId: uuid("customer_id").references(() => customer.id),
   /**
    * Optional per-animal provenance. Bulk deliveries leave this null, but the

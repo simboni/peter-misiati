@@ -30,7 +30,7 @@ import {
   type ActionResult,
   type Session,
 } from "@/lib/dal";
-import { newId, refCode, REF_PREFIX } from "@/lib/ids";
+import { newId, refCode, REF_PREFIX, deterministicUuid } from "@/lib/ids";
 import { dec, kes, money, num } from "@/lib/money";
 import { addDays, today, type ISODate } from "@/lib/domain/dates";
 import {
@@ -596,7 +596,7 @@ export async function recordDisposal(
     // The forced remainder is a SEPARATE row, so the withholding is visible in
     // the day's reconciliation rather than quietly shaving the sale.
     if (guardResult.blocked && guardResult.forcedL > 0 && channel !== "WITHHELD_TREATMENT") {
-      forcedRowId = deterministicUuidFrom(`${id}|withheld`);
+      forcedRowId = deterministicUuid(`${id}|withheld`);
       await database
         .insert(s.milkDisposal)
         .values({
@@ -661,22 +661,6 @@ export async function recordDisposal(
       ref,
     );
   });
-}
-
-/** A stable UUID derived from a seed, so a replayed forced row lands once. */
-function deterministicUuidFrom(seed: string): string {
-  const hex = deterministicRef("", seed, 16)
-    .split("")
-    .map((c) => (c.charCodeAt(0) % 16).toString(16))
-    .join("");
-  const full = (hex + hex).slice(0, 32);
-  return [
-    full.slice(0, 8),
-    full.slice(8, 12),
-    `4${full.slice(13, 16)}`,
-    `8${full.slice(17, 20)}`,
-    full.slice(20, 32),
-  ].join("-");
 }
 
 /* ---------------------------------------------------------------- */
@@ -1333,7 +1317,7 @@ export async function recordDelivery(
     const soldValueKes = disposal.data.valueKes;
 
     // The tab. Debit always; credit only if money actually moved.
-    const debitId = deterministicUuidFrom(`${disposalId}|debit`);
+    const debitId = deterministicUuid(`${disposalId}|debit`);
     await database
       .insert(s.customerLedgerEntry)
       .values({
@@ -1358,7 +1342,7 @@ export async function recordDelivery(
       await database
         .insert(s.customerLedgerEntry)
         .values({
-          id: deterministicUuidFrom(`${disposalId}|credit`),
+          id: deterministicUuid(`${disposalId}|credit`),
           farmId: session.farmId,
           customerId: d.customerId,
           entryDate: d.date,
@@ -2089,7 +2073,7 @@ export async function recordStatement(
       await database
         .insert(s.milkStatementDeduction)
         .values({
-          id: deterministicUuidFrom(`${id}|${d.deductionType}|${d.amountKes}|${d.description ?? ""}`),
+          id: deterministicUuid(`${id}|${d.deductionType}|${d.amountKes}|${d.description ?? ""}`),
           farmId: session.farmId,
           statementId: id,
           deductionType: d.deductionType,

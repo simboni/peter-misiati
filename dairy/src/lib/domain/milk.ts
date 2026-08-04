@@ -2,7 +2,9 @@
  * Milk domain rules — lactation shape, plausibility, and the daily
  * reconciliation that catches losses running 1.3–6.4% of value.
  */
-import { LOSS_CHANNELS, REVENUE_CHANNELS, type DisposalChannel } from "@/db/schema";
+// From the drizzle-free constants module, NOT from db/schema — importing the
+// schema here shipped all of drizzle-orm to the browser.
+import { LOSS_CHANNELS, REVENUE_CHANNELS, type DisposalChannel } from "./channels";
 import { money, num } from "../money";
 
 /** The ICAR/KLBA standard basis for comparing lactations. */

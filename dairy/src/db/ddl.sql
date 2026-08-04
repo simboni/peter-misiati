@@ -1,3 +1,7 @@
+-- GENERATED FILE — do not edit.
+-- Rebuilt from drizzle/*.sql by `npx tsx src/db/build-ddl.ts`.
+-- Source migrations: 0000_init.sql, 0001_gaps.sql, 0002_guards.sql
+
 CREATE TABLE "alert" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"farm_id" uuid NOT NULL,
@@ -15,7 +19,6 @@ CREATE TABLE "alert" (
 	"dedupe_key" text NOT NULL,
 	CONSTRAINT "alert_dedupe_uq" UNIQUE("farm_id","dedupe_key")
 );
-
 CREATE TABLE "animal" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"farm_id" uuid NOT NULL,
@@ -39,7 +42,6 @@ CREATE TABLE "animal" (
 	"notes" text,
 	CONSTRAINT "animal_tag_uq" UNIQUE("farm_id","tag")
 );
-
 CREATE TABLE "animal_exit" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"farm_id" uuid NOT NULL,
@@ -56,7 +58,6 @@ CREATE TABLE "animal_exit" (
 	"days_in_milk_at_sale" integer,
 	"recorded_by" uuid NOT NULL
 );
-
 CREATE TABLE "app_user" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"farm_id" uuid NOT NULL,
@@ -68,7 +69,6 @@ CREATE TABLE "app_user" (
 	"language" text DEFAULT 'en' NOT NULL,
 	"active" boolean DEFAULT true NOT NULL
 );
-
 CREATE TABLE "attendance" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"farm_id" uuid NOT NULL,
@@ -78,7 +78,6 @@ CREATE TABLE "attendance" (
 	"recorded_by" uuid NOT NULL,
 	CONSTRAINT "attendance_uq" UNIQUE("employee_id","worked_on")
 );
-
 CREATE TABLE "audit_entry" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"farm_id" uuid NOT NULL,
@@ -90,7 +89,6 @@ CREATE TABLE "audit_entry" (
 	"before" jsonb,
 	"after" jsonb
 );
-
 CREATE TABLE "calving" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"farm_id" uuid NOT NULL,
@@ -105,7 +103,6 @@ CREATE TABLE "calving" (
 	"notes" text,
 	"recorded_by" uuid NOT NULL
 );
-
 CREATE TABLE "calving_outcome" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"farm_id" uuid NOT NULL,
@@ -115,7 +112,6 @@ CREATE TABLE "calving_outcome" (
 	"birth_weight_kg" numeric(6, 2),
 	"animal_id" uuid
 );
-
 CREATE TABLE "compliance_document" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"farm_id" uuid NOT NULL,
@@ -127,7 +123,6 @@ CREATE TABLE "compliance_document" (
 	"cost_kes" numeric(14, 2),
 	"document_url" text
 );
-
 CREATE TABLE "counterparty" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"farm_id" uuid NOT NULL,
@@ -140,7 +135,6 @@ CREATE TABLE "counterparty" (
 	"payment_terms" text,
 	"credit_balance_kes" numeric(14, 2) DEFAULT '0'
 );
-
 CREATE TABLE "customer" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"farm_id" uuid NOT NULL,
@@ -167,7 +161,6 @@ CREATE TABLE "customer" (
 	"started_on" date,
 	"ended_on" date
 );
-
 CREATE TABLE "customer_ledger_entry" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"farm_id" uuid NOT NULL,
@@ -185,7 +178,6 @@ CREATE TABLE "customer_ledger_entry" (
 	"recorded_by" uuid NOT NULL,
 	"approved_by" uuid
 );
-
 CREATE TABLE "delivery_route" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"farm_id" uuid NOT NULL,
@@ -193,7 +185,6 @@ CREATE TABLE "delivery_route" (
 	"rider_id" uuid,
 	"session" text
 );
-
 CREATE TABLE "dry_off" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"farm_id" uuid NOT NULL,
@@ -203,7 +194,6 @@ CREATE TABLE "dry_off" (
 	"dry_cow_therapy_product_id" uuid,
 	"recorded_by" uuid NOT NULL
 );
-
 CREATE TABLE "employee" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"farm_id" uuid NOT NULL,
@@ -223,7 +213,6 @@ CREATE TABLE "employee" (
 	"housing_provided" boolean DEFAULT true NOT NULL,
 	"next_of_kin" text
 );
-
 CREATE TABLE "expense" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"farm_id" uuid NOT NULL,
@@ -240,7 +229,6 @@ CREATE TABLE "expense" (
 	"recorded_by" uuid NOT NULL,
 	"approved_by" uuid
 );
-
 CREATE TABLE "farm" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"name" text NOT NULL,
@@ -252,7 +240,6 @@ CREATE TABLE "farm" (
 	"member_no" text,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
-
 CREATE TABLE "feed_issue" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"farm_id" uuid NOT NULL,
@@ -266,7 +253,6 @@ CREATE TABLE "feed_issue" (
 	"animals_fed" smallint,
 	"recorded_by" uuid NOT NULL
 );
-
 CREATE TABLE "feed_item" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"farm_id" uuid NOT NULL,
@@ -278,7 +264,6 @@ CREATE TABLE "feed_item" (
 	"default_unit_weight_kg" numeric(8, 3),
 	"home_grown" boolean DEFAULT false NOT NULL
 );
-
 CREATE TABLE "feed_purchase" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"farm_id" uuid NOT NULL,
@@ -293,7 +278,6 @@ CREATE TABLE "feed_purchase" (
 	"expense_id" uuid,
 	"recorded_by" uuid NOT NULL
 );
-
 CREATE TABLE "fodder_production" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"farm_id" uuid NOT NULL,
@@ -307,7 +291,6 @@ CREATE TABLE "fodder_production" (
 	"unit_weight_kg" numeric(8, 3),
 	"input_cost_kes" numeric(14, 2)
 );
-
 CREATE TABLE "health_event" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"farm_id" uuid NOT NULL,
@@ -336,7 +319,6 @@ CREATE TABLE "health_event" (
 	"expense_id" uuid,
 	"recorded_by" uuid NOT NULL
 );
-
 CREATE TABLE "heat_observation" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"farm_id" uuid NOT NULL,
@@ -345,7 +327,6 @@ CREATE TABLE "heat_observation" (
 	"sign" text,
 	"recorded_by" uuid NOT NULL
 );
-
 CREATE TABLE "income" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"farm_id" uuid NOT NULL,
@@ -361,7 +342,6 @@ CREATE TABLE "income" (
 	"recorded_by" uuid NOT NULL,
 	"approved_by" uuid
 );
-
 CREATE TABLE "leave_record" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"farm_id" uuid NOT NULL,
@@ -371,7 +351,6 @@ CREATE TABLE "leave_record" (
 	"to_date" date NOT NULL,
 	"days" numeric(5, 2) NOT NULL
 );
-
 CREATE TABLE "milk_disposal" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"farm_id" uuid NOT NULL,
@@ -394,7 +373,6 @@ CREATE TABLE "milk_disposal" (
 	"delivered_by" uuid,
 	"recorded_by" uuid NOT NULL
 );
-
 CREATE TABLE "milk_record" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"farm_id" uuid NOT NULL,
@@ -412,7 +390,6 @@ CREATE TABLE "milk_record" (
 	"recorded_at" timestamp with time zone NOT NULL,
 	"synced_at" timestamp with time zone
 );
-
 CREATE TABLE "milk_statement" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"farm_id" uuid NOT NULL,
@@ -430,7 +407,6 @@ CREATE TABLE "milk_statement" (
 	"payment_method" text,
 	"recorded_by" uuid NOT NULL
 );
-
 CREATE TABLE "milk_statement_deduction" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"statement_id" uuid NOT NULL,
@@ -440,7 +416,6 @@ CREATE TABLE "milk_statement_deduction" (
 	"balance_remaining_kes" numeric(14, 2),
 	"matched_expense_id" uuid
 );
-
 CREATE TABLE "mpesa_statement_line" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"farm_id" uuid NOT NULL,
@@ -454,7 +429,6 @@ CREATE TABLE "mpesa_statement_line" (
 	"matched_income_id" uuid,
 	CONSTRAINT "mpesa_receipt_uq" UNIQUE("farm_id","receipt_no")
 );
-
 CREATE TABLE "payroll_run" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"farm_id" uuid NOT NULL,
@@ -465,7 +439,6 @@ CREATE TABLE "payroll_run" (
 	"total_net_kes" numeric(14, 2),
 	CONSTRAINT "payroll_period_uq" UNIQUE("farm_id","period_month")
 );
-
 CREATE TABLE "payslip" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"farm_id" uuid NOT NULL,
@@ -495,7 +468,6 @@ CREATE TABLE "payslip" (
 	"mpesa_ref" text,
 	CONSTRAINT "payslip_uq" UNIQUE("payroll_run_id","employee_id")
 );
-
 CREATE TABLE "pregnancy_check" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"farm_id" uuid NOT NULL,
@@ -509,7 +481,6 @@ CREATE TABLE "pregnancy_check" (
 	"cost_kes" numeric(14, 2),
 	"recorded_by" uuid NOT NULL
 );
-
 CREATE TABLE "price_list" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"farm_id" uuid NOT NULL,
@@ -523,7 +494,6 @@ CREATE TABLE "price_list" (
 	"reason" text,
 	"set_by" uuid NOT NULL
 );
-
 CREATE TABLE "product" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"farm_id" uuid,
@@ -535,7 +505,6 @@ CREATE TABLE "product" (
 	"label_source" text,
 	"not_for_lactating" boolean DEFAULT false NOT NULL
 );
-
 CREATE TABLE "purchase_order" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"farm_id" uuid NOT NULL,
@@ -547,7 +516,6 @@ CREATE TABLE "purchase_order" (
 	"litres_committed" numeric(10, 2),
 	"status" text DEFAULT 'OPEN' NOT NULL
 );
-
 CREATE TABLE "receipt" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"farm_id" uuid NOT NULL,
@@ -559,7 +527,6 @@ CREATE TABLE "receipt" (
 	"payload" jsonb,
 	CONSTRAINT "receipt_ref_uq" UNIQUE("farm_id","ref_code")
 );
-
 CREATE TABLE "reference_value" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"farm_id" uuid,
@@ -571,7 +538,6 @@ CREATE TABLE "reference_value" (
 	"effective_to" date,
 	"source" text
 );
-
 CREATE TABLE "routine_schedule" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"farm_id" uuid NOT NULL,
@@ -582,7 +548,6 @@ CREATE TABLE "routine_schedule" (
 	"sex_restriction" text,
 	"once_in_lifetime" boolean DEFAULT false NOT NULL
 );
-
 CREATE TABLE "sales_invoice" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"farm_id" uuid NOT NULL,
@@ -601,7 +566,6 @@ CREATE TABLE "sales_invoice" (
 	"etims_ref" text,
 	CONSTRAINT "invoice_no_uq" UNIQUE("farm_id","invoice_no")
 );
-
 CREATE TABLE "service" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"farm_id" uuid NOT NULL,
@@ -622,7 +586,6 @@ CREATE TABLE "service" (
 	"expected_calving_on" date,
 	"recorded_by" uuid NOT NULL
 );
-
 CREATE TABLE "standing_order" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"farm_id" uuid NOT NULL,
@@ -636,7 +599,6 @@ CREATE TABLE "standing_order" (
 	"paused_from" date,
 	"paused_to" date
 );
-
 CREATE TABLE "support_ticket" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"farm_id" uuid NOT NULL,
@@ -648,14 +610,12 @@ CREATE TABLE "support_ticket" (
 	"status" text DEFAULT 'OPEN' NOT NULL,
 	"resolved_at" timestamp with time zone
 );
-
 CREATE TABLE "training_attendance" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"training_event_id" uuid NOT NULL,
 	"employee_id" uuid,
 	"attendee_name" text
 );
-
 CREATE TABLE "training_event" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"farm_id" uuid NOT NULL,
@@ -668,7 +628,6 @@ CREATE TABLE "training_event" (
 	"materials_url" text,
 	"expense_id" uuid
 );
-
 CREATE TABLE "weight_observation" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"farm_id" uuid NOT NULL,
@@ -679,7 +638,6 @@ CREATE TABLE "weight_observation" (
 	"bcs" numeric(3, 2),
 	"recorded_by" uuid NOT NULL
 );
-
 ALTER TABLE "alert" ADD CONSTRAINT "alert_animal_id_animal_id_fk" FOREIGN KEY ("animal_id") REFERENCES "public"."animal"("id") ON DELETE no action ON UPDATE no action;
 ALTER TABLE "alert" ADD CONSTRAINT "alert_customer_id_customer_id_fk" FOREIGN KEY ("customer_id") REFERENCES "public"."customer"("id") ON DELETE no action ON UPDATE no action;
 ALTER TABLE "alert" ADD CONSTRAINT "alert_employee_id_employee_id_fk" FOREIGN KEY ("employee_id") REFERENCES "public"."employee"("id") ON DELETE no action ON UPDATE no action;
@@ -770,7 +728,8 @@ CREATE INDEX "invoice_due_idx" ON "sales_invoice" USING btree ("farm_id","status
 CREATE INDEX "service_animal_idx" ON "service" USING btree ("farm_id","animal_id","served_on");
 CREATE INDEX "service_edd_idx" ON "service" USING btree ("farm_id","expected_calving_on");
 CREATE INDEX "standing_order_idx" ON "standing_order" USING btree ("farm_id","session","customer_id");
-CREATE INDEX "weight_animal_idx" ON "weight_observation" USING btree ("farm_id","animal_id","observed_on");ALTER TABLE "animal_exit" ADD COLUMN "counterparty_kind" text;
+CREATE INDEX "weight_animal_idx" ON "weight_observation" USING btree ("farm_id","animal_id","observed_on");
+ALTER TABLE "animal_exit" ADD COLUMN "counterparty_kind" text;
 ALTER TABLE "animal_exit" ADD COLUMN "payment_method" text;
 ALTER TABLE "fodder_production" ADD COLUMN "feed_item_id" uuid;
 ALTER TABLE "health_event" ADD COLUMN "routine" text;
@@ -789,3 +748,5 @@ ALTER TABLE "income" ADD CONSTRAINT "income_counterparty_id_counterparty_id_fk" 
 ALTER TABLE "milk_disposal" ADD CONSTRAINT "milk_disposal_animal_id_animal_id_fk" FOREIGN KEY ("animal_id") REFERENCES "public"."animal"("id") ON DELETE no action ON UPDATE no action;
 ALTER TABLE "standing_order" ADD CONSTRAINT "standing_order_route_id_delivery_route_id_fk" FOREIGN KEY ("route_id") REFERENCES "public"."delivery_route"("id") ON DELETE no action ON UPDATE no action;
 ALTER TABLE "animal_exit" ADD CONSTRAINT "animal_exit_uq" UNIQUE("farm_id","animal_id");
+CREATE UNIQUE INDEX "milk_one_per_session_uq" ON "milk_record" USING btree ("farm_id","animal_id","recorded_on","session") WHERE "milk_record"."supersedes_id" is null;
+CREATE INDEX "milk_flagged_idx" ON "milk_record" USING btree ("farm_id","recorded_on") WHERE "milk_record"."flagged" and "milk_record"."approved_by" is null;

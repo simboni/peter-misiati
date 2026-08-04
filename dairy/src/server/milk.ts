@@ -27,7 +27,7 @@ import {
   type ActionResult,
   type Session,
 } from "@/lib/dal";
-import { newId } from "@/lib/ids";
+import { newId, deterministicUuid } from "@/lib/ids";
 import { dec, money, num } from "@/lib/money";
 import { addDays, daysBetween, toDate, today, type ISODate } from "@/lib/domain/dates";
 import {
@@ -664,7 +664,13 @@ export async function recordMilkBatch(
         });
       }
 
-      const id = row.id ?? newId();
+      // A device that supplies its own id gets idempotency for free. One that
+      // does not — an old client, a hand-built request — used to get a fresh
+      // random id on every retry, so one morning's milking landed three times
+      // and the day read 37.5 L from a cow that gave 12.5. Derive the id from
+      // what makes the milking unique in the world instead, and the retry
+      // collides on the primary key like every other replay.
+      const id = row.id ?? deterministicUuid(`${session.farmId}|${row.animalId}|${date}|${sessionName}`);
       seedParts.push(id);
       values.push({
         id,

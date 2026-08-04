@@ -1,0 +1,2 @@
+CREATE UNIQUE INDEX "milk_one_per_session_uq" ON "milk_record" USING btree ("farm_id","animal_id","recorded_on","session") WHERE "milk_record"."supersedes_id" is null;--> statement-breakpoint
+CREATE INDEX "milk_flagged_idx" ON "milk_record" USING btree ("farm_id","recorded_on") WHERE "milk_record"."flagged" and "milk_record"."approved_by" is null;
