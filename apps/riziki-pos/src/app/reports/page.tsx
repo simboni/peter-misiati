@@ -272,9 +272,23 @@ export default async function ReportsPage() {
               prefetch={false}
               className="rounded-xl border border-line px-3 py-2.5 text-sm font-semibold capitalize hover:bg-wash"
             >
-              {t} CSV
+              {t.replace("_", " ")} CSV
             </Link>
           ))}
+        </div>
+        <div className="mt-3 border-t border-line pt-3">
+          <Link
+            href="/backup"
+            prefetch={false}
+            className="inline-block rounded-xl bg-brand px-4 py-3 text-sm font-bold text-white hover:bg-brand-dark"
+          >
+            Download full backup
+          </Link>
+          <p className="mt-1.5 text-xs text-muted">
+            One file holding everything — sales, stock, formulas, users. Keep a copy off this
+            phone (email it to yourself, or save it to a memory stick) at least once a week.
+            Restoring is putting the file back in place.
+          </p>
         </div>
       </Card>
     </div>

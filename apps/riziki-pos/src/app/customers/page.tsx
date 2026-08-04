@@ -25,16 +25,29 @@ export const dynamic = "force-dynamic";
  * one number the owner opens the app for, then the list in the order he will
  * work it — biggest first, with the 30-day-old accounts marked in red.
  */
-export default async function CustomersPage() {
+export default async function CustomersPage(props: {
+  searchParams: Promise<{ q?: string; all?: string }>;
+}) {
   const user = await currentUser();
   if (!user) redirect("/login");
 
-  const rows = debtors();
+  const { q = "", all: showAll } = await props.searchParams;
+  const needle = q.trim().toLowerCase();
+  const match = (name: string, phone: string) =>
+    !needle || name.toLowerCase().includes(needle) || phone.includes(needle);
+
+  const allDebtors = debtors();
   const owed = totalOwed();
-  const overdue = rows.filter((r) => r.band === "old");
+  const overdue = allDebtors.filter((r) => r.band === "old");
+  const rows = allDebtors.filter((r) => match(r.name, r.phone));
   const everyone = listCustomers();
-  const owing = new Set(rows.map((r) => r.id));
-  const settled = everyone.filter((c) => !owing.has(c.id));
+  const owing = new Set(allDebtors.map((r) => r.id));
+  const settledAll = everyone.filter((c) => !owing.has(c.id) && match(c.name, c.phone));
+  // The settled list is the one that grows without bound — a busy shop adds
+  // customers for years. Cap it and let search or "show all" reach the rest.
+  const SETTLED_CAP = 30;
+  const settled = showAll || needle ? settledAll : settledAll.slice(0, SETTLED_CAP);
+  const hidden = settledAll.length - settled.length;
 
   return (
     <div>
@@ -52,6 +65,25 @@ export default async function CustomersPage() {
           detail={overdue.length ? `${overdue.length} to chase` : "nothing overdue"}
         />
       </div>
+
+      <form method="get" className="mt-4">
+        <input
+          type="search"
+          name="q"
+          defaultValue={q}
+          placeholder="Search name or phone…"
+          className="w-full rounded-xl border border-line bg-white px-3 py-3 text-base text-ink placeholder:text-muted"
+          aria-label="Search customers"
+        />
+      </form>
+      {needle ? (
+        <p className="mt-1.5 text-xs text-muted">
+          Showing matches for &ldquo;{q.trim()}&rdquo;.{" "}
+          <Link href="/customers" className="font-bold text-brand">
+            Clear
+          </Link>
+        </p>
+      ) : null}
 
       <SectionLabel>Owing now</SectionLabel>
       {rows.length ? (
@@ -110,7 +142,9 @@ export default async function CustomersPage() {
         </div>
       ) : (
         <Card>
-          <Empty>Nobody owes anything. Every sale is settled.</Empty>
+          <Empty>
+            {needle ? "No debtor matches that search." : "Nobody owes anything. Every sale is settled."}
+          </Empty>
         </Card>
       )}
 
@@ -143,9 +177,18 @@ export default async function CustomersPage() {
         </TableWrap>
       ) : (
         <Card>
-          <Empty>No other customers on file.</Empty>
+          <Empty>
+            {needle ? "No customer matches that search." : "No other customers on file."}
+          </Empty>
         </Card>
       )}
+      {hidden > 0 ? (
+        <p className="mt-2 text-center text-sm">
+          <Link href="/customers?all=1" className="font-bold text-brand">
+            Show all {settledAll.length} customers
+          </Link>
+        </p>
+      ) : null}
 
       <SectionLabel>Add a customer</SectionLabel>
       <Card>

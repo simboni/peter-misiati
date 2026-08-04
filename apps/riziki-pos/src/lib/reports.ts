@@ -594,7 +594,17 @@ export function shrinkageByMonth(months = 6, from: string = businessDate()): Shr
 
 // ----------------------------------------------------------------- CSV export
 
-export const EXPORT_TABLES = ["sales", "stock", "batches", "customers", "expenses"] as const;
+export const EXPORT_TABLES = [
+  "sales",
+  "sale_lines",
+  "payments",
+  "purchases",
+  "movements",
+  "stock",
+  "batches",
+  "customers",
+  "expenses",
+] as const;
 export type ExportTable = (typeof EXPORT_TABLES)[number];
 
 export function isExportTable(v: string): v is ExportTable {
@@ -658,6 +668,114 @@ const EXPORT_SPECS: Record<ExportTable, ExportSpec> = {
         kes(r.total_cents as number), kes(r.paid_cents as number),
         kes((r.total_cents as number) - (r.paid_cents as number)),
         r.status, r.void_reason, r.note,
+      ]),
+  },
+
+  // An accountant reconstructing a period needs the line detail, not just sale
+  // totals: what was sold, how many, at what price against what cost.
+  sale_lines: {
+    header: [
+      "id", "sale_id", "invoice_no", "business_date", "item", "units",
+      "qty", "unit_price_kes", "line_total_kes", "cost_kes", "sale_status",
+    ],
+    page: (limit, offset) =>
+      all<Record<string, unknown>>(
+        `SELECT l.id, l.sale_id, s.invoice_no,
+                date(s.at, '+3 hours') AS business_date,
+                l.name_snapshot, l.units, l.qty_milli,
+                l.unit_price_cents, l.line_total_cents, l.cost_cents,
+                s.status AS sale_status
+           FROM sale_lines l
+           JOIN sales s ON s.id = l.sale_id
+          ORDER BY l.id
+          LIMIT ? OFFSET ?`,
+        limit,
+        offset,
+      ).map((r: Record<string, unknown>) => [
+        r.id, r.sale_id, r.invoice_no, r.business_date, r.name_snapshot, r.units,
+        ((r.qty_milli as number) / 1000).toFixed(3),
+        kes(r.unit_price_cents as number), kes(r.line_total_cents as number),
+        kes(r.cost_cents as number), r.sale_status,
+      ]),
+  },
+
+  // Every tender, with its M-Pesa code — this is what reconciles against the
+  // M-Pesa statement and the cash drawer.
+  payments: {
+    header: [
+      "id", "sale_id", "invoice_no", "business_date", "at_nairobi",
+      "method", "amount_kes", "mpesa_code", "taken_by",
+    ],
+    page: (limit, offset) =>
+      all<Record<string, unknown>>(
+        `SELECT p.id, p.sale_id, s.invoice_no,
+                date(p.at, '+3 hours')     AS business_date,
+                datetime(p.at, '+3 hours') AS at_nairobi,
+                p.method, p.amount_cents, p.mpesa_code, u.name AS taken_by
+           FROM payments p
+           JOIN sales s ON s.id = p.sale_id
+           LEFT JOIN users u ON u.id = p.user_id
+          ORDER BY p.id
+          LIMIT ? OFFSET ?`,
+        limit,
+        offset,
+      ).map((r: Record<string, unknown>) => [
+        r.id, r.sale_id, r.invoice_no, r.business_date, r.at_nairobi,
+        r.method, kes(r.amount_cents as number), r.mpesa_code, r.taken_by,
+      ]),
+  },
+
+  purchases: {
+    header: [
+      "line_id", "purchase_id", "business_date", "supplier", "ref", "item",
+      "units", "qty", "line_cost_kes", "transport_kes", "entered_by",
+    ],
+    page: (limit, offset) =>
+      all<Record<string, unknown>>(
+        `SELECT l.id AS line_id, l.purchase_id,
+                date(p.at, '+3 hours') AS business_date,
+                sup.name AS supplier, p.ref, i.name AS item,
+                l.units, l.qty_milli, l.cost_cents,
+                p.transport_cents, u.name AS entered_by
+           FROM purchase_lines l
+           JOIN purchases p ON p.id = l.purchase_id
+           LEFT JOIN suppliers sup ON sup.id = p.supplier_id
+           JOIN items i ON i.id = l.item_id
+           LEFT JOIN users u ON u.id = p.user_id
+          ORDER BY l.id
+          LIMIT ? OFFSET ?`,
+        limit,
+        offset,
+      ).map((r: Record<string, unknown>) => [
+        r.line_id, r.purchase_id, r.business_date, r.supplier, r.ref, r.item,
+        r.units, ((r.qty_milli as number) / 1000).toFixed(3),
+        kes(r.cost_cents as number), kes(r.transport_cents as number), r.entered_by,
+      ]),
+  },
+
+  // The whole append-only ledger. This is the audit trail itself: every kilo
+  // in or out, who moved it and why. The one table that proves the others.
+  movements: {
+    header: [
+      "id", "at_nairobi", "item", "kind", "delta", "reason",
+      "ref_type", "ref_id", "by", "note",
+    ],
+    page: (limit, offset) =>
+      all<Record<string, unknown>>(
+        `SELECT m.id, datetime(m.at, '+3 hours') AS at_nairobi,
+                i.name AS item, i.kind, m.delta_milli, m.reason,
+                m.ref_type, m.ref_id, u.name AS by_name, m.note
+           FROM stock_movements m
+           JOIN items i ON i.id = m.item_id
+           LEFT JOIN users u ON u.id = m.user_id
+          ORDER BY m.id
+          LIMIT ? OFFSET ?`,
+        limit,
+        offset,
+      ).map((r: Record<string, unknown>) => [
+        r.id, r.at_nairobi, r.item, r.kind,
+        ((r.delta_milli as number) / 1000).toFixed(3), r.reason,
+        r.ref_type, r.ref_id, r.by_name, r.note,
       ]),
   },
 

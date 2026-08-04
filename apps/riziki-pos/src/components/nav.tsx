@@ -75,6 +75,7 @@ export function MoreMenu({ isOwner }: { isOwner: boolean }) {
     { href: "/repack", label: "Repack", owner: true },
     { href: "/stocktake", label: "Stock take", owner: true },
     { href: "/purchases", label: "Suppliers & purchases", owner: false },
+    { href: "/pin", label: "Change my PIN", owner: false },
     { href: "/settings", label: "Users & settings", owner: true },
     { href: "/settings/printer", label: "Receipt printer", owner: true },
   ].filter((l) => !l.owner || isOwner);

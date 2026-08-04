@@ -31,6 +31,7 @@ const {
   csvField,
   csvRow,
   csvText,
+  EXPORT_TABLES,
   closeForDate,
   recentCloses,
   expensesForMonth,
@@ -353,11 +354,31 @@ describe("CSV escaping", () => {
   });
 
   test("every export table produces a header even when empty", () => {
-    for (const table of ["sales", "stock", "batches", "customers", "expenses"] as const) {
+    for (const table of EXPORT_TABLES) {
       const csv = csvText(table);
       assert.ok(csv.length > 0, `${table} produced nothing`);
-      assert.ok(csv.startsWith("id,"), `${table} is missing its header row`);
+      const header = csv.split("\r\n")[0];
+      assert.ok(/(^|_)id(,|$)/.test(header.split(",")[0]), `${table} header lacks an id column`);
     }
+  });
+
+  test("sale line detail exports with item, price and cost", () => {
+    const csv = csvText("sale_lines");
+    assert.match(csv, /^id,sale_id,invoice_no,business_date,item,units,qty,unit_price_kes,line_total_kes,cost_kes,sale_status\r\n/);
+    assert.ok(csv.includes("Ungerol"), "line names are present");
+  });
+
+  test("payments export carries method and amount for reconciliation", () => {
+    const csv = csvText("payments");
+    assert.ok(csv.split("\r\n")[0].includes("mpesa_code"));
+    assert.ok(csv.includes("cash") || csv.includes("mpesa"), "tenders are present");
+  });
+
+  test("the stock ledger exports with reasons and quantities in real units", () => {
+    const csv = csvText("movements");
+    assert.ok(csv.includes("opening"), "opening movements are present");
+    // delta shown in kg/L, not milli: the 10 kg opening is 10.000, not 10000.
+    assert.ok(csv.includes(",10.000,"), "quantities are converted from milli");
   });
 });
 
