@@ -1,6 +1,17 @@
 # Replace pos.example.co.ke with the shop's real (sub)domain, pointed at this
 # server's IP with an A record. Caddy then fetches and renews the HTTPS
 # certificate on its own — nothing else to configure.
+#
+# No domain yet? Use the server's IP as an sslip.io hostname instead — dots
+# become dashes, e.g. for 203.0.113.7:
+#
+#   pos.203-0-113-7.sslip.io {
+#       reverse_proxy pos:3100
+#       encode zstd gzip
+#   }
+#
+# Real certificate, real HTTPS, stable URL — swap in the true domain when it
+# arrives and restart caddy. (See SANDBOX.md, Route 0.)
 
 pos.example.co.ke {
 	reverse_proxy pos:3100
