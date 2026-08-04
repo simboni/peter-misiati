@@ -1,0 +1,33 @@
+# Throwaway sandbox — a real HTTPS URL with no domain, no account, no cost.
+#
+#   docker compose -f docker-compose.sandbox.yml up --build
+#
+# then watch the logs for a line like
+#
+#   https://random-words-here.trycloudflare.com
+#
+# That URL is the sandbox: open it on any phone, install it to the home
+# screen, pair the receipt printer, sell things. HTTPS is real, so offline
+# mode works — everything behaves exactly as production will.
+#
+# Two honest limits: the URL changes every time the tunnel restarts, and
+# quick tunnels carry no uptime promise — which is why this is the sandbox
+# and the Caddy + domain setup in docker-compose.yml is the real deployment.
+
+services:
+  pos:
+    build: .
+    restart: unless-stopped
+    expose:
+      - "3100"
+    volumes:
+      # Separate volume from production so sandbox experiments never touch
+      # real data. Delete sandbox-data/ to reset to a fresh seeded shop.
+      - ./sandbox-data:/app/data
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --url http://pos:3100
+    depends_on:
+      - pos

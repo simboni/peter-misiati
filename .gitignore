@@ -44,3 +44,6 @@ next-env.d.ts
 apps/riziki-pos/.next/
 apps/riziki-pos/data/
 apps/riziki-pos/node_modules/
+# Sandbox artifacts: throwaway database and the tunnel binary
+apps/riziki-pos/sandbox-data/
+apps/riziki-pos/.sandbox/
