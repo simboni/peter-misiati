@@ -1,0 +1,1086 @@
+"use client";
+
+/**
+ * The counter screen.
+ *
+ * Everything here is shaped by one number: four taps for an ordinary sale.
+ *   tap the item  →  tap "Pay"  →  tap "Cash"  →  tap "Complete sale"
+ * So there are no confirmation dialogs, no quantity prompt (tap again to add
+ * another), and the payment amount defaults to whatever is still owing.
+ *
+ * Two things are deliberately NOT sent to this component:
+ *   - `floor_cents`, because for a repacked chemical it is the cost price and
+ *     staff must never see cost. A haggled price is offered to the server, the
+ *     server refuses it, and only then is the owner's PIN asked for.
+ *   - `cost_cents`, for the same reason.
+ */
+
+import Link from "next/link";
+import {
+  useActionState,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  startTransition,
+} from "react";
+import type { PayMethod, Tier } from "@/lib/sales";
+import { countOutbox, enqueueSale, onOutboxChange, type QueuedSalePayload } from "@/lib/offline";
+import { formatDateTime, formatKes, formatUnits } from "@/lib/units";
+import { Alert, Button, Chip, SectionLabel, inputClass } from "@/components/ui";
+
+// ------------------------------------------------------------- wire types
+
+export interface SellItem {
+  id: number;
+  name: string;
+  kind: "finished" | "pack" | "other";
+  unitLabel: string;
+  sizeMilli: number;
+  retailCents: number;
+  wholesaleCents: number;
+  qtyMilli: number;
+  /** name + chemical name + aliases, lower-cased, so "sles" finds Ungerol */
+  search: string;
+}
+
+export interface SellCustomer {
+  id: number;
+  name: string;
+  kind: "retail" | "wholesale";
+  limitCents: number;
+  outstandingCents: number;
+}
+
+export interface PayloadLine {
+  itemId: number;
+  units: number;
+  unitPriceCents: number;
+}
+
+export interface PayloadTender {
+  method: PayMethod;
+  amountCents: number;
+  mpesaCode?: string;
+}
+
+export interface SalePayload {
+  clientUuid: string;
+  tier: Tier;
+  lines: PayloadLine[];
+  tenders: PayloadTender[];
+  customerId: number | null;
+  ownerPin?: string;
+  acknowledgeCredit?: boolean;
+}
+
+export type SellState =
+  | { status: "idle" }
+  /** A refusal the counter can fix — wrong amount, missing code, unknown item. */
+  | { status: "error"; message: string }
+  /** A price below the floor: the owner has to approve it in person. */
+  | { status: "pin"; message: string }
+  /** The customer would go past their credit limit. Warn, never silently allow. */
+  | { status: "credit"; message: string }
+  | {
+      status: "done";
+      saleId: number;
+      totalCents: number;
+      paidCents: number;
+      outstandingCents: number;
+    }
+  /**
+   * Saved on the phone, not yet on the till. This is a success, not an error —
+   * the customer has paid and can leave — so it reads like one.
+   */
+  | {
+      status: "queued";
+      clientUuid: string;
+      totalCents: number;
+      queuedAt: string;
+      /** `offline` = the phone knew; `unreachable` = it thought it was online. */
+      reason: "offline" | "unreachable";
+    };
+
+export const IDLE: SellState = { status: "idle" };
+
+/**
+ * How long to wait for the till before deciding the sale belongs in the outbox.
+ *
+ * Safaricom's failure mode is not a clean disconnection — it is a request that
+ * hangs. A spinner that never resolves in front of a queue is exactly what
+ * sends the shop back to the paper notebook, so there is a deadline.
+ */
+const TILL_TIMEOUT_MS = 12_000;
+
+// ------------------------------------------------------------------ helpers
+
+/**
+ * The shop's counter phone may reach the till over plain http on the LAN, and
+ * `crypto.randomUUID` is only exposed in secure contexts — so fall back rather
+ * than lose the idempotency key that makes a retry safe.
+ */
+function newUuid(): string {
+  const c = globalThis.crypto;
+  if (c && typeof c.randomUUID === "function") return c.randomUUID();
+
+  const b = new Uint8Array(16);
+  if (c && typeof c.getRandomValues === "function") c.getRandomValues(b);
+  else for (let i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256);
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const h = Array.from(b, (n) => n.toString(16).padStart(2, "0")).join("");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
+/** `navigator.onLine` is a hint, not a fact — but a false one is worth acting on. */
+function seemsOnline(): boolean {
+  return typeof navigator === "undefined" || navigator.onLine !== false;
+}
+
+function withDeadline<T>(work: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("the till did not answer")), ms);
+    work.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
+
+/**
+ * Move a cart into the outbox.
+ *
+ * The owner PIN and the credit acknowledgement are deliberately dropped: a PIN
+ * must never sit at rest on the shared counter phone, and the credit-limit
+ * warning is an interactive check that cannot be answered by a queue. Both are
+ * asked again at send time if they are still needed.
+ */
+async function queueSale(
+  payload: SalePayload,
+  reason: "offline" | "unreachable",
+): Promise<SellState> {
+  const totalCents = payload.lines.reduce((sum, l) => sum + l.unitPriceCents * l.units, 0);
+  const queuedAt = new Date().toISOString();
+
+  const queued: QueuedSalePayload = {
+    clientUuid: payload.clientUuid,
+    tier: payload.tier,
+    lines: payload.lines.map((l) => ({ ...l })),
+    tenders: payload.tenders.map((t) => ({
+      method: t.method,
+      amountCents: t.amountCents,
+      // An absent code must stay absent rather than become the string
+      // "undefined" once IndexedDB and JSON have both had a turn at it.
+      ...(t.mpesaCode ? { mpesaCode: t.mpesaCode } : {}),
+    })),
+    customerId: payload.customerId,
+    queuedAt,
+    totalCents,
+  };
+
+  try {
+    await enqueueSale(queued);
+    return { status: "queued", clientUuid: payload.clientUuid, totalCents, queuedAt, reason };
+  } catch {
+    // The one case where the counter must be told to reach for the notebook:
+    // there is no network AND no storage. Never a silent failure.
+    return {
+      status: "error",
+      message:
+        "This phone cannot reach the till and cannot save the sale either. " +
+        "Write it down and enter it when the connection is back.",
+    };
+  }
+}
+
+function listPrice(item: SellItem, tier: Tier): number {
+  if (tier === "wholesale" && item.wholesaleCents > 0) return item.wholesaleCents;
+  return item.retailCents;
+}
+
+/** "75.50" → 7550. Blank or nonsense → null, so a slip never becomes a zero. */
+function parseCents(text: string): number | null {
+  const t = text.trim();
+  if (!t) return null;
+  const n = Number(t);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.round(n * 100);
+}
+
+function centsToInput(cents: number): string {
+  return String(cents / 100);
+}
+
+interface CartLine {
+  itemId: number;
+  units: number;
+  priceCents: number;
+}
+
+interface Tender {
+  key: string;
+  method: PayMethod;
+  amountCents: number;
+  mpesaCode: string;
+}
+
+// ------------------------------------------------------------------- screen
+
+export default function SellClient({
+  items,
+  topSellerIds,
+  customers,
+  stockAsOf,
+  action,
+}: {
+  items: SellItem[];
+  topSellerIds: number[];
+  customers: SellCustomer[];
+  /** When the server read these stock counts. Shown whenever they may be stale. */
+  stockAsOf: string;
+  action: (prev: SellState, payload: SalePayload) => Promise<SellState>;
+}) {
+  const [tier, setTier] = useState<Tier>("retail");
+  const [cart, setCart] = useState<CartLine[]>([]);
+  const [query, setQuery] = useState("");
+  const [sheet, setSheet] = useState<"none" | "cart" | "pay">("none");
+
+  const [tenders, setTenders] = useState<Tender[]>([]);
+  const [amountInput, setAmountInput] = useState("");
+  const [customerId, setCustomerId] = useState<number | null>(null);
+  const [ownerPin, setOwnerPin] = useState("");
+  const [receipt, setReceipt] = useState<Extract<
+    SellState,
+    { status: "done" } | { status: "queued" }
+  > | null>(null);
+
+  // The counter needs to know, without asking, whether what it sees is live.
+  const [online, setOnline] = useState(true);
+  const [waiting, setWaiting] = useState(0);
+
+  const uuid = useRef<string>(newUuid());
+
+  /**
+   * Every submit goes through here, online or not.
+   *
+   * Wrapping the server action rather than branching before it means the queue
+   * catches all three failures the same way: a phone that knows it is offline,
+   * a phone that thinks it is online but is not, and a request that hangs. In
+   * every case the sale ends up somewhere durable and the counter is told so.
+   *
+   * A sale that was in fact recorded before the deadline is not lost work: the
+   * replay carries the same `client_uuid`, the till answers "already recorded",
+   * and the outbox drops it. That is the whole point of the uuid.
+   */
+  const submitSale = useCallback(
+    async (prev: SellState, payload: SalePayload): Promise<SellState> => {
+      if (!seemsOnline()) return queueSale(payload, "offline");
+      try {
+        return await withDeadline(action(prev, payload), TILL_TIMEOUT_MS);
+      } catch {
+        return queueSale(payload, "unreachable");
+      }
+    },
+    [action],
+  );
+
+  const [state, submit, pending] = useActionState(submitSale, IDLE);
+  const handled = useRef<string>("");
+
+  const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
+
+  const lines = cart.map((l) => ({ line: l, item: byId.get(l.itemId)! })).filter((x) => x.item);
+  const totalCents = lines.reduce((s, x) => s + x.line.priceCents * x.line.units, 0);
+  const unitCount = cart.reduce((s, l) => s + l.units, 0);
+
+  const tenderedCents = tenders.reduce((s, t) => s + t.amountCents, 0);
+  const remainingCents = Math.max(0, totalCents - tenderedCents);
+  const paidCents = tenders.filter((t) => t.method !== "credit").reduce((s, t) => s + t.amountCents, 0);
+  const outstandingCents = totalCents - paidCents;
+
+  const customer = customers.find((c) => c.id === customerId) ?? null;
+
+  // Selling more than is on the shelf is allowed — the customer is holding the
+  // goods — but it must not be silent, or the stock count and the profit report
+  // quietly drift negative. Finished/pack items have a real count; "other" does
+  // not, so it is left alone.
+  const oversold = lines.filter(
+    (x) => x.item.kind !== "other" && x.item.sizeMilli > 0 && x.line.units * x.item.sizeMilli > x.item.qtyMilli,
+  );
+  const mpesaIncomplete = tenders.some((t) => t.method === "mpesa" && !t.mpesaCode.trim());
+  const needsCustomer = outstandingCents > 0 || tenders.some((t) => t.method === "credit");
+
+  // --- after a completed sale, start clean --------------------------------
+  // Resetting the tier is the point: a toggle left on wholesale silently
+  // mis-prices every sale for the rest of the day.
+  //
+  // A queued sale resets exactly like a recorded one. The customer has paid and
+  // walked off; making the counter treat "saved here" differently from "saved
+  // there" is how a queue builds up behind one confused attendant.
+  useEffect(() => {
+    const key =
+      state.status === "done"
+        ? `sale:${state.saleId}`
+        : state.status === "queued"
+          ? `queued:${state.clientUuid}`
+          : "";
+    if (!key || handled.current === key) return;
+
+    handled.current = key;
+    setReceipt(state as Extract<SellState, { status: "done" } | { status: "queued" }>);
+    setCart([]);
+    setTenders([]);
+    setAmountInput("");
+    setCustomerId(null);
+    setOwnerPin("");
+    setTier("retail");
+    setQuery("");
+    setSheet("none");
+    uuid.current = newUuid();
+  }, [state]);
+
+  // --- cart survives leaving the screen -----------------------------------
+  // An attendant mid-order taps Stock to check a shelf, comes back, and the cart
+  // must still be there — otherwise a six-line order is re-rung from memory with
+  // a queue waiting. sessionStorage persists across navigation within the app but
+  // clears when it's closed, so yesterday's cart never resurrects.
+  const restored = useRef(false);
+  useEffect(() => {
+    if (restored.current) return;
+    restored.current = true;
+    try {
+      const raw = sessionStorage.getItem("riziki_cart");
+      if (!raw) return;
+      const saved = JSON.parse(raw) as { cart: CartLine[]; tier: Tier };
+      if (saved.cart?.length) {
+        setCart(saved.cart);
+        if (saved.tier === "retail" || saved.tier === "wholesale") setTier(saved.tier);
+      }
+    } catch {
+      /* a corrupt cart is not worth crashing the till over */
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      if (cart.length) sessionStorage.setItem("riziki_cart", JSON.stringify({ cart, tier }));
+      else sessionStorage.removeItem("riziki_cart");
+    } catch {
+      /* private mode / storage full — the cart just won't survive navigation */
+    }
+  }, [cart, tier]);
+
+  // --- connection and outbox ----------------------------------------------
+  useEffect(() => {
+    let alive = true;
+    const recount = () => {
+      void countOutbox().then((n) => {
+        if (alive) setWaiting(n);
+      });
+    };
+
+    setOnline(navigator.onLine);
+    recount();
+
+    const goOnline = () => setOnline(true);
+    const goOffline = () => setOnline(false);
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+    const stopWatching = onOutboxChange(recount);
+
+    return () => {
+      alive = false;
+      window.removeEventListener("online", goOnline);
+      window.removeEventListener("offline", goOffline);
+      stopWatching();
+    };
+  }, []);
+
+  // --- cart ---------------------------------------------------------------
+
+  function addItem(item: SellItem) {
+    setReceipt(null);
+    setCart((prev) => {
+      const at = prev.findIndex((l) => l.itemId === item.id);
+      if (at >= 0) {
+        const next = [...prev];
+        next[at] = { ...next[at], units: next[at].units + 1 };
+        return next;
+      }
+      return [...prev, { itemId: item.id, units: 1, priceCents: listPrice(item, tier) }];
+    });
+  }
+
+  function changeUnits(itemId: number, delta: number) {
+    setCart((prev) =>
+      prev
+        .map((l) => (l.itemId === itemId ? { ...l, units: l.units + delta } : l))
+        .filter((l) => l.units > 0),
+    );
+  }
+
+  function setLinePrice(itemId: number, cents: number) {
+    setCart((prev) => prev.map((l) => (l.itemId === itemId ? { ...l, priceCents: cents } : l)));
+  }
+
+  /**
+   * Switching tier re-prices the whole cart, haggled lines included. Carrying a
+   * negotiated retail price into a wholesale bill is the more expensive mistake.
+   */
+  function switchTier(next: Tier) {
+    setTier(next);
+    setCart((prev) =>
+      prev.map((l) => {
+        const item = byId.get(l.itemId);
+        return item ? { ...l, priceCents: listPrice(item, next) } : l;
+      }),
+    );
+  }
+
+  // --- tenders ------------------------------------------------------------
+
+  function addTender(method: PayMethod) {
+    if (remainingCents <= 0 && !amountInput.trim()) return;
+    const typed = parseCents(amountInput);
+    const amountCents = typed ?? remainingCents;
+    if (amountCents <= 0) return;
+
+    setTenders((prev) => [
+      ...prev,
+      { key: `${method}-${Date.now()}-${prev.length}`, method, amountCents, mpesaCode: "" },
+    ]);
+    setAmountInput("");
+  }
+
+  function setCode(key: string, code: string) {
+    setTenders((prev) => prev.map((t) => (t.key === key ? { ...t, mpesaCode: code } : t)));
+  }
+
+  function removeTender(key: string) {
+    setTenders((prev) => prev.filter((t) => t.key !== key));
+  }
+
+  // --- submit -------------------------------------------------------------
+
+  function complete(acknowledgeCredit = false) {
+    const payload: SalePayload = {
+      clientUuid: uuid.current,
+      tier,
+      lines: cart.map((l) => ({ itemId: l.itemId, units: l.units, unitPriceCents: l.priceCents })),
+      tenders: tenders.map((t) => ({
+        method: t.method,
+        amountCents: t.amountCents,
+        mpesaCode: t.method === "mpesa" ? t.mpesaCode.trim() : undefined,
+      })),
+      customerId,
+      ownerPin: ownerPin.trim() || undefined,
+      acknowledgeCredit,
+    };
+    startTransition(() => submit(payload));
+  }
+
+  // --- item lists ---------------------------------------------------------
+
+  const q = query.trim().toLowerCase();
+  const matches = q ? items.filter((i) => i.search.includes(q)) : [];
+  const finished = items.filter((i) => i.kind === "finished");
+  const packs = items.filter((i) => i.kind === "pack");
+  const other = items.filter((i) => i.kind === "other");
+  const top = topSellerIds.map((id) => byId.get(id)).filter((i): i is SellItem => Boolean(i));
+
+  const wholesale = tier === "wholesale";
+
+  return (
+    <div className="pb-24">
+      {/* Wholesale has to be impossible to miss — a toggle left in the wrong
+          position mis-prices every sale until somebody notices at day close. */}
+      {wholesale ? (
+        <div className="sticky top-0 z-20 -mx-4 mb-3 flex items-center gap-3 bg-warn px-4 py-2.5 text-white shadow-sm">
+          <span className="text-sm font-extrabold uppercase tracking-[0.14em]">Wholesale prices</span>
+          <button
+            type="button"
+            onClick={() => switchTier("retail")}
+            className="ml-auto rounded-lg bg-white/20 px-3 py-1.5 text-xs font-bold"
+          >
+            Back to retail
+          </button>
+        </div>
+      ) : null}
+
+      <div className="mb-3 flex items-center gap-2">
+        <h1 className="text-xl font-bold tracking-tight">Sell</h1>
+        <Link href="/sales" className="text-xs font-bold text-brand">
+          History
+        </Link>
+        <div className="ml-auto grid grid-cols-2 overflow-hidden rounded-xl border border-line">
+          {(["retail", "wholesale"] as const).map((t) => (
+            <button
+              key={t}
+              type="button"
+              aria-pressed={tier === t}
+              onClick={() => switchTier(t)}
+              className={`px-3.5 py-2 text-xs font-bold capitalize transition-colors ${
+                tier === t
+                  ? t === "wholesale"
+                    ? "bg-warn text-white"
+                    : "bg-brand text-white"
+                  : "bg-white text-muted"
+              }`}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {receipt ? (
+        <div className="mb-3">
+          {receipt.status === "queued" ? (
+            /* Never a spinner, never a shrug: the sale is somewhere durable and
+               the counter is told exactly where, and what happens next. */
+            <Alert tone="warn">
+              Saved on this phone — {formatKes(receipt.totalCents)}.{" "}
+              {receipt.reason === "offline"
+                ? "There is no network."
+                : "The till did not answer."}{" "}
+              It will send itself as soon as the connection is back. Nothing is lost.
+            </Alert>
+          ) : (
+            <Alert tone={receipt.outstandingCents > 0 ? "warn" : "good"}>
+              Sale #{receipt.saleId} recorded — {formatKes(receipt.totalCents)}.{" "}
+              {receipt.outstandingCents > 0
+                ? `${formatKes(receipt.outstandingCents)} on credit.`
+                : "Paid in full."}{" "}
+              <Link href="/sales" className="font-bold underline">
+                View
+              </Link>
+            </Alert>
+          )}
+        </div>
+      ) : null}
+
+      {/* Stock read from the till at a moment in time. Offline — or with sales
+          still sitting in the outbox — that moment has passed, so say when it
+          was rather than letting a stale count read as today's truth. */}
+      {!online || waiting > 0 ? (
+        <div className="mb-3 rounded-xl border border-line bg-wash px-3.5 py-2.5 text-xs text-muted">
+          <span className="font-bold text-ink">
+            {online ? "Sending saved sales" : "Offline — you can keep selling."}
+          </span>{" "}
+          Stock counts below are as of {formatDateTime(stockAsOf)} and do not include
+          {waiting > 0
+            ? ` the ${waiting} sale${waiting === 1 ? "" : "s"} still waiting to send.`
+            : " anything sold since."}
+        </div>
+      ) : null}
+
+      <input
+        className={inputClass}
+        type="search"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Search — name, or chemical (sles, labsa…)"
+        aria-label="Search items"
+      />
+
+      {q ? (
+        <>
+          <SectionLabel>{matches.length} match{matches.length === 1 ? "" : "es"}</SectionLabel>
+          <Grid items={matches} tier={tier} onAdd={addItem} cart={cart} />
+        </>
+      ) : (
+        <>
+          {top.length ? (
+            <>
+              <SectionLabel>Top sellers today</SectionLabel>
+              <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
+                {top.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => addItem(item)}
+                    className={`w-36 shrink-0 rounded-2xl border p-3 text-left ${
+                      wholesale ? "border-warn/40 bg-warn-soft" : "border-brand/30 bg-brand-soft"
+                    }`}
+                  >
+                    <div className="line-clamp-2 min-h-[2.4rem] text-[13px] font-bold leading-tight">
+                      {item.name}
+                    </div>
+                    <div className={`mt-1 text-sm font-extrabold tnum ${wholesale ? "text-warn" : "text-brand"}`}>
+                      {formatKes(listPrice(item, tier))}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : null}
+
+          {finished.length ? (
+            <>
+              <SectionLabel>Finished products</SectionLabel>
+              <Grid items={finished} tier={tier} onAdd={addItem} cart={cart} />
+            </>
+          ) : null}
+
+          {packs.length ? (
+            <>
+              <SectionLabel>Repacked chemicals</SectionLabel>
+              <Grid items={packs} tier={tier} onAdd={addItem} cart={cart} />
+            </>
+          ) : null}
+
+          {other.length ? (
+            <>
+              <SectionLabel>Other</SectionLabel>
+              <Grid items={other} tier={tier} onAdd={addItem} cart={cart} />
+            </>
+          ) : null}
+        </>
+      )}
+
+      {/* Pay bar — sits above the tab bar, always one tap from payment. */}
+      {cart.length ? (
+        <div className="no-print fixed inset-x-0 bottom-[3.9rem] z-30 mx-auto max-w-lg px-3 pb-[env(safe-area-inset-bottom)]">
+          <div className="flex items-stretch gap-2">
+            <button
+              type="button"
+              onClick={() => setSheet("cart")}
+              className="flex flex-col justify-center rounded-xl border border-line bg-white px-3 py-2 text-left shadow-lg"
+            >
+              <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-muted">
+                {unitCount} item{unitCount === 1 ? "" : "s"}
+              </span>
+              <span className="text-xs font-bold text-brand">Edit cart</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSheet("pay")}
+              className={`flex-1 rounded-xl px-4 py-3 text-base font-extrabold text-white shadow-lg tnum ${
+                wholesale ? "bg-warn" : "bg-brand"
+              }`}
+            >
+              Pay {formatKes(totalCents)}
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {sheet === "cart" ? (
+        <Sheet title="Cart" onClose={() => setSheet("none")}>
+          <div className="space-y-2">
+            {lines.map(({ line, item }) => (
+              <CartRow
+                key={line.itemId}
+                item={item}
+                line={line}
+                tier={tier}
+                onUnits={(d) => changeUnits(line.itemId, d)}
+                onPrice={(c) => setLinePrice(line.itemId, c)}
+              />
+            ))}
+          </div>
+          {oversold.length ? (
+            <div className="mt-3">
+              <Alert tone="warn">
+                Selling more {oversold.length === 1 ? oversold[0].item.name : "of some items"} than the
+                shelf shows. The sale is fine — the count will just go negative until you do a stock
+                take.
+              </Alert>
+            </div>
+          ) : null}
+          <div className="mt-4 flex items-center justify-between border-t border-line pt-3">
+            <span className="text-sm font-bold uppercase tracking-[0.1em] text-muted">Total</span>
+            <span className="text-2xl font-extrabold tnum">{formatKes(totalCents)}</span>
+          </div>
+          <Button className="mt-4 w-full" onClick={() => setSheet("pay")}>
+            Pay {formatKes(totalCents)}
+          </Button>
+        </Sheet>
+      ) : null}
+
+      {sheet === "pay" ? (
+        <Sheet title="Payment" onClose={() => setSheet("none")}>
+          <div className="rounded-2xl border border-line bg-wash p-3">
+            <Row label="Order total" value={formatKes(totalCents)} strong />
+            <Row label="Tendered" value={formatKes(tenderedCents)} />
+            <Row
+              label={remainingCents > 0 ? "Still to cover" : "Covered"}
+              value={formatKes(remainingCents)}
+              strong
+            />
+          </div>
+
+          {tenders.length ? (
+            <div className="mt-3 space-y-2">
+              {tenders.map((t) => (
+                <div key={t.key} className="rounded-xl border border-line p-2.5">
+                  <div className="flex items-center gap-2">
+                    <Chip tone={t.method === "credit" ? "warn" : "good"}>
+                      {t.method === "mpesa" ? "M-Pesa" : t.method === "cash" ? "Cash" : "Credit"}
+                    </Chip>
+                    <span className="text-sm font-bold tnum">{formatKes(t.amountCents)}</span>
+                    <button
+                      type="button"
+                      onClick={() => removeTender(t.key)}
+                      className="ml-auto rounded-lg px-2 py-1 text-xs font-bold text-bad"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                  {t.method === "mpesa" ? (
+                    <input
+                      className={`${inputClass} mt-2 uppercase`}
+                      value={t.mpesaCode}
+                      onChange={(e) => setCode(t.key, e.target.value)}
+                      placeholder="M-Pesa code, e.g. QGH7X1TEST"
+                      aria-label="M-Pesa transaction code"
+                      autoCapitalize="characters"
+                      autoComplete="off"
+                      required
+                    />
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          <div className="mt-3">
+            <input
+              className={inputClass}
+              value={amountInput}
+              onChange={(e) => setAmountInput(e.target.value)}
+              inputMode="decimal"
+              placeholder={`Amount — blank means all ${formatKes(remainingCents)}`}
+              aria-label="Payment amount in shillings"
+            />
+            <div className="mt-2 grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => addTender("cash")}
+                className="rounded-xl bg-brand px-3 py-3.5 text-sm font-extrabold text-white"
+              >
+                Cash
+              </button>
+              <button
+                type="button"
+                onClick={() => addTender("mpesa")}
+                className="rounded-xl bg-brand px-3 py-3.5 text-sm font-extrabold text-white"
+              >
+                M-Pesa
+              </button>
+              <button
+                type="button"
+                onClick={() => addTender("credit")}
+                className="rounded-xl bg-warn px-3 py-3.5 text-sm font-extrabold text-white"
+              >
+                Credit
+              </button>
+            </div>
+          </div>
+
+          {needsCustomer || customers.length ? (
+            <div className="mt-3">
+              <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-[0.1em] text-muted">
+                Customer {needsCustomer ? "(required — this sale is not fully paid)" : "(optional)"}
+              </label>
+              <select
+                className={inputClass}
+                value={customerId ?? ""}
+                onChange={(e) => setCustomerId(e.target.value ? Number(e.target.value) : null)}
+              >
+                <option value="">Walk-in — no name</option>
+                {customers.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} — owes {formatKes(c.outstandingCents)}
+                    {c.limitCents > 0 ? ` of ${formatKes(c.limitCents)}` : ""}
+                  </option>
+                ))}
+              </select>
+
+              {/* A wholesale buyer on a retail-priced cart is a bill nobody
+                  wants to argue about at the counter. Prompt, don't switch
+                  silently — the attendant may have priced it retail on purpose. */}
+              {customer && customer.kind === "wholesale" && tier === "retail" ? (
+                <div className="mt-2 flex items-center justify-between gap-2 rounded-xl bg-warn-soft px-3 py-2">
+                  <span className="text-xs font-semibold text-warn">
+                    {customer.name} usually buys at wholesale.
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => switchTier("wholesale")}
+                    className="shrink-0 rounded-lg bg-warn px-2.5 py-1 text-xs font-bold text-white"
+                  >
+                    Use wholesale prices
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {state.status === "pin" ? (
+            <div className="mt-3 space-y-2">
+              <Alert tone="warn">{state.message}</Alert>
+              <input
+                className={inputClass}
+                type="password"
+                inputMode="numeric"
+                autoComplete="off"
+                value={ownerPin}
+                onChange={(e) => setOwnerPin(e.target.value)}
+                placeholder="Owner PIN"
+                aria-label="Owner PIN"
+              />
+            </div>
+          ) : null}
+
+          {state.status === "credit" ? (
+            <div className="mt-3">
+              <Alert tone="warn">{state.message}</Alert>
+            </div>
+          ) : null}
+
+          {state.status === "error" ? (
+            <div className="mt-3">
+              <Alert tone="bad">{state.message}</Alert>
+            </div>
+          ) : null}
+
+          {outstandingCents > 0 && customer ? (
+            <p className="mt-3 text-xs text-muted">
+              {formatKes(outstandingCents)} goes onto {customer.name}&apos;s account. They already owe{" "}
+              {formatKes(customer.outstandingCents)}.
+            </p>
+          ) : null}
+
+          <Button
+            className="mt-4 w-full text-base"
+            disabled={
+              pending ||
+              !cart.length ||
+              mpesaIncomplete ||
+              (needsCustomer && !customerId) ||
+              (state.status === "pin" && !ownerPin.trim())
+            }
+            onClick={() => complete(state.status === "credit")}
+          >
+            {pending
+              ? online
+                ? "Recording…"
+                : "Saving on this phone…"
+              : state.status === "credit"
+                ? "Sell on credit anyway"
+                : !online
+                  ? `Save offline — ${formatKes(totalCents)}`
+                  : outstandingCents > 0
+                    ? `Complete — ${formatKes(outstandingCents)} on credit`
+                    : `Complete sale — ${formatKes(totalCents)}`}
+          </Button>
+
+          {mpesaIncomplete ? (
+            <p className="mt-2 text-xs font-semibold text-bad">
+              Type the M-Pesa code before completing.
+            </p>
+          ) : null}
+          {needsCustomer && !customerId ? (
+            <p className="mt-2 text-xs font-semibold text-bad">
+              Choose the customer who owes the balance.
+            </p>
+          ) : null}
+        </Sheet>
+      ) : null}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------- parts
+
+function Grid({
+  items,
+  tier,
+  onAdd,
+  cart,
+}: {
+  items: SellItem[];
+  tier: Tier;
+  onAdd: (item: SellItem) => void;
+  cart: CartLine[];
+}) {
+  if (!items.length) {
+    return <p className="py-6 text-center text-sm text-muted">Nothing here.</p>;
+  }
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      {items.map((item) => {
+        const inCart = cart.find((l) => l.itemId === item.id);
+        const out = item.qtyMilli <= 0;
+        return (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => onAdd(item)}
+            className={`relative rounded-2xl border p-3 text-left transition-colors ${
+              inCart ? "border-brand bg-brand-soft" : "border-line bg-white"
+            }`}
+          >
+            {inCart ? (
+              <span className="absolute right-2 top-2 flex h-6 min-w-6 items-center justify-center rounded-full bg-brand px-1.5 text-xs font-extrabold text-white tnum">
+                {inCart.units}
+              </span>
+            ) : null}
+            <div className="line-clamp-2 min-h-[2.4rem] pr-6 text-[13px] font-bold leading-tight">
+              {item.name}
+            </div>
+            <div
+              className={`mt-1 text-base font-extrabold tnum ${
+                tier === "wholesale" ? "text-warn" : "text-ink"
+              }`}
+            >
+              {formatKes(listPrice(item, tier))}
+            </div>
+            <div className={`mt-0.5 text-[11px] tnum ${out ? "font-bold text-bad" : "text-muted"}`}>
+              {out ? "Out of stock" : formatUnits(item.qtyMilli, item.sizeMilli, item.unitLabel)}
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function CartRow({
+  item,
+  line,
+  tier,
+  onUnits,
+  onPrice,
+}: {
+  item: SellItem;
+  line: CartLine;
+  tier: Tier;
+  onUnits: (delta: number) => void;
+  onPrice: (cents: number) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(() => centsToInput(line.priceCents));
+  const list = listPrice(item, tier);
+  const discounted = line.priceCents !== list;
+
+  function commit() {
+    const cents = parseCents(draft);
+    if (cents !== null) onPrice(cents);
+    else setDraft(centsToInput(line.priceCents));
+    setEditing(false);
+  }
+
+  return (
+    <div className="rounded-xl border border-line p-2.5">
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-bold leading-tight">{item.name}</div>
+          {editing ? (
+            <div className="mt-1.5 flex items-center gap-2">
+              <input
+                className={inputClass}
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                inputMode="decimal"
+                autoFocus
+                aria-label={`Price for ${item.name}`}
+              />
+              <Button variant="ghost" className="shrink-0 px-3 py-2" onClick={commit}>
+                Set
+              </Button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setDraft(centsToInput(line.priceCents));
+                setEditing(true);
+              }}
+              className="mt-0.5 text-xs font-semibold text-brand"
+            >
+              {formatKes(line.priceCents)} each
+              {discounted ? (
+                <span className="ml-1.5 text-muted line-through">{formatKes(list)}</span>
+              ) : null}
+              <span className="ml-1 text-muted">· tap to change</span>
+            </button>
+          )}
+        </div>
+        <div className="text-right text-sm font-extrabold tnum">
+          {formatKes(line.priceCents * line.units)}
+        </div>
+      </div>
+
+      <div className="mt-2 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => onUnits(-1)}
+          aria-label={`One less ${item.name}`}
+          className="h-10 w-12 rounded-lg border border-line text-lg font-extrabold"
+        >
+          −
+        </button>
+        <span className="min-w-10 text-center text-base font-extrabold tnum">{line.units}</span>
+        <button
+          type="button"
+          onClick={() => onUnits(1)}
+          aria-label={`One more ${item.name}`}
+          className="h-10 w-12 rounded-lg border border-line text-lg font-extrabold"
+        >
+          +
+        </button>
+        <span className="ml-auto text-[11px] text-muted">{item.unitLabel}</span>
+      </div>
+    </div>
+  );
+}
+
+function Sheet({
+  title,
+  onClose,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="no-print fixed inset-0 z-40 flex flex-col bg-black/40" role="dialog" aria-modal="true">
+      <button type="button" className="flex-1" aria-label="Close" onClick={onClose} />
+      <div className="mx-auto max-h-[88dvh] w-full max-w-lg overflow-y-auto rounded-t-2xl bg-white p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
+        <div className="mb-3 flex items-center">
+          <h2 className="text-lg font-bold">{title}</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="ml-auto rounded-lg border border-line px-3 py-1.5 text-xs font-bold text-muted"
+          >
+            Close
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function Row({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+  return (
+    <div className="flex items-center justify-between py-0.5">
+      <span className="text-xs font-semibold text-muted">{label}</span>
+      <span className={`tnum ${strong ? "text-base font-extrabold" : "text-sm font-semibold"}`}>
+        {value}
+      </span>
+    </div>
+  );
+}

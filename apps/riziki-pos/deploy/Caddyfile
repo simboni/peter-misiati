@@ -1,0 +1,8 @@
+# Replace pos.example.co.ke with the shop's real (sub)domain, pointed at this
+# server's IP with an A record. Caddy then fetches and renews the HTTPS
+# certificate on its own — nothing else to configure.
+
+pos.example.co.ke {
+	reverse_proxy pos:3100
+	encode zstd gzip
+}

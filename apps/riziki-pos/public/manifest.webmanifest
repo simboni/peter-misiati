@@ -1,0 +1,24 @@
+{
+  "name": "Riziki Industrial Chemicals — POS",
+  "short_name": "Riziki POS",
+  "description": "Point of sale, stock and mixing for Riziki Industrial Chemicals. Keeps selling when the network drops.",
+  "id": "/sell",
+  "start_url": "/sell",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#0e7c86",
+  "lang": "en-KE",
+  "dir": "ltr",
+  "categories": ["business", "productivity"],
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Sell", "short_name": "Sell", "url": "/sell" },
+    { "name": "Stock", "short_name": "Stock", "url": "/stock" }
+  ]
+}
