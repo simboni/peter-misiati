@@ -26,6 +26,7 @@ import * as s from "@/db/schema";
 import type { Db } from "@/db";
 import {
   actionError,
+  RefusedError,
   actionOk,
   assertOwned,
   can,
@@ -1704,7 +1705,7 @@ export async function writeReceipt(
       .returning({ id: s.receipt.id });
     if (inserted.length > 0) return ref;
   }
-  throw new Error("Could not create a reference code. Try again.");
+  throw new RefusedError("Could not create a reference code. Try again.");
 }
 
 export async function audit(

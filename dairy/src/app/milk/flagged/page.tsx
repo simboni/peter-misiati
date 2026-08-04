@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireCapability } from "@/lib/dal";
+import { requirePageCapability } from "@/lib/dal";
 import { approveMilkRecordAction, flaggedQueue, formatDay, sessionLabel } from "@/server/milk";
 import { ApproveButton } from "@/components/milk/ApproveButton";
 import { Card, Chip, EmptyState, PageTitle } from "@/components/ui";
@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
  * means. Warn, never block.
  */
 export default async function FlaggedPage() {
-  const session = await requireCapability("APPROVE");
+  const session = await requirePageCapability("APPROVE");
   const rows = await flaggedQueue(session);
 
   return (

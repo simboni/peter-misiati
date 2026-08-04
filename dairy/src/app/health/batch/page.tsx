@@ -1,4 +1,4 @@
-import { requireCapability } from "@/lib/dal";
+import { requirePageCapability } from "@/lib/dal";
 import { today } from "@/lib/domain/dates";
 import { newId } from "@/lib/ids";
 import { listAnimalsForHealth, listProducts, recordRoutineBatch } from "@/server/health";
@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
  * record simply stops being recorded.
  */
 export default async function BatchPage() {
-  const session = await requireCapability("RECORD");
+  const session = await requirePageCapability("RECORD");
   const asOf = today();
   const [animals, products] = await Promise.all([
     listAnimalsForHealth(session, asOf),

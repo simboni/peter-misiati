@@ -1,4 +1,4 @@
-import { requireCapability } from "@/lib/dal";
+import { requirePageCapability } from "@/lib/dal";
 import { today } from "@/lib/domain/dates";
 import { issuePrefill, recordIssues } from "@/server/feed";
 import { IssueForm } from "@/components/feed/forms";
@@ -15,7 +15,7 @@ export default async function IssuePage({
 }: {
   searchParams: Promise<{ group?: string }>;
 }) {
-  const session = await requireCapability("RECORD");
+  const session = await requirePageCapability("RECORD");
   // params and searchParams are always async in Next 16.
   const { group = "LACTATING" } = await searchParams;
   const asOf = today();

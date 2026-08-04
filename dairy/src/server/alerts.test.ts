@@ -845,7 +845,7 @@ describe("actionCompletionRate", () => {
     await seedOutcomes(["DONE"]);
     await expect(
       actionCompletionRate(session({ role: "HERDSMAN" }), M1, M15, db),
-    ).rejects.toThrow(/permission/i);
+    ).rejects.toThrow(/does not include this/i);
     expect((await actionCompletionRate(otherFarmSession(), M1, M15, db)).raised).toBe(0);
     expect((await monthCompletionRate(session(), M15, db)).raised).toBe(1);
   });
@@ -927,7 +927,7 @@ describe("dailyDigest", () => {
 
   it("refuses a herdsman — the digest is money", async () => {
     await expect(dailyDigest(session({ role: "HERDSMAN" }), M10, db)).rejects.toThrow(
-      /permission/i,
+      /does not include this/i,
     );
   });
 

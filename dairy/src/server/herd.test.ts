@@ -255,7 +255,7 @@ describe("registerAnimal", () => {
     const res = await registerAnimal(null, fd({ tag: "KE-1209", sex: "F", origin: "BORN" }));
     expect(res.ok).toBe(false);
     if (res.ok) return;
-    expect(res.error).toMatch(/permission/i);
+    expect(res.error).toMatch(/does not include this/i);
   });
 
   it("says which fields need attention instead of failing silently", async () => {

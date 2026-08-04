@@ -1,4 +1,4 @@
-import { requireCapability } from "@/lib/dal";
+import { requirePageCapability } from "@/lib/dal";
 import { today } from "@/lib/domain/dates";
 import { listAnimalsForHealth, listProducts, recordTreatment } from "@/server/health";
 import { TreatForm } from "@/components/health/forms";
@@ -7,7 +7,7 @@ import { EmptyState, PageTitle } from "@/components/ui";
 export const dynamic = "force-dynamic";
 
 export default async function TreatPage() {
-  const session = await requireCapability("TREAT");
+  const session = await requirePageCapability("TREAT");
   const asOf = today();
   const [animals, products] = await Promise.all([
     listAnimalsForHealth(session, asOf),

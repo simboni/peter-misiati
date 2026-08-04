@@ -1,4 +1,4 @@
-import { requireCapability } from "@/lib/dal";
+import { requirePageCapability } from "@/lib/dal";
 import { today } from "@/lib/domain/dates";
 import { kes } from "@/lib/money";
 import { listFodderProduction, recordFodderProduction } from "@/server/feed";
@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
  * what stops the margin over feed cost quietly flattering itself.
  */
 export default async function FodderPage() {
-  const session = await requireCapability("RECORD");
+  const session = await requirePageCapability("RECORD");
   const rows = await listFodderProduction(session);
 
   return (

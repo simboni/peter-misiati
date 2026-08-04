@@ -28,6 +28,7 @@ import { z } from "zod";
 import * as s from "@/db/schema";
 import {
   actionError,
+  RefusedError,
   actionOk,
   assertOwned,
   guard,
@@ -277,7 +278,7 @@ async function requireProduct(db: DbLike, session: Session, productId: string) {
     .select()
     .from(s.product)
     .where(and(eq(s.product.id, productId), productScope(session)));
-  if (!product) throw new Error("That product was not found.");
+  if (!product) throw new RefusedError("That product was not found.");
   return product;
 }
 
@@ -1435,7 +1436,7 @@ async function resolveHerd(
     // A foreign id simply is not in this farm's list — the tenancy boundary
     // holds without telling the caller whether the id exists elsewhere.
     if (picked.length !== wanted.size) {
-      throw new Error("That animal was not found.");
+      throw new RefusedError("That animal was not found.");
     }
     return picked;
   }

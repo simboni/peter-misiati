@@ -336,7 +336,7 @@ describe("recordService", () => {
     const res = await recordService(null, fd({ animalId: id, servedOn: "2026-08-03" }));
     expect(res.ok).toBe(false);
     if (res.ok) return;
-    expect(res.error).toMatch(/permission/i);
+    expect(res.error).toMatch(/does not include this/i);
     expect(await db.select().from(s.service)).toHaveLength(0);
   });
 
@@ -487,7 +487,7 @@ describe("recordPregnancyCheck", () => {
     const res = await recordPregnancyCheck(null, fd({ animalId: id, result: "POSITIVE" }));
     expect(res.ok).toBe(false);
     if (res.ok) return;
-    expect(res.error).toMatch(/permission/i);
+    expect(res.error).toMatch(/does not include this/i);
   });
 
   it("cannot check another farm's cow", async () => {

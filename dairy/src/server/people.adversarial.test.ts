@@ -583,7 +583,7 @@ describe("who may do what", () => {
     await seedEmployee(db);
     const res = await runPayroll(session, AUG, db);
     expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.error).toContain("MANAGE_MONEY");
+    if (!res.ok) expect(res.error).toMatch(/does not include this/i);
     await close();
   });
 
@@ -592,8 +592,8 @@ describe("who may do what", () => {
     await seedEmployee(db);
     expect((await runPayroll(session, AUG, db)).ok).toBe(false);
     expect((await approvePayroll(session, newId(), db)).ok).toBe(false);
-    await expect(listEmployees(session, undefined, db)).rejects.toThrow(/VIEW_MONEY/);
-    await expect(remittanceSummary(session, AUG, db)).rejects.toThrow(/VIEW_MONEY/);
+    await expect(listEmployees(session, undefined, db)).rejects.toThrow(/does not include this/i);
+    await expect(remittanceSummary(session, AUG, db)).rejects.toThrow(/does not include this/i);
     await close();
   });
 
@@ -606,7 +606,7 @@ describe("who may do what", () => {
     const accountant = fakeSession({ role: "ACCOUNTANT", userId: await seedUser(db, { role: "ACCOUNTANT" }) });
     const res = await approvePayroll(accountant, run.data.runId, db);
     expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.error).toContain("APPROVE");
+    if (!res.ok) expect(res.error).toMatch(/does not include this/i);
     await close();
   });
 

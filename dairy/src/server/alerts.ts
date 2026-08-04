@@ -33,6 +33,7 @@ import * as s from "@/db/schema";
 import type { Db } from "@/db";
 import {
   actionError,
+  RefusedError,
   actionOk,
   assertOwned,
   can,
@@ -724,11 +725,11 @@ export async function resolveAlert(
   // Deliberately the same message as "not found": which of the two it was is
   // not information this caller is entitled to.
   if (!kindIsVisibleTo(session.role, existing!.kind)) {
-    throw new Error("That alert was not found.");
+    throw new RefusedError("That alert was not found.");
   }
 
   if (!(ALERT_OUTCOMES as readonly string[]).includes(outcome)) {
-    throw new Error("Say what happened: done, not needed, wrong, or not yet.");
+    throw new RefusedError("Say what happened: done, not needed, wrong, or not yet.");
   }
 
   // SNOOZED is not a resolution — it moves the deadline to tomorrow and leaves

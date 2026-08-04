@@ -1,4 +1,4 @@
-import { requireCapability } from "@/lib/dal";
+import { requirePageCapability } from "@/lib/dal";
 import { today } from "@/lib/domain/dates";
 import { listAnimalsForHealth, recordCmt } from "@/server/health";
 import { CmtForm } from "@/components/health/forms";
@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
  * screening there is.
  */
 export default async function CmtPage() {
-  const session = await requireCapability("RECORD");
+  const session = await requirePageCapability("RECORD");
   const asOf = today();
   const animals = await listAnimalsForHealth(session, asOf);
   const milking = animals.filter((a) => a.milking);

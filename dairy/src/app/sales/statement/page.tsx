@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireCapability } from "@/lib/dal";
+import { requirePageCapability } from "@/lib/dal";
 import { addDays, endOfMonth, startOfMonth, today } from "@/lib/domain/dates";
 import { kes, num } from "@/lib/money";
 import { formatDay } from "@/server/milk";
@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
  * co-op's statement against the farm's own delivery records, line by line.
  */
 export default async function StatementPage() {
-  const session = await requireCapability("VIEW_MONEY");
+  const session = await requirePageCapability("VIEW_MONEY");
   const lastMonth = startOfMonth(addDays(startOfMonth(today()), -1));
 
   const [customers, memberNo, statements] = await Promise.all([

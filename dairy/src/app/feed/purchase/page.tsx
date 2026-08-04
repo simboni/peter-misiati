@@ -1,4 +1,4 @@
-import { requireCapability } from "@/lib/dal";
+import { requirePageCapability } from "@/lib/dal";
 import { today } from "@/lib/domain/dates";
 import { num } from "@/lib/money";
 import { listFeedItems, recordPurchase } from "@/server/feed";
@@ -8,7 +8,7 @@ import { EmptyState, PageTitle } from "@/components/ui";
 export const dynamic = "force-dynamic";
 
 export default async function PurchasePage() {
-  const session = await requireCapability("MANAGE_MONEY");
+  const session = await requirePageCapability("MANAGE_MONEY");
   const feeds = await listFeedItems(session);
 
   return (

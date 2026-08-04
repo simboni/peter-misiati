@@ -1,4 +1,4 @@
-import { requireCapability } from "@/lib/dal";
+import { requirePageCapability } from "@/lib/dal";
 import { today } from "@/lib/domain/dates";
 import { listAnimalsForHealth, listProducts, recordVaccination } from "@/server/health";
 import { VaccinateForm } from "@/components/health/forms";
@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
  * becomes a carrier). Neither can be undone, so both are refused here.
  */
 export default async function VaccinatePage() {
-  const session = await requireCapability("TREAT");
+  const session = await requirePageCapability("TREAT");
   const asOf = today();
   const [animals, products] = await Promise.all([
     listAnimalsForHealth(session, asOf),

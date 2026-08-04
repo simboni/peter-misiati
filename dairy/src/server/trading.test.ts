@@ -886,7 +886,7 @@ describe("cross-farm access", () => {
     expect(
       (await recordSale(herdsman, { animalId, exitDate: "2026-08-03", priceKes: 100_000 }, db)).ok,
     ).toBe(false);
-    await expect(cullList(herdsman, {}, db)).rejects.toThrow(/permission/i);
+    await expect(cullList(herdsman, {}, db)).rejects.toThrow(/does not include this/i);
     await close();
   });
 });

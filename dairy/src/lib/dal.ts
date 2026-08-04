@@ -70,11 +70,34 @@ export function can(role: Role, capability: Capability): boolean {
 }
 
 export class NotPermittedError extends Error {
-  constructor(capability: Capability) {
-    super(`You do not have permission to do this (${capability}).`);
+  constructor(public readonly capability: Capability) {
+    // No capability name in the message. It means nothing to a herdsman, and
+    // it hands the permission model to anyone who can POST.
+    super("Your work on the farm does not include this. Ask the owner or a manager.");
     this.name = "NotPermittedError";
   }
 }
+
+/**
+ * Who on this farm could do the thing the caller just could not — by role, in
+ * the words the farm uses.
+ */
+export function whoCan(capability: Capability): string {
+  const roles = CAPABILITIES[capability] as readonly Role[];
+  const labels = roles.map((r) => ROLE_LABEL[r]);
+  if (labels.length === 0) return "nobody on this farm";
+  if (labels.length === 1) return labels[0];
+  return `${labels.slice(0, -1).join(", ")} or ${labels.at(-1)}`;
+}
+
+const ROLE_LABEL: Record<Role, string> = {
+  OWNER: "the owner",
+  MANAGER: "a manager",
+  ACCOUNTANT: "the bookkeeper",
+  HERDSMAN: "a herdsman",
+  RIDER: "a rider",
+  VET: "the vet",
+};
 
 /**
  * The standard opening line of every Server Action:
@@ -87,6 +110,31 @@ export class NotPermittedError extends Error {
 export async function requireCapability(capability: Capability): Promise<Session> {
   const session = await verifySession();
   if (!can(session.role, capability)) throw new NotPermittedError(capability);
+  return session;
+}
+
+/**
+ * The same check, for a PAGE rather than a Server Action.
+ *
+ * A Server Action wants the throw: `guard()` turns it into a sentence the form
+ * can show without losing what the user typed. A page has nobody to catch it,
+ * so the throw went to the crash boundary and five screens met a herdsman with
+ *
+ *     This page couldn't load. A server error occurred. [Reload]  ERROR 230055567
+ *
+ * — one button, reloading into the same wall. That is the `rc=6` failure this
+ * product exists to avoid, and it was ours.
+ *
+ * Four people share one phone here. Opening a page your role cannot use is an
+ * ordinary Tuesday, not an error, so it gets a real screen: what this is, that
+ * it is not yours, who can do it, and a way back.
+ */
+export async function requirePageCapability(capability: Capability): Promise<Session> {
+  const session = await verifySession();
+  if (!can(session.role, capability)) {
+    const { forbidden } = await import("next/navigation");
+    forbidden();
+  }
   return session;
 }
 
@@ -112,7 +160,7 @@ export function assertOwned<T extends { farmId: string | null }>(
   if (!row || (row.farmId !== null && row.farmId !== session.farmId)) {
     // Deliberately identical for "missing" and "someone else's" — telling an
     // attacker which one it was leaks the existence of other farms' data.
-    throw new Error(`That ${what} was not found.`);
+    throw new RefusedError(`That ${what} was not found.`);
   }
   return row;
 }
@@ -139,8 +187,65 @@ export async function guard<T>(fn: () => Promise<ActionResult<T>>): Promise<Acti
   try {
     return await fn();
   } catch (err) {
-    if (err && typeof err === "object" && "digest" in err) throw err; // redirect/notFound
-    const message = err instanceof Error ? err.message : "Something went wrong. Try again.";
-    return actionError(message);
+    if (err && typeof err === "object" && "digest" in err) throw err; // redirect/notFound/forbidden
+
+    // A refusal we wrote is meant to be read. Anything else is a fault, and its
+    // message belongs in the log, not on a phone in a milking shed: a raw
+    // Postgres string ("duplicate key value violates unique constraint
+    // milk_one_per_session_uq") told the herdsman nothing, and it arrived in
+    // the same red as a withdrawal warning — so a database constraint looked
+    // exactly like "do not sell this milk".
+    if (err instanceof NotPermittedError) return actionError(err.message);
+    if (err instanceof RefusedError) return actionError(err.message);
+
+    const ref = logFault(err);
+    return actionError(
+      `That did not save. Nothing was changed — try once more. If it keeps happening, quote ${ref}.`,
+    );
   }
+}
+
+/**
+ * A refusal the user is supposed to read: "A calving is already recorded for
+ * Njeri today." Distinct from a fault so that `guard` can tell a sentence we
+ * wrote from a stack trace we did not.
+ */
+export class RefusedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RefusedError";
+  }
+}
+
+/**
+ * Log a fault server-side and hand back a short code the farm can quote.
+ *
+ * Derived from the error rather than random, so the same fault reported by
+ * three people carries the same code and is obviously one problem.
+ */
+function logFault(err: unknown): string {
+  const detail = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+  const ref = faultRef(detail);
+  console.error(
+    JSON.stringify({
+      at: new Date().toISOString(),
+      level: "error",
+      ref,
+      detail,
+      stack: err instanceof Error ? err.stack : undefined,
+    }),
+  );
+  return ref;
+}
+
+const FAULT_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+function faultRef(seed: string): string {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) | 0;
+  let out = "";
+  for (let i = 0; i < 4; i++) {
+    out += FAULT_ALPHABET[Math.abs(h >> (i * 5)) % FAULT_ALPHABET.length];
+  }
+  return `E-${out}`;
 }

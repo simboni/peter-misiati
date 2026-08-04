@@ -295,10 +295,10 @@ describe("nothing counts until a manager approves it", () => {
     const { db, close, session } = await setup("HERDSMAN");
     const rec = await recordExpense(session, { incurredOn: "2026-08-01", category: "FEEDS", amountKes: 1 }, db);
     expect(rec.ok).toBe(false);
-    if (!rec.ok) expect(rec.error).toContain("VIEW_MONEY");
+    if (!rec.ok) expect(rec.error).toMatch(/does not include this/i);
     expect((await approveExpense(session, newId(), db)).ok).toBe(false);
-    await expect(monthToDate(session, "2026-08-31", db)).rejects.toThrow(/VIEW_MONEY/);
-    await expect(approvalQueue(session, db)).rejects.toThrow(/APPROVE/);
+    await expect(monthToDate(session, "2026-08-31", db)).rejects.toThrow(/does not include this/i);
+    await expect(approvalQueue(session, db)).rejects.toThrow(/does not include this/i);
     await close();
   });
 
@@ -309,8 +309,8 @@ describe("nothing counts until a manager approves it", () => {
     if (!rec.ok) return;
     const approved = await approveExpense(session, rec.data.id, db);
     expect(approved.ok).toBe(false);
-    if (!approved.ok) expect(approved.error).toContain("APPROVE");
-    await expect(approvalQueue(session, db)).rejects.toThrow(/APPROVE/);
+    if (!approved.ok) expect(approved.error).toMatch(/does not include this/i);
+    await expect(approvalQueue(session, db)).rejects.toThrow(/does not include this/i);
     // ...and the row is still pending, so no report moved.
     expect((await monthToDate(session, "2026-08-31", db)).expenseKes).toBe(0);
     await close();

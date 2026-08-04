@@ -364,7 +364,7 @@ describe("moneyThisMonth", () => {
   it("refuses a herdsman — money is not his to see", async () => {
     await seedAugust();
     await expect(moneyThisMonth(session({ role: "HERDSMAN" }), MONTH, db)).rejects.toThrow(
-      /permission/i,
+      /does not include this/i,
     );
   });
 
@@ -436,7 +436,7 @@ describe("cowLeagueTable", () => {
   it("refuses a herdsman and shows another farm nothing", async () => {
     await seedAugust();
     await expect(cowLeagueTable(session({ role: "HERDSMAN" }), M1, M15, db)).rejects.toThrow(
-      /permission/i,
+      /does not include this/i,
     );
     const other = await cowLeagueTable(otherFarmSession(), M1, M15, db);
     expect(other.rows).toHaveLength(0);
@@ -846,7 +846,7 @@ describe("coopReconciliation", () => {
   it("refuses a herdsman and shows another farm no statements", async () => {
     await seedAugust();
     await expect(coopReconciliation(session({ role: "HERDSMAN" }), {}, db)).rejects.toThrow(
-      /permission/i,
+      /does not include this/i,
     );
     const other = await coopReconciliation(otherFarmSession(), {}, db);
     expect(other.statements).toHaveLength(0);
@@ -880,7 +880,7 @@ describe("payrollReport", () => {
 
   it("refuses a herdsman", async () => {
     await expect(payrollReport(session({ role: "HERDSMAN" }), MONTH, db)).rejects.toThrow(
-      /permission/i,
+      /does not include this/i,
     );
   });
 });
@@ -1128,7 +1128,7 @@ describe("full data export — you can leave whenever you want", () => {
   });
 
   it("refuses a herdsman the whole-farm dump", async () => {
-    await expect(fullDataExport(session({ role: "HERDSMAN" }), db)).rejects.toThrow(/permission/i);
+    await expect(fullDataExport(session({ role: "HERDSMAN" }), db)).rejects.toThrow(/does not include this/i);
   });
 
   it("flattens dates, arrays and json so the CSV is readable", async () => {

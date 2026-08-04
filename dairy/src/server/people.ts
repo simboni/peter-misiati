@@ -21,6 +21,7 @@ import * as s from "@/db/schema";
 import type { Db } from "@/db";
 import {
   actionError,
+  RefusedError,
   actionOk,
   assertOwned,
   can,
@@ -573,7 +574,7 @@ export function normaliseMonth(month: string): ISODate {
   const v = month.trim();
   if (/^\d{4}-\d{2}$/.test(v)) return `${v}-01`;
   if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return startOfMonth(v);
-  throw new Error("Give the month as 2026-08.");
+  throw new RefusedError("Give the month as 2026-08.");
 }
 
 /**
