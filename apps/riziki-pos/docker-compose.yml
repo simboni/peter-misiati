@@ -1,0 +1,37 @@
+# Riziki POS — the whole deployment.
+#
+#   docker compose up -d          start (or restart after an update)
+#   docker compose logs -f pos    watch the app
+#
+# `caddy` terminates HTTPS on the shop's domain. HTTPS is not cosmetic here:
+# the offline mode (service worker) and "install to home screen" only work on
+# a secure origin, and offline is the feature the counter phone depends on.
+# Put the real domain in deploy/Caddyfile before starting.
+
+services:
+  pos:
+    build: .
+    restart: unless-stopped
+    expose:
+      - "3100"
+    volumes:
+      # Everything the shop owns is in this directory. Losing it is losing the
+      # business records — see DEPLOY.md for the backup cron.
+      - ./data:/app/data
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - pos
+
+volumes:
+  caddy-data:
+  caddy-config:

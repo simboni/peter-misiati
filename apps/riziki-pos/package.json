@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start --port 3100",
     "seed": "node --experimental-strip-types scripts/seed.ts",
+    "backup": "node --experimental-strip-types scripts/backup.ts",
     "test": "node --experimental-strip-types --test tests/*.test.ts"
   },
   "dependencies": {
