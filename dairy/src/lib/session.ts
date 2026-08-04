@@ -1,6 +1,7 @@
 import "server-only";
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
+import { SERVER_IDLE_SECONDS } from "./idle";
 import { scrypt, randomBytes, timingSafeEqual, type ScryptOptions } from "node:crypto";
 import type { Role } from "@/db/schema";
 
@@ -92,16 +93,12 @@ export interface SessionPayload {
   fullName: string;
   language: "en" | "sw";
   expiresAt: number;
+  /** When the server last saw a request on this session. Rolls forward. */
+  lastSeenAt?: number;
 }
 
 const COOKIE = "dairy_session";
 
-/**
- * Deliberately short. The picker is the home state — after a save, or ~60
- * seconds idle, the phone should be back on "who are you?" so the next
- * herdsman's entry is not attributed to the last one.
- */
-export const IDLE_TIMEOUT_SECONDS = 60;
 const SESSION_SECONDS = 60 * 60 * 12;
 
 function secret(): Uint8Array {
@@ -134,8 +131,13 @@ export async function decrypt(token?: string): Promise<SessionPayload | null> {
 }
 
 export async function createSession(payload: Omit<SessionPayload, "expiresAt">): Promise<void> {
-  const expiresAt = Date.now() + SESSION_SECONDS * 1000;
-  const token = await encrypt({ ...payload, expiresAt });
+  const now = Date.now();
+  const expiresAt = now + SESSION_SECONDS * 1000;
+  const token = await encrypt({ ...payload, expiresAt, lastSeenAt: now });
+  await writeCookie(token, expiresAt);
+}
+
+async function writeCookie(token: string, expiresAt: number): Promise<void> {
   const jar = await cookies();
   jar.set(COOKIE, token, {
     httpOnly: true,
@@ -144,6 +146,20 @@ export async function createSession(payload: Omit<SessionPayload, "expiresAt">):
     path: "/",
     expires: new Date(expiresAt),
   });
+}
+
+/**
+ * Roll the last-seen stamp forward. Called from the DAL on every verified
+ * request. Deliberately cheap and deliberately quiet: it re-signs the same
+ * payload, so nothing about who the user is can change here.
+ */
+export async function touchSession(session: SessionPayload): Promise<void> {
+  const now = Date.now();
+  // Re-signing on every single request would be a JWT sign per page view for
+  // no benefit. Only write when the stamp is meaningfully stale.
+  if (session.lastSeenAt != null && now - session.lastSeenAt < 60_000) return;
+  const token = await encrypt({ ...session, lastSeenAt: now });
+  await writeCookie(token, session.expiresAt);
 }
 
 export async function destroySession(): Promise<void> {

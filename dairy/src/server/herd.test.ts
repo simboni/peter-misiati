@@ -28,6 +28,11 @@ vi.mock("@/lib/session", () => ({
   readSessionCookie: async () => H.session,
   hashPin: async (pin: string) => `test$${pin}`,
   verifyPin: async () => true,
+  // The DAL rolls the idle stamp forward on every verified request. Vitest
+  // throws on ACCESS of an export a mock does not define, so leaving these out
+  // fails the request rather than the assertion, from inside `guard`.
+  touchSession: async () => {},
+  destroySession: async () => {},
 }));
 
 const {

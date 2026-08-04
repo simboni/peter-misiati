@@ -114,6 +114,41 @@ export async function recordSomething(
 Non-negotiable in that sequence: **capability first, ownership before write,
 `farmId` in every `where`.**
 
+### A module with actions in it must never end with a bare re-export
+
+```ts
+export { COLOSTRUM_DAYS };          // ← this disables EVERY action in the file
+export { COLOSTRUM_DAYS } from "@/lib/domain/health";   // fine (has a `from`)
+```
+
+A bare `export { … };` — re-exporting a binding the module imported — makes the
+Turbopack server-action transform skip the whole module. No error, no warning,
+no lint. The inline `"use server"` functions simply never get action IDs, and
+every POST to them returns `404 Server Action not found` at runtime.
+
+This cost us the product. `milk.ts`, `sales.ts` and `reports.ts` each had one
+such line, so the farm could not record a milking or sell a litre. It compiled,
+it type-checked, and all 1,185 tests passed, because unit tests call the action
+functions directly and never go through the dispatcher.
+
+`src/server/actions-registered.test.ts` reads the source and fails if the
+pattern returns. If you want to know whether a route's actions are really
+registered, build and read the count:
+
+```
+.next/server/app/<route>/page/server-reference-manifest.json
+```
+
+Zero on a page that has a form is the bug, not an empty file.
+
+### Verify in a browser, not only in vitest
+
+Three of the worst defects found in this codebase were invisible to 1,185
+passing tests: actions that 404'd, five screens that 500'd at a herdsman with a
+raw error code, and a printed sheet that marked a cow ⛔ and then said "no cow
+is under withdrawal today" at the foot of the same page. Unit tests call
+functions; users open pages. Open the page.
+
 ## Conventions
 
 - **Money and quantities are strings on the way in and out of the database.**

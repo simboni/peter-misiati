@@ -11,7 +11,13 @@ export const dynamic = "force-dynamic";
  * Photos first, names second, no typing until a face has been tapped. This is
  * the screen four herdsmen share on one phone through a 5am milking.
  */
-export default async function LoginPage() {
+export default async function LoginPage({
+  searchParams,
+}: {
+  // Next 16: searchParams is always a promise.
+  searchParams: Promise<{ idle?: string }>;
+}) {
+  const { idle } = await searchParams;
   // Single-tenant sign-in for now: one farm per deployment. The schema is
   // multi-tenant throughout, so adding a farm chooser here is the only change
   // needed when the second customer arrives.
@@ -43,6 +49,12 @@ export default async function LoginPage() {
       <header className="mb-6">
         <p className="font-mono text-xs uppercase tracking-widest text-brass">{theFarm.name}</p>
         <h1 className="mt-1 text-2xl font-semibold">Who are you?</h1>
+        {idle ? (
+          <p className="mt-2 rounded-md border border-line bg-paper p-3 text-sm text-ink-2">
+            The phone was put down for a while, so it came back here. Nothing you saved was
+            lost — tap your face and carry on.
+          </p>
+        ) : null}
       </header>
       <PinPad staff={staff.filter((u) => u.id)} />
     </main>

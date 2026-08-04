@@ -1,7 +1,8 @@
 import "server-only";
 import { cache } from "react";
 import { redirect } from "next/navigation";
-import { readSessionCookie, type SessionPayload } from "./session";
+import { destroySession, readSessionCookie, touchSession, type SessionPayload } from "./session";
+import { isServerIdle } from "./idle";
 import type { Role } from "@/db/schema";
 
 /**
@@ -23,6 +24,15 @@ export type Session = SessionPayload;
 export const verifySession = cache(async (): Promise<Session> => {
   const session = await readSessionCookie();
   if (!session?.userId) redirect("/login");
+  // A phone left face-up on a bench with the app open is not still signed in
+  // an hour later. The device-side watcher handles the 60-second case, where
+  // it can see that nobody is touching the screen; this is the backstop for a
+  // tab that simply stopped being used.
+  if (isServerIdle(session)) {
+    await destroySession();
+    redirect("/login?idle=1");
+  }
+  await touchSession(session);
   return session;
 });
 
