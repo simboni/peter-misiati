@@ -97,6 +97,7 @@ export interface DayTotals {
   expenseCashCents: number;
   expenseMpesaCents: number;
   /** What should physically be in the drawer: cash taken minus cash paid out. */
+  floatCents: number;
   expectedCashCents: number;
 }
 
@@ -137,6 +138,11 @@ export function dayTotals(date: string = businessDate()): DayTotals {
   const cashIn = tenders?.cash ?? 0;
   const expenseCash = expenses?.cash ?? 0;
 
+  const floatRow = get<{ value: string }>(
+    `SELECT value FROM settings WHERE key = 'cash_float_cents'`,
+  );
+  const floatCents = Number(floatRow?.value ?? 0) || 0;
+
   return {
     date,
     salesCents: sales?.total ?? 0,
@@ -146,7 +152,12 @@ export function dayTotals(date: string = businessDate()): DayTotals {
     creditCents: tenders?.credit ?? 0,
     expenseCashCents: expenseCash,
     expenseMpesaCents: expenses?.mpesa ?? 0,
-    expectedCashCents: cashIn - expenseCash,
+    floatCents,
+    // The float is money that was in the drawer before trading started, so the
+    // count at close should find it on top of the day's takings. Without it a
+    // shop that keeps change would read as over by the same amount every night,
+    // and a real shortage would hide inside that noise.
+    expectedCashCents: floatCents + cashIn - expenseCash,
   };
 }
 

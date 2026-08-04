@@ -346,6 +346,14 @@ CREATE TABLE IF NOT EXISTS day_closes (
   closed_at         TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Small key/value settings: business name, KRA PIN, and the cash float the day
+-- close expects to find in the drawer.
+CREATE TABLE IF NOT EXISTS settings (
+  key        TEXT PRIMARY KEY,
+  value      TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS sessions (
   token      TEXT PRIMARY KEY,
   user_id    INTEGER NOT NULL REFERENCES users(id),

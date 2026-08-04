@@ -117,6 +117,9 @@ export default async function DayClosePage() {
       <SectionLabel>Expected in the drawer</SectionLabel>
       <Card>
         <dl className="space-y-1.5 text-sm">
+          {totals.floatCents > 0 ? (
+            <Line label="Float you started with" value={formatKes(totals.floatCents)} />
+          ) : null}
           <Line label="Cash taken" value={formatKes(totals.cashInCents)} />
           <Line label="Less cash expenses" value={`− ${formatKes(totals.expenseCashCents)}`} />
           <div className="mt-2 flex items-baseline justify-between gap-3 border-t border-line pt-2.5">
