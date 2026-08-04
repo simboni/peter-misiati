@@ -307,6 +307,14 @@ export default function SellClient({
   const outstandingCents = totalCents - paidCents;
 
   const customer = customers.find((c) => c.id === customerId) ?? null;
+
+  // Selling more than is on the shelf is allowed — the customer is holding the
+  // goods — but it must not be silent, or the stock count and the profit report
+  // quietly drift negative. Finished/pack items have a real count; "other" does
+  // not, so it is left alone.
+  const oversold = lines.filter(
+    (x) => x.item.kind !== "other" && x.item.sizeMilli > 0 && x.line.units * x.item.sizeMilli > x.item.qtyMilli,
+  );
   const mpesaIncomplete = tenders.some((t) => t.method === "mpesa" && !t.mpesaCode.trim());
   const needsCustomer = outstandingCents > 0 || tenders.some((t) => t.method === "credit");
 
@@ -679,6 +687,15 @@ export default function SellClient({
               />
             ))}
           </div>
+          {oversold.length ? (
+            <div className="mt-3">
+              <Alert tone="warn">
+                Selling more {oversold.length === 1 ? oversold[0].item.name : "of some items"} than the
+                shelf shows. The sale is fine — the count will just go negative until you do a stock
+                take.
+              </Alert>
+            </div>
+          ) : null}
           <div className="mt-4 flex items-center justify-between border-t border-line pt-3">
             <span className="text-sm font-bold uppercase tracking-[0.1em] text-muted">Total</span>
             <span className="text-2xl font-extrabold tnum">{formatKes(totalCents)}</span>

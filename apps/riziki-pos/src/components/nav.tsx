@@ -68,6 +68,7 @@ export function MoreMenu({ isOwner }: { isOwner: boolean }) {
     { href: "/day-close", label: "Day close", owner: false },
     { href: "/expenses", label: "Expenses", owner: false },
     { href: "/formulas", label: "Formulas", owner: true },
+    { href: "/items", label: "Products & prices", owner: true },
     // Repack and stock take both read raw-reagent quantities off the shelf.
     // Those numbers are how a formula could be reverse-engineered, so both are
     // owner-only, alongside the rest of raw-chemical handling.
