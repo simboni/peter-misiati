@@ -23,7 +23,9 @@ import { formatKes, formatDate } from "./units.ts";
  */
 export const BUSINESS = {
   name: "Riziki Industrial Chemicals",
-  address: process.env.RIZIKI_ADDRESS ?? "Nairobi, Kenya",
+  address:
+    process.env.RIZIKI_ADDRESS ??
+    "Obedi House, Ground Floor, Room A26 — Ronald Ngara Street, Nairobi CBD",
   phone: process.env.RIZIKI_PHONE ?? "",
   kraPin: process.env.RIZIKI_KRA_PIN ?? "",
 };
@@ -46,7 +48,7 @@ export function getBusiness(): { name: string; address: string; phone: string; k
   };
   return {
     name: s("shop_name") || BUSINESS.name,
-    address: BUSINESS.address,
+    address: s("shop_address") || BUSINESS.address,
     phone: s("shop_phone") || BUSINESS.phone,
     kraPin: s("shop_kra_pin") || BUSINESS.kraPin,
   };

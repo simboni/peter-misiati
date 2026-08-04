@@ -13,7 +13,12 @@ export function SiteFooter() {
             <h2 className="text-sm font-extrabold tracking-tight">{BUSINESS.name}</h2>
             <p className="mt-2 text-sm leading-relaxed text-muted">
               {BUSINESS.tagline}. Raw chemicals in bulk and small packs, finished cleaning
-              products and measured mix kits — {BUSINESS.city}, {BUSINESS.country}.
+              products and measured mix kits.
+            </p>
+            <p className="mt-2 text-sm leading-relaxed text-muted">
+              {BUSINESS.address.building}, {BUSINESS.address.street},{" "}
+              {BUSINESS.address.area} · {BUSINESS.hours.days} {BUSINESS.hours.open} –{" "}
+              {BUSINESS.hours.close}
             </p>
           </div>
 

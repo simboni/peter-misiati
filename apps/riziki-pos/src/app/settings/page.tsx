@@ -100,6 +100,7 @@ async function saveShop(formData: FormData): Promise<void> {
   "use server";
   const by = await guard();
   setSetting("shop_name", String(formData.get("shop_name") ?? ""), by);
+  setSetting("shop_address", String(formData.get("shop_address") ?? ""), by);
   setSetting("shop_phone", String(formData.get("shop_phone") ?? ""), by);
   setSetting("shop_kra_pin", String(formData.get("shop_kra_pin") ?? ""), by);
   const float = Number(formData.get("cash_float") ?? 0);
@@ -143,6 +144,10 @@ export default async function SettingsPage(props: {
   const users = listUsers();
   const demo = usersOnDemoPin();
   const shopName = getSetting("shop_name", "Riziki Industrial Chemicals");
+  const shopAddress = getSetting(
+    "shop_address",
+    "Obedi House, Ground Floor, Room A26 — Ronald Ngara Street, Nairobi CBD",
+  );
   const shopPhone = getSetting("shop_phone", "+254 723 496 434");
   const kraPin = getSetting("shop_kra_pin", "");
   const floatCents = Number(getSetting("cash_float_cents", "0")) || 0;
@@ -282,6 +287,9 @@ export default async function SettingsPage(props: {
         <form action={saveShop} className="space-y-3">
           <Field label="Business name" hint="Printed at the top of every invoice.">
             <input className={inputClass} name="shop_name" defaultValue={shopName} />
+          </Field>
+          <Field label="Address" hint="Printed on invoices and customer statements.">
+            <input className={inputClass} name="shop_address" defaultValue={shopAddress} />
           </Field>
           <Field label="Phone">
             <input className={inputClass} name="shop_phone" defaultValue={shopPhone} />

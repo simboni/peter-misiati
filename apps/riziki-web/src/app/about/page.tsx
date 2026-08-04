@@ -7,7 +7,6 @@ import {
   PhoneIcon,
   Section,
   SectionHeading,
-  ToConfirm,
   WhatsAppIcon,
 } from "@/components/ui";
 import { openGraphFor } from "@/lib/seo";
@@ -162,30 +161,55 @@ export default function AboutPage() {
         </ul>
       </Section>
 
-      {/* Everything below this line is the owner's to fill in. Marked, not guessed. */}
       <Section tone="wash">
         <SectionHeading
-          eyebrow="For the client"
-          title="Details to be confirmed"
-          lead="These are placeholders. They will be replaced with the real details before the site goes live, and nothing has been invented in the meantime."
+          eyebrow="Visit us"
+          title="The shop itself"
+          lead="Drums of Ungerol by the counter, the scale that weighs your order out, and shelves from bulk sacks down to 125 g packs — on Ronald Ngara Street in the CBD."
         />
-        <div className="mt-6 grid gap-4 sm:grid-cols-3">
+        <div className="mt-8 grid gap-5 sm:grid-cols-2">
+          <figure className="overflow-hidden rounded-2xl border border-line bg-surface">
+            <img
+              src="/photos/shop-counter.jpeg"
+              alt="The Riziki counter: yellow Ungerol drums, the weighing scale, and shelves of repacked chemicals behind"
+              className="aspect-[3/4] w-full object-cover"
+              loading="lazy"
+              width={960}
+              height={1280}
+            />
+            <figcaption className="p-3 text-xs text-muted">
+              The counter — your order is weighed out here while you wait.
+            </figcaption>
+          </figure>
+          <figure className="overflow-hidden rounded-2xl border border-line bg-surface">
+            <img
+              src="/photos/shop-store.jpeg"
+              alt="Inside the shop: bulk drums, sacks of salt, and shelves of bottled finished products"
+              className="aspect-[3/4] w-full object-cover"
+              loading="lazy"
+              width={960}
+              height={1280}
+            />
+            <figcaption className="p-3 text-xs text-muted">
+              Bulk in the store, small packs on the shelf — the same chemical either way.
+            </figcaption>
+          </figure>
+        </div>
+        <div className="mt-6 grid gap-4 sm:grid-cols-2">
           <Card>
-            <h3 className="text-sm font-extrabold">Physical address</h3>
-            <p className="mt-2 text-sm text-muted">
-              <ToConfirm>Shop address in Nairobi — to be supplied</ToConfirm>
+            <h3 className="text-sm font-extrabold">Where</h3>
+            <p className="mt-2 text-sm leading-relaxed text-muted">
+              {BUSINESS.address.building}
+              <br />
+              {BUSINESS.address.street}, {BUSINESS.address.area}
             </p>
           </Card>
           <Card>
-            <h3 className="text-sm font-extrabold">Opening hours</h3>
-            <p className="mt-2 text-sm text-muted">
-              <ToConfirm>Opening hours — to be confirmed</ToConfirm>
-            </p>
-          </Card>
-          <Card>
-            <h3 className="text-sm font-extrabold">Photographs</h3>
-            <p className="mt-2 text-sm text-muted">
-              <ToConfirm>Shop front and shelf photos — to be supplied</ToConfirm>
+            <h3 className="text-sm font-extrabold">When</h3>
+            <p className="mt-2 text-sm leading-relaxed text-muted">
+              {BUSINESS.hours.days}, {BUSINESS.hours.open} – {BUSINESS.hours.close}.
+              <br />
+              Closed {BUSINESS.hours.closedOn}.
             </p>
           </Card>
         </div>

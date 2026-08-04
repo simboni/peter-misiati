@@ -5,7 +5,6 @@ import {
   Container,
   PhoneIcon,
   Section,
-  ToConfirm,
   WhatsAppIcon,
 } from "@/components/ui";
 import { openGraphFor } from "@/lib/seo";
@@ -95,18 +94,14 @@ export default function ContactPage() {
               <h2 className="text-xs font-bold uppercase tracking-[0.16em] text-muted">
                 Where to find us
               </h2>
-              <p className="mt-2 text-base font-extrabold">
-                {BUSINESS.city}, {BUSINESS.country}
-              </p>
-              {/* Not guessed. A wrong address sends a customer across Nairobi for nothing. */}
-              <p className="mt-2 text-sm text-muted">
-                <ToConfirm>
-                  Street address and directions — to be supplied by Riziki before launch
-                </ToConfirm>
+              <p className="mt-2 text-base font-extrabold">{BUSINESS.address.building}</p>
+              <p className="text-sm font-semibold text-ink">
+                {BUSINESS.address.street}, {BUSINESS.address.area}
               </p>
               <p className="mt-3 text-sm leading-relaxed text-muted">
-                Call ahead and we will direct you to the shop, and have your order weighed out
-                by the time you arrive.
+                Come to Ronald Ngara Street in the CBD and look for Obedi House — we are on the
+                ground floor, room A26. Call if you get turned around and we will direct you,
+                and have your order weighed out by the time you arrive.
               </p>
             </Card>
 
@@ -114,27 +109,28 @@ export default function ContactPage() {
               <h2 className="text-xs font-bold uppercase tracking-[0.16em] text-muted">
                 Opening hours
               </h2>
-              <p className="mt-2 text-sm text-muted">
-                <ToConfirm>
-                  Opening hours — placeholder, to be confirmed by Riziki
-                </ToConfirm>
-              </p>
               <dl className="mt-3 space-y-1 text-sm text-muted">
                 <div className="flex justify-between gap-4">
-                  <dt>Monday – Friday</dt>
-                  <dd className="font-semibold">To be confirmed</dd>
+                  <dt>{BUSINESS.hours.days}</dt>
+                  <dd className="font-semibold text-ink">
+                    {BUSINESS.hours.open} – {BUSINESS.hours.close}
+                  </dd>
                 </div>
                 <div className="flex justify-between gap-4">
-                  <dt>Saturday</dt>
-                  <dd className="font-semibold">To be confirmed</dd>
-                </div>
-                <div className="flex justify-between gap-4">
-                  <dt>Sunday &amp; public holidays</dt>
-                  <dd className="font-semibold">To be confirmed</dd>
+                  <dt>{BUSINESS.hours.closedOn}</dt>
+                  <dd className="font-semibold">Closed</dd>
                 </div>
               </dl>
-              <p className="mt-3 text-sm leading-relaxed text-muted">
-                Until these are confirmed, please call before travelling.
+            </Card>
+
+            <Card>
+              <h2 className="text-xs font-bold uppercase tracking-[0.16em] text-muted">
+                Paying at the shop
+              </h2>
+              <p className="mt-2 text-sm leading-relaxed text-muted">
+                Cash, or Lipa na M-Pesa — Buy Goods till{" "}
+                <strong className="text-ink">{BUSINESS.mpesaTill}</strong>, the same till posted
+                at the counter.
               </p>
             </Card>
           </div>
