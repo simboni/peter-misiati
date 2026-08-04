@@ -717,6 +717,61 @@ export function listBatches(limit = 15, withCost = false): BatchRow[] {
   );
 }
 
+/**
+ * Void a batch: put every kilo it moved back where it came from.
+ *
+ * The ledger is append-only, so a void is not an erasure — it is a fresh set of
+ * equal-and-opposite movements, each pointing back at the batch, plus the
+ * status flag. The original mistake stays visible, which is the point: "we
+ * mixed 100 L when we meant 10 L, and here is the correction" is a story the
+ * stock take can verify. Deleting rows would just be a smaller lie.
+ *
+ * What this deliberately does NOT do is rewind the finished item's weighted
+ * average cost. Sales may have happened since the yield was booked, and
+ * un-averaging a number that later sales already consumed would fabricate
+ * precision. The next real batch or purchase re-averages it; the audit line
+ * says so.
+ */
+export function voidBatch(batchId: number, userId: number, reason: string): void {
+  const why = reason.trim();
+  if (!why) throw new Error("Say why the batch is being voided — the record keeps the reason.");
+
+  tx(() => {
+    const batch = get<{ id: number; batch_no: string; status: string }>(
+      `SELECT id, batch_no, status FROM batches WHERE id = ?`,
+      batchId,
+    );
+    if (!batch) throw new Error("That batch no longer exists.");
+    if (batch.status !== "completed") throw new Error("That batch is already voided.");
+
+    const moves = all<{ item_id: number; delta_milli: number }>(
+      `SELECT item_id, delta_milli FROM stock_movements
+        WHERE ref_type = 'batch' AND ref_id = ?`,
+      batchId,
+    );
+    for (const m of moves) {
+      postMovement({
+        itemId: m.item_id,
+        deltaMilli: -m.delta_milli,
+        reason: "adjustment",
+        refType: "batch_void",
+        refId: batchId,
+        userId,
+        note: `void ${batch.batch_no}: ${why}`,
+      });
+    }
+
+    run(`UPDATE batches SET status = 'voided' WHERE id = ?`, batchId);
+    audit(
+      userId,
+      "batch_void",
+      "batch",
+      batchId,
+      `${batch.batch_no} · ${moves.length} movements reversed · ${why} · costs not re-averaged`,
+    );
+  });
+}
+
 /** Batches that have been mixed but whose yield has not been measured yet. */
 export function pendingYieldBatches(): BatchRow[] {
   return all<BatchRow>(

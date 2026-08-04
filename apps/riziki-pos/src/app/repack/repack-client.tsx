@@ -28,11 +28,17 @@ export function RepackClient({
   recent,
   owner,
   action,
+  voidAction,
+  voidNotice,
+  voidError,
 }: {
   options: BulkOption[];
   recent: RecentRepack[];
   owner: boolean;
   action: (state: RepackState, formData: FormData) => Promise<RepackState>;
+  voidAction: (formData: FormData) => Promise<void>;
+  voidNotice?: string;
+  voidError?: string;
 }) {
   const [state, formAction, pending] = useActionState(action, INITIAL);
 
@@ -82,6 +88,8 @@ export function RepackClient({
 
       {state.error ? <Alert tone="bad">{state.error}</Alert> : null}
       {state.ok ? <Alert tone="good">{state.ok}</Alert> : null}
+      {voidError ? <Alert tone="bad">{voidError}</Alert> : null}
+      {voidNotice ? <Alert tone="good">{voidNotice}</Alert> : null}
 
       {!options.length ? (
         <Card>
@@ -200,23 +208,55 @@ export function RepackClient({
           <SectionLabel>Recent repacks</SectionLabel>
           <Card className="space-y-2.5">
             {recent.map((r) => (
-              <div key={r.id} className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-semibold">{r.from_name}</div>
-                  <div className="text-[11px] text-muted">
-                    {formatDateTime(r.at)}
-                    {r.user_name ? ` · ${r.user_name}` : ""}
+              <div key={r.id} className={r.status === "voided" ? "opacity-60" : ""}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold">
+                      {r.from_name}
+                      {r.status === "voided" ? (
+                        <span className="ml-1.5 text-[11px] font-bold text-bad">voided</span>
+                      ) : null}
+                    </div>
+                    <div className="text-[11px] text-muted">
+                      {formatDateTime(r.at)}
+                      {r.user_name ? ` · ${r.user_name}` : ""}
+                    </div>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <div className="text-xs tnum">
+                      {formatQty(r.in_milli, r.unit)} → {formatQty(r.out_milli, r.unit)}
+                    </div>
+                    <div className="text-[11px] text-muted tnum">
+                      loss {formatQty(r.loss_milli, r.unit)} (
+                      {r.in_milli > 0 ? ((r.loss_milli / r.in_milli) * 100).toFixed(2) : "0.00"}%)
+                    </div>
                   </div>
                 </div>
-                <div className="shrink-0 text-right">
-                  <div className="text-xs tnum">
-                    {formatQty(r.in_milli, r.unit)} → {formatQty(r.out_milli, r.unit)}
-                  </div>
-                  <div className="text-[11px] text-muted tnum">
-                    loss {formatQty(r.loss_milli, r.unit)} (
-                    {r.in_milli > 0 ? ((r.loss_milli / r.in_milli) * 100).toFixed(2) : "0.00"}%)
-                  </div>
-                </div>
+                {r.status === "completed" ? (
+                  <details className="mt-1">
+                    <summary className="cursor-pointer text-[11px] font-bold text-bad">
+                      Void this repack
+                    </summary>
+                    <form action={voidAction} className="mt-1.5 flex items-center gap-1.5">
+                      <input type="hidden" name="repackId" value={r.id} />
+                      <input
+                        className={`${inputClass} !py-1.5 text-xs`}
+                        name="reason"
+                        placeholder="Why? e.g. wrong drum picked"
+                        required
+                      />
+                      <button
+                        type="submit"
+                        className="shrink-0 rounded-lg bg-bad px-2.5 py-1.5 text-[11px] font-bold text-white"
+                      >
+                        Void
+                      </button>
+                    </form>
+                    <p className="mt-1 text-[11px] text-muted">
+                      Puts the bulk back and takes the packs off the shelf again.
+                    </p>
+                  </details>
+                ) : null}
               </div>
             ))}
           </Card>

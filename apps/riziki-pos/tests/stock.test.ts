@@ -19,6 +19,7 @@ const { get, all, postMovement, stockOf } = await import("../src/lib/db.ts");
 const { seed } = await import("../src/lib/seed.ts");
 const {
   performRepack,
+  voidRepack,
   planRepack,
   performStocktake,
   planStocktake,
@@ -295,4 +296,41 @@ test("repack options only offer bulk that has somewhere to go", () => {
   assert.equal(ungerol?.packs.length, 5);
   // Blue Colour has no pack sizes, so it must not appear.
   assert.ok(!options.some((o) => o.name.startsWith("Blue Colour")));
+});
+
+// ------------------------------------------------------------- (f) voiding
+
+test("voiding a repack puts the bulk back, removes the packs, and reverses the loss", () => {
+  const bag = itemId("Salt — 50 kg bag");
+  const one = itemId("Salt — 1 kg");
+
+  const bagBefore = stockOf(bag);
+  const oneBefore = stockOf(one);
+
+  // 49 x 1 kg from a 50 kg bag: 1 kg booked as loss.
+  const result = performRepack({
+    fromItemId: bag,
+    bulkUnits: 1,
+    lines: [{ itemId: one, units: 49 }],
+    userId: OWNER,
+  });
+  assert.equal(result.lossMilli, 1_000);
+
+  voidRepack(result.repackId, OWNER, "wrong bag scanned");
+
+  assert.equal(stockOf(bag), bagBefore, "bulk restored, loss included");
+  assert.equal(stockOf(one), oneBefore, "packs removed again");
+
+  const reversals = all<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM stock_movements WHERE ref_type = 'repack_void' AND ref_id = ?`,
+    result.repackId,
+  );
+  assert.equal(reversals[0].n, 3, "out + in + loss all reversed");
+
+  assert.equal(
+    get<{ status: string }>(`SELECT status FROM repacks WHERE id = ?`, result.repackId)!.status,
+    "voided",
+  );
+  assert.throws(() => voidRepack(result.repackId, OWNER, "again"), /already voided/i);
+  assert.throws(() => voidRepack(result.repackId, OWNER, " "), /why/i);
 });

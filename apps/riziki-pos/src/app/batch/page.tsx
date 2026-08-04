@@ -11,6 +11,7 @@ import {
   newBatchNo,
   runBatch,
   recordYield,
+  voidBatch,
   outputItemsFor,
   pendingYieldBatches,
   listBatches,
@@ -104,13 +105,28 @@ async function recordYieldAction(_prev: YieldState, formData: FormData): Promise
   redirect("/batch?yield=1");
 }
 
+async function voidBatchAction(formData: FormData): Promise<void> {
+  "use server";
+
+  const user = await requireOwner();
+  try {
+    voidBatch(Number(formData.get("batchId")), user.id, String(formData.get("reason") ?? ""));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Could not void the batch.";
+    redirect(`/batch?verr=${encodeURIComponent(message)}`);
+  }
+  revalidatePath("/batch");
+  revalidatePath("/stock");
+  redirect("/batch?voided=1");
+}
+
 // --------------------------------------------------------------------- page
 
 export default async function BatchPage(props: {
-  searchParams: Promise<{ f?: string; l?: string; done?: string; yield?: string }>;
+  searchParams: Promise<{ f?: string; l?: string; done?: string; yield?: string; voided?: string; verr?: string }>;
 }) {
   // `searchParams` is a Promise in Next.js 16.
-  const { f, l, done, yield: yieldDone } = await props.searchParams;
+  const { f, l, done, yield: yieldDone, voided, verr } = await props.searchParams;
 
   const user = await currentUser();
   if (!user) redirect("/login");
@@ -166,6 +182,19 @@ export default async function BatchPage(props: {
       {yieldDone ? (
         <div className="mb-3">
           <Alert tone="good">Yield recorded.</Alert>
+        </div>
+      ) : null}
+      {voided ? (
+        <div className="mb-3">
+          <Alert tone="good">
+            Batch voided. Every chemical it took is back on the shelf, and the correction is in
+            the ledger next to the original.
+          </Alert>
+        </div>
+      ) : null}
+      {verr ? (
+        <div className="mb-3">
+          <Alert tone="bad">{verr}</Alert>
         </div>
       ) : null}
 
@@ -375,12 +404,43 @@ export default async function BatchPage(props: {
             {recent.map((b) => {
               const variance = b.actual_milli === null ? null : b.actual_milli - b.target_milli;
               return (
-                <tr key={b.id}>
+                <tr key={b.id} className={b.status === "voided" ? "opacity-60" : ""}>
                   <Td>
-                    <span className="block font-bold tnum">{b.batch_no}</span>
+                    <span className="block font-bold tnum">
+                      {b.batch_no}
+                      {b.status === "voided" ? (
+                        <span className="ml-1.5 text-[11px] font-bold text-bad">voided</span>
+                      ) : null}
+                    </span>
                     <span className="block text-xs text-muted">
                       {b.formula_name} v{b.version} · {formatDateTime(b.at)}
                     </span>
+                    {b.status === "completed" ? (
+                      <details className="mt-1">
+                        <summary className="cursor-pointer text-[11px] font-bold text-bad">
+                          Void this batch
+                        </summary>
+                        <form action={voidBatchAction} className="mt-1.5 flex items-center gap-1.5">
+                          <input type="hidden" name="batchId" value={b.id} />
+                          <input
+                            className={`${inputClass} !py-1.5 text-xs`}
+                            name="reason"
+                            placeholder="Why? e.g. wrong litres entered"
+                            required
+                          />
+                          <button
+                            type="submit"
+                            className="shrink-0 rounded-lg bg-bad px-2.5 py-1.5 text-[11px] font-bold text-white"
+                          >
+                            Void
+                          </button>
+                        </form>
+                        <p className="mt-1 text-[11px] text-muted">
+                          Puts every chemical back and removes any bottled output. The batch stays
+                          on the record, marked voided.
+                        </p>
+                      </details>
+                    ) : null}
                   </Td>
                   <Td align="right">{formatQty(b.target_milli, "L")}</Td>
                   <Td align="right">

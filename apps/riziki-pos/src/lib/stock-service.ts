@@ -616,13 +616,15 @@ export interface RecentRepack {
   in_milli: number;
   out_milli: number;
   loss_milli: number;
+  status: "completed" | "voided";
   user_name: string | null;
 }
 
 export function recentRepacks(limit = 5): RecentRepack[] {
+  ensureRepackStatus();
   return all<RecentRepack>(
     `SELECT r.id, r.at, i.name AS from_name, i.canonical_unit AS unit,
-            r.in_milli, r.out_milli, r.loss_milli, u.name AS user_name
+            r.in_milli, r.out_milli, r.loss_milli, r.status, u.name AS user_name
        FROM repacks r
        JOIN items i ON i.id = r.from_item_id
        LEFT JOIN users u ON u.id = r.user_id
@@ -630,4 +632,60 @@ export function recentRepacks(limit = 5): RecentRepack[] {
       LIMIT ?`,
     limit,
   );
+}
+
+/**
+ * Databases created before the void feature lack `repacks.status`; `CREATE
+ * TABLE IF NOT EXISTS` never revisits an existing table, so patch it here —
+ * same pattern as the customers KRA column.
+ */
+let repackStatusChecked = false;
+function ensureRepackStatus(): void {
+  if (repackStatusChecked) return;
+  const cols = all<{ name: string }>(`PRAGMA table_info(repacks)`);
+  if (!cols.some((c) => c.name === "status")) {
+    run(`ALTER TABLE repacks ADD COLUMN status TEXT NOT NULL DEFAULT 'completed'`);
+  }
+  repackStatusChecked = true;
+}
+
+/**
+ * Void a repack: equal-and-opposite movements for everything it moved — the
+ * bulk that left, the packs that appeared, the loss that was booked. Same
+ * philosophy as voiding a batch: the ledger is append-only, so the mistake
+ * stays visible and the correction points back at it.
+ */
+export function voidRepack(repackId: number, userId: number, reason: string): void {
+  const why = reason.trim();
+  if (!why) throw new Error("Say why the repack is being voided — the record keeps the reason.");
+
+  ensureRepackStatus();
+  tx(() => {
+    const repack = get<{ id: number; status: string }>(
+      `SELECT id, status FROM repacks WHERE id = ?`,
+      repackId,
+    );
+    if (!repack) throw new Error("That repack no longer exists.");
+    if (repack.status !== "completed") throw new Error("That repack is already voided.");
+
+    const moves = all<{ item_id: number; delta_milli: number }>(
+      `SELECT item_id, delta_milli FROM stock_movements
+        WHERE ref_type = 'repack' AND ref_id = ?`,
+      repackId,
+    );
+    for (const m of moves) {
+      postMovement({
+        itemId: m.item_id,
+        deltaMilli: -m.delta_milli,
+        reason: "adjustment",
+        refType: "repack_void",
+        refId: repackId,
+        userId,
+        note: `void repack #${repackId}: ${why}`,
+      });
+    }
+
+    run(`UPDATE repacks SET status = 'voided' WHERE id = ?`, repackId);
+    audit(userId, "repack_void", "repack", repackId, `${moves.length} movements reversed · ${why}`);
+  });
 }

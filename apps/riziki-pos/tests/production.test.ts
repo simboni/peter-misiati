@@ -34,6 +34,7 @@ const {
   outputItemsFor,
   listBatches,
   pendingYieldBatches,
+  voidBatch,
   allocate,
   StockShortError,
 } = await import("../src/lib/production.ts");
@@ -416,4 +417,57 @@ test("batch numbers increment within a business day and never collide", () => {
 
   const taken = all<{ batch_no: string }>(`SELECT batch_no FROM batches`).map((b) => b.batch_no);
   assert.equal(new Set(taken).size, taken.length, "batch numbers are unique");
+});
+
+// -------------------------------------------------------------- (h) voiding
+
+test("voiding a batch restores every chemical and the booked output, and stays visible", () => {
+  const version = versionOf("Jik");
+  const target = toMilli(20);
+  const scaled = scaleFormula(version.id, target);
+  const before = new Map(scaled.map((l) => [l.chemicalId, chemicalStock(l.chemicalId)]));
+
+  const bottle = get<{ id: number }>(`SELECT id FROM items WHERE name = 'Jik 1 L'`)!;
+  const bottleBefore = ledgerSnapshot()
+    .filter((m) => m.item_id === bottle.id)
+    .reduce((s, m) => s + m.delta_milli, 0);
+
+  const { batchId } = runBatch({ formulaVersionId: version.id, targetMilli: target, userId: OWNER });
+  recordYield({ batchId, actualMilli: toMilli(19), outputItemId: bottle.id, userId: OWNER });
+
+  voidBatch(batchId, OWNER, "meant 2 L, typed 20 L");
+
+  // Every chemical is back where it started.
+  for (const line of scaled) {
+    assert.equal(chemicalStock(line.chemicalId), before.get(line.chemicalId)!,
+      `${line.chemicalName} should be restored`);
+  }
+  // The finished stock the yield created is gone again.
+  const bottleAfter = ledgerSnapshot()
+    .filter((m) => m.item_id === bottle.id)
+    .reduce((s, m) => s + m.delta_milli, 0);
+  assert.equal(bottleAfter, bottleBefore, "booked output is reversed");
+
+  // Nothing was deleted: the reversals are new rows pointing at the batch.
+  const reversals = all<{ delta_milli: number; reason: string }>(
+    `SELECT delta_milli, reason FROM stock_movements WHERE ref_type = 'batch_void' AND ref_id = ?`,
+    batchId,
+  );
+  assert.ok(reversals.length >= scaled.length + 1, "consumes + output all reversed");
+  assert.ok(reversals.every((m) => m.reason === "adjustment"));
+
+  assert.equal(get<{ status: string }>(`SELECT status FROM batches WHERE id = ?`, batchId)!.status, "voided");
+
+  // Voiding twice is refused, as is voiding without a reason.
+  assert.throws(() => voidBatch(batchId, OWNER, "again"), /already voided/i);
+  assert.throws(() => voidBatch(99999, OWNER, "x"), /no longer exists/i);
+});
+
+test("a void without a reason is refused before anything moves", () => {
+  const version = versionOf("Jik");
+  const { batchId } = runBatch({ formulaVersionId: version.id, targetMilli: toMilli(20), userId: OWNER });
+  const before = ledgerSnapshot().length;
+  assert.throws(() => voidBatch(batchId, OWNER, "   "), /why/i);
+  assert.equal(ledgerSnapshot().length, before, "nothing was written");
+  voidBatch(batchId, OWNER, "cleanup"); // leave the fixture tidy
 });

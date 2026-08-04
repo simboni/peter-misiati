@@ -368,3 +368,44 @@ test("price history reports the landed cost of one container over time", () => {
   );
   assert.equal(hist[0].supplier_name, "Test Chemicals Ltd");
 });
+
+// ------------------------------------------------------------- the statement
+
+test("a statement debits sales, credits money received, and closes on balanceOf", () => {
+  const id = newCustomer("Statement Buyer");
+  // 5,000 sale paid 2,000 cash at the till; later 1,000 more by M-Pesa.
+  newSale(id, toCents(5000), toCents(2000), 10);
+  credit.recordPayment({ customerId: id, amountCents: toCents(1000), method: "mpesa", mpesaCode: "STMT01", userId: OWNER });
+  // A second, unpaid sale.
+  newSale(id, toCents(700), 0, 2);
+
+  const rows = credit.statement(id);
+  assert.equal(rows.filter((r) => r.kind === "sale").length, 2);
+  assert.equal(rows.filter((r) => r.kind === "payment").length, 2, "cash at till + later M-Pesa");
+
+  // Chronological with a running balance, closing on the derived balance.
+  const closing = rows[rows.length - 1].balance_cents;
+  assert.equal(closing, credit.balanceOf(id));
+  assert.equal(closing, toCents(5000 - 2000 - 1000 + 700));
+
+  // The M-Pesa code is on the statement — that's what reconciles it.
+  assert.ok(rows.some((r) => r.ref.includes("STMT01")));
+});
+
+test("a statement excludes credit-tender markers and voided sales", () => {
+  const id = newCustomer("Void Statement");
+  const saleId = newSale(id, toCents(900), 0, 5);
+  // The unpaid part recorded as a 'credit' tender must not appear as money in.
+  dbm.run(`INSERT INTO payments (sale_id, method, amount_cents, user_id) VALUES (?, 'credit', ?, ?)`,
+    saleId, toCents(900), OWNER);
+
+  let rows = credit.statement(id);
+  assert.equal(rows.filter((r) => r.kind === "payment").length, 0, "credit marker is not a payment");
+  assert.equal(rows[rows.length - 1].balance_cents, toCents(900));
+
+  // Void the sale: it and its rows leave the statement, balance returns to zero.
+  dbm.run(`UPDATE sales SET status = 'voided', void_reason = 'test', voided_by = ? WHERE id = ?`, OWNER, saleId);
+  rows = credit.statement(id);
+  assert.equal(rows.length, 0);
+  assert.equal(credit.balanceOf(id), 0);
+});

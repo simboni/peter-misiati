@@ -82,6 +82,12 @@ export default async function CustomerPage(props: { params: Promise<{ id: string
             Remind on WhatsApp
           </a>
         ) : null}
+        <Link
+          href={`/customers/${customerId}/statement`}
+          className="rounded-full bg-brand-soft px-3 py-1 text-[11px] font-bold text-brand"
+        >
+          Print statement
+        </Link>
       </div>
 
       {over ? (

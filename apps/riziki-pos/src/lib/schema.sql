@@ -203,6 +203,7 @@ CREATE TABLE IF NOT EXISTS repacks (
   in_milli     INTEGER NOT NULL CHECK (in_milli > 0),
   out_milli    INTEGER NOT NULL CHECK (out_milli >= 0),
   loss_milli   INTEGER NOT NULL DEFAULT 0,
+  status       TEXT    NOT NULL DEFAULT 'completed' CHECK (status IN ('completed', 'voided')),
   user_id      INTEGER REFERENCES users(id)
 );
 

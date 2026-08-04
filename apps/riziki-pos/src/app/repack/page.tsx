@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { currentUser, requireOwner } from "@/lib/auth";
-import { performRepack, repackOptions, recentRepacks } from "@/lib/stock-service";
+import { performRepack, repackOptions, recentRepacks, voidRepack } from "@/lib/stock-service";
 import { formatQty } from "@/lib/units";
 import { RepackClient, type RepackState } from "./repack-client";
 
@@ -45,7 +45,25 @@ async function submitRepack(_prev: RepackState, formData: FormData): Promise<Rep
   }
 }
 
-export default async function RepackPage() {
+async function voidRepackAction(formData: FormData): Promise<void> {
+  "use server";
+
+  const user = await requireOwner();
+  try {
+    voidRepack(Number(formData.get("repackId")), user.id, String(formData.get("reason") ?? ""));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Could not void the repack.";
+    redirect(`/repack?verr=${encodeURIComponent(message)}`);
+  }
+  revalidatePath("/repack");
+  revalidatePath("/stock");
+  redirect("/repack?voided=1");
+}
+
+export default async function RepackPage(props: {
+  searchParams: Promise<{ voided?: string; verr?: string }>;
+}) {
+  const { voided, verr } = await props.searchParams;
   const user = await currentUser();
   if (!user) redirect("/login");
   if (user.role !== "owner") redirect("/"); // raw-reagent quantities are owner-only
@@ -60,6 +78,9 @@ export default async function RepackPage() {
       recent={recentRepacks(5)}
       owner={owner}
       action={submitRepack}
+      voidAction={voidRepackAction}
+      voidNotice={voided ? "Repack voided. The bulk is back on the shelf and the packs removed." : undefined}
+      voidError={verr}
     />
   );
 }

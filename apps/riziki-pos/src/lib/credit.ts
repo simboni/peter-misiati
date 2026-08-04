@@ -308,6 +308,67 @@ export function isOverLimit(customer: Pick<Customer, "credit_limit_cents">, bala
   return customer.credit_limit_cents > 0 && balanceCents > customer.credit_limit_cents;
 }
 
+// --------------------------------------------------------------- statement
+
+export interface StatementRow {
+  at: string;
+  kind: "sale" | "payment";
+  ref: string;              // invoice no / sale id, or the payment method + code
+  debit_cents: number;      // goods taken
+  credit_cents: number;     // money received
+  balance_cents: number;    // running, after this row
+}
+
+/**
+ * The classic statement of account: every completed sale as a debit, every
+ * shilling received as a credit, in date order with a running balance.
+ *
+ * Two rules keep the closing line equal to `balanceOf`, always:
+ *   - `method = 'credit'` tender rows are excluded — they mark the part of a
+ *     sale that was NOT paid, not money received;
+ *   - a voided sale and its payments are both excluded, matching how the
+ *     balance itself is derived.
+ *
+ * This is the document a wholesale customer's bookkeeper reconciles against,
+ * and the one to hand over when "how did you get that figure?" is asked.
+ */
+export function statement(customerId: number): StatementRow[] {
+  const rows = all<{ at: string; kind: "sale" | "payment"; ref: string; amount_cents: number }>(
+    `SELECT s.at, 'sale' AS kind,
+            COALESCE(s.invoice_no, 'Sale #' || s.id) AS ref,
+            s.total_cents AS amount_cents
+       FROM sales s
+      WHERE s.customer_id = ? AND s.status = 'completed'
+     UNION ALL
+     SELECT p.at, 'payment' AS kind,
+            UPPER(SUBSTR(p.method, 1, 1)) || SUBSTR(p.method, 2)
+              || COALESCE(' ' || p.mpesa_code, '') AS ref,
+            p.amount_cents
+       FROM payments p
+       JOIN sales s ON s.id = p.sale_id
+      WHERE s.customer_id = ? AND s.status = 'completed'
+        AND p.method IN ('cash', 'mpesa')
+      ORDER BY at ASC, kind DESC`, // same instant: the sale sorts before its payment
+    customerId,
+    customerId,
+  );
+
+  let balance = 0;
+  return rows.map((r) => {
+    const debit = r.kind === "sale" ? r.amount_cents : 0;
+    const credit = r.kind === "payment" ? r.amount_cents : 0;
+    balance += debit - credit;
+    return {
+      at: r.at,
+      kind: r.kind,
+      ref: r.ref,
+      debit_cents: debit,
+      credit_cents: credit,
+      balance_cents: balance,
+    };
+  });
+}
+
 // ---------------------------------------------------------------- payments
 
 export type PaymentMethod = "cash" | "mpesa" | "credit";
