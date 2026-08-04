@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 
 /**
  * Single-button theme toggle — each press cycles Light → Dark → Midnight.
@@ -30,6 +30,26 @@ function applyTheme(id: ThemeId) {
   }
 }
 
+// Read the current theme straight from the <html data-theme> attribute (set by
+// the pre-paint script) via an external store, so we never setState in an
+// effect. A MutationObserver keeps the icon in sync if the attribute changes.
+function subscribe(onChange: () => void) {
+  const observer = new MutationObserver(onChange);
+  observer.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ["data-theme"],
+  });
+  return () => observer.disconnect();
+}
+
+function getThemeSnapshot(): ThemeId {
+  const current = document.documentElement.getAttribute("data-theme");
+  return current === "dark" || current === "midnight" ? current : "light";
+}
+
+// Server (and first client paint) render as Light to match the SSR'd markup.
+const getServerSnapshot = (): ThemeId => "light";
+
 function ThemeIcon({ theme }: { theme: ThemeId }) {
   if (theme === "light") {
     return (
@@ -55,13 +75,7 @@ function ThemeIcon({ theme }: { theme: ThemeId }) {
 }
 
 export function ThemeSwitcher({ className = "" }: { className?: string }) {
-  const [active, setActive] = useState<ThemeId>("light");
-
-  // Read whatever the pre-paint script applied.
-  useEffect(() => {
-    const current = document.documentElement.getAttribute("data-theme");
-    if (current === "dark" || current === "midnight") setActive(current);
-  }, []);
+  const active = useSyncExternalStore(subscribe, getThemeSnapshot, getServerSnapshot);
 
   const next = ORDER[(ORDER.indexOf(active) + 1) % ORDER.length];
 
@@ -69,7 +83,7 @@ export function ThemeSwitcher({ className = "" }: { className?: string }) {
     <button
       type="button"
       onClick={() => {
-        setActive(next);
+        // applyTheme updates <html data-theme>, which the observer picks up.
         applyTheme(next);
       }}
       title={`Theme: ${LABEL[active]} — switch to ${LABEL[next]}`}
