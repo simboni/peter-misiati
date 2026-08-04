@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { verifySession } from "@/lib/dal";
+import { requirePageCapability } from "@/lib/dal";
 import { today } from "@/lib/domain/dates";
 import { kes } from "@/lib/money";
 import { channelMix, debtorAging } from "@/server/sales";
@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
  * buckets are the difference between a cash position and a hope.
  */
 export default async function AgingPage() {
-  const session = await verifySession();
+  const session = await requirePageCapability("VIEW_MONEY");
   const asOf = today();
   const [aging, mix] = await Promise.all([
     debtorAging(session, asOf),

@@ -26,11 +26,27 @@ import {
   assertOwned,
   can,
   guard,
+  NotPermittedError,
   requireCapability,
   type ActionResult,
+  type Capability,
   type Session,
 } from "@/lib/dal";
 import { newId, refCode, REF_PREFIX, deterministicUuid } from "@/lib/ids";
+
+/**
+ * The read-side capability check.
+ *
+ * Every mutating action here opens with `requireCapability`. The READS did not,
+ * so any signed-in user — including a herdsman on the phone four people share —
+ * could pull the whole farm's debtor book. Segregation of duties is the
+ * documented remedy for the theft pattern this module is built against; a
+ * herdsman who can see which customer is behind on payment has information his
+ * job does not need and someone else's leverage.
+ */
+function requireCap(session: Session, capability: Capability): void {
+  if (!can(session.role, capability)) throw new NotPermittedError(capability);
+}
 import { dec, kes, money, num } from "@/lib/money";
 import { addDays, today, type ISODate } from "@/lib/domain/dates";
 import {
@@ -804,6 +820,7 @@ export async function listCustomers(
   asOf: ISODate = today(),
   dbo?: Db,
 ): Promise<CustomerSummary[]> {
+  requireCap(session, "VIEW_MONEY");
   const database = await resolveDb(dbo);
   const customers = await database
     .select()
@@ -862,6 +879,7 @@ export async function customerLedger(
   asOf: ISODate = today(),
   dbo?: Db,
 ): Promise<CustomerLedgerView> {
+  requireCap(session, "VIEW_MONEY");
   const database = await resolveDb(dbo);
   const customer = await database.query.customer.findFirst({
     where: and(eq(s.customer.id, customerId), eq(s.customer.farmId, session.farmId)),
@@ -1656,6 +1674,7 @@ export interface PendingPayment {
 }
 
 export async function pendingPayments(session: Session, dbo?: Db): Promise<PendingPayment[]> {
+  requireCap(session, "VIEW_MONEY");
   const database = await resolveDb(dbo);
   const rows = await database
     .select({ entry: s.customerLedgerEntry, customer: s.customer, user: s.appUser })
@@ -1844,6 +1863,7 @@ export async function debtorAging(
   asOf: ISODate = today(),
   dbo?: Db,
 ): Promise<AgingView> {
+  requireCap(session, "VIEW_MONEY");
   const database = await resolveDb(dbo);
   const customers = await database.select().from(s.customer).where(eq(s.customer.farmId, session.farmId));
 
@@ -2131,6 +2151,7 @@ export async function statementView(
   statementId: string,
   dbo?: Db,
 ): Promise<StatementView> {
+  requireCap(session, "VIEW_MONEY");
   const database = await resolveDb(dbo);
   const statement = await database.query.milkStatement.findFirst({
     where: and(eq(s.milkStatement.id, statementId), eq(s.milkStatement.farmId, session.farmId)),
@@ -2198,6 +2219,7 @@ export async function farmMemberNo(session: Session, dbo?: Db): Promise<string |
 }
 
 export async function listStatements(session: Session, dbo?: Db) {
+  requireCap(session, "VIEW_MONEY");
   const database = await resolveDb(dbo);
   return database
     .select({ statement: s.milkStatement, customer: s.customer })
@@ -2225,12 +2247,51 @@ export interface ChannelMix {
   message: string;
 }
 
+/**
+ * Litres out, by channel, with no money attached.
+ *
+ * The printed daily sheet reconciles what was milked against where it went —
+ * that is a herdsman's job and he needs it. `channelMix` answers the same
+ * question but carries blended price and revenue with it, so gating that one
+ * behind VIEW_MONEY would have taken the paper sheet away from the person who
+ * carries it. This is the half of it that is his.
+ */
+export async function disposalLitres(
+  session: Session,
+  from: ISODate,
+  to: ISODate,
+  dbo?: Db,
+): Promise<Array<{ channel: DisposalChannel; label: string; litres: number }>> {
+  const database = await resolveDb(dbo);
+  const rows = await database
+    .select({ channel: s.milkDisposal.channel, litres: s.milkDisposal.litres })
+    .from(s.milkDisposal)
+    .where(
+      and(
+        eq(s.milkDisposal.farmId, session.farmId),
+        gte(s.milkDisposal.disposedOn, from),
+        lte(s.milkDisposal.disposedOn, to),
+      ),
+    );
+
+  const byChannel = new Map<DisposalChannel, number>();
+  for (const r of rows) {
+    byChannel.set(r.channel, money((byChannel.get(r.channel) ?? 0) + num(r.litres)));
+  }
+  return [...byChannel.entries()]
+    .map(([channel, litres]) => ({ channel, label: CHANNEL_LABEL[channel], litres }))
+    .sort((a, b) => b.litres - a.litres);
+}
+
 export async function channelMix(
   session: Session,
   from: ISODate,
   to: ISODate,
   dbo?: Db,
 ): Promise<ChannelMix> {
+  // Blended price and revenue. The litres-only view a herdsman legitimately
+  // needs for the daily sheet is `disposalLitres` below.
+  requireCap(session, "VIEW_MONEY");
   const database = await resolveDb(dbo);
   const disposals = await database
     .select()

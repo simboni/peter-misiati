@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { verifySession } from "@/lib/dal";
+import { requirePageCapability } from "@/lib/dal";
 import { today } from "@/lib/domain/dates";
 import { kes } from "@/lib/money";
 import { formatDay } from "@/server/milk";
@@ -29,7 +29,7 @@ const ENTRY_LABEL: Record<string, string> = {
  */
 export default async function CustomerLedgerPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const session = await verifySession();
+  const session = await requirePageCapability("VIEW_MONEY");
   const asOf = today();
   const view = await customerLedger(session, id, asOf);
   const c = view.customer;

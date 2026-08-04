@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { verifySession } from "@/lib/dal";
+import { requirePageCapability } from "@/lib/dal";
 import { today } from "@/lib/domain/dates";
 import { kes } from "@/lib/money";
 import { listCustomers, pendingPayments, CHANNEL_ICON } from "@/server/sales";
@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 /** Who takes our milk, and what each of them owes. Worst first. */
 export default async function CustomersPage() {
-  const session = await verifySession();
+  const session = await requirePageCapability("VIEW_MONEY");
   const asOf = today();
   const [customers, pending] = await Promise.all([
     listCustomers(session, asOf),

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { verifySession } from "@/lib/dal";
+import { requirePageCapability } from "@/lib/dal";
 import { today } from "@/lib/domain/dates";
 import { kes, litres } from "@/lib/money";
 import { formatDay } from "@/server/milk";
@@ -20,7 +20,7 @@ export default async function SalesPage({
   searchParams: Promise<{ date?: string }>;
 }) {
   const sp = await searchParams;
-  const session = await verifySession();
+  const session = await requirePageCapability("VIEW_MONEY");
   const date = sp.date && /^\d{4}-\d{2}-\d{2}$/.test(sp.date) ? sp.date : today();
 
   const [allocation, customers] = await Promise.all([

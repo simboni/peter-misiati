@@ -14,9 +14,11 @@ import {
   createInvoice,
   createStandingOrder,
   customerLedger,
+  disposalLitres,
   debtorAging,
   deliveryRound,
   listCustomers,
+  listStatements,
   pendingPayments,
   previewDelivery,
   recordDelivery,
@@ -724,7 +726,7 @@ describe("payments and approval (R10)", () => {
   });
 
   it("holds a rider's doorstep cash pending as well", async () => {
-    const { db, close } = await setup();
+    const { db, close, session: owner } = await setup();
     const riderId = await seedUser(db, { fullName: "Otieno", role: "RIDER" });
     const rider = fakeSession({ userId: riderId, role: "RIDER" });
     await seedPrice(db, "HOUSEHOLD", 65);
@@ -735,9 +737,48 @@ describe("payments and approval (R10)", () => {
     if (!res.ok) return;
     expect(res.data.paymentPending).toBe(true);
 
-    const ledger = await customerLedger(rider, mama, TODAY, db);
+    // Read as the owner, not the rider. A rider records the delivery and takes
+    // the cash; the debtor book is not his to open, and asking for it here is
+    // now refused.
+    const ledger = await customerLedger(owner, mama, TODAY, db);
     expect(ledger.balance.balanceKes).toBe(130); // still owed until confirmed
     expect(ledger.pendingPaymentsKes).toBe(130);
+
+    await expect(customerLedger(rider, mama, TODAY, db)).rejects.toThrow(
+      /does not include this/i,
+    );
+    await close();
+  });
+
+  /**
+   * Segregation of duties is the documented remedy for the theft pattern this
+   * module is built against, and it is only real if the READS are guarded too.
+   * Every mutating action here always opened with a capability check; these
+   * eight did not, so anyone with a session — a herdsman on the phone four
+   * people share — could pull the whole farm's debtor book.
+   */
+  it("refuses a herdsman and a rider every money read on this module", async () => {
+    const { db, close } = await setup();
+    const herdsmanId = await seedUser(db, { fullName: "Kamau", role: "HERDSMAN" });
+    const herdsman = fakeSession({ userId: herdsmanId, role: "HERDSMAN" });
+    const riderId = await seedUser(db, { fullName: "Otieno", role: "RIDER" });
+    const rider = fakeSession({ userId: riderId, role: "RIDER" });
+    const mama = await seedCustomer(db, { name: "Mama Njeri", customerType: "HOUSEHOLD" });
+
+    for (const who of [herdsman, rider]) {
+      await expect(debtorAging(who, TODAY, db)).rejects.toThrow(/does not include this/i);
+      await expect(listCustomers(who, TODAY, db)).rejects.toThrow(/does not include this/i);
+      await expect(customerLedger(who, mama, TODAY, db)).rejects.toThrow(/does not include this/i);
+      await expect(pendingPayments(who, db)).rejects.toThrow(/does not include this/i);
+      await expect(listStatements(who, db)).rejects.toThrow(/does not include this/i);
+      await expect(channelMix(who, TODAY, TODAY, db)).rejects.toThrow(/does not include this/i);
+    }
+
+    // But the rider can still run his round, and the herdsman can still see
+    // where the milk went in litres — otherwise the guard has taken away the
+    // work rather than the money.
+    await expect(deliveryRound(rider, TODAY, "MORNING", db)).resolves.toBeTruthy();
+    await expect(disposalLitres(herdsman, TODAY, TODAY, db)).resolves.toEqual([]);
     await close();
   });
 

@@ -58,7 +58,7 @@ import { deriveClass, deriveReproStatus } from "@/lib/domain/animal";
 
 /* Composed modules — this list IS the report layer's dependency surface. */
 import { costOfProduction, monthToDate, type CostOfProduction } from "./money";
-import { channelMix, statementView, listStatements } from "./sales";
+import { channelMix, disposalLitres, statementView, listStatements } from "./sales";
 import { marginOverFeedCost, feedStore, type MarginBreakdown, type StoreLine } from "./feed";
 import { dueRoutines, withdrawalBoard, type DueRoutine, type WithdrawalBoardRow } from "./health";
 import { breedingWatchboard } from "./breeding";
@@ -1674,7 +1674,8 @@ export async function dailySheet(
   }));
   const totalL = money(totalsBySession.reduce((a, t) => a + t.litres, 0));
 
-  const mix = await channelMix(session, date, date, db);
+  // Litres only — the sheet is the herdsman's, and blended price is not his.
+  const mix = await disposalLitres(session, date, date, db);
 
   return {
     date,
@@ -1684,7 +1685,7 @@ export async function dailySheet(
     cows,
     totalsBySession,
     totalL,
-    disposals: mix.lines.map((l) => ({ label: l.label, litres: l.litres })),
+    disposals: mix.map((l) => ({ label: l.label, litres: l.litres })),
     note: withdrawalNote(cows),
   };
 }
