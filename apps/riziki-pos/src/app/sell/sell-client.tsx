@@ -48,6 +48,7 @@ export interface SellItem {
 export interface SellCustomer {
   id: number;
   name: string;
+  kind: "retail" | "wholesale";
   limitCents: number;
   outstandingCents: number;
 }
@@ -337,6 +338,37 @@ export default function SellClient({
     setSheet("none");
     uuid.current = newUuid();
   }, [state]);
+
+  // --- cart survives leaving the screen -----------------------------------
+  // An attendant mid-order taps Stock to check a shelf, comes back, and the cart
+  // must still be there — otherwise a six-line order is re-rung from memory with
+  // a queue waiting. sessionStorage persists across navigation within the app but
+  // clears when it's closed, so yesterday's cart never resurrects.
+  const restored = useRef(false);
+  useEffect(() => {
+    if (restored.current) return;
+    restored.current = true;
+    try {
+      const raw = sessionStorage.getItem("riziki_cart");
+      if (!raw) return;
+      const saved = JSON.parse(raw) as { cart: CartLine[]; tier: Tier };
+      if (saved.cart?.length) {
+        setCart(saved.cart);
+        if (saved.tier === "retail" || saved.tier === "wholesale") setTier(saved.tier);
+      }
+    } catch {
+      /* a corrupt cart is not worth crashing the till over */
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      if (cart.length) sessionStorage.setItem("riziki_cart", JSON.stringify({ cart, tier }));
+      else sessionStorage.removeItem("riziki_cart");
+    } catch {
+      /* private mode / storage full — the cart just won't survive navigation */
+    }
+  }, [cart, tier]);
 
   // --- connection and outbox ----------------------------------------------
   useEffect(() => {
@@ -755,6 +787,24 @@ export default function SellClient({
                   </option>
                 ))}
               </select>
+
+              {/* A wholesale buyer on a retail-priced cart is a bill nobody
+                  wants to argue about at the counter. Prompt, don't switch
+                  silently — the attendant may have priced it retail on purpose. */}
+              {customer && customer.kind === "wholesale" && tier === "retail" ? (
+                <div className="mt-2 flex items-center justify-between gap-2 rounded-xl bg-warn-soft px-3 py-2">
+                  <span className="text-xs font-semibold text-warn">
+                    {customer.name} usually buys at wholesale.
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => switchTier("wholesale")}
+                    className="shrink-0 rounded-lg bg-warn px-2.5 py-1 text-xs font-bold text-white"
+                  >
+                    Use wholesale prices
+                  </button>
+                </div>
+              ) : null}
             </div>
           ) : null}
 

@@ -139,10 +139,11 @@ export default async function SellPage() {
   const customers: SellCustomer[] = all<{
     id: number;
     name: string;
+    kind: "retail" | "wholesale";
     credit_limit_cents: number;
     owed: number;
   }>(
-    `SELECT c.id, c.name, c.credit_limit_cents,
+    `SELECT c.id, c.name, c.kind, c.credit_limit_cents,
             COALESCE((SELECT SUM(s.total_cents - s.paid_cents)
                         FROM sales s
                        WHERE s.customer_id = c.id AND s.status = 'completed'), 0) AS owed
@@ -152,6 +153,7 @@ export default async function SellPage() {
   ).map((c) => ({
     id: c.id,
     name: c.name,
+    kind: c.kind === "wholesale" ? "wholesale" : "retail",
     limitCents: c.credit_limit_cents,
     outstandingCents: c.owed,
   }));
