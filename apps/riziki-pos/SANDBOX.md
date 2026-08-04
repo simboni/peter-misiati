@@ -1,10 +1,40 @@
 # Sandbox — test every module before the domain exists
 
-Both routes below give you a **real HTTPS URL** (a free, random
-`….trycloudflare.com` address) with no domain, no Cloudflare account and no
-cost. HTTPS being real matters: it means offline mode, add-to-home-screen and
-the Bluetooth receipt printer all behave exactly as they will in production —
-so what you test is what the client gets.
+Three routes, all giving a **real HTTPS URL** with no domain. HTTPS being
+real matters: it means offline mode, add-to-home-screen and the Bluetooth
+receipt printer all behave exactly as they will in production — so what you
+test is what the client gets.
+
+**Route 0 is the recommended one**: it runs on the server you'll keep, so
+the sandbox *becomes* production when the domain arrives.
+
+## Route 0 — on the real VPS, no domain needed (recommended)
+
+A domain is not required for HTTPS. Free wildcard DNS (`sslip.io`) maps any
+IP to a hostname — `203.0.113.7` answers as `pos.203-0-113-7.sslip.io` — and
+Caddy fetches a genuine Let's Encrypt certificate for it automatically.
+
+```bash
+# On a fresh Ubuntu VPS (Hetzner/DigitalOcean, ~€4/month):
+curl -fsSL https://get.docker.com | sh
+git clone <your-repo> && cd <repo>/apps/riziki-pos
+
+# Put the IP-based hostname in deploy/Caddyfile — with the server's real IP,
+# dots replaced by dashes:
+#   pos.203-0-113-7.sslip.io {
+#       reverse_proxy pos:3100
+#   }
+
+docker compose up -d --build
+```
+
+Open `https://pos.<your-ip-with-dashes>.sslip.io` on any phone. Stable URL,
+no tunnel, no uptime caveats — this **is** the production stack under a
+temporary name. When the domain arrives: change that one Caddyfile line to
+the real hostname, `docker compose restart caddy`, done. If you want to
+reset the data before going live, stop the app and delete `data/`.
+
+## Routes 1 & 2 — no server yet: tunnel from your own machine
 
 ## Route 1 — with Docker
 
