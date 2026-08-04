@@ -3,8 +3,9 @@ import Link from "next/link";
 import { currentUser } from "@/lib/auth";
 import { all } from "@/lib/db";
 import { formatKes, formatQty, businessDate } from "@/lib/units";
-import { Stat, SectionLabel, Card, Chip } from "@/components/ui";
+import { Stat, SectionLabel, Card, Chip, Alert } from "@/components/ui";
 import { MoreMenu } from "@/components/nav";
+import { usersOnDemoPin } from "@/lib/users";
 
 export const dynamic = "force-dynamic";
 
@@ -42,8 +43,25 @@ export default async function HomePage() {
       LIMIT 6`,
   );
 
+  // The starting-PIN warning lived only on Settings, which is easy to never open.
+  // The home screen is the one everyone sees, so it belongs here too.
+  const demoPin = owner ? usersOnDemoPin() : [];
+
   return (
     <div>
+      {demoPin.length > 0 ? (
+        <div className="mb-3">
+          <Alert tone="bad">
+            <strong>Change the starting PINs before the shop opens.</strong>{" "}
+            {demoPin.map((u) => u.name).join(" and ")}{" "}
+            {demoPin.length === 1 ? "still opens" : "still open"} with the PIN the system
+            shipped with.{" "}
+            <Link href="/settings" className="font-bold underline">
+              Fix in Settings
+            </Link>
+          </Alert>
+        </div>
+      ) : null}
       <h1 className="mb-1 text-xl font-bold tracking-tight">Today</h1>
       <p className="mb-4 text-sm text-muted">
         {new Date().toLocaleDateString("en-GB", {

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { currentUser, requireUser, isOwner } from "@/lib/auth";
+import { currentUser, requireOwner, isOwner } from "@/lib/auth";
 import {
   listMixableProducts,
   currentVersion,
@@ -44,7 +44,7 @@ async function runBatchAction(_prev: RunState, formData: FormData): Promise<RunS
 
   let batchNo: string;
   try {
-    const user = await requireUser();
+    const user = await requireOwner();
 
     const versionId = Number(formData.get("versionId"));
     const targetMilli = Number(formData.get("targetMilli"));
@@ -79,7 +79,7 @@ async function recordYieldAction(_prev: YieldState, formData: FormData): Promise
   "use server";
 
   try {
-    const user = await requireUser();
+    const user = await requireOwner();
 
     const batchId = Number(formData.get("batchId"));
     const actualLitres = Number(formData.get("actualLitres"));
@@ -114,7 +114,8 @@ export default async function BatchPage(props: {
 
   const user = await currentUser();
   if (!user) redirect("/login");
-  const owner = user.role === "owner";
+  if (user.role !== "owner") redirect("/");
+  const owner = true;
 
   const products = listMixableProducts();
   const selectedId = Number(f) || products[0]?.id || 0;

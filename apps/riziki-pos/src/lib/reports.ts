@@ -116,14 +116,33 @@ export function dayTotals(date: string = businessDate()): DayTotals {
     date,
   );
 
-  const tenders = get<{ cash: number; mpesa: number; credit: number }>(
-    `SELECT COALESCE(SUM(CASE WHEN p.method = 'cash'   THEN p.amount_cents END), 0) AS cash,
-            COALESCE(SUM(CASE WHEN p.method = 'mpesa'  THEN p.amount_cents END), 0) AS mpesa,
-            COALESCE(SUM(CASE WHEN p.method = 'credit' THEN p.amount_cents END), 0) AS credit
+  // Cash and M-Pesa are counted by when the money arrived (payment date), because
+  // that is what's in the drawer tonight — including a debtor paying off an old
+  // invoice today.
+  const tenders = get<{ cash: number; mpesa: number }>(
+    `SELECT COALESCE(SUM(CASE WHEN p.method = 'cash'  THEN p.amount_cents END), 0) AS cash,
+            COALESCE(SUM(CASE WHEN p.method = 'mpesa' THEN p.amount_cents END), 0) AS mpesa
        FROM payments p
        JOIN sales s ON s.id = p.sale_id
       WHERE s.status = 'completed'
         AND date(p.at, '+3 hours') = ?`,
+    date,
+  );
+
+  // Credit *given* today = today's sales minus what was actually collected on
+  // them. An explicit "Credit" tender only ever recorded part of this — the
+  // ordinary case (an attendant simply under-paying the bill) left no row at all,
+  // so this line used to read low on nearly every real part-payment. Deriving it
+  // from the shortfall captures both.
+  const creditRow = get<{ credit: number }>(
+    `SELECT COALESCE(SUM(s.total_cents), 0)
+            - COALESCE(SUM((SELECT COALESCE(SUM(p.amount_cents), 0)
+                              FROM payments p
+                             WHERE p.sale_id = s.id
+                               AND p.method IN ('cash', 'mpesa'))), 0) AS credit
+       FROM sales s
+      WHERE s.status = 'completed'
+        AND date(s.at, '+3 hours') = ?`,
     date,
   );
 
@@ -149,7 +168,7 @@ export function dayTotals(date: string = businessDate()): DayTotals {
     saleCount: sales?.n ?? 0,
     cashInCents: cashIn,
     mpesaCents: tenders?.mpesa ?? 0,
-    creditCents: tenders?.credit ?? 0,
+    creditCents: creditRow?.credit ?? 0,
     expenseCashCents: expenseCash,
     expenseMpesaCents: expenses?.mpesa ?? 0,
     floatCents,

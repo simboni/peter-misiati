@@ -28,6 +28,30 @@ export const BUSINESS = {
   kraPin: process.env.RIZIKI_KRA_PIN ?? "",
 };
 
+/**
+ * The business details as they should appear on an invoice — read from what the
+ * owner actually typed into Settings, falling back to the constant above.
+ *
+ * Without this the Settings screen saved a name, phone and KRA PIN that nothing
+ * ever read, so every printed invoice showed a blank seller PIN — which also
+ * blocked eTIMS, where the seller PIN is mandatory on every fiscalised invoice.
+ */
+export function getBusiness(): { name: string; address: string; phone: string; kraPin: string } {
+  const s = (key: string): string => {
+    try {
+      return get<{ value: string }>(`SELECT value FROM settings WHERE key = ?`, key)?.value ?? "";
+    } catch {
+      return "";
+    }
+  };
+  return {
+    name: s("shop_name") || BUSINESS.name,
+    address: BUSINESS.address,
+    phone: s("shop_phone") || BUSINESS.phone,
+    kraPin: s("shop_kra_pin") || BUSINESS.kraPin,
+  };
+}
+
 // ------------------------------------------------------------- migration
 
 /**
@@ -526,7 +550,7 @@ export function waLink(phone: string, message: string): string {
 export function reminderMessage(name: string, balanceCents: number, oldestAt?: string): string {
   const since = oldestAt ? ` The oldest unpaid sale is from ${formatDate(oldestAt)}.` : "";
   return (
-    `Hello ${name}, this is ${BUSINESS.name}. ` +
+    `Hello ${name}, this is ${getBusiness().name}. ` +
     `Your account balance is ${formatKes(balanceCents)}.${since} ` +
     `Kindly settle when you can. Asante.`
   );
@@ -536,7 +560,7 @@ export function invoiceMessage(inv: Invoice): string {
   const no = inv.sale.invoice_no ?? `Sale #${inv.sale.id}`;
   const who = inv.sale.customer_name ? `Hello ${inv.sale.customer_name}, ` : "";
   return (
-    `${who}here is invoice ${no} from ${BUSINESS.name} dated ${formatDate(inv.sale.at)}. ` +
+    `${who}here is invoice ${no} from ${getBusiness().name} dated ${formatDate(inv.sale.at)}. ` +
     `Total ${formatKes(inv.sale.total_cents)}, paid ${formatKes(inv.sale.paid_cents)}, ` +
     `balance ${formatKes(inv.balanceCents)}. Asante.`
   );

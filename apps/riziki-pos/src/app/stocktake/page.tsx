@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { currentUser, requireUser } from "@/lib/auth";
+import { currentUser, requireOwner } from "@/lib/auth";
 import { performStocktake, stockLines } from "@/lib/stock-service";
 import { formatKes } from "@/lib/units";
 import { StocktakeClient, type StocktakeState } from "./stocktake-client";
@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 async function submitStocktake(_prev: StocktakeState, formData: FormData): Promise<StocktakeState> {
   "use server";
 
-  const user = await requireUser();
+  const user = await requireOwner();
 
   const counts: Array<{ itemId: number; countedUnits: number }> = [];
   for (const [key, value] of formData.entries()) {
@@ -46,6 +46,7 @@ async function submitStocktake(_prev: StocktakeState, formData: FormData): Promi
 export default async function StocktakePage() {
   const user = await currentUser();
   if (!user) redirect("/login");
+  if (user.role !== "owner") redirect("/"); // raw-reagent quantities are owner-only
   const owner = user.role === "owner";
 
   const lines = stockLines();

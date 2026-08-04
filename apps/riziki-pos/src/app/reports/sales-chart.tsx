@@ -103,7 +103,7 @@ export function SalesChart({ data }: { data: MonthPoint[] }) {
                   <div key={d.ym} className="relative flex h-full flex-1 items-end">
                     <div
                       className={`relative w-full rounded-t-md ${
-                        current ? "bg-brand" : "bg-brand-soft"
+                        current ? "bg-brand" : "bg-brand/45"
                       }`}
                       style={{ height: `${height}%` }}
                     >

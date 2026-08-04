@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { currentUser, requireUser } from "@/lib/auth";
+import { currentUser, requireOwner } from "@/lib/auth";
 import { performRepack, repackOptions, recentRepacks } from "@/lib/stock-service";
 import { formatQty } from "@/lib/units";
 import { RepackClient, type RepackState } from "./repack-client";
@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 async function submitRepack(_prev: RepackState, formData: FormData): Promise<RepackState> {
   "use server";
 
-  const user = await requireUser();
+  const user = await requireOwner();
 
   // Pack counts arrive as `units_<itemId>`; blanks simply mean "none of this size".
   const lines: Array<{ itemId: number; units: number }> = [];
@@ -48,6 +48,7 @@ async function submitRepack(_prev: RepackState, formData: FormData): Promise<Rep
 export default async function RepackPage() {
   const user = await currentUser();
   if (!user) redirect("/login");
+  if (user.role !== "owner") redirect("/"); // raw-reagent quantities are owner-only
   const owner = user.role === "owner";
 
   const options = repackOptions();

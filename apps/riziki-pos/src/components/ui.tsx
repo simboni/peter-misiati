@@ -63,12 +63,18 @@ export function Button({
   className = "",
   ...rest
 }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "ghost" | "danger" }) {
+  // A disabled button's label is exactly what the attendant needs to read to
+  // know what's blocking them ("Complete — KES 250 on credit"). opacity-50 made
+  // that 1.47:1 — an invisible slab in sunlight. Disabled is now a solid, legible
+  // neutral instead of a faded version of the live colour.
+  const disabled =
+    "disabled:bg-line disabled:text-muted disabled:border-line disabled:opacity-100 disabled:cursor-not-allowed";
   const styles =
     variant === "primary"
-      ? "bg-brand text-white hover:bg-brand-dark disabled:opacity-50"
+      ? `bg-brand text-white hover:bg-brand-dark ${disabled}`
       : variant === "danger"
-        ? "bg-bad text-white hover:opacity-90 disabled:opacity-50"
-        : "border border-line bg-white text-ink hover:bg-wash disabled:opacity-50";
+        ? `bg-bad text-white hover:opacity-90 ${disabled}`
+        : `border border-line bg-white text-ink hover:bg-wash ${disabled}`;
   return (
     <button
       {...rest}
@@ -129,7 +135,7 @@ export function Field({
  * `w-full` last, so it silently wins and squashes the label beside it.
  */
 export const inputClassBase =
-  "rounded-xl border border-line bg-white px-3 py-3 text-base text-ink placeholder:text-muted/70";
+  "rounded-xl border border-line bg-white px-3 py-3 text-base text-ink placeholder:text-muted";
 
 export const inputClass = `${inputClassBase} w-full`;
 

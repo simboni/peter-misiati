@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect, notFound } from "next/navigation";
 import { currentUser } from "@/lib/auth";
-import { getInvoice, issueInvoiceNo, invoiceMessage, waLink, BUSINESS } from "@/lib/credit";
+import { getInvoice, issueInvoiceNo, invoiceMessage, waLink, getBusiness } from "@/lib/credit";
 import { getPrintSettings, receiptFromInvoice } from "@/lib/print-settings";
 import { formatKes, formatAmount, formatQty, formatDateTime } from "@/lib/units";
 import { ThermalPrint } from "@/components/thermal-print";
@@ -63,6 +63,7 @@ export default async function InvoicePage(props: {
   }
 
   const { sale, lines, tenders, balanceCents } = invoice;
+  const business = getBusiness();
 
   // The thermal copy is built from the same snapshotted figures as the sheet
   // below, so the two can never disagree about what was charged.
@@ -77,11 +78,11 @@ export default async function InvoicePage(props: {
         {/* ---------------------------------------------------------- header */}
         <div className="flex items-start justify-between gap-4 border-b border-line pb-3">
           <div>
-            <div className="text-base font-extrabold tracking-tight">{BUSINESS.name}</div>
-            <div className="text-[11px] text-muted">{BUSINESS.address}</div>
-            {BUSINESS.phone ? <div className="text-[11px] text-muted">{BUSINESS.phone}</div> : null}
-            {BUSINESS.kraPin ? (
-              <div className="text-[11px] text-muted">PIN {BUSINESS.kraPin}</div>
+            <div className="text-base font-extrabold tracking-tight">{business.name}</div>
+            <div className="text-[11px] text-muted">{business.address}</div>
+            {business.phone ? <div className="text-[11px] text-muted">{business.phone}</div> : null}
+            {business.kraPin ? (
+              <div className="text-[11px] text-muted">PIN {business.kraPin}</div>
             ) : null}
           </div>
           <div className="shrink-0 text-right">
@@ -197,7 +198,7 @@ export default async function InvoicePage(props: {
           )}
           {balanceCents > 0 ? (
             <p className="mt-2 text-[11px] text-muted">
-              Goods remain the property of {BUSINESS.name} until paid in full.
+              Goods remain the property of {business.name} until paid in full.
             </p>
           ) : null}
         </div>

@@ -1,4 +1,5 @@
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import Link from "next/link";
 import { currentUser, requireOwner } from "@/lib/auth";
 import {
@@ -107,13 +108,23 @@ async function saveShop(formData: FormData): Promise<void> {
   revalidatePath("/day-close");
 }
 
-/** Surface a service error as a message rather than a stack trace. */
+/**
+ * Show a service error as a message on the page, not as a crash.
+ *
+ * This used to `throw`, which in a server action renders Next's raw error page
+ * and dumps the owner out of the app — on the exact screen whose own banner
+ * tells them to change their PIN, and exactly when they fumble it. Redirecting
+ * back with the message keeps them on the screen with their bearings.
+ */
 function redirectWith(e: unknown): never {
   const message = e instanceof UserError ? e.message : "That did not work. Please try again.";
-  throw new Error(message);
+  redirect(`/settings?err=${encodeURIComponent(message)}`);
 }
 
-export default async function SettingsPage() {
+export default async function SettingsPage(props: {
+  searchParams: Promise<{ err?: string }>;
+}) {
+  const { err } = await props.searchParams;
   const me = await currentUser();
   if (!me) {
     return <Alert tone="bad">Please sign in.</Alert>;
@@ -142,6 +153,12 @@ export default async function SettingsPage() {
         title="Users &amp; settings"
         subtitle="Who can use the system, and the details that appear on an invoice"
       />
+
+      {err ? (
+        <div className="mb-3">
+          <Alert tone="bad">{err}</Alert>
+        </div>
+      ) : null}
 
       {demo.length > 0 ? (
         <Alert tone="bad">

@@ -12,19 +12,20 @@ export default async function StockPage() {
 
   const view = stockView();
 
-  // Cost is stripped here rather than merely hidden in the UI: a client component
-  // receives its props as serialised JSON, so an attendant's phone must never be
-  // sent the figures in the first place.
+  // Two things are stripped here rather than merely hidden in the UI, because a
+  // client component receives its props as serialised JSON — whatever reaches
+  // this object reaches the attendant's phone:
+  //   - cost/value (never staff-visible), and
+  //   - the raw-reagent quantities themselves. An attendant who could read each
+  //     reagent's on-hand amount before and after a production run would recover
+  //     the formula ratios by subtraction. Staff see finished goods and
+  //     packaging — what they sell — never the chemicals a recipe is built from.
   const safe = owner
     ? view
     : {
         ...view,
         totalValueCents: 0,
-        reagents: view.reagents.map((g) => ({
-          ...g,
-          valueCents: 0,
-          lines: g.lines.map((l) => ({ ...l, costCents: 0, valueCents: 0 })),
-        })),
+        reagents: [],
         finished: view.finished.map((l) => ({ ...l, costCents: 0, valueCents: 0 })),
         packaging: view.packaging.map((l) => ({ ...l, costCents: 0, valueCents: 0 })),
       };
