@@ -332,16 +332,18 @@ test("search matches an ingredient as well as the product name", () => {
   // Aliases count too — the shop calls magadi "soda ash" half the time.
   assert.ok(listFormulas("soda ash").some((f) => f.name === "Jik"));
 
+  // Renamed from "Harpic" at the owner's request — that's another company's
+  // brand. Both confirmed methods are on file.
   assert.deepEqual(
-    listFormulas("harpic").map((f) => f.name),
-    ["Harpic"],
+    listFormulas("toilet").map((f) => f.name).sort(),
+    ["Toilet Cleaner", "Toilet Cleaner (thickened)"],
   );
-  assert.equal(listFormulas("").length, 13, "the shop has 13 formulas on file");
+  assert.equal(listFormulas("").length, 14, "the shop has 14 formulas on file");
 });
 
 test("the staff product picker carries no recipe, and readiness needs no ingredient rows", () => {
   const products = listMixableProducts();
-  assert.equal(products.length, 13);
+  assert.equal(products.length, 14);
   for (const p of products) {
     // Anything a competitor could use — the note, even the ingredient count —
     // must not be in the list staff receive.
