@@ -550,8 +550,12 @@ export interface AlertView {
 export interface RoleAlerts {
   role: s.Role;
   asOf: ISODate;
-  /** At most `DAILY_ALERT_CAP`, worst first. */
+  /** At most `DAILY_ALERT_CAP`, worst first. Includes the week ahead. */
   alerts: AlertView[];
+  /** Of those, how many are actually due today or already late. */
+  dueTodayCount: number;
+  /** And how many are a heads-up for later in the week. */
+  laterThisWeekCount: number;
   /** How many were held back by the cap. Shown, so nothing is silently hidden. */
   heldBack: number;
   openTotal: number;
@@ -608,17 +612,41 @@ export async function alertsForRole(
   const capped = visible.slice(0, DAILY_ALERT_CAP);
   const heldBack = visible.length - capped.length;
 
+  // The query looks a week ahead so nothing arrives as a surprise, but the
+  // screen is headed "Today's jobs". Counting the whole week under that heading
+  // is how a 7-day withdrawal came to be announced on the day of the injection.
+  // "Today" now means today.
+  const dueToday = capped.filter((a) => a.dueOn <= asOf);
+  const later = capped.length - dueToday.length;
+
   return {
     role,
     asOf,
     alerts: capped,
+    dueTodayCount: dueToday.length,
+    laterThisWeekCount: later,
     heldBack,
     openTotal: visible.length,
-    headline:
-      capped.length === 0
-        ? "Nothing needs you today."
-        : `${capped.length} ${capped.length === 1 ? "job" : "jobs"} today${heldBack > 0 ? `, ${heldBack} more waiting behind them` : ""}. Start with: ${capped[0].action}`,
+    headline: buildHeadline(dueToday, later, heldBack),
   };
+}
+
+/**
+ * One sentence that is true when it is read. A herdsman who is told he has
+ * jobs and finds none due stops reading the list, and a list nobody reads is
+ * worse than no list — it is a list the farm believes is being worked.
+ */
+function buildHeadline(dueToday: AlertView[], later: number, heldBack: number): string {
+  const behind = heldBack > 0 ? ` ${heldBack} more waiting behind these.` : "";
+
+  if (dueToday.length === 0) {
+    if (later === 0) return "Nothing needs you today.";
+    return `Nothing to do today. ${later} ${later === 1 ? "job is" : "jobs are"} coming this week.`;
+  }
+
+  const n = dueToday.length;
+  const ahead = later > 0 ? ` ${later} more ${later === 1 ? "is" : "are"} coming this week.` : "";
+  return `${n} ${n === 1 ? "job" : "jobs"} today.${behind} Start with: ${dueToday[0].action}${ahead}`;
 }
 
 function toView(

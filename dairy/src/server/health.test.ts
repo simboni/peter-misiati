@@ -290,7 +290,10 @@ describe("recording a treatment", () => {
     expect(alerts).toHaveLength(1);
     expect(alerts[0].dueOn).toBe("2026-08-07");
     expect(alerts[0].severity).toBe("CRITICAL");
-    expect(alerts[0].action).toBe("Njeri's milk is clear from today.");
+    // The sentence carries its own date: this row is written on the day of the
+    // injection and read for the whole week the withdrawal runs, so "today"
+    // would be a lie on every day but the last.
+    expect(alerts[0].action).toMatch(/^Njeri's milk is clear from \w+ \d+ \w+ — hold it back until then\.$/);
     await t.close();
   });
 });

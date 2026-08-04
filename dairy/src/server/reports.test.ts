@@ -972,8 +972,65 @@ describe("dailySheet", () => {
     );
 
     const r = await dailySheet(session(), M5, db);
-    expect(r.note).toContain("Do not sell");
+    expect(r.note).toContain("DO NOT SELL");
     expect(r.note).toContain("Njeri");
+  });
+
+  /**
+   * The sheet is printed to be carried INTO the shed, before a single litre has
+   * been entered. It used to draw its ⛔ markers from the health record and its
+   * footer sentence from the milk records, so on that walk to the shed it said
+   * "Njeri ⛔ do not sell" and "No cow is under withdrawal today" on one page.
+   */
+  it("never prints ⛔ against a cow and 'no cow is under withdrawal' on the same sheet", async () => {
+    const { njeri } = await seedAugust();
+    const oxytet = await seedProduct(db, { name: "Oxytetracycline LA 20%", milkWithdrawalDays: 7 });
+    // Treated today, nothing milked yet today — the moment the sheet is printed.
+    const tomorrow = addDays(M15, 1) as ISODate;
+    await db.insert(s.healthEvent).values({
+      id: newId(),
+      farmId: FARM_ID,
+      animalId: njeri,
+      productId: oxytet,
+      eventType: "TREATMENT",
+      occurredOn: tomorrow,
+      treatmentEndOn: tomorrow,
+      // What recordTreatment stamps from the product's label period.
+      milkClearAt: new Date(`${addDays(tomorrow, 7)}T23:59:59.999Z`),
+      recordedBy: USER,
+    });
+
+    const r = await dailySheet(session(), tomorrow, db);
+    const flagged = r.cows.filter((c) => c.locked).map((c) => c.name);
+
+    expect(flagged).toContain("Njeri");
+    expect(r.note).not.toMatch(/No cow is under withdrawal/i);
+    // Every cow the table marks must be named in the sentence below it.
+    for (const name of flagged) expect(r.note).toContain(name);
+  });
+
+  it("marks the withheld cow in the CSV too, not only on the web page", async () => {
+    const { njeri } = await seedAugust();
+    const oxytet = await seedProduct(db, { name: "Oxytetracycline LA 20%", milkWithdrawalDays: 7 });
+    const tomorrow = addDays(M15, 1) as ISODate;
+    await db.insert(s.healthEvent).values({
+      id: newId(),
+      farmId: FARM_ID,
+      animalId: njeri,
+      productId: oxytet,
+      eventType: "TREATMENT",
+      occurredOn: tomorrow,
+      treatmentEndOn: tomorrow,
+      // What recordTreatment stamps from the product's label period.
+      milkClearAt: new Date(`${addDays(tomorrow, 7)}T23:59:59.999Z`),
+      recordedBy: USER,
+    });
+
+    const [table] = await reportCsv(session(), "daily-sheet", { asOf: tomorrow }, db);
+    expect(table.headers).toContain("Sell?");
+    const njeriRow = table.rows.find((r) => r[0] === "Njeri")!;
+    expect(njeriRow.at(-1)).toBe("DO NOT SELL");
+    expect(table.sentence).toContain("Njeri");
   });
 });
 
@@ -1023,8 +1080,8 @@ describe("CSV export", () => {
   it("exports the daily sheet with a total row", async () => {
     await seedAugust();
     const [table] = await reportCsv(session(), "daily-sheet", { asOf: M5 }, db);
-    expect(table.headers).toEqual(["Cow", "Tag", "AM litres", "PM litres", "Total"]);
-    expect(table.rows.at(-1)).toEqual(["TOTAL", "", 14, 11, 25]);
+    expect(table.headers).toEqual(["Cow", "Tag", "AM litres", "PM litres", "Total", "Sell?"]);
+    expect(table.rows.at(-1)).toEqual(["TOTAL", "", 14, 11, 25, ""]);
   });
 
   it("names every report it will export", () => {

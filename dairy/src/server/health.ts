@@ -670,7 +670,13 @@ export async function recordTreatmentFor(
         kind: "WITHDRAWAL_CLEAR",
         animalId: animal.id,
         assignedRole: "HERDSMAN",
-        action: `${nameOf(animal)}'s milk is clear from today.`,
+        // NOT "clear from today". This row is written on the day of treatment
+        // and read for the whole withdrawal — the jobs list looks a week ahead,
+        // so a herdsman opened it on day 0 of a 7-day oxytetracycline course
+        // and read "Njeri's milk is clear from today" while the milk sheet had
+        // her marked ⛔. A sentence stored today must still be true when it is
+        // read next Tuesday, so it carries its own date.
+        action: `${nameOf(animal)}'s milk is clear from ${plainDate(milkClearOn)} — hold it back until then.`,
         dueOn: milkClearOn,
         severity: "CRITICAL",
         dedupeKey: `withdrawal:${id}`,

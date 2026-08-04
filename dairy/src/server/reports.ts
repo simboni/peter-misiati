@@ -1649,6 +1649,20 @@ export async function dailySheet(
     }
   }
 
+  // Two independent sources say a cow's milk is held back: the health record
+  // (which is what puts the ⛔ on the sheet, and is true before anything is
+  // milked) and a milk row already stamped unsaleable. Take the union. Missing
+  // a withdrawal costs a farm its co-op contract; naming one cow too many
+  // costs it nothing.
+  const day = await dayProduction(session, date, db);
+  for (const w of day.withheldAnimals) {
+    const cow = byCow.get(w.animalId);
+    if (cow && !cow.locked) {
+      cow.locked = true;
+      cow.lockMessage = cow.lockMessage ?? `${cow.name}'s milk was recorded as not for sale.`;
+    }
+  }
+
   const cows = [...byCow.values()].sort((a, b) => a.name.localeCompare(b.name));
 
   const totalsBySession = sessionNames.map((sn) => ({
@@ -1660,7 +1674,6 @@ export async function dailySheet(
   }));
   const totalL = money(totalsBySession.reduce((a, t) => a + t.litres, 0));
 
-  const day = await dayProduction(session, date, db);
   const mix = await channelMix(session, date, date, db);
 
   return {
@@ -1672,11 +1685,33 @@ export async function dailySheet(
     totalsBySession,
     totalL,
     disposals: mix.lines.map((l) => ({ label: l.label, litres: l.litres })),
-    note:
-      day.withheldAnimals.length > 0
-        ? `Do not sell: ${day.withheldAnimals.map((w) => w.name).join(", ")}.`
-        : "No cow is under withdrawal today.",
+    note: withdrawalNote(cows),
   };
+}
+
+/**
+ * The sentence at the foot of the printed sheet, derived from the SAME rows the
+ * table above it prints.
+ *
+ * It used to come from `dayProduction`, which walks the milk records that have
+ * already been entered. The herdsman prints this sheet to carry INTO the shed,
+ * before anything is entered — so the list was empty, and the paper said
+ *
+ *     Njeri    ⛔ do not sell
+ *     Akinyi   ⛔ do not sell
+ *     ...
+ *     No cow is under withdrawal today.
+ *
+ * on one page, while Njeri was seven days into an oxytetracycline withdrawal.
+ * The CSV export said it too. Reading the cow rows instead makes the two
+ * structurally incapable of disagreeing: if a ⛔ is printed, it is named here.
+ */
+function withdrawalNote(cows: DailySheetCow[]): string {
+  const held = cows.filter((c) => c.locked);
+  if (held.length === 0) return "No cow is under withdrawal today. Every cow's milk may go to the can.";
+  const names = held.map((c) => c.name);
+  const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+  return `DO NOT SELL ${list}. ${held.length === 1 ? "Her" : "Their"} milk is marked ⛔ above — keep it out of the can.`;
 }
 
 /* ================================================================== */
@@ -1968,12 +2003,16 @@ export async function reportCsv(
           name: `daily-sheet-${r.date}`,
           title: `Daily milk sheet — ${r.dayLabel}, ${r.farmName}`,
           sentence: r.note,
-          headers: ["Cow", "Tag", ...r.sessions.map((x) => `${x.label} litres`), "Total"],
+          // "Sell?" is not decoration. Without it a cow under withdrawal is
+          // invisible in the CSV — the ⛔ lives only on the web page, and the
+          // spreadsheet a manager actually forwards says nothing at all.
+          headers: ["Cow", "Tag", ...r.sessions.map((x) => `${x.label} litres`), "Total", "Sell?"],
           rows: [
             ...r.cows.map((c) => [
               c.name, c.tag, ...c.bySession.map((b) => b.litres), c.totalL,
+              c.locked ? "DO NOT SELL" : "Yes",
             ]),
-            ["TOTAL", "", ...r.totalsBySession.map((t) => t.litres), r.totalL],
+            ["TOTAL", "", ...r.totalsBySession.map((t) => t.litres), r.totalL, ""],
           ],
         },
       ];

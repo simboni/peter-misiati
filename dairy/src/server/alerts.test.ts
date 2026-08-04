@@ -606,6 +606,36 @@ describe("resolveAlert", () => {
 /* ================================================================== */
 
 describe("alertsForRole", () => {
+  /**
+   * The list looks a week ahead so nothing arrives as a surprise, but the
+   * screen is headed "Today's jobs". Counting the week under that heading is
+   * how a herdsman was told, on the morning of the injection, that a cow
+   * seven days into a withdrawal was clear.
+   */
+  it("does not count next week's jobs as today's", async () => {
+    const cow = await seedAnimal(db, { tag: "KE-0001", name: "Njeri" });
+    await db.insert(s.alert).values({
+      id: newId(), farmId: FARM_ID, kind: SWEEP_KIND.WITHDRAWAL_CLEAR, animalId: cow,
+      assignedRole: "HERDSMAN",
+      action: "Njeri's milk is clear from Sat 15 Aug — hold it back until then.",
+      dueOn: M15, severity: "CRITICAL", dedupeKey: "wd",
+    });
+
+    // Read it a week early, on the day of the injection.
+    const early = await alertsForRole(session({ role: "HERDSMAN" }), "HERDSMAN", M10, db);
+    expect(early.dueTodayCount).toBe(0);
+    expect(early.laterThisWeekCount).toBe(1);
+    expect(early.headline).toMatch(/Nothing to do today/);
+    expect(early.headline).not.toMatch(/1 job today/);
+    // It is still shown — a surprise on the day is worse — just not as due.
+    expect(early.alerts).toHaveLength(1);
+
+    // On the day, it is today's job.
+    const onTheDay = await alertsForRole(session({ role: "HERDSMAN" }), "HERDSMAN", M15, db);
+    expect(onTheDay.dueTodayCount).toBe(1);
+    expect(onTheDay.headline).toMatch(/^1 job today\./);
+  });
+
   async function seedMixedAlerts() {
     const cow = await seedAnimal(db, { tag: "KE-0001", name: "Njeri" });
     const customer = await seedCustomer(db, { name: "Mama Njeri's shop", customerType: "SHOP" });
@@ -714,7 +744,7 @@ describe("alertsForRole", () => {
     expect(r.alerts).toHaveLength(DAILY_ALERT_CAP);
     expect(r.heldBack).toBe(5);
     expect(r.openTotal).toBe(DAILY_ALERT_CAP + 5);
-    expect(r.headline).toContain("5 more waiting behind them");
+    expect(r.headline).toContain("5 more waiting behind these");
   });
 
   it("never shows a resolved alert", async () => {
