@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useState } from "react";
-import { raiseTicketAction } from "@/server/support";
+import { raiseTicketAction } from "./actions";
 import { Button, Field, Receipt } from "@/components/ui";
 import { count } from "@/lib/outbox";
 

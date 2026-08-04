@@ -1811,6 +1811,8 @@ export interface DueRoutine {
   lastGivenOn: ISODate | null;
   dueOn: ISODate;
   overdueDays: number;
+  /** True when there is no dose on file at all, as opposed to a lapsed one. */
+  neverRecorded?: boolean;
   note?: string;
 }
 
@@ -1834,6 +1836,16 @@ export async function dueRoutines(
         .where(and(eq(s.animalExit.farmId, session.farmId), lte(s.animalExit.exitDate, asOf)))
     ).map((e) => e.animalId),
   );
+
+  // The day this farm started keeping records here. Nothing can be overdue
+  // before it.
+  const [thisFarm] = await db
+    .select({ createdAt: s.farm.createdAt })
+    .from(s.farm)
+    .where(eq(s.farm.id, session.farmId));
+  const recordsBeganOn: ISODate | null = thisFarm?.createdAt
+    ? new Date(thisFarm.createdAt).toISOString().slice(0, 10)
+    : null;
 
   const animals = (
     await db
@@ -1888,19 +1900,24 @@ export async function dueRoutines(
 
       /**
        * Never given: due as soon as she is old enough for the first dose — but
-       * clamped to the day she joined this herd.
+       * clamped to the day she joined this herd AND to the day the farm started
+       * keeping records here.
        *
-       * Without the clamp, a five-year-old cow bought in last month reads as
-       * "tick control, 2,267 days overdue", because she has no history HERE.
-       * Technically true and completely useless: it floods the week's job list
-       * with about nine items per animal and prints numbers no farmer can act
-       * on. We are not responsible for doses her previous owner did or did not
-       * give; we are responsible from the day she arrived.
+       * Without both clamps a six-year-old cow born on the farm reads as "tick
+       * control, 2,451 days late", because there is no dose on file from before
+       * the system existed. Technically true and completely useless: it floods
+       * the week's job list with nine items per animal and prints numbers no
+       * farmer can act on. We cannot be late for something that predates the
+       * record, and we are not answerable for what a previous owner did.
        */
       const firstDoseDue =
         rule.firstDoseMinAgeDays != null && animal.dateOfBirth
           ? addDays(animal.dateOfBirth, rule.firstDoseMinAgeDays)
           : asOf;
+      // Clamp the DUE date only to the day she joined this herd — we are not
+      // answerable for a previous owner's doses. Do NOT clamp it to when the
+      // record started: that would hide the job entirely, and a dose nobody has
+      // given is still a dose nobody has given.
       const dueOn = last
         ? nextDueOn(rule, last)
         : animal.enteredHerdOn && firstDoseDue < animal.enteredHerdOn
@@ -1915,7 +1932,29 @@ export async function dueRoutines(
         label: rule.label,
         lastGivenOn: last,
         dueOn,
-        overdueDays: Math.max(0, Math.round((Date.parse(asOf) - Date.parse(dueOn)) / 86_400_000)),
+        /**
+         * Counted from when we could plausibly have known — never from a date
+         * before this farm kept records. Otherwise a cow born here six years
+         * ago reads "tick control, 2,451 days late", which is arithmetically
+         * true, actionable by nobody, and drowns the week's real work.
+         */
+        overdueDays: Math.max(
+          0,
+          Math.round(
+            (Date.parse(asOf) -
+              Date.parse(
+                // Only floor the NEVER-GIVEN case. When a dose is on file we
+                // know exactly when it lapsed, and clamping that would
+                // under-report a genuinely overdue booster.
+                last === null && recordsBeganOn && dueOn < recordsBeganOn
+                  ? recordsBeganOn
+                  : dueOn,
+              )) /
+              86_400_000,
+          ),
+        ),
+        /** Nothing on file at all — say that, rather than implying we lost it. */
+        neverRecorded: last === null,
         note: rule.note,
       });
     }

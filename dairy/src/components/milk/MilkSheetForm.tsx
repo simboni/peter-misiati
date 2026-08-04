@@ -168,7 +168,11 @@ export function MilkSheetForm({ sheet, action }: { sheet: MilkSheet; action: She
           ))}
         </ul>
 
-        <div className="sticky bottom-0 mt-4 flex flex-wrap items-center justify-between gap-4 border-t border-line bg-paper/95 py-3">
+        {/* Opaque, not translucent: at 95% the card behind bleeds through and
+            the running total becomes unreadable over a row. It also needs its
+            own horizontal padding and a negative inset, or it sits inside the
+            page gutter and looks like a floating fragment rather than a bar. */}
+        <div className="sticky bottom-0 -mx-5 mt-4 flex flex-wrap items-center justify-between gap-4 border-t border-line bg-paper px-5 py-3 shadow-[0_-6px_16px_-8px_rgba(20,32,28,0.25)]">
           <div>
             <p className="text-sm text-ink-2">Total so far</p>
             <p className="text-2xl font-semibold tabular-nums">

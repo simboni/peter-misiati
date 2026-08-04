@@ -74,7 +74,11 @@ export async function signIn(
       language: user.language,
     });
 
-    return actionOk({ userId: user.id }, `Welcome, ${user.fullName.split(" ")[0]}.`);
+    // Go straight to the task grid. Returning a success state instead left the
+    // user staring at the keypad they had just completed, with the cookie set
+    // and nothing to show for it — the session existed but the screen did not
+    // move. `guard` re-throws redirect digests, so this passes through it.
+    redirect("/");
   });
 }
 

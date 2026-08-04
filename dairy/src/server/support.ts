@@ -6,8 +6,6 @@ import {
   actionError,
   actionOk,
   assertOwned,
-  guard,
-  requireCapability,
   type ActionResult,
   type Session,
 } from "@/lib/dal";
@@ -76,33 +74,6 @@ export async function raiseTicketFor(
     { id },
     "Thank you. We have your message and will come back to you.",
   );
-}
-
-/** POST-reachable wrapper. Anyone signed in may ask for help. */
-export async function raiseTicketAction(
-  _prev: unknown,
-  formData: FormData,
-): Promise<ActionResult<{ id: string }>> {
-  "use server";
-  return guard(async () => {
-    const session = await requireCapability("RECORD");
-    const raw = formData.get("syncState");
-    let syncState: Record<string, unknown> | undefined;
-    if (typeof raw === "string" && raw) {
-      try {
-        syncState = JSON.parse(raw) as Record<string, unknown>;
-      } catch {
-        // A malformed sync blob is diagnostic noise, not a reason to lose the
-        // user's message. Drop it and keep the ticket.
-        syncState = { unparsed: raw.slice(0, 500) };
-      }
-    }
-    return raiseTicketFor(session, {
-      message: String(formData.get("message") ?? ""),
-      screen: String(formData.get("screen") ?? "") || undefined,
-      syncState,
-    });
-  });
 }
 
 export async function listTickets(
