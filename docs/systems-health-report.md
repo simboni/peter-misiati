@@ -78,12 +78,15 @@ This repo is the portfolio site + a bundled billing app. Checked directly:
 |-------|--------|-------|
 | **Production build** (`npm run build`) | ✅ **Pass** | 25 static pages generated cleanly (Next.js 16, Turbopack) |
 | **TypeScript** (`tsc --noEmit`) | ✅ **Pass** | No type errors |
-| **Lint** (`eslint`) | ❌ **2 errors** | `site-header.tsx` & `theme-switcher.tsx`: `setState` called directly inside a `useEffect` (React perf warning; not a crash) |
-| **Security audit** (`npm audit`) | ⚠️ **4 high** | `postcss` (XSS + file-read advisories) and `sharp`/libvips (4 CVEs) — both are build-time deps, pulled via `next`. Fix: bump `next` to **16.2.12** (`npm audit fix --force`, then re-test) |
-| **Dependency freshness** | ℹ️ Minor drift | `next 16.2.10 → 16.2.12`, `react 19.2.4 → 19.2.8`, plus small `@types`/eslint/tailwind patches available |
+| **Lint** (`eslint`) | ✅ **Fixed** | Was 2 errors (`setState` inside `useEffect` in `site-header.tsx` & `theme-switcher.tsx`); rewritten with `useSyncExternalStore` / prev-prop pattern. Clean now. |
+| **Security audit** (`npm audit`) | ✅ **0 vulns** | Was 4 high (`postcss` XSS/path-traversal, `sharp`/libvips CVEs). Fixed by bumping `next` to **16.3.0** + `react` to 19.2.8. Build re-verified. |
+| **Dependency freshness** | ✅ Current | `next`, `react`, `react-dom` now on latest patched releases. |
 
-**Bottom line:** the site builds and ships fine. The lint errors and the audit
-findings are worth a small cleanup pass but are **not** breaking production.
+**Bottom line:** the site builds and ships fine, and the lint + security issues
+are now resolved on branch `claude/systems-health-check-a3dt0d`. **These fixes
+still need to reach the default branch** (merge this branch) to clear the
+Dependabot alerts GitHub reports there — and the bundled **billing app** has its
+own dependency tree that needs the same `next` bump on its branch.
 
 ---
 
@@ -98,12 +101,15 @@ findings are worth a small cleanup pass but are **not** breaking production.
   | Deploy to Netlify | ✅ success |
   | Deploy billing app | ✅ success |
   | Build mobile app (Android) | ✅ success |
-  | **Deploy to GitHub Pages** | ❌ **failure** |
+  | Deploy to GitHub Pages | ❌ failure — **benign** (see below) |
 
-  → The **GitHub Pages** deploy is failing while **Netlify succeeds**. If the live
-  site is served from Netlify (or Cloudflare), Pages is a redundant/legacy target
-  and can be fixed or removed; if Pages *is* the production host, this needs a fix.
-  **Confirm which host `smp-developers.com` points to.**
+  → **The GitHub Pages "failure" is not a real problem.** That workflow is
+  **manual-only** (`workflow_dispatch`) and self-describes as an *"optional backup —
+  Netlify is the primary host."* The failed run was a hand-triggered test whose
+  deploy step failed only because GitHub Pages isn't enabled in repo Settings. It
+  never runs automatically and **nothing live depends on it.** Leave it, or enable
+  it (Settings → Pages → Source: GitHub Actions) only if you want free fallback
+  hosting. **Netlify is your working host.**
 - **Open pull requests on `peter-misiati`: 2, both stale** (last touched mid/late
   July, never merged):
   - **#1** Multi-vendor billing & invoicing platform (M-Pesa + Resend)
@@ -152,11 +158,12 @@ See recommendations.
 3. **Confirm the FormSubmit contact form is activated** (send a test enquiry).
 
 **Do soon (housekeeping):**
-4. **Fix or retire the failing GitHub Pages workflow**; confirm the true host of
-   `smp-developers.com`.
+4. ~~Fix the failing GitHub Pages workflow~~ — **resolved as benign** (manual/optional
+   backup; Netlify is primary). No action needed unless you want Pages as a fallback.
 5. **Resolve the 2 stale PRs** (merge or close).
-6. **Patch the security audit:** bump `next` to 16.2.12 and re-run build + tests.
-7. **Fix the 2 lint errors** (move the `setState` calls out of the effect bodies).
+6. ~~Patch the security audit~~ — ✅ **done** on this branch (0 vulns). Still to do:
+   merge it to the default branch, and apply the same `next` bump to the billing app.
+7. ~~Fix the 2 lint errors~~ — ✅ **done** on this branch (eslint clean).
 
 **Consider:**
 8. **Move client-facing Render apps off the free tier** (or add a keep-alive ping)
