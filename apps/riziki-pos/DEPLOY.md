@@ -15,26 +15,47 @@ offline mode — the feature the counter depends on — will not switch on.
 
 - A small VPS — 1 vCPU / 1 GB is plenty (Hetzner, DigitalOcean, Contabo…).
   The database after three busy years is measured in tens of megabytes.
-- A domain or subdomain for the POS (e.g. `pos.rizikichem.co.ke`) with an
-  A record pointing at the VPS. The marketing site can share the same box.
+- The domain: **rizikichemicals.co.ke** (already baked into the site's SEO
+  tags as the canonical origin).
 - Docker and Docker Compose on the VPS (`curl -fsSL https://get.docker.com | sh`).
+
+## DNS — three A records, all to the VPS's IP
+
+| Host | Type | Value | Serves |
+| --- | --- | --- | --- |
+| `rizikichemicals.co.ke` | A | VPS IP | the marketing site |
+| `www.rizikichemicals.co.ke` | A | VPS IP | redirect to the bare domain |
+| `pos.rizikichemicals.co.ke` | A | VPS IP | the shop system |
+
+Set these at the registrar (or better, point the domain's nameservers at a
+free Cloudflare account first and manage DNS there). Caddy fetches all three
+HTTPS certificates itself once the records resolve.
 
 ## First deployment
 
 ```bash
 # On the VPS:
-git clone <your-repo> && cd <repo>/apps/riziki-pos
+git clone <your-repo> && cd <repo>
 
-# 1. Put the real domain in deploy/Caddyfile (replace pos.example.co.ke).
-# 2. Start everything:
+# 1. Build the marketing site's static files (no Node needed on the host —
+#    build inside a container):
+docker run --rm -v "$PWD/apps/riziki-web":/app -w /app node:22-alpine \
+  sh -c "npm ci && npm run build"
+
+# 2. Start everything — POS + Caddy serving both sites:
+cd apps/riziki-pos
 docker compose up -d --build
 
 # 3. Watch it come up:
-docker compose logs -f pos
+docker compose logs -f
 ```
 
-Open `https://pos.your-domain` — the login screen seeds the database with the
-shop's chemicals, formulas and opening stock on first load.
+Open `https://rizikichemicals.co.ke` for the site and
+`https://pos.rizikichemicals.co.ke` for the POS — the login screen seeds the
+database with the shop's chemicals, formulas and opening stock on first load.
+
+**Updating the website later**: pull, re-run the build container (step 1) —
+Caddy serves the new files immediately, no restart.
 
 ## The go-live checklist (do these with the owner, in order)
 
@@ -93,9 +114,13 @@ runtime column patches), so an update never needs a migration step by hand.
 
 ## The marketing website
 
-`apps/riziki-web` exports to static files (`npm run build` → `out/`). Host it
-anywhere static — Cloudflare Pages and Netlify are free and take the `out/`
-directory as-is — on the main domain, with the POS on the `pos.` subdomain.
+Served by the same Caddy on the same VPS — `apps/riziki-web/out` is mounted
+into the caddy container read-only, and the Caddyfile's first block serves it
+on the bare domain (www redirects there). Rebuild = re-run the build
+container from step 1 of First deployment; the new files are live instantly.
+
+(If you ever want it off the VPS, the `out/` directory also drops straight
+into Cloudflare Pages or Netlify — nothing about the build changes.)
 
 ## If something goes wrong
 

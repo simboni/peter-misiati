@@ -27,6 +27,9 @@ services:
       - "443:443"
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # The marketing site's static build (apps/riziki-web: npm run build).
+      # Rebuilding the site is just re-running that build — no restart needed.
+      - ../riziki-web/out:/srv/riziki-web:ro
       - caddy-data:/data
       - caddy-config:/config
     depends_on:
