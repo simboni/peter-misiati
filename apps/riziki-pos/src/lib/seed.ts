@@ -58,10 +58,16 @@ const CHEMICALS: ChemSpec[] = [
     bulk: 20, bulkLabel: "drum", packs: [5], bulkCost: 11000 },
   { key: "cde", name: "C.D.E", unit: "kg", aliases: "cdea,cocamide dea,foam booster",
     bulk: 20, bulkLabel: "drum", packs: [5], bulkCost: 10400 },
-  { key: "dod", name: "DOD", unit: "kg", aliases: "",
+  // Confirmed by the owner: DOD is BAC 50 (benzalkonium chloride 50%), the
+  // germicide in the disinfectant. "DOD gen" is the shop's short form.
+  { key: "dod", name: "DOD", unit: "kg", aliases: "bac 50,benzalkonium chloride,dod gen,germicide",
     bulk: 20, bulkLabel: "drum", packs: [5, 1], bulkCost: 8000 },
   { key: "cmc", name: "C.M.C", unit: "kg", aliases: "carboxymethyl cellulose,thickener",
     bulk: 25, bulkLabel: "bag", packs: [1], bulkCost: 15000 },
+  // For the thickened toilet-cleaner method — C.M.C would not survive the acid.
+  // No cost on file yet; the weighted average arrives with the first purchase.
+  { key: "acidthick", name: "Acid Thickener", unit: "kg", aliases: "acid thickner,thickener for acid",
+    bulk: 25, bulkLabel: "bag", packs: [1] },
   { key: "stpp", name: "S.T.P.P", unit: "kg", aliases: "sodium tripolyphosphate",
     bulk: 25, bulkLabel: "bag", packs: [1], bulkCost: 10500 },
   { key: "simet", name: "Simet", unit: "kg", aliases: "simel,sodium metasilicate",
@@ -176,8 +182,8 @@ const FORMULAS: FormulaSpec[] = [
   {
     name: "Shampoo",
     refLitres: 20,
-    items: [["ungerol", 1], ["finesalt", 1], ["pearlizer", 0.1], ["glycerine", 0.1], ["colour", 0.02], ["perfume", 1]],
-    note: "C.D.E appears on the sheet without a quantity — confirm with the owner.",
+    items: [["ungerol", 1], ["finesalt", 1], ["pearlizer", 0.1], ["glycerine", 0.1], ["cde", 0.1], ["colour", 0.02], ["perfume", 1]],
+    note: "Confirmed with the owner: C.D.E is 100 g per 20 L. Perfume dose is 15 ml per 20 L — recorded as one bottle unit until perfume is stocked by volume.",
   },
   {
     name: "Handwash",
@@ -187,8 +193,8 @@ const FORMULAS: FormulaSpec[] = [
   {
     name: "Laundry Soap",
     refLitres: 20,
-    items: [["ungerol", 1.5], ["finesalt", 1], ["cde", 0.125], ["edta", 0.1], ["sodiumg", 0.08], ["optical", 0.08], ["np9", 0.125], ["perfume", 1]],
-    note: "A second sheet shows Finesalt at 1/2 kg for this product — confirm which version is current.",
+    items: [["ungerol", 1.5], ["salt", 1], ["cde", 0.125], ["edta", 0.1], ["sodiumg", 0.08], ["optical", 0.08], ["np9", 0.125], ["perfume", 1]],
+    note: "Confirmed with the owner: ordinary Salt at 1 kg, not Finesalt. Perfume dose is 20 ml per 20 L — recorded as one bottle unit until perfume is stocked by volume.",
   },
   {
     name: "Carwash Shampoo",
@@ -196,11 +202,19 @@ const FORMULAS: FormulaSpec[] = [
     items: [["ungerol", 1], ["salt", 1], ["simet", 0.05], ["cde", 0.025]],
     note: "Handwritten page; caustic quantity is unreadable and colour/perfume are unquantified. Confirm with the owner.",
   },
+  // Named "Toilet Cleaner" at the owner's request — Harpic is another
+  // company's brand. Two confirmed methods for the same product.
   {
-    name: "Harpic",
+    name: "Toilet Cleaner",
     refLitres: 20,
-    items: [["ungerol", 2], ["salt", 0.5], ["hcl", 2], ["colour", 0.02], ["perfume", 1]],
-    note: "Margin note for the 5 L column reads 'thickener 100 g, HCL 1/2 L, acid blue' — confirm.",
+    items: [["ungerol", 2], ["salt", 1], ["hcl", 2], ["blue", 0.015], ["perfume", 1]],
+    note: "Confirmed with the owner. Acid blue is dosed as 15 ml per 20 L (about 15 g of the tub); perfume 15 ml — recorded as one bottle unit until perfume is stocked by volume.",
+  },
+  {
+    name: "Toilet Cleaner (thickened)",
+    refLitres: 20,
+    items: [["acidthick", 0.4], ["hcl", 2], ["blue", 0.015]],
+    note: "Second confirmed method: acid thickener replaces the Ungerol and salt. No perfume on this sheet.",
   },
   {
     name: "Dettol-type Disinfectant",
@@ -215,9 +229,9 @@ const FORMULAS: FormulaSpec[] = [
   },
   {
     name: "Jik Coloured",
-    refLitres: 5,
-    items: [["peroxide", 0.125], ["np9", 1]],
-    note: "Sheet lists NP9 as '1 P.B' and an acid colour — quantities to confirm.",
+    refLitres: 20,
+    items: [["peroxide", 0.5], ["np9", 0.1], ["blue", 0.005]],
+    note: "Confirmed with the owner: per 20 L — hydrogen peroxide 1/2 kg, NP9 100 g, acid blue 5 ml. Sold as 5 L jerricans.",
   },
   {
     name: "HPO",
@@ -248,7 +262,7 @@ const FINISHED: Array<{ name: string; unit: Unit; size: number; label: string; r
   { name: "Handwash 500 ml", unit: "L", size: 0.5, label: "bottle", retail: 150, wholesale: 110 },
   { name: "Laundry Soap 1 L", unit: "L", size: 1, label: "bottle", retail: 120, wholesale: 90 },
   { name: "Laundry Soap 5 L", unit: "L", size: 5, label: "jerrican", retail: 500, wholesale: 420 },
-  { name: "Harpic 500 ml", unit: "L", size: 0.5, label: "bottle", retail: 180, wholesale: 140 },
+  { name: "Toilet Cleaner 500 ml", unit: "L", size: 0.5, label: "bottle", retail: 180, wholesale: 140 },
   { name: "Dettol-type 500 ml", unit: "L", size: 0.5, label: "bottle", retail: 220, wholesale: 180 },
   { name: "Jik 1 L", unit: "L", size: 1, label: "bottle", retail: 130, wholesale: 100 },
   { name: "Fabric Softener 1 L", unit: "L", size: 1, label: "bottle", retail: 250, wholesale: 200 },
