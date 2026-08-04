@@ -1,0 +1,31 @@
+# Free always-on monitoring for every live system in the portfolio.
+#
+# Runs scripts/monitor.mjs every 6 hours. If any site is DOWN, or a TLS
+# certificate / domain registration is expiring soon, the job FAILS — and
+# GitHub emails the repo owner. The Actions "Summary" shows a full table.
+#
+# NOTE: scheduled workflows only run from the repository's DEFAULT branch, so
+# this starts firing once this branch is merged. Until then, run it by hand from
+# the Actions tab (workflow_dispatch).
+name: Uptime & expiry monitor
+
+on:
+  schedule:
+    - cron: "0 */6 * * *" # every 6 hours (UTC)
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install whois (for domain-expiry lookups)
+        run: sudo apt-get update && sudo apt-get install -y whois
+      - name: Check all live systems
+        run: node scripts/monitor.mjs

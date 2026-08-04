@@ -127,10 +127,15 @@ own dependency tree that needs the same `next` bump on its branch.
   fired** (`run_once_fired`) — mostly past "check this CI run / APK build"
   reminders. **Nothing is monitoring your live sites on a schedule.**
 
-➡️ **You currently have no automated uptime or expiry monitoring.** That is the
-single biggest gap for a portfolio of 12 client sites — an expired `.co.ke`
-domain or a down Render app would only be discovered by a client complaining.
-See recommendations.
+➡️ **Automated monitoring is now included** (this branch). A GitHub Actions
+workflow — `.github/workflows/uptime-monitor.yml` running `scripts/monitor.mjs`
+— checks all 12 sites **every 6 hours** for uptime, SSL-certificate expiry, and
+domain-registration expiry. If anything is down or expiring within the warning
+window (SSL ≤ 21 days, domain ≤ 30 days) the run **fails and GitHub emails you**;
+the Actions "Summary" tab shows a full table each run. It starts firing
+automatically **once this branch is merged** (scheduled workflows only run from
+the default branch); until then, trigger it by hand from the Actions tab. For
+instant phone/push alerts on top of this, add UptimeRobot (see recommendations).
 
 ---
 
@@ -151,10 +156,11 @@ See recommendations.
 1. **Run `./scripts/health-check.sh` from your laptop** and record every SSL &
    domain expiry date. Put the soonest ones in your calendar with a 30-day
    reminder.
-2. **Set up uptime + expiry monitoring** so you're told *before* a client is.
-   Free options: **UptimeRobot** or **Better Stack** (uptime + SSL-expiry +
-   domain-expiry alerts, 12 monitors fits the free tier). This replaces the
-   manual script with always-on alerts.
+2. ~~Set up uptime + expiry monitoring~~ — ✅ **added** (`uptime-monitor.yml`,
+   emails you on any down/expiring site every 6 hours). **Optional upgrade:** add
+   **UptimeRobot** (free) for instant **phone/push** alerts + a public status
+   page — create one monitor per site (paste the 12 URLs), set the alert contact
+   to your email/phone, and enable its SSL-expiry + domain-expiry notifications.
 3. **Confirm the FormSubmit contact form is activated** (send a test enquiry).
 
 **Do soon (housekeeping):**
