@@ -85,7 +85,7 @@ export function CloseForm({
       {state.error ? <Alert tone="bad">{state.error}</Alert> : null}
       {state.ok ? (
         <Alert tone="good">
-          Day closed. Variance {formatKes(state.varianceCents ?? 0)}.
+          Day closed. Difference {formatKes(state.varianceCents ?? 0)}.
         </Alert>
       ) : null}
 

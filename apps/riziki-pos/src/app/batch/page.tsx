@@ -396,7 +396,7 @@ export default async function BatchPage(props: {
               <Th>Batch</Th>
               <Th align="right">Target</Th>
               <Th align="right">Actual</Th>
-              <Th align="right">Variance</Th>
+              <Th align="right">Difference</Th>
               {owner ? <Th align="right">Cost</Th> : null}
             </tr>
           </thead>
@@ -475,7 +475,7 @@ export default async function BatchPage(props: {
 
       {owner ? (
         <p className="mt-3 text-sm text-muted">
-          Variance is measured against the target.{" "}
+          The difference is measured against the target.{" "}
           <Link href="/formulas" className="font-bold text-brand">
             Formulas
           </Link>

@@ -49,10 +49,10 @@ export function CustomerForm({ customer }: { customer?: CustomerFields }) {
       </Field>
 
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Price tier">
+        <Field label="Buys at">
           <select className={inputClass} name="kind" defaultValue={customer?.kind ?? "retail"}>
-            <option value="retail">Retail</option>
-            <option value="wholesale">Wholesale</option>
+            <option value="retail">Retail prices</option>
+            <option value="wholesale">Wholesale prices</option>
           </select>
         </Field>
 

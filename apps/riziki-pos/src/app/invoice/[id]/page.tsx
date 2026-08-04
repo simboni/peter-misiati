@@ -112,7 +112,7 @@ export default async function InvoicePage(props: {
             ) : null}
           </div>
           <div className="text-right">
-            <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted">Price tier</div>
+            <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted">Prices</div>
             <div className="font-bold capitalize">{sale.tier}</div>
             {sale.user_name ? <div className="text-[11px] text-muted">Served by {sale.user_name}</div> : null}
           </div>

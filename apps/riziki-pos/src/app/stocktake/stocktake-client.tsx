@@ -113,7 +113,7 @@ export function StocktakeClient({
           />
           {owner ? (
             <Stat
-              label="Variance at cost"
+              label="Difference at cost"
               value={formatKes(varianceCents)}
               detail={varianceCents < 0 ? "stock is short" : "stock is over"}
             />

@@ -138,7 +138,7 @@ export default async function DayClosePage() {
       <Card>
         {existing ? (
           <p className="mb-3 text-xs text-muted">
-            Today was already closed by {existing.closed_by_name ?? "someone"} with a variance of{" "}
+            Today was already closed by {existing.closed_by_name ?? "someone"} with a difference of{" "}
             <span className="font-bold tnum">{formatKes(existing.variance_cents)}</span>. Saving
             again replaces it.
           </p>
