@@ -17,6 +17,22 @@ export const BUSINESS = {
   whatsappNumber: "254723496434",
   city: "Nairobi",
   country: "Kenya",
+  /** Confirmed by the owner, 4 Aug 2026. */
+  address: {
+    building: "Obedi House, Ground Floor, Room A26",
+    street: "Ronald Ngara Street",
+    area: "Nairobi CBD",
+    /** One line, for footers and print. */
+    display: "Obedi House, Ground Floor, Room A26 — Ronald Ngara Street, Nairobi CBD",
+  },
+  hours: {
+    days: "Monday – Saturday",
+    open: "8:00 am",
+    close: "6:00 pm",
+    closedOn: "Sunday & public holidays",
+  },
+  /** Lipa na M-Pesa Buy Goods till, as posted at the counter. */
+  mpesaTill: "4373016",
 } as const;
 
 /**

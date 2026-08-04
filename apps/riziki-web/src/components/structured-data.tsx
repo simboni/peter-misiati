@@ -4,11 +4,10 @@ import { CATEGORIES } from "@/lib/catalogue";
 /**
  * `LocalBusiness` structured data.
  *
- * Only facts we actually hold go in here. The street address, geo coordinates
- * and opening hours are deliberately absent rather than guessed: a wrong
- * address in structured data sends customers to the wrong door, and Google
- * treats a mismatch against Google Business Profile as a trust signal against
- * the listing. Add them here the moment the owner confirms them.
+ * Only facts we actually hold go in here — the address and opening hours are
+ * the owner's own, confirmed 4 Aug 2026. They must stay byte-identical with
+ * the visible pages and (once created) the Google Business Profile: Google
+ * treats a mismatch as a trust signal against the listing.
  */
 export function LocalBusinessJsonLd() {
   const jsonLd = {
@@ -23,8 +22,15 @@ export function LocalBusinessJsonLd() {
     telephone: BUSINESS.phoneE164,
     address: {
       "@type": "PostalAddress",
+      streetAddress: `${BUSINESS.address.building}, ${BUSINESS.address.street}`,
       addressLocality: BUSINESS.city,
       addressCountry: "KE",
+    },
+    openingHoursSpecification: {
+      "@type": "OpeningHoursSpecification",
+      dayOfWeek: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+      opens: "08:00",
+      closes: "18:00",
     },
     areaServed: {
       "@type": "AdministrativeArea",
