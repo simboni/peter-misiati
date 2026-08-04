@@ -1,11 +1,10 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { verifySession } from "@/lib/dal";
 import { today } from "@/lib/domain/dates";
 import { kes } from "@/lib/money";
 import { getEmployee, recordAttendanceAction, roleLabel } from "@/server/people";
 import { AttendanceForm } from "@/components/people/people-forms";
-import { Card, Chip, Num, PageTitle } from "@/components/ui";
+import { BackLink, Card, Chip, Num, PageTitle } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -40,9 +39,7 @@ export default async function EmployeePage({
 
   return (
     <main className="mx-auto max-w-2xl p-4 pb-24">
-      <Link href="/people" className="mb-3 inline-block text-sm text-ink-2">
-        <span aria-hidden>←</span> People
-      </Link>
+      <BackLink to="/people" label="People" />
       <PageTitle sub={`${roleLabel(r.role)} · started ${r.startedOn}`}>{r.fullName}</PageTitle>
 
       <div className="mb-4 flex flex-wrap gap-2">

@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { useActionState } from "react";
 import { Card, Field, TextInput, Select, Receipt, Chip } from "@/components/ui";
 import { SubmitButton, FieldError, ErrorBanner, MoreFields, type FormAction, type Result } from "./form-kit";
@@ -222,12 +224,12 @@ function RegisteredReceipt({ result }: { result: Extract<Result<RegisterResultVi
           >
             Open her card
           </a>
-          <a
+          <Link
             href="/herd/new"
             className="tap inline-flex items-center rounded-md border border-line px-4 py-2 text-sm font-semibold"
           >
             Add another
-          </a>
+          </Link>
         </div>
       </Receipt>
 

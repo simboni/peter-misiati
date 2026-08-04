@@ -2,7 +2,7 @@ import { requirePageCapability } from "@/lib/dal";
 import { today } from "@/lib/domain/dates";
 import { issuePrefill, recordIssues } from "@/server/feed";
 import { IssueForm } from "@/components/feed/forms";
-import { EmptyState, PageTitle } from "@/components/ui";
+import { BackLink, EmptyState, PageTitle } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +23,7 @@ export default async function IssuePage({
 
   return (
     <main className="mx-auto max-w-2xl p-4">
+      <BackLink to="/feed" />
       <PageTitle sub="Change what is different today and save. Anything left at zero is not recorded.">
         Feed issued today
       </PageTitle>

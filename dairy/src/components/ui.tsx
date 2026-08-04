@@ -7,6 +7,7 @@
  *       carry the meaning.
  *   R6  Every save returns a persistent, re-viewable receipt.
  */
+import Link from "next/link";
 import type { ReactNode } from "react";
 
 /* ---------------------------------------------------------------- */
@@ -23,6 +24,50 @@ export function PageTitle({ children, sub }: { children: ReactNode; sub?: ReactN
       <h1 className="text-2xl font-semibold tracking-tight text-balance">{children}</h1>
       {sub ? <p className="mt-1 text-sm text-ink-2">{sub}</p> : null}
     </header>
+  );
+}
+
+/**
+ * Where "← Breeding" and "← Home" come from. One map, so the label on the way
+ * back is always the title of the screen you land on.
+ */
+export const ROUTE_LABEL: Record<string, string> = {
+  "/": "Home",
+  "/milk": "Milking",
+  "/milk/flagged": "Milk to check",
+  "/herd": "The herd",
+  "/breeding": "Breeding",
+  "/health": "Health",
+  "/feed": "Feed",
+  "/sales": "Milk sales",
+  "/sales/round": "The round",
+  "/sales/customers": "Customers",
+  "/money": "Money",
+  "/people": "People",
+  "/reports": "Reports",
+  "/alerts": "Today's jobs",
+  "/support": "Help",
+  "/training": "Training",
+};
+
+/**
+ * The way out of a screen.
+ *
+ * Every capture surface needs one. The plan is to install this to the phone's
+ * home screen, and an installed PWA has no browser chrome and no back button —
+ * so a milk sheet without this is a room with no door. Nine top-level screens
+ * had none.
+ */
+export function BackLink({ to, label }: { to: string; label?: string }) {
+  const text = label ?? ROUTE_LABEL[to] ?? "Back";
+  return (
+    <Link
+      href={to}
+      className="tap -ml-1 mb-3 inline-flex min-h-11 items-center gap-1 pr-3 text-sm font-medium text-ink-2"
+    >
+      <span aria-hidden>←</span>
+      {text}
+    </Link>
   );
 }
 

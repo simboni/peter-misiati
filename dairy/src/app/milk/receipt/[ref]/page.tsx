@@ -25,7 +25,7 @@ export default async function ReceiptPage({ params }: { params: Promise<{ ref: s
 
       <Receipt title={receipt.summary} lines={receipt.lines} refCode={receipt.refCode}>
         <p className="mt-3 text-xs text-ink-3">
-          {receipt.at.toLocaleString()}
+          {stamp(receipt.at)}
           {receipt.actorName ? ` · by ${receipt.actorName}` : ""}
         </p>
       </Receipt>
@@ -60,4 +60,27 @@ export default async function ReceiptPage({ params }: { params: Promise<{ ref: s
       </section>
     </main>
   );
+}
+
+/**
+ * "Tue 4 Aug, 5:19 am" — the way this app writes every other date, in the time
+ * zone the farm is standing in. `toLocaleString()` on the server rendered
+ * "8/4/2026, 5:19:59 AM": US month-first, UTC, and seconds nobody needs.
+ */
+function stamp(at: Date): string {
+  const d = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Africa/Nairobi",
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  }).format(at);
+  const t = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Africa/Nairobi",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  })
+    .format(at)
+    .toLowerCase();
+  return `${d}, ${t}`;
 }

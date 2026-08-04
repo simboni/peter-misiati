@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { verifySession } from "@/lib/dal";
 import { today } from "@/lib/domain/dates";
 import { ANIMAL_CLASSES } from "@/db/schema";
@@ -6,7 +5,7 @@ import { CLASS_LABEL } from "@/lib/domain/animal";
 import { recordPurchaseAction } from "@/server/trading";
 import { listCounterparties } from "@/server/money";
 import { PurchaseForm } from "@/components/trading/trade-forms";
-import { Card, PageTitle } from "@/components/ui";
+import { BackLink, Card, PageTitle } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -16,9 +15,7 @@ export default async function BuyPage() {
 
   return (
     <main className="mx-auto max-w-xl p-4 pb-24">
-      <Link href="/trading" className="mb-3 inline-block text-sm text-ink-2">
-        <span aria-hidden>←</span> Buying and selling
-      </Link>
+      <BackLink to="/trading" label="Buying and selling" />
       <PageTitle sub="Bring a bought-in animal onto the register.">Buy an animal</PageTitle>
 
       <Card className="mb-4">

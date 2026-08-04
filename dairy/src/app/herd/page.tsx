@@ -1,6 +1,7 @@
+import Link from "next/link";
 import { verifySession } from "@/lib/dal";
 import { listHerd } from "@/server/herd";
-import { PageTitle, Card, Chip, EmptyState, TextInput, Select, Num } from "@/components/ui";
+import { BackLink, PageTitle, Card, Chip, EmptyState, TextInput, Select, Num } from "@/components/ui";
 import { CLASS_LABEL } from "@/lib/domain/animal";
 import { ANIMAL_CLASSES, type AnimalClass } from "@/db/schema";
 import { today } from "@/lib/domain/dates";
@@ -33,6 +34,7 @@ export default async function HerdPage({
 
   return (
     <main className="mx-auto max-w-3xl p-4 pb-24">
+      <BackLink to="/" />
       <PageTitle sub={`${list.total} animals · ${list.milkingCount} milking today`}>
         The herd
       </PageTitle>
@@ -78,18 +80,18 @@ export default async function HerdPage({
       </form>
 
       <div className="mb-4 flex flex-wrap gap-2">
-        <a
+        <Link
           href="/herd/new"
           className="tap inline-flex items-center gap-2 rounded-md bg-brand px-4 py-2 text-sm font-semibold text-white"
         >
           <span aria-hidden>➕</span> Add an animal
-        </a>
-        <a
+        </Link>
+        <Link
           href="/breeding"
           className="tap inline-flex items-center gap-2 rounded-md border border-line bg-surface px-4 py-2 text-sm font-semibold"
         >
           <span aria-hidden>📅</span> Breeding board
-        </a>
+        </Link>
       </div>
 
       {list.rows.length === 0 ? (

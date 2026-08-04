@@ -3,7 +3,7 @@ import { today } from "@/lib/domain/dates";
 import { newId } from "@/lib/ids";
 import { listAnimalsForHealth, listProducts, recordRoutineBatch } from "@/server/health";
 import { BatchForm } from "@/components/health/forms";
-import { EmptyState, PageTitle } from "@/components/ui";
+import { BackLink, EmptyState, PageTitle } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +23,7 @@ export default async function BatchPage() {
 
   return (
     <main className="mx-auto max-w-2xl p-4">
+      <BackLink to="/health" />
       <PageTitle sub="Dip, spray or deworm a whole group in one go. Tick more than one product to give them together.">
         The whole group at once
       </PageTitle>

@@ -3,7 +3,7 @@ import { verifySession } from "@/lib/dal";
 import { today } from "@/lib/domain/dates";
 import { kes, litres } from "@/lib/money";
 import { cullList, tradeLog } from "@/server/trading";
-import { Card, Chip, EmptyState, Num, PageTitle } from "@/components/ui";
+import { BackLink, Card, Chip, EmptyState, Num, PageTitle } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -41,9 +41,7 @@ export default async function TradingPage() {
 
   return (
     <main className="mx-auto max-w-3xl p-4 pb-24">
-      <Link href="/" className="mb-3 inline-block text-sm text-ink-2">
-        <span aria-hidden>←</span> Home
-      </Link>
+      <BackLink to="/" label="Home" />
       <PageTitle sub="The last 90 days, ranked by what each animal left after feed and vet cost.">
         Buying and selling
       </PageTitle>

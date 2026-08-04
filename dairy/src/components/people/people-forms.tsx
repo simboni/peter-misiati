@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { useActionState, useState } from "react";
 import {
   ErrorBanner,
@@ -61,9 +63,9 @@ export function EmployeeForm({
           <a href={`/people/${state.data.id}`} className="text-sm underline">
             Open their record
           </a>
-          <a href="/people" className="text-sm underline">
+          <Link href="/people" className="text-sm underline">
             Back to staff
-          </a>
+          </Link>
         </div>
       </ReceiptCard>
     );

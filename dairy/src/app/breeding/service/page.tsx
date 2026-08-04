@@ -1,7 +1,7 @@
 import { verifySession } from "@/lib/dal";
 import { listHerd } from "@/server/herd";
 import { recordService } from "@/server/breeding";
-import { PageTitle } from "@/components/ui";
+import { BackLink, PageTitle } from "@/components/ui";
 import { ServiceForm } from "@/components/breeding/service-form";
 import { today } from "@/lib/domain/dates";
 import { pickerOptions, bullOptions } from "../pickers";
@@ -19,9 +19,7 @@ export default async function ServicePage({
 
   return (
     <main className="mx-auto max-w-2xl p-4 pb-24">
-      <a href="/breeding" className="mb-3 inline-block text-sm text-ink-2">
-        <span aria-hidden>←</span> Breeding
-      </a>
+      <BackLink to="/breeding" label="Breeding" />
       <PageTitle sub="One date in. The whole calendar comes straight back.">Record a service</PageTitle>
 
       <ServiceForm

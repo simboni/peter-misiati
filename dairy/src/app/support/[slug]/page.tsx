@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { verifySession } from "@/lib/dal";
 import { helpTopic, HELP_TOPICS } from "@/server/support";
@@ -24,9 +25,9 @@ export default async function HelpTopicPage({
 
   return (
     <main className="mx-auto max-w-2xl p-5">
-      <a href="/support" className="mb-4 inline-block text-sm underline text-ink-2">
+      <Link href="/support" className="mb-4 inline-block text-sm underline text-ink-2">
         ← {sw ? "Msaada" : "Help"}
-      </a>
+      </Link>
       <PageTitle>{sw ? topic.titleSw : topic.title}</PageTitle>
 
       {/* Numbered because these genuinely are a sequence — do this, then this. */}

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { requirePageCapability } from "@/lib/dal";
 import { approveMilkRecordAction, flaggedQueue, formatDay, sessionLabel } from "@/server/milk";
 import { ApproveButton } from "@/components/milk/ApproveButton";
-import { Card, Chip, EmptyState, PageTitle } from "@/components/ui";
+import { BackLink, Card, Chip, EmptyState, PageTitle } from "@/components/ui";
 import { litres } from "@/lib/money";
 
 export const dynamic = "force-dynamic";
@@ -18,6 +18,7 @@ export default async function FlaggedPage() {
 
   return (
     <main className="mx-auto max-w-3xl p-4 pb-16">
+      <BackLink to="/milk" />
       <PageTitle sub="Odd numbers were saved as they were entered. Check them here.">
         Milk to check
       </PageTitle>

@@ -1,6 +1,6 @@
 import { verifySession, can } from "@/lib/dal";
 import { listTickets, supportChannels, HELP_TOPICS } from "@/server/support";
-import { Card, PageTitle, Chip, EmptyState } from "@/components/ui";
+import { BackLink, Card, PageTitle, Chip, EmptyState } from "@/components/ui";
 import { TicketForm } from "./ticket-form";
 
 export default async function SupportPage() {
@@ -14,6 +14,7 @@ export default async function SupportPage() {
 
   return (
     <main className="mx-auto max-w-2xl p-5">
+      <BackLink to="/" />
       <PageTitle sub={channels.responseTime}>
         {sw ? "Msaada" : "Help"}
       </PageTitle>

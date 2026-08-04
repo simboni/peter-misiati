@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { BackLink } from "@/components/ui";
 import { verifySession } from "@/lib/dal";
 import { today, isISODate, type ISODate } from "@/lib/domain/dates";
 import { dailySheet } from "@/server/reports";
@@ -29,9 +29,7 @@ export default async function PrintDailyPage({
   return (
     <main className="mx-auto max-w-3xl p-4">
       <div className="no-print mb-4 flex flex-wrap items-center justify-between gap-3">
-        <Link href="/reports" className="text-sm text-ink-2">
-          <span aria-hidden>←</span> Reports
-        </Link>
+      <BackLink to="/reports" label="Reports" />
         <div className="flex flex-wrap gap-3">
           <ExportLink name="daily-sheet" label="CSV" query={`?asOf=${on}`} />
           <PrintButton />

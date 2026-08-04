@@ -2,7 +2,7 @@ import Link from "next/link";
 import { verifySession, can } from "@/lib/dal";
 import { today, startOfMonth, addDays } from "@/lib/domain/dates";
 import { kes } from "@/lib/money";
-import { Card, EmptyState, PageTitle } from "@/components/ui";
+import { BackLink, Card, EmptyState, PageTitle } from "@/components/ui";
 import {
   moneyThisMonth,
   cowLeagueTable,
@@ -37,9 +37,7 @@ export default async function ReportsPage() {
 
   return (
     <main className="mx-auto max-w-3xl p-4 pb-24">
-      <Link href="/" className="mb-3 inline-block text-sm text-ink-2">
-        <span aria-hidden>←</span> Home
-      </Link>
+      <BackLink to="/" label="Home" />
       <PageTitle sub={`As at ${asOf}`}>How the farm is doing</PageTitle>
 
       {/* ---- 1. This week. First, because it is the only one that is a job. ---- */}

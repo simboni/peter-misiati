@@ -5,7 +5,7 @@ import type { MilkingSession } from "@/db/schema";
 import { formatDay, milkingSessionsForFarm, sessionLabel } from "@/server/milk";
 import { deliveryRound, recordRoundAction } from "@/server/sales";
 import { RoundSheet } from "@/components/sales/RoundSheet";
-import { Chip, PageTitle } from "@/components/ui";
+import { BackLink, Chip, PageTitle } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +27,7 @@ export default async function RoundPage({
 
   return (
     <main className="mx-auto max-w-3xl p-4 pb-24">
+      <BackLink to="/sales" />
       <PageTitle sub={`${formatDay(date)} · ${session.fullName}`}>
         {sessionLabel(current)} round
       </PageTitle>

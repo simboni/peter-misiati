@@ -2,7 +2,7 @@ import { verifySession, can } from "@/lib/dal";
 import { addDays, today } from "@/lib/domain/dates";
 import { kes } from "@/lib/money";
 import { feedStore, marginOverFeedCost } from "@/server/feed";
-import { Card, Chip, EmptyState, Num, PageTitle, TaskTile } from "@/components/ui";
+import { BackLink, Card, Chip, EmptyState, Num, PageTitle, TaskTile } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +23,7 @@ export default async function FeedPage() {
 
   return (
     <main className="mx-auto max-w-3xl p-4">
+      <BackLink to="/" />
       <PageTitle sub="What is in the store, how long it lasts, and what the milk is worth after feed.">
         Feed
       </PageTitle>

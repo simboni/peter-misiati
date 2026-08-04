@@ -1,7 +1,7 @@
 import { verifySession } from "@/lib/dal";
 import { listHerd } from "@/server/herd";
 import { recordHeat } from "@/server/breeding";
-import { PageTitle } from "@/components/ui";
+import { BackLink, PageTitle } from "@/components/ui";
 import { HeatForm } from "@/components/breeding/heat-form";
 import { pickerOptions } from "../pickers";
 
@@ -21,9 +21,7 @@ export default async function HeatPage({
 
   return (
     <main className="mx-auto max-w-2xl p-4 pb-24">
-      <a href="/breeding" className="mb-3 inline-block text-sm text-ink-2">
-        <span aria-hidden>←</span> Breeding
-      </a>
+      <BackLink to="/breeding" label="Breeding" />
       <PageTitle sub="Pick the cow and save. It tells you when to serve her.">On heat</PageTitle>
 
       <HeatForm

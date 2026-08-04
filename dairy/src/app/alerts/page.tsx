@@ -1,7 +1,6 @@
-import Link from "next/link";
 import { verifySession, can } from "@/lib/dal";
 import { today, startOfMonth } from "@/lib/domain/dates";
-import { Card, EmptyState, PageTitle } from "@/components/ui";
+import { BackLink, Card, EmptyState, PageTitle } from "@/components/ui";
 import {
   alertsForRole,
   dailyDigest,
@@ -36,9 +35,7 @@ export default async function AlertsPage() {
 
   return (
     <main className="mx-auto max-w-3xl p-4 pb-24">
-      <Link href="/" className="mb-3 inline-block text-sm text-ink-2">
-        <span aria-hidden>←</span> Home
-      </Link>
+      <BackLink to="/" label="Home" />
       <PageTitle sub={mine.headline}>Today&rsquo;s jobs</PageTitle>
 
       {digest ? (

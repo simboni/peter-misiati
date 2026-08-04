@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { verifySession } from "@/lib/dal";
 import { today } from "@/lib/domain/dates";
@@ -11,7 +10,7 @@ import {
   roleLabel,
 } from "@/server/people";
 import { PayrollActions } from "@/components/people/people-forms";
-import { Card, Chip, Num, PageTitle } from "@/components/ui";
+import { BackLink, Card, Chip, Num, PageTitle } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -38,9 +37,7 @@ export default async function PayrollMonthPage({
 
   return (
     <main className="mx-auto max-w-3xl p-4 pb-24">
-      <Link href="/people/payroll" className="mb-3 inline-block text-sm text-ink-2 no-print">
-        <span aria-hidden>←</span> Payroll
-      </Link>
+      <BackLink to="/people/payroll" label="Payroll" />
       <PageTitle sub={run.headline}>Payroll {run.periodMonth.slice(0, 7)}</PageTitle>
 
       <div className="mb-4 flex items-center gap-2">

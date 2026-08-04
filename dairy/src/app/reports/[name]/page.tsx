@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { verifySession, can } from "@/lib/dal";
 import { addDays, startOfMonth, today, type ISODate } from "@/lib/domain/dates";
 import { kes, litres } from "@/lib/money";
-import { Card, Chip, EmptyState, PageTitle } from "@/components/ui";
+import { BackLink, Card, Chip, EmptyState, PageTitle } from "@/components/ui";
 import {
   moneyThisMonth,
   cowLeagueTable,
@@ -384,9 +384,7 @@ function Shell({
 }) {
   return (
     <main className="mx-auto max-w-3xl p-4 pb-24">
-      <Link href="/reports" className="mb-3 inline-block text-sm text-ink-2">
-        <span aria-hidden>←</span> Reports
-      </Link>
+      <BackLink to="/reports" label="Reports" />
       <PageTitle>{title}</PageTitle>
       {children}
       {exportName ? (

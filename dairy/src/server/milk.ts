@@ -1192,15 +1192,31 @@ export async function receiptByRef(
 
   const row = rows[0];
   if (!row) return null;
-  const payload = (row.receipt.payload ?? {}) as { lines?: string[] };
   return {
     refCode: row.receipt.refCode,
     kind: row.receipt.kind,
     summary: row.receipt.summary,
     at: row.receipt.at,
     actorName: row.user?.fullName ?? null,
-    lines: payload.lines ?? [row.receipt.summary],
+    lines: displayLines(row.receipt.payload, row.receipt.summary),
   };
+}
+
+/**
+ * A receipt's `payload` is written by twelve different modules and read by one
+ * page, so this is the boundary where it has to be made safe.
+ *
+ * The feed module stored `lines: [{feedItemId, kg}]` — machine data under a
+ * name the viewer reads as sentences — and rendering it threw "Objects are not
+ * valid as a React child". A code this app printed on screen itself returned a
+ * 500 when the herdsman typed it back in. Anything that is not a string is not
+ * a line, no matter what it is called.
+ */
+function displayLines(payload: unknown, summary: string): string[] {
+  const raw = (payload as { lines?: unknown } | null)?.lines;
+  if (!Array.isArray(raw)) return [summary];
+  const lines = raw.filter((l): l is string => typeof l === "string" && l.trim().length > 0);
+  return lines.length > 0 ? lines : [summary];
 }
 
 export async function recentReceipts(
@@ -1222,17 +1238,14 @@ export async function recentReceipts(
     .orderBy(desc(s.receipt.at))
     .limit(limit);
 
-  return rows.map((row) => {
-    const payload = (row.receipt.payload ?? {}) as { lines?: string[] };
-    return {
-      refCode: row.receipt.refCode,
-      kind: row.receipt.kind,
-      summary: row.receipt.summary,
-      at: row.receipt.at,
-      actorName: row.user?.fullName ?? null,
-      lines: payload.lines ?? [row.receipt.summary],
-    };
-  });
+  return rows.map((row) => ({
+    refCode: row.receipt.refCode,
+    kind: row.receipt.kind,
+    summary: row.receipt.summary,
+    at: row.receipt.at,
+    actorName: row.user?.fullName ?? null,
+    lines: displayLines(row.receipt.payload, row.receipt.summary),
+  }));
 }
 
 /* ---------------------------------------------------------------- */

@@ -1,9 +1,8 @@
-import Link from "next/link";
 import { verifySession } from "@/lib/dal";
 import { kes } from "@/lib/money";
 import { approvalQueue, approveEntryAction } from "@/server/money";
 import { ApproveRow } from "@/components/money/entry-forms";
-import { Card, EmptyState, PageTitle } from "@/components/ui";
+import { BackLink, Card, EmptyState, PageTitle } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -21,9 +20,7 @@ export default async function ApprovePage() {
 
   return (
     <main className="mx-auto max-w-xl p-4 pb-24">
-      <Link href="/money" className="mb-3 inline-block text-sm text-ink-2">
-        <span aria-hidden>←</span> Money
-      </Link>
+      <BackLink to="/money" label="Money" />
       <PageTitle sub="Nothing here has touched a single report yet. That happens when you approve it.">
         Waiting for you
       </PageTitle>

@@ -1,7 +1,8 @@
+import Link from "next/link";
 import { verifySession } from "@/lib/dal";
 import { today } from "@/lib/domain/dates";
 import { dueRoutines, withdrawalBoard } from "@/server/health";
-import { Card, Chip, EmptyState, HardBlock, PageTitle, SoftWarning, TaskTile } from "@/components/ui";
+import { BackLink, Card, Chip, EmptyState, HardBlock, PageTitle, SoftWarning, TaskTile } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +33,7 @@ export default async function HealthPage() {
 
   return (
     <main className="mx-auto max-w-3xl p-4">
+      <BackLink to="/" />
       <PageTitle sub="Who may not be sold, and what the herd is due for.">Health</PageTitle>
 
       <section className="mb-6">
@@ -89,9 +91,9 @@ export default async function HealthPage() {
                       {v.worst > 0 ? ` · up to ${v.worst} days late` : ""}
                     </p>
                   </div>
-                  <a href="/health/batch" className="tap">
+                  <Link href="/health/batch" className="tap">
                     <Chip tone={v.worst > 7 ? "danger" : "warn"}>Do the group</Chip>
-                  </a>
+                  </Link>
                 </Card>
               </li>
             ))}

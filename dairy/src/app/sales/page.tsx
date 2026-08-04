@@ -5,7 +5,7 @@ import { kes, litres } from "@/lib/money";
 import { formatDay } from "@/server/milk";
 import { allocateMilk, listCustomers, recordDisposalAction } from "@/server/sales";
 import { DisposalForm } from "@/components/sales/DisposalForm";
-import { Card, Chip, HardBlock, PageTitle, SoftWarning } from "@/components/ui";
+import { BackLink, Card, Chip, HardBlock, PageTitle, SoftWarning } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -30,6 +30,7 @@ export default async function SalesPage({
 
   return (
     <main className="mx-auto max-w-3xl p-4 pb-16">
+      <BackLink to="/" />
       <PageTitle sub={formatDay(date)}>Where is today&apos;s milk going?</PageTitle>
 
       <nav className="mb-4 flex flex-wrap gap-3 text-sm" aria-label="Sales">

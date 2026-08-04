@@ -1,6 +1,6 @@
 import { verifySession } from "@/lib/dal";
 import { listHerd, registerAnimal } from "@/server/herd";
-import { PageTitle } from "@/components/ui";
+import { BackLink, PageTitle } from "@/components/ui";
 import { AnimalForm, type ParentOption } from "@/components/herd/animal-form";
 import { today } from "@/lib/domain/dates";
 
@@ -26,9 +26,7 @@ export default async function NewAnimalPage() {
 
   return (
     <main className="mx-auto max-w-2xl p-4 pb-24">
-      <a href="/herd" className="mb-3 inline-block text-sm text-ink-2">
-        <span aria-hidden>←</span> The herd
-      </a>
+      <BackLink to="/herd" label="The herd" />
       <PageTitle sub="Two things must be filled in. Everything else can wait.">
         Add an animal
       </PageTitle>

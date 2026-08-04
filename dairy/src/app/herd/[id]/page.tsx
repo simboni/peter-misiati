@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { verifySession } from "@/lib/dal";
 import { getAnimal, recordWeight, recordExit } from "@/server/herd";
-import { PageTitle, Card, Chip, EmptyState, SoftWarning } from "@/components/ui";
+import { BackLink, PageTitle, Card, Chip, EmptyState, SoftWarning } from "@/components/ui";
 import { WeightForm } from "@/components/herd/weight-form";
 import { ExitForm } from "@/components/herd/exit-form";
 import { WeightHistory } from "@/components/herd/weight-history";
@@ -29,9 +29,7 @@ export default async function AnimalPage({ params }: { params: Promise<{ id: str
 
   return (
     <main className="mx-auto max-w-3xl p-4 pb-24">
-      <a href="/herd" className="mb-3 inline-block text-sm text-ink-2">
-        <span aria-hidden>←</span> The herd
-      </a>
+      <BackLink to="/herd" label="The herd" />
 
       {/* ---------- Header ---------- */}
       <PageTitle

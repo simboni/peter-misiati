@@ -4,7 +4,7 @@ import { startOfMonth, today } from "@/lib/domain/dates";
 import { kes } from "@/lib/money";
 import { listPayrollRuns, remittanceSummary, runPayrollAction } from "@/server/people";
 import { RunPayrollForm } from "@/components/people/people-forms";
-import { Card, Chip, EmptyState, Num, PageTitle } from "@/components/ui";
+import { BackLink, Card, Chip, EmptyState, Num, PageTitle } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -21,9 +21,7 @@ export default async function PayrollPage() {
 
   return (
     <main className="mx-auto max-w-2xl p-4 pb-24">
-      <Link href="/people" className="mb-3 inline-block text-sm text-ink-2">
-        <span aria-hidden>←</span> People
-      </Link>
+      <BackLink to="/people" label="People" />
       <PageTitle sub="PAYE, NSSF, SHIF and the Housing Levy — all due by the 9th of the following month.">
         Payroll
       </PageTitle>

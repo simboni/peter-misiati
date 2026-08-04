@@ -1,6 +1,7 @@
+import Link from "next/link";
 import { verifySession } from "@/lib/dal";
 import { breedingWatchboard } from "@/server/breeding";
-import { PageTitle, Card, EmptyState, TaskTile } from "@/components/ui";
+import { BackLink, PageTitle, Card, EmptyState, TaskTile } from "@/components/ui";
 import { today } from "@/lib/domain/dates";
 
 export const dynamic = "force-dynamic";
@@ -34,6 +35,7 @@ export default async function BreedingPage({
 
   return (
     <main className="mx-auto max-w-3xl p-4 pb-24">
+      <BackLink to="/" />
       <PageTitle
         sub={
           board.total === 0
@@ -108,9 +110,9 @@ export default async function BreedingPage({
         Nothing here is ticked off by hand. Record what happened and the item goes.
       </p>
       <p className="mt-2 text-center text-sm">
-        <a href="/herd" className="underline">
+        <Link href="/herd" className="underline">
           The herd
-        </a>
+        </Link>
       </p>
     </main>
   );

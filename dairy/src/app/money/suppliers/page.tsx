@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { verifySession } from "@/lib/dal";
 import { kes } from "@/lib/money";
 import {
@@ -8,7 +7,7 @@ import {
   listCounterparties,
 } from "@/server/money";
 import { SupplierForm } from "@/components/money/entry-forms";
-import { Card, Chip, EmptyState, Num, PageTitle } from "@/components/ui";
+import { BackLink, Card, Chip, EmptyState, Num, PageTitle } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -18,9 +17,7 @@ export default async function SuppliersPage() {
 
   return (
     <main className="mx-auto max-w-2xl p-4 pb-24">
-      <Link href="/money" className="mb-3 inline-block text-sm text-ink-2">
-        <span aria-hidden>←</span> Money
-      </Link>
+      <BackLink to="/money" label="Money" />
       <PageTitle sub="Agrovets, feed millers, hay, AI, vets, transporters, the co-op.">
         Who you buy from
       </PageTitle>

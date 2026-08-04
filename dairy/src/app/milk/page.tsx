@@ -10,7 +10,7 @@ import {
   sessionLabel,
 } from "@/server/milk";
 import { MilkSheetForm } from "@/components/milk/MilkSheetForm";
-import { Chip, PageTitle } from "@/components/ui";
+import { BackLink, Chip, PageTitle } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +37,7 @@ export default async function MilkPage({
 
   return (
     <main className="mx-auto max-w-3xl p-4 pb-24">
+      <BackLink to="/" />
       <PageTitle sub={`${formatDay(date)} · ${session.fullName}`}>
         {sessionLabel(current)} milking
       </PageTitle>

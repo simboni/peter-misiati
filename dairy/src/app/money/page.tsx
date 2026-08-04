@@ -3,7 +3,7 @@ import { verifySession } from "@/lib/dal";
 import { today, startOfMonth } from "@/lib/domain/dates";
 import { kes, litres } from "@/lib/money";
 import { approvalQueue, costOfProduction, monthToDate } from "@/server/money";
-import { Card, Chip, EmptyState, Num, PageTitle } from "@/components/ui";
+import { BackLink, Card, Chip, EmptyState, Num, PageTitle } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -24,9 +24,7 @@ export default async function MoneyPage() {
 
   return (
     <main className="mx-auto max-w-3xl p-4 pb-24">
-      <Link href="/" className="mb-3 inline-block text-sm text-ink-2">
-        <span aria-hidden>←</span> Home
-      </Link>
+      <BackLink to="/" label="Home" />
       <PageTitle sub={`${from} to ${to}`}>Money this month</PageTitle>
 
       <Card className="mb-4">

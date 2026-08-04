@@ -1,7 +1,7 @@
 import { verifySession } from "@/lib/dal";
 import { listHerd } from "@/server/herd";
 import { recordDryOff, listDryCowProducts } from "@/server/breeding";
-import { PageTitle } from "@/components/ui";
+import { BackLink, PageTitle } from "@/components/ui";
 import { DryOffForm } from "@/components/breeding/dry-off-form";
 import { today } from "@/lib/domain/dates";
 import { dryOffCandidates } from "../pickers";
@@ -19,9 +19,7 @@ export default async function DryOffPage({
 
   return (
     <main className="mx-auto max-w-2xl p-4 pb-24">
-      <a href="/breeding" className="mb-3 inline-block text-sm text-ink-2">
-        <span aria-hidden>←</span> Breeding
-      </a>
+      <BackLink to="/breeding" label="Breeding" />
       <PageTitle sub="Stop milking, and start the extra feed on the same day.">Dry off</PageTitle>
 
       <DryOffForm

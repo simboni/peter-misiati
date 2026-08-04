@@ -558,7 +558,18 @@ async function issueLines(
     rowId: ids[0],
     kind: "FEED_ISSUE",
     summary: out.map((l) => `${l.feedName} ${l.issuedKg} kg`).join(", "),
-    payload: { issuedOn, lines: out.map((l) => ({ feedItemId: l.feedItemId, kg: l.issuedKg })) },
+    payload: {
+      issuedOn,
+      // `lines` is what the receipt VIEWER prints, so it must be sentences.
+      // This used to be `[{feedItemId, kg}]` and the viewer rendered objects as
+      // React children — a valid receipt code, printed on screen by this app,
+      // returned a 500 when the herdsman typed it back in.
+      lines: [
+        ...out.map((l) => `${l.feedName}: ${l.issuedKg} kg issued.`),
+        ...out.map((l) => l.line),
+      ],
+      issued: out.map((l) => ({ feedItemId: l.feedItemId, kg: l.issuedKg })),
+    },
   });
 
   return actionOk({ lines: out, message }, message, ref);
