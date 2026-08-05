@@ -29,7 +29,7 @@ export function Card({
 export function PageTitle({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
     <header className="mb-5">
-      <h1 className="text-[22px] font-bold tracking-tight text-brand-deep">{title}</h1>
+      <h1 className="text-[22px] font-bold tracking-tight text-brand-deep lg:text-[26px]">{title}</h1>
       {subtitle ? <p className="mt-1 text-sm text-muted">{subtitle}</p> : null}
     </header>
   );
@@ -149,9 +149,15 @@ export const inputClassBase =
 export const inputClass = `${inputClassBase} w-full`;
 
 /** Wide tables must scroll inside their own box, never the page. */
-export function TableWrap({ children }: { children: ReactNode }) {
+export function TableWrap({
+  children,
+  className = "",
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
   return (
-    <div className="overflow-x-auto rounded-3xl bg-white shadow-card ring-1 ring-ink/5">
+    <div className={`overflow-x-auto rounded-3xl bg-white shadow-card ring-1 ring-ink/5 ${className}`}>
       <table className="w-full border-collapse text-sm">{children}</table>
     </div>
   );
@@ -262,10 +268,10 @@ export function Stat({
   detail?: ReactNode;
 }) {
   return (
-    <div className="relative overflow-hidden rounded-3xl bg-white p-4 pt-5 shadow-card ring-1 ring-ink/5">
+    <div className="relative overflow-hidden rounded-3xl bg-white p-4 pt-5 shadow-card ring-1 ring-ink/5 xl:p-5 xl:pt-6">
       <span aria-hidden className="brand-thread absolute inset-x-0 top-0 h-[3px]" />
       <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">{label}</div>
-      <div className="mt-1.5 text-[26px] font-extrabold leading-none tracking-tight text-brand-deep tnum">
+      <div className="mt-1.5 text-[26px] font-extrabold leading-none tracking-tight text-brand-deep tnum xl:text-[30px]">
         {value}
       </div>
       {detail ? <div className="mt-1.5 text-xs font-medium text-muted">{detail}</div> : null}

@@ -42,7 +42,7 @@ export default async function FormulasPage(props: {
   const unresolved = formulas.filter((f) => f.note.trim().length > 0).length;
 
   return (
-    <div>
+    <div className="lg:max-w-4xl">
       <PageTitle
         title="Formulas"
         subtitle="Owner only. Every edit is saved as a new version, never over the old one."

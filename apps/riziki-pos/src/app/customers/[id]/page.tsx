@@ -44,7 +44,7 @@ export default async function CustomerPage(props: { params: Promise<{ id: string
   const headroom = customer.credit_limit_cents - balance;
 
   return (
-    <div>
+    <div className="lg:max-w-3xl">
       <Link href="/customers" className="mb-2 inline-block text-sm font-bold text-brand-dark">
         ← All debtors
       </Link>

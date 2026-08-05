@@ -153,7 +153,7 @@ export default async function SettingsPage(props: {
   const floatCents = Number(getSetting("cash_float_cents", "0")) || 0;
 
   return (
-    <div>
+    <div className="lg:max-w-2xl">
       <PageTitle
         title="Users &amp; settings"
         subtitle="Who can use the system, and the details that appear on an invoice"

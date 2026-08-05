@@ -228,7 +228,7 @@ export default async function ItemsPage(props: {
   const chemicals = listChemicals();
 
   return (
-    <div>
+    <div className="lg:max-w-4xl">
       <PageTitle
         title="Products &amp; prices"
         subtitle="Add what the shop sells and change prices yourself — no developer needed"

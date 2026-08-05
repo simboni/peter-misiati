@@ -90,6 +90,8 @@ export default async function HomePage() {
         })}
       </p>
 
+      <div className="lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-8">
+      <div className="lg:col-span-7 xl:col-span-8">
       {/* A number you can't act on is a dead end — both stats are doors. */}
       <div className="grid grid-cols-2 gap-2.5">
         <Link href="/sales" className="block">
@@ -164,9 +166,12 @@ export default async function HomePage() {
         </Card>
       )}
 
+      </div>
+
+      <div className="lg:col-span-5 xl:col-span-4">
       {/* Three doors, not eleven — the full menu already lives on the More tab. */}
       <SectionLabel>Shortcuts</SectionLabel>
-      <div className="grid grid-cols-3 gap-2.5">
+      <div className="grid grid-cols-3 gap-2.5 lg:grid-cols-1">
         {[
           { href: "/day-close", label: "Day close" },
           { href: "/sales", label: "Sales history" },
@@ -180,6 +185,8 @@ export default async function HomePage() {
             {l.label}
           </Link>
         ))}
+      </div>
+      </div>
       </div>
     </div>
   );

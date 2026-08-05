@@ -101,7 +101,7 @@ export default async function ActivityPage(props: {
   const hasMore = oldest !== null && (get(`SELECT 1 FROM audit_log WHERE id < ? LIMIT 1`, oldest) ? true : false);
 
   return (
-    <div>
+    <div className="lg:max-w-4xl">
       <PageTitle
         title="Activity"
         subtitle={`Everything worth disputing, newest first — ${total.toLocaleString("en-KE")} entries and none of them editable`}
