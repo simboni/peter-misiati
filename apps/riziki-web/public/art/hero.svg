@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 520" width="640" height="520" role="img" aria-hidden="true">
+
+  <ellipse cx="400" cy="270" rx="230" ry="220" fill="#e2f0f1"/>
+  <ellipse cx="330" cy="482" rx="255" ry="24" fill="#0e7c86" opacity="0.08"/>
+  <circle cx="95" cy="105" r="16" fill="none" stroke="#0e7c86" stroke-width="2.5" opacity="0.28"/>
+<circle cx="150" cy="62" r="9" fill="none" stroke="#0e7c86" stroke-width="2.5" opacity="0.28"/>
+<circle cx="420" cy="48" r="13" fill="none" stroke="#0e7c86" stroke-width="2.5" opacity="0.28"/>
+<circle cx="500" cy="96" r="8" fill="#5a9c2f" opacity="0.16"/>
+<circle cx="590" cy="190" r="11" fill="none" stroke="#0e7c86" stroke-width="2.5" opacity="0.28"/>
+<circle cx="56" cy="210" r="8" fill="#5a9c2f" opacity="0.16"/>
+<circle cx="605" cy="320" r="7" fill="none" stroke="#0e7c86" stroke-width="2.5" opacity="0.28"/>
+  
+  <rect x="120" y="154" width="185" height="316" rx="14" fill="#f0bf1a"/>
+  <ellipse cx="212.5" cy="156" rx="92.5" ry="15" fill="#f7d34c"/>
+  <ellipse cx="212.5" cy="156" rx="85.5" ry="10" fill="#f0bf1a"/>
+  <circle cx="253.2" cy="154" r="8" fill="#d23c2a"/>
+  <rect x="126" y="278.6" width="173" height="9" rx="4.5" fill="#d9a70e" opacity="0.55"/>
+  <rect x="126" y="377.6" width="173" height="9" rx="4.5" fill="#d9a70e" opacity="0.55"/>
+  <rect x="149.6" y="296.75" width="125.80000000000001" height="69.3" rx="7" fill="#ffffff"/>
+  <text x="212.5" y="329.75" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-weight="800" font-size="24.05" fill="#14262b">UNGEROL</text>
+  <text x="212.5" y="354.5" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-weight="600" font-size="17.575" fill="#5d7278">170 kg</text>
+  <rect x="128" y="166" width="10" height="181.50000000000003" rx="5" fill="#ffffff" opacity="0.28"/>
+  
+  <rect x="345" y="277.3" width="150" height="192.7" rx="14" fill="#0e7c86"/>
+  <path d="M 366 282 v -23.5 a 10 10 0 0 1 10 -10 h 63 a 10 10 0 0 1 10 10 v 23.5"
+        fill="none" stroke="#0a5f67" stroke-width="13" stroke-linecap="round"/>
+  <rect x="447" y="235" width="36" height="32.900000000000006" rx="5" fill="#5a9c2f"/>
+  <rect x="363" y="333.7" width="114" height="70.5" rx="8" fill="#ffffff" opacity="0.92"/>
+  <text x="420" y="380.7" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-weight="800" font-size="25.500000000000004" fill="#0e7c86">20 L</text>
+  <rect x="354" y="296.1" width="9" height="117.5" rx="4.5" fill="#ffffff" opacity="0.22"/>
+  
+  <rect x="521.9" y="256.6" width="68.39999999999999" height="26.4" rx="7" fill="#5a9c2f"/>
+  <rect x="514.3" y="262.1" width="11.4" height="14.3" rx="3" fill="#0a5f67"/>
+  <path d="M 537.1 283 l 8.549999999999999 33 h 12.35 l -4.75 -33 z" fill="#5a9c2f" opacity="0.8"/>
+  <rect x="559.9" y="283" width="20.9" height="26.4" fill="#5a9c2f" opacity="0.55"/>
+  <path d="M 531.4 316 q -11.4 26.4 -9.5 66 v 61.60000000000001 a 12 12 0 0 0 12 12 h 47.5 a 12 12 0 0 0 12 -12 v -61.60000000000001 q 1.9000000000000001 -39.6 -9.5 -66 z" fill="#ffffff" stroke="#e2f0f1" stroke-width="3"/>
+  <rect x="529.5" y="364.4" width="58.9" height="52.8" rx="7" fill="#e2f0f1"/>
+  <circle cx="558.95" cy="390.8" r="9.5" fill="#0e7c86"/>
+  
+  <rect x="292" y="396" width="78" height="76" rx="9" fill="#ffffff" stroke="#e2f0f1" stroke-width="3"/>
+  <rect x="292" y="396" width="78" height="15.200000000000001" rx="9" fill="#d9c9a6" opacity="0.5"/>
+  <rect x="301.36" y="424.88" width="59.28" height="25.840000000000003" rx="6" fill="#e2f0f1"/>
+  <text x="331" y="443.12" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-weight="800" font-size="18.72" fill="#0e7c86">1 kg</text>
+  
+  <path d="M 36.3 350 q -10.5 75 0 102.00000000000001 a 14 14 0 0 0 13 10 h 65.1 a 14 14 0 0 0 13 -10 q 10.5 -27 0 -102.00000000000001 z" fill="#ece0c8"/>
+  <rect x="30" y="320" width="105" height="33" rx="10" fill="#d9c9a6"/>
+  <rect x="46.8" y="383" width="71.4" height="45" rx="7" fill="#ffffff"/>
+  <text x="82.5" y="413" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-weight="800" font-size="16.8" fill="#14262b">SALT</text>
+
+</svg>

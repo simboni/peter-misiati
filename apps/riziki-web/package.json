@@ -2,11 +2,12 @@
   "name": "riziki-web",
   "version": "0.1.0",
   "private": true,
-  "description": "Riziki Industrial Chemicals — public marketing website and online product catalogue",
+  "description": "Riziki Industrial Chemicals \u2014 public marketing website and online product catalogue",
   "scripts": {
     "dev": "next dev --port 3200",
     "build": "next build",
-    "start": "next start --port 3200"
+    "start": "next start --port 3200",
+    "art": "node scripts/generate-art.mjs"
   },
   "dependencies": {
     "next": "16.2.10",

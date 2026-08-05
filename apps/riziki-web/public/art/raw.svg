@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 210" width="320" height="210" role="img" aria-hidden="true">
+
+  <ellipse cx="160" cy="192" rx="130" ry="13" fill="#0e7c86" opacity="0.08"/>
+  <circle cx="52" cy="40" r="10" fill="none" stroke="#0e7c86" stroke-width="2.5" opacity="0.28"/>
+<circle cx="280" cy="32" r="7" fill="#5a9c2f" opacity="0.16"/>
+<circle cx="296" cy="92" r="9" fill="none" stroke="#0e7c86" stroke-width="2.5" opacity="0.28"/>
+  
+  <rect x="72" y="46" width="100" height="154" rx="14" fill="#f0bf1a"/>
+  <ellipse cx="122" cy="48" rx="50" ry="15" fill="#f7d34c"/>
+  <ellipse cx="122" cy="48" rx="43" ry="10" fill="#f0bf1a"/>
+  <circle cx="144" cy="46" r="8" fill="#d23c2a"/>
+  <rect x="78" y="102.56" width="88" height="9" rx="4.5" fill="#d9a70e" opacity="0.55"/>
+  <rect x="78" y="152.95999999999998" width="88" height="9" rx="4.5" fill="#d9a70e" opacity="0.55"/>
+  <rect x="88" y="111.8" width="68" height="35.28" rx="7" fill="#ffffff"/>
+  <text x="122" y="128.6" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-weight="800" font-size="13" fill="#14262b">UFACID</text>
+  <text x="122" y="141.2" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-weight="600" font-size="9.5" fill="#5d7278">250 kg</text>
+  <rect x="80" y="58" width="10" height="92.4" rx="5" fill="#ffffff" opacity="0.28"/>
+  
+  <path d="M 189.68 116.8 q -7.800000000000001 52 0 70.72 a 14 14 0 0 0 13 10 h 48.36 a 14 14 0 0 0 13 -10 q 7.800000000000001 -18.72 0 -70.72 z" fill="#ece0c8"/>
+  <rect x="185" y="96" width="78" height="22.88" rx="10" fill="#d9c9a6"/>
+  <rect x="197.48" y="139.68" width="53.040000000000006" height="31.2" rx="7" fill="#ffffff"/>
+  <text x="224" y="160.48000000000002" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-weight="800" font-size="12.48" fill="#14262b">SALT</text>
+  
+  <rect x="20" y="128" width="56" height="70" rx="9" fill="#ffffff" stroke="#e2f0f1" stroke-width="3"/>
+  <rect x="20" y="128" width="56" height="14" rx="9" fill="#d9c9a6" opacity="0.5"/>
+  <rect x="26.72" y="154.6" width="42.56" height="23.8" rx="6" fill="#e2f0f1"/>
+  <text x="48" y="171.4" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-weight="800" font-size="13.44" fill="#0e7c86">500g</text>
+
+</svg>

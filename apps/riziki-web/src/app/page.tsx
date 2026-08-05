@@ -24,19 +24,22 @@ const WHAT_WE_DO = [
   {
     title: "Raw chemicals",
     lead: "Our main trade.",
-    body: "Close to thirty chemicals kept in stock — from drums of Ungerol and Ufacid to 25 kg bags of caustic. We sell you the drum, or we weigh out 250 g. Buy exactly what your batch needs instead of what the packaging forces on you.",
+    body: "About thirty chemicals in stock. Buy the whole drum, or we weigh out as little as 125 g.",
+    art: "/art/raw.svg",
     cta: { href: "/products/", label: "See the chemical list" },
   },
   {
     title: "Finished cleaning products",
     lead: "Mixed here, ready to use.",
-    body: "Handwash, shower gel, shampoo, laundry soap, bleach, disinfectant, toilet cleaner, degreaser, carwash shampoo and more. Take it as it comes, or buy in bulk and fill your own bottles for resale.",
+    body: "Handwash, shampoo, bleach, toilet cleaner and more — or in bulk for your own bottles.",
+    art: "/art/finished.svg",
     cta: { href: "/products/#finished", label: "See finished products" },
   },
   {
     title: "Mix kits",
     lead: "The recipe, measured out.",
-    body: "Tell us what you want to make and how much. We weigh out each chemical to the recipe, in order, so all you do at home is add water and follow the steps. The cheapest way to start making your own.",
+    body: "Your recipe, weighed chemical by chemical. Add water at home and follow the steps.",
+    art: "/art/kit.svg",
     cta: { href: "/products/#mix-kits", label: "How mix kits work" },
   },
 ];
@@ -45,17 +48,17 @@ const ORDER_STEPS = [
   {
     n: "1",
     title: "Send us your list",
-    body: "WhatsApp or call with the chemicals and quantities you need. If you are not sure which chemical does what, describe the product you are making and we will tell you.",
+    body: "WhatsApp or call — or just describe what you are making.",
   },
   {
     n: "2",
     title: "We confirm price and pack",
-    body: "We check what is in stock, confirm the pack size that suits your batch, and quote you before anything is weighed out.",
+    body: "Stock checked, pack size matched to your batch, quoted before anything is weighed.",
   },
   {
     n: "3",
     title: "We pack it for you",
-    body: "Bulk goes out as the drum or bag. Small quantities are weighed and sealed to order, so you get the amount you paid for.",
+    body: "Bulk goes as the drum or bag; small amounts are weighed and sealed to order.",
   },
 ];
 
@@ -67,38 +70,50 @@ export default function HomePage() {
       {/* Hero */}
       <div className="border-b border-line bg-surface">
         <Container className="py-14 sm:py-20">
-          <p className="mb-3 inline-block rounded-full bg-leaf-soft px-3 py-1 text-xs font-bold uppercase tracking-[0.16em] text-leaf-ink">
-            {BUSINESS.city}, {BUSINESS.country}
-          </p>
-          <h1 className="max-w-3xl text-3xl font-extrabold leading-tight tracking-tight sm:text-5xl">
-            Your home of{" "}
-            <span className="text-accent">Industrial Chemicals</span>
-          </h1>
-          <p className="mt-5 max-w-2xl text-base leading-relaxed text-muted sm:text-lg">
-            {BUSINESS.name} supplies the chemicals behind everyday cleaning — in bulk for
-            manufacturers and resellers, and in small repacked quantities for people mixing a
-            batch at home. We also mix and sell the finished cleaners ourselves.
-          </p>
+          <div className="grid items-center gap-8 md:grid-cols-[1.1fr_1fr]">
+            <div>
+              <p className="mb-3 inline-block rounded-full bg-leaf-soft px-3 py-1 text-xs font-bold uppercase tracking-[0.16em] text-leaf-ink">
+                {BUSINESS.city}, {BUSINESS.country}
+              </p>
+              <h1 className="max-w-3xl text-3xl font-extrabold leading-tight tracking-tight sm:text-5xl">
+                Your home of{" "}
+                <span className="text-accent">Industrial Chemicals</span>
+              </h1>
+              <p className="mt-5 max-w-2xl text-base leading-relaxed text-muted sm:text-lg">
+                Chemicals in bulk or repacked from 125 g. Finished cleaners mixed on our own
+                bench. Mix kits weighed to your recipe.
+              </p>
 
-          <div className="mt-7 flex flex-wrap gap-3">
-            <CtaLink href={WA_GENERAL} tone="whatsapp">
-              <WhatsAppIcon />
-              Order on WhatsApp
-            </CtaLink>
-            <CtaLink href={telHref} tone="brand">
-              <PhoneIcon />
-              {BUSINESS.phoneDisplay}
-            </CtaLink>
-            <CtaLink href="/products/" tone="outline">
-              Browse the catalogue
-            </CtaLink>
+              <div className="mt-7 flex flex-wrap gap-3">
+                <CtaLink href={WA_GENERAL} tone="whatsapp">
+                  <WhatsAppIcon />
+                  Order on WhatsApp
+                </CtaLink>
+                <CtaLink href={telHref} tone="brand">
+                  <PhoneIcon />
+                  {BUSINESS.phoneDisplay}
+                </CtaLink>
+                <CtaLink href="/products/" tone="outline">
+                  Browse the catalogue
+                </CtaLink>
+              </div>
+            </div>
+
+            <img
+              src="/art/hero.svg"
+              alt=""
+              aria-hidden="true"
+              className="mx-auto w-full max-w-md md:max-w-none"
+              width={640}
+              height={520}
+            />
           </div>
 
           <dl className="mt-10 grid gap-4 sm:grid-cols-3">
             {[
               { t: "Bulk or broken down", d: "170 kg drums and 50 kg bags, or repacks from 125 g." },
-              { t: "Weighed to order", d: "You buy the quantity your recipe actually calls for." },
-              { t: "Ask before you buy", d: "Tell us what you are making; we will tell you what you need." },
+              { t: "Weighed to order", d: "Buy the quantity your recipe actually calls for." },
+              { t: "Ask before you buy", d: "Tell us what you are making; we point you right." },
             ].map((point) => (
               <div key={point.t} className="rounded-xl border border-line bg-page p-4">
                 <dt className="text-sm font-extrabold">{point.t}</dt>
@@ -114,11 +129,19 @@ export default function HomePage() {
         <SectionHeading
           eyebrow="What we do"
           title="Three ways to buy from us"
-          lead="Whether you mix your own or you would rather buy it finished, the same shop and the same phone number serves you."
+          lead="Mix your own, or buy it finished — same shop, same number."
         />
         <div className="mt-8 grid gap-5 md:grid-cols-3">
           {WHAT_WE_DO.map((item) => (
             <Card key={item.title} className="flex flex-col">
+              <img
+                src={item.art}
+                alt=""
+                aria-hidden="true"
+                className="mb-4 h-32 w-full object-contain"
+                width={320}
+                height={210}
+              />
               <h3 className="text-lg font-extrabold tracking-tight">{item.title}</h3>
               <p className="mt-1 text-sm font-bold text-leaf-ink">{item.lead}</p>
               <p className="mt-3 flex-1 text-sm leading-relaxed text-muted">{item.body}</p>
@@ -138,7 +161,7 @@ export default function HomePage() {
         <SectionHeading
           eyebrow="In stock"
           title="Some of what people ask for most"
-          lead="These are the chemicals that move fastest off our shelves. The full list — with what each one is for and the packs it comes in — is on the products page."
+          lead="The fastest movers. The full list is on the products page."
         />
         <ul className="mt-8 grid gap-4 sm:grid-cols-2">
           {popular.map((item) => (
@@ -169,7 +192,7 @@ export default function HomePage() {
         <SectionHeading
           eyebrow="Ordering"
           title="How to place an order"
-          lead="Most of our orders come in by WhatsApp, because it is easy to send a list and a photo of what you used last time."
+          lead="Most orders come in on WhatsApp."
         />
         <ol className="mt-8 grid gap-5 md:grid-cols-3">
           {ORDER_STEPS.map((step) => (
@@ -186,8 +209,7 @@ export default function HomePage() {
           ))}
         </ol>
         <p className="mt-6 text-sm leading-relaxed text-muted">
-          Prices are not listed on this site because they follow the market and the pack size.
-          Ask us and we will quote you the same day.
+          No prices online — they follow the market. Ask and we quote the same day.
         </p>
       </Section>
 

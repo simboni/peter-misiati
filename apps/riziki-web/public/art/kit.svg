@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 210" width="320" height="210" role="img" aria-hidden="true">
+
+  <ellipse cx="160" cy="192" rx="130" ry="13" fill="#0e7c86" opacity="0.08"/>
+  <circle cx="288" cy="40" r="9" fill="none" stroke="#0e7c86" stroke-width="2.5" opacity="0.28"/>
+<circle cx="34" cy="70" r="7" fill="#5a9c2f" opacity="0.16"/>
+  
+  <rect x="70" y="64" width="126" height="20.8" rx="7" fill="#0a5f67"/>
+  <rect x="103" y="84.8" width="60" height="44.2" fill="#0e7c86"/>
+  <rect x="58" y="129" width="150" height="65" rx="12" fill="#0e7c86"/>
+  <rect x="73" y="144.6" width="69" height="28.6" rx="6" fill="#14262b"/>
+  <text x="107.5" y="166.7" text-anchor="middle" font-family="ui-monospace,monospace" font-weight="700" font-size="19.5" fill="#7ef2c1">1.000</text>
+  <circle cx="175" cy="158.89999999999998" r="10.500000000000002" fill="#5a9c2f"/>
+  
+  <rect x="96" y="22" width="62" height="62" rx="9" fill="#ffffff" stroke="#e2f0f1" stroke-width="3"/>
+  <rect x="96" y="22" width="62" height="12.4" rx="9" fill="#d9c9a6" opacity="0.5"/>
+  <rect x="103.44" y="45.56" width="47.12" height="21.080000000000002" rx="6" fill="#e2f0f1"/>
+  <text x="127" y="60.44" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-weight="800" font-size="14.879999999999999" fill="#0e7c86">2 kg</text>
+  
+  <rect x="228" y="92" width="58" height="66" rx="9" fill="#ffffff" stroke="#e2f0f1" stroke-width="3"/>
+  <rect x="228" y="92" width="58" height="13.200000000000001" rx="9" fill="#d9c9a6" opacity="0.5"/>
+  <rect x="234.96" y="117.08" width="44.08" height="22.44" rx="6" fill="#e2f0f1"/>
+  <text x="257" y="132.92000000000002" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-weight="800" font-size="13.92" fill="#0e7c86">250g</text>
+  
+  <rect x="232" y="30" width="48" height="54" rx="9" fill="#ffffff" stroke="#e2f0f1" stroke-width="3"/>
+  <rect x="232" y="30" width="48" height="10.8" rx="9" fill="#d9c9a6" opacity="0.5"/>
+  <rect x="237.76" y="50.519999999999996" width="36.480000000000004" height="18.360000000000003" rx="6" fill="#e2f0f1"/>
+  <text x="256" y="63.48" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-weight="800" font-size="11.52" fill="#0e7c86">50g</text>
+
+</svg>
