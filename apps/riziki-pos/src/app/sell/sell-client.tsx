@@ -3,10 +3,14 @@
 /**
  * The counter screen.
  *
- * Everything here is shaped by one number: four taps for an ordinary sale.
- *   tap the item  →  tap "Pay"  →  tap "Cash"  →  tap "Complete sale"
- * So there are no confirmation dialogs, no quantity prompt (tap again to add
- * another), and the payment amount defaults to whatever is still owing.
+ * Everything here is shaped by one number: three taps for an ordinary sale.
+ *   tap the item  →  tap "Pay"  →  tap "Take KES x — done"
+ * So there are no confirmation dialogs and no quantity prompt (tap the tile
+ * again to add another).
+ *
+ * Payment asks the two questions a shopkeeper actually asks — how much now, and
+ * how — and treats the balance as the leftover. Credit is deliberately NOT a
+ * method to choose: an unpaid balance simply asks whose account it belongs to.
  *
  * Two things are deliberately NOT sent to this component:
  *   - `floor_cents`, because for a repacked chemical it is the cost price and
@@ -225,13 +229,6 @@ interface CartLine {
   priceCents: number;
 }
 
-interface Tender {
-  key: string;
-  method: PayMethod;
-  amountCents: number;
-  mpesaCode: string;
-}
-
 // ------------------------------------------------------------------- screen
 
 export default function SellClient({
@@ -253,11 +250,22 @@ export default function SellClient({
   const [query, setQuery] = useState("");
   const [sheet, setSheet] = useState<"none" | "cart" | "pay">("none");
 
-  const [tenders, setTenders] = useState<Tender[]>([]);
-  const [amountInput, setAmountInput] = useState("");
-  // Full payment is the labelled default; the amount box only appears for a
-  // split. The old placeholder-as-documentation was invisible once typed over.
-  const [splitPay, setSplitPay] = useState(false);
+  /**
+   * Payment, the way a shopkeeper says it: "he is giving me 3,000 now, the rest
+   * goes on his account." So the counter answers two questions — how much now,
+   * and how — and the balance is simply what is left. Credit is never a button
+   * to choose; it is the leftover, and it only ever asks for a name.
+   *
+   * `payNow === null` means "the whole bill", which keeps tracking the total as
+   * the cart changes without an effect to re-sync it.
+   */
+  const [payNow, setPayNow] = useState<string | null>(null);
+  const [payMethod, setPayMethod] = useState<"cash" | "mpesa">("cash");
+  const [payCode, setPayCode] = useState("");
+  /** The rare real case: part cash, part M-Pesa, on the same bill. */
+  const [second, setSecond] = useState<{ amount: string; method: "cash" | "mpesa"; code: string } | null>(
+    null,
+  );
   const [customerId, setCustomerId] = useState<number | null>(null);
   const [ownerPin, setOwnerPin] = useState("");
   const [receipt, setReceipt] = useState<Extract<
@@ -311,10 +319,13 @@ export default function SellClient({
   const totalCents = lines.reduce((s, x) => s + x.line.priceCents * x.line.units, 0);
   const unitCount = cart.reduce((s, l) => s + l.units, 0);
 
-  const tenderedCents = tenders.reduce((s, t) => s + t.amountCents, 0);
-  const remainingCents = Math.max(0, totalCents - tenderedCents);
-  const paidCents = tenders.filter((t) => t.method !== "credit").reduce((s, t) => s + t.amountCents, 0);
-  const outstandingCents = totalCents - paidCents;
+  // What is being handed over now, and therefore what goes on the account.
+  const firstCents = payNow === null ? totalCents : (parseCents(payNow) ?? 0);
+  const secondCents = second ? (parseCents(second.amount) ?? 0) : 0;
+  const paidCents = Math.max(0, firstCents) + Math.max(0, secondCents);
+  const onAccountCents = Math.max(0, totalCents - paidCents);
+  const overpaidCents = Math.max(0, paidCents - totalCents);
+  const outstandingCents = onAccountCents;
 
   const customer = customers.find((c) => c.id === customerId) ?? null;
 
@@ -325,8 +336,10 @@ export default function SellClient({
   const oversold = lines.filter(
     (x) => x.item.kind !== "other" && x.item.sizeMilli > 0 && x.line.units * x.item.sizeMilli > x.item.qtyMilli,
   );
-  const mpesaIncomplete = tenders.some((t) => t.method === "mpesa" && !t.mpesaCode.trim());
-  const needsCustomer = outstandingCents > 0 || tenders.some((t) => t.method === "credit");
+  const mpesaIncomplete =
+    (payMethod === "mpesa" && firstCents > 0 && !payCode.trim()) ||
+    (second !== null && second.method === "mpesa" && secondCents > 0 && !second.code.trim());
+  const needsCustomer = onAccountCents > 0;
 
   // --- after a completed sale, start clean --------------------------------
   // Resetting the tier is the point: a toggle left on wholesale silently
@@ -347,8 +360,10 @@ export default function SellClient({
     handled.current = key;
     setReceipt(state as Extract<SellState, { status: "done" } | { status: "queued" }>);
     setCart([]);
-    setTenders([]);
-    setAmountInput("");
+    setPayNow(null);
+    setPayMethod("cash");
+    setPayCode("");
+    setSecond(null);
     setCustomerId(null);
     setOwnerPin("");
     setTier("retail");
@@ -455,27 +470,31 @@ export default function SellClient({
     );
   }
 
-  // --- tenders ------------------------------------------------------------
+  // --- payment ------------------------------------------------------------
 
-  function addTender(method: PayMethod) {
-    if (remainingCents <= 0 && !amountInput.trim()) return;
-    const typed = parseCents(amountInput);
-    const amountCents = typed ?? remainingCents;
-    if (amountCents <= 0) return;
-
-    setTenders((prev) => [
-      ...prev,
-      { key: `${method}-${Date.now()}-${prev.length}`, method, amountCents, mpesaCode: "" },
-    ]);
-    setAmountInput("");
-  }
-
-  function setCode(key: string, code: string) {
-    setTenders((prev) => prev.map((t) => (t.key === key ? { ...t, mpesaCode: code } : t)));
-  }
-
-  function removeTender(key: string) {
-    setTenders((prev) => prev.filter((t) => t.key !== key));
+  /**
+   * Turn the two counter questions into the tenders the till stores. The money
+   * model is unchanged — one row per way money moved, plus a credit row for the
+   * balance — it is only the asking that got simpler.
+   */
+  function buildTenders(): SalePayload["tenders"] {
+    const out: SalePayload["tenders"] = [];
+    if (firstCents > 0) {
+      out.push({
+        method: payMethod,
+        amountCents: Math.min(firstCents, totalCents),
+        mpesaCode: payMethod === "mpesa" ? payCode.trim() : undefined,
+      });
+    }
+    if (second && secondCents > 0) {
+      out.push({
+        method: second.method,
+        amountCents: secondCents,
+        mpesaCode: second.method === "mpesa" ? second.code.trim() : undefined,
+      });
+    }
+    if (onAccountCents > 0) out.push({ method: "credit", amountCents: onAccountCents });
+    return out;
   }
 
   // --- submit -------------------------------------------------------------
@@ -485,11 +504,7 @@ export default function SellClient({
       clientUuid: uuid.current,
       tier,
       lines: cart.map((l) => ({ itemId: l.itemId, units: l.units, unitPriceCents: l.priceCents })),
-      tenders: tenders.map((t) => ({
-        method: t.method,
-        amountCents: t.amountCents,
-        mpesaCode: t.method === "mpesa" ? t.mpesaCode.trim() : undefined,
-      })),
+      tenders: buildTenders(),
       customerId,
       ownerPin: ownerPin.trim() || undefined,
       acknowledgeCredit,
@@ -584,47 +599,184 @@ export default function SellClient({
 
   const renderPayBody = () => (
     <>
-        <div className="rounded-2xl border border-line bg-wash p-3">
-          <Row label="Order total" value={formatKes(totalCents)} strong />
-          <Row label="Paid so far" value={formatKes(tenderedCents)} />
-          <Row
-            label={remainingCents > 0 ? "Still to pay" : "Covered"}
-            value={formatKes(remainingCents)}
-            strong
-          />
+        {/* The bill, then the only two questions the counter has to answer. */}
+        <div className="rounded-2xl bg-wash p-3.5 ring-1 ring-inset ring-line">
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">
+              Bill
+            </span>
+            <span className="text-2xl font-extrabold tracking-tight text-brand-deep tnum">
+              {formatKes(totalCents)}
+            </span>
+          </div>
         </div>
 
-        {tenders.length ? (
-          <div className="mt-3 space-y-2">
-            {tenders.map((t) => (
-              <div key={t.key} className="rounded-xl border border-line p-2.5">
+        <label className="mt-3 block">
+          <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
+            Paying now
+          </span>
+          <input
+            className={`${inputClass} !text-xl !font-extrabold tnum`}
+            value={payNow ?? centsToInput(totalCents)}
+            onChange={(e) => setPayNow(e.target.value)}
+            onFocus={(e) => e.currentTarget.select()}
+            inputMode="decimal"
+            aria-label="Amount being paid now, in shillings"
+          />
+        </label>
+        <div className="mt-2 flex gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setPayNow(null);
+              setSecond(null);
+            }}
+            className={`flex-1 rounded-full px-3 py-2.5 text-sm font-bold ring-1 ring-inset transition-colors ${
+              onAccountCents === 0 && !overpaidCents
+                ? "bg-brand text-white ring-brand"
+                : "bg-white text-brand-dark ring-line"
+            }`}
+          >
+            Paid in full
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setPayNow("0");
+              setSecond(null);
+            }}
+            className={`flex-1 rounded-full px-3 py-2.5 text-sm font-bold ring-1 ring-inset transition-colors ${
+              paidCents === 0
+                ? "bg-warn text-white ring-warn"
+                : "bg-white text-brand-dark ring-line"
+            }`}
+          >
+            All on account
+          </button>
+        </div>
+
+        {paidCents > 0 ? (
+          <div className="mt-3">
+            <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
+              How
+            </span>
+            <div className="grid grid-cols-2 gap-2">
+              {(["cash", "mpesa"] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setPayMethod(m)}
+                  className={`min-h-12 rounded-2xl px-3 text-sm font-bold ring-1 ring-inset transition-colors ${
+                    payMethod === m
+                      ? "bg-brand text-white shadow-sm ring-brand"
+                      : "bg-white text-brand-dark ring-line"
+                  }`}
+                >
+                  {m === "cash" ? "Cash" : "M-Pesa"}
+                </button>
+              ))}
+            </div>
+            {payMethod === "mpesa" ? (
+              <input
+                className={`${inputClass} mt-2 uppercase`}
+                value={payCode}
+                onChange={(e) => setPayCode(e.target.value)}
+                placeholder="M-Pesa code, e.g. QGH7X1TEST"
+                aria-label="M-Pesa transaction code"
+                autoCapitalize="characters"
+                autoComplete="off"
+                required
+              />
+            ) : null}
+
+            {/* Part cash, part M-Pesa happens; it should not shape the screen
+                for everyone else, so it stays one line until it is needed. */}
+            {second ? (
+              <div className="mt-2.5 rounded-2xl bg-wash p-2.5 ring-1 ring-inset ring-line">
                 <div className="flex items-center gap-2">
-                  <Chip tone={t.method === "credit" ? "warn" : "good"}>
-                    {t.method === "mpesa" ? "M-Pesa" : t.method === "cash" ? "Cash" : "Credit"}
-                  </Chip>
-                  <span className="text-sm font-bold tnum">{formatKes(t.amountCents)}</span>
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
+                    And also
+                  </span>
                   <button
                     type="button"
-                    onClick={() => removeTender(t.key)}
-                    className="ml-auto rounded-lg px-2 py-1 text-xs font-bold text-bad"
+                    onClick={() => setSecond(null)}
+                    className="ml-auto text-xs font-bold text-muted"
                   >
                     Remove
                   </button>
                 </div>
-                {t.method === "mpesa" ? (
+                <input
+                  className={`${inputClass} mt-2 tnum`}
+                  value={second.amount}
+                  onChange={(e) => setSecond({ ...second, amount: e.target.value })}
+                  inputMode="decimal"
+                  placeholder="Amount"
+                  aria-label="Second payment amount"
+                />
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  {(["cash", "mpesa"] as const).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setSecond({ ...second, method: m })}
+                      className={`min-h-11 rounded-xl px-3 text-sm font-bold ring-1 ring-inset ${
+                        second.method === m
+                          ? "bg-brand text-white ring-brand"
+                          : "bg-white text-brand-dark ring-line"
+                      }`}
+                    >
+                      {m === "cash" ? "Cash" : "M-Pesa"}
+                    </button>
+                  ))}
+                </div>
+                {second.method === "mpesa" ? (
                   <input
                     className={`${inputClass} mt-2 uppercase`}
-                    value={t.mpesaCode}
-                    onChange={(e) => setCode(t.key, e.target.value)}
-                    placeholder="M-Pesa code, e.g. QGH7X1TEST"
-                    aria-label="M-Pesa transaction code"
+                    value={second.code}
+                    onChange={(e) => setSecond({ ...second, code: e.target.value })}
+                    placeholder="M-Pesa code"
+                    aria-label="Second M-Pesa transaction code"
                     autoCapitalize="characters"
                     autoComplete="off"
                     required
                   />
                 ) : null}
               </div>
-            ))}
+            ) : (
+              <button
+                type="button"
+                onClick={() =>
+                  setSecond({
+                    amount: centsToInput(Math.max(0, totalCents - firstCents)),
+                    method: payMethod === "cash" ? "mpesa" : "cash",
+                    code: "",
+                  })
+                }
+                className="mt-2 w-full py-1 text-center text-xs font-bold text-brand-dark"
+              >
+                Part cash, part M-Pesa?
+              </button>
+            )}
+          </div>
+        ) : null}
+
+        {overpaidCents > 0 ? (
+          <div className="mt-3">
+            <Alert tone="bad">
+              That is {formatKes(overpaidCents)} more than the bill. Change is counted out of the
+              drawer, not typed in here.
+            </Alert>
+          </div>
+        ) : null}
+
+        {onAccountCents > 0 ? (
+          <div className="mt-3 rounded-2xl bg-warn-soft px-3.5 py-3 ring-1 ring-inset ring-warn/25">
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="text-sm font-bold text-warn">Goes on account</span>
+              <span className="text-lg font-extrabold text-warn tnum">
+                {formatKes(onAccountCents)}
+              </span>
+            </div>
           </div>
         ) : null}
 
@@ -633,7 +785,7 @@ export default function SellClient({
         {needsCustomer || customers.length ? (
           <div className="mt-3">
             <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
-              Customer {needsCustomer ? "(required — this sale is not fully paid)" : "(optional)"}
+              {needsCustomer ? "Whose account?" : "Customer (optional)"}
             </label>
             <select
               className={inputClass}
@@ -669,68 +821,6 @@ export default function SellClient({
           </div>
         ) : null}
 
-        <div className="mt-3">
-          {splitPay ? (
-            <input
-              className={inputClass}
-              value={amountInput}
-              onChange={(e) => setAmountInput(e.target.value)}
-              inputMode="decimal"
-              autoFocus
-              placeholder="Amount for this payment"
-              aria-label="Payment amount in shillings"
-            />
-          ) : null}
-          <div className="mt-2 grid grid-cols-3 gap-2">
-            <button
-              type="button"
-              onClick={() => addTender("cash")}
-              className="rounded-2xl bg-brand px-2 py-3.5 text-sm font-extrabold text-white shadow-sm"
-            >
-              Cash
-              {!splitPay && remainingCents > 0 ? (
-                <span className="block text-[10px] font-semibold opacity-90 tnum">
-                  all {formatKes(remainingCents)}
-                </span>
-              ) : null}
-            </button>
-            <button
-              type="button"
-              onClick={() => addTender("mpesa")}
-              className="rounded-2xl bg-brand px-2 py-3.5 text-sm font-extrabold text-white shadow-sm"
-            >
-              M-Pesa
-              {!splitPay && remainingCents > 0 ? (
-                <span className="block text-[10px] font-semibold opacity-90 tnum">
-                  all {formatKes(remainingCents)}
-                </span>
-              ) : null}
-            </button>
-            <button
-              type="button"
-              onClick={() => addTender("credit")}
-              className="rounded-2xl bg-warn px-2 py-3.5 text-sm font-extrabold text-white shadow-sm"
-            >
-              Credit
-              {!splitPay && remainingCents > 0 ? (
-                <span className="block text-[10px] font-semibold opacity-90 tnum">
-                  all {formatKes(remainingCents)}
-                </span>
-              ) : null}
-            </button>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              setSplitPay((s) => !s);
-              setAmountInput("");
-            }}
-            className="mt-2 w-full py-1 text-center text-xs font-bold text-brand-dark"
-          >
-            {splitPay ? "Back to full payment" : "Split payment — part cash, part M-Pesa or credit"}
-          </button>
-        </div>
-
         {state.status === "pin" ? (
           <div className="mt-3 space-y-2">
             <Alert tone="warn">{state.message}</Alert>
@@ -759,10 +849,10 @@ export default function SellClient({
           </div>
         ) : null}
 
-        {outstandingCents > 0 && customer ? (
+        {onAccountCents > 0 && customer ? (
           <p className="mt-3 text-xs text-muted">
-            {formatKes(outstandingCents)} goes onto {customer.name}&apos;s account. They already owe{" "}
-            {formatKes(customer.outstandingCents)}.
+            {customer.name} owes {formatKes(customer.outstandingCents)} today and will owe{" "}
+            {formatKes(customer.outstandingCents + onAccountCents)} after this.
           </p>
         ) : null}
 
@@ -771,23 +861,28 @@ export default function SellClient({
           disabled={
             pending ||
             !cart.length ||
+            overpaidCents > 0 ||
             mpesaIncomplete ||
             (needsCustomer && !customerId) ||
             (state.status === "pin" && !ownerPin.trim())
           }
           onClick={() => complete(state.status === "credit")}
         >
+          {/* The label states the outcome, so nobody has to reconstruct it from
+              a running total: "Take 3,000 · 5,400 on account". */}
           {pending
             ? online
               ? "Recording…"
               : "Saving on this phone…"
             : state.status === "credit"
-              ? "Sell on credit anyway"
+              ? "Put it on the account anyway"
               : !online
-                ? `Save offline — ${formatKes(totalCents)}`
-                : outstandingCents > 0
-                  ? `Complete — ${formatKes(outstandingCents)} on credit`
-                  : `Complete sale — ${formatKes(totalCents)}`}
+                ? `Save on this phone — ${formatKes(totalCents)}`
+                : paidCents > 0 && onAccountCents > 0
+                  ? `Take ${formatKes(paidCents)} · ${formatKes(onAccountCents)} on account`
+                  : onAccountCents > 0
+                    ? `All ${formatKes(onAccountCents)} on account`
+                    : `Take ${formatKes(totalCents)} — done`}
         </Button>
 
         {mpesaIncomplete ? (
