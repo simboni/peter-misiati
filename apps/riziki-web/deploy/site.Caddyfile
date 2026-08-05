@@ -1,0 +1,25 @@
+# The website container's own server: plain HTTP on :80, inside the compose
+# network. HTTPS and the certificates are the edge Caddy's job, one hop out.
+
+:80 {
+	root * /srv/site
+	file_server
+
+	# `next.config.ts` sets trailingSlash, so every page is a directory with an
+	# index.html and file_server finds it. A bare /about (no slash) is redirected
+	# to /about/ by file_server itself.
+	handle_errors {
+		rewrite * /404.html
+		file_server
+	}
+
+	# The export's hashed assets can never be the wrong version, so they may be
+	# cached hard. Pages are cached briefly: the shop edits copy and prices, and
+	# a stale price on a phone is worse than a second request.
+	@immutable path /_next/static/*
+	@page not path /_next/static/*
+	header @immutable Cache-Control "public, max-age=31536000, immutable"
+	header @page Cache-Control "public, max-age=300"
+
+	encode zstd gzip
+}

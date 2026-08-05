@@ -19,6 +19,15 @@ services:
       # business records — see DEPLOY.md for the backup cron.
       - ./data:/app/data
 
+  # The public website. Built from source in its own image, so `up -d --build`
+  # updates the site and the shop system together — see apps/riziki-web/Dockerfile
+  # for why this is not a mounted directory any more.
+  web:
+    build: ../riziki-web
+    restart: unless-stopped
+    expose:
+      - "80"
+
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
@@ -27,13 +36,11 @@ services:
       - "443:443"
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
-      # The marketing site's static build (apps/riziki-web: npm run build).
-      # Rebuilding the site is just re-running that build — no restart needed.
-      - ../riziki-web/out:/srv/riziki-web:ro
       - caddy-data:/data
       - caddy-config:/config
     depends_on:
       - pos
+      - web
 
 volumes:
   caddy-data:

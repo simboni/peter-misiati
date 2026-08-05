@@ -35,18 +35,12 @@ HTTPS certificates itself once the records resolve.
 
 ```bash
 # On the VPS:
-git clone <your-repo> && cd <repo>
+git clone <your-repo> && cd <repo>/apps/riziki-pos
 
-# 1. Build the marketing site's static files (no Node needed on the host —
-#    build inside a container):
-docker run --rm -v "$PWD/apps/riziki-web":/app -w /app node:22-alpine \
-  sh -c "npm ci && npm run build"
-
-# 2. Start everything — POS + Caddy serving both sites:
-cd apps/riziki-pos
+# Everything — shop system, website, HTTPS:
 docker compose up -d --build
 
-# 3. Watch it come up:
+# Watch it come up:
 docker compose logs -f
 ```
 
@@ -54,8 +48,14 @@ Open `https://rizikichemicals.co.ke` for the site and
 `https://pos.rizikichemicals.co.ke` for the POS — the login screen seeds the
 database with the shop's chemicals, formulas and opening stock on first load.
 
-**Updating the website later**: pull, re-run the build container (step 1) —
-Caddy serves the new files immediately, no restart.
+Then check it for real, rather than trusting it:
+
+```bash
+sh deploy/smoke.sh
+```
+
+That fetches every public page and every picture on the site, plus the POS
+login screen, and prints ok/FAIL per URL. It is the last step of every deploy.
 
 ## The go-live checklist (do these with the owner, in order)
 
@@ -101,12 +101,20 @@ rm -f data/riziki.db-wal data/riziki.db-shm
 docker compose start pos
 ```
 
-## Updating the app
+## Updating — app and website together
 
 ```bash
 git pull
 docker compose up -d --build
+sh deploy/smoke.sh
 ```
+
+That is the whole update, for both the shop system and the public website.
+There is no separate website step, deliberately: there used to be, and the
+result was a server quietly serving a months-old website while the POS was
+current, because the missing step left no trace anywhere. Now the site is built
+from the checked-out commit inside `docker compose up --build`, so it cannot
+drift — and `smoke.sh` says so out loud either way.
 
 The database is in the mounted `data/` directory, untouched by rebuilds.
 Schema additions apply themselves on boot (`CREATE TABLE IF NOT EXISTS` plus
@@ -114,18 +122,24 @@ runtime column patches), so an update never needs a migration step by hand.
 
 ## The marketing website
 
-Served by the same Caddy on the same VPS — `apps/riziki-web/out` is mounted
-into the caddy container read-only, and the Caddyfile's first block serves it
-on the bare domain (www redirects there). Rebuild = re-run the build
-container from step 1 of First deployment; the new files are live instantly.
+Its own container (`apps/riziki-web/Dockerfile`): a Node stage runs the static
+export, and the result is copied into a small Caddy image that serves it on
+port 80 inside the compose network. The edge Caddy terminates HTTPS for the
+bare domain and proxies to it; www redirects there.
 
-(If you ever want it off the VPS, the `out/` directory also drops straight
-into Cloudflare Pages or Netlify — nothing about the build changes.)
+To rebuild only the website: `docker compose up -d --build web`.
+
+(If you ever want it off the VPS, `npm run build` in `apps/riziki-web` still
+produces a plain `out/` directory that drops straight into Cloudflare Pages or
+Netlify — nothing about the build changes.)
 
 ## If something goes wrong
 
 - **App won't start**: `docker compose logs pos`. The commonest cause after
   an update is a half-pulled build — rerun `docker compose up -d --build`.
+- **Website pages or pictures 404** (`smoke.sh` shows FAIL on `/products/` or
+  `/art/*.svg`): the site container is behind the checked-out code.
+  `git pull && docker compose up -d --build web`, then smoke it again.
 - **"No space left"**: check `data/backups/` hasn't been set to keep more
   than 30, and `docker system prune` old images.
 - **Wrong numbers on screen**: don't edit the database by hand — every

@@ -5,16 +5,10 @@
 # www.rizikichemicals.co.ke and pos.rizikichemicals.co.ke, all pointing at
 # this server's IP.
 
-# The marketing site — static files built from apps/riziki-web (npm run
-# build → out/), mounted into this container at /srv/riziki-web.
+# The marketing site. The pages themselves live in the `web` container, built
+# from apps/riziki-web on every deploy; this block only terminates HTTPS for it.
 rizikichemicals.co.ke {
-	root * /srv/riziki-web
-	file_server
-	encode zstd gzip
-	handle_errors {
-		rewrite * /404.html
-		file_server
-	}
+	reverse_proxy web:80
 }
 
 # One canonical host: www redirects rather than serving a duplicate site.
