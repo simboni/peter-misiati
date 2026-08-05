@@ -4,6 +4,7 @@ import "./globals.css";
 import { currentUser } from "@/lib/auth";
 import { BottomNav } from "@/components/nav";
 import OfflineStatus from "@/components/offline-status";
+import OfflineNotice from "@/components/offline-notice";
 import RegisterSW from "@/components/register-sw";
 import { signOut } from "@/app/actions/session";
 
@@ -65,6 +66,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 : "mx-auto w-full max-w-lg px-4 py-6"
             }
           >
+            {user ? <OfflineNotice /> : null}
             {children}
           </main>
 

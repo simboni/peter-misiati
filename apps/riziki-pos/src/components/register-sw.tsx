@@ -21,6 +21,7 @@ export default function RegisterSW() {
     if (!("serviceWorker" in navigator)) return;
 
     let cancelled = false;
+    let warmTimer = 0;
 
     // Registered after load so it never competes with the first paint of the
     // sell grid — the counter has a queue waiting.
@@ -32,6 +33,18 @@ export default function RegisterSW() {
           // A shop that never closes the app would otherwise sit on an old
           // build for days.
           registration.update().catch(() => {});
+
+          // Save every main screen while the line is good, so Stock, Batch and
+          // Debts open on a dead connection too — not just the screens someone
+          // happened to visit first. Delayed so it never competes with the
+          // first paint of the sell grid; the counter has a queue waiting.
+          if (navigator.onLine) {
+            warmTimer = window.setTimeout(() => {
+              navigator.serviceWorker.ready
+                .then((r) => r.active?.postMessage({ type: "WARM" }))
+                .catch(() => {});
+            }, 4000);
+          }
         })
         .catch(() => {
           // Insecure origin, private mode, or the file is not being served.
@@ -44,6 +57,7 @@ export default function RegisterSW() {
 
     return () => {
       cancelled = true;
+      if (warmTimer) window.clearTimeout(warmTimer);
       window.removeEventListener("load", register);
     };
   }, []);
