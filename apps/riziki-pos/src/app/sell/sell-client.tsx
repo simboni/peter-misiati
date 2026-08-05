@@ -651,7 +651,7 @@ export default function SellClient({
                 : "bg-white text-brand-dark ring-line"
             }`}
           >
-            All on account
+            Paying later
           </button>
         </div>
 
@@ -772,7 +772,7 @@ export default function SellClient({
         {onAccountCents > 0 ? (
           <div className="mt-3 rounded-2xl bg-warn-soft px-3.5 py-3 ring-1 ring-inset ring-warn/25">
             <div className="flex items-baseline justify-between gap-3">
-              <span className="text-sm font-bold text-warn">Goes on account</span>
+              <span className="text-sm font-bold text-warn">To pay later</span>
               <span className="text-lg font-extrabold text-warn tnum">
                 {formatKes(onAccountCents)}
               </span>
@@ -785,7 +785,7 @@ export default function SellClient({
         {needsCustomer || customers.length ? (
           <div className="mt-3">
             <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
-              {needsCustomer ? "Whose account?" : "Customer (optional)"}
+              {needsCustomer ? "Who is paying later?" : "Customer (optional)"}
             </label>
             <select
               className={inputClass}
@@ -869,19 +869,19 @@ export default function SellClient({
           onClick={() => complete(state.status === "credit")}
         >
           {/* The label states the outcome, so nobody has to reconstruct it from
-              a running total: "Take 3,000 · 5,400 on account". */}
+              a running total: "Take 3,000 · 5,400 later". */}
           {pending
             ? online
               ? "Recording…"
               : "Saving on this phone…"
             : state.status === "credit"
-              ? "Put it on the account anyway"
+              ? "Let them take it anyway"
               : !online
                 ? `Save on this phone — ${formatKes(totalCents)}`
                 : paidCents > 0 && onAccountCents > 0
-                  ? `Take ${formatKes(paidCents)} · ${formatKes(onAccountCents)} on account`
+                  ? `Take ${formatKes(paidCents)} · ${formatKes(onAccountCents)} later`
                   : onAccountCents > 0
-                    ? `All ${formatKes(onAccountCents)} on account`
+                    ? `${formatKes(onAccountCents)} to pay later`
                     : `Take ${formatKes(totalCents)} — done`}
         </Button>
 
@@ -892,7 +892,7 @@ export default function SellClient({
         ) : null}
         {needsCustomer && !customerId ? (
           <p className="mt-2 text-xs font-semibold text-bad">
-            Choose the customer who owes the balance.
+            Choose who is paying later — the balance has to sit under a name.
           </p>
         ) : null}
 
