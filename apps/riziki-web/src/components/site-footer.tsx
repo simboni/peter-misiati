@@ -77,6 +77,18 @@ export function SiteFooter() {
           follow the handling and storage advice given at the counter, and keep all products out
           of reach of children.
         </p>
+        <p className="mt-2 text-xs text-muted">
+          Website &amp; shop system by{" "}
+          <a
+            href="https://smp-developers.com/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-bold text-accent hover:underline"
+          >
+            SMP Developers Limited
+          </a>
+          .
+        </p>
       </Container>
     </footer>
   );
