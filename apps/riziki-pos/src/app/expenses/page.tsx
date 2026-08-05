@@ -106,7 +106,7 @@ export default async function ExpensesPage(props: {
   });
 
   return (
-    <div>
+    <div className="lg:max-w-2xl">
       <PageTitle title="Expenses" subtitle={`${monthName} · what the shop paid out`} />
 
       <Card>

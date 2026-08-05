@@ -70,7 +70,7 @@ export default async function PurchasesPage(props: { searchParams: Promise<{ ite
     .reduce((s, p) => s + p.total_cents, 0);
 
   return (
-    <div>
+    <div className="lg:max-w-3xl">
       <PageTitle title="Suppliers & purchases" subtitle="Deliveries in, landed cost out" />
 
       <div className="grid grid-cols-2 gap-2.5">

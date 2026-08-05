@@ -32,7 +32,7 @@ function StatusChip({ status }: { status: StockStatus }) {
 
 function Row({ line, owner }: { line: StockLine; owner: boolean }) {
   return (
-    <div className="flex items-start justify-between gap-3 border-t border-line py-2.5 first:border-t-0">
+    <div className="flex items-start justify-between gap-3 border-t border-line py-2.5 first:border-t-0 break-inside-avoid">
       <div className="min-w-0 flex-1">
         <div className="text-sm font-semibold leading-snug">{line.name}</div>
         <div className="mt-1 flex flex-wrap items-center gap-2">
@@ -55,7 +55,7 @@ function Row({ line, owner }: { line: StockLine; owner: boolean }) {
 
 function Group({ group, owner }: { group: ReagentGroup; owner: boolean }) {
   return (
-    <Card className="mb-2.5">
+    <Card className="mb-2.5 break-inside-avoid lg:mb-6">
       <div className="mb-1 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="text-sm font-extrabold tracking-tight">{group.name}</h3>
@@ -126,6 +126,8 @@ export function StockClient({
     <div>
       <PageTitle title="Stock" subtitle={`${view.itemCount} items across the shop`} />
 
+      <div className="lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-8">
+      <div className="lg:col-span-5 xl:col-span-4">
       {owner ? (
         <div className="mb-3">
           <Stat
@@ -136,6 +138,8 @@ export function StockClient({
         </div>
       ) : null}
 
+      </div>
+      <div className="lg:col-span-7 xl:col-span-8">
       <div className="mb-3 grid grid-cols-2 gap-2">
         <Link
           href="/repack"
@@ -161,21 +165,26 @@ export function StockClient({
         autoComplete="off"
       />
 
+      </div>
+      </div>
+
       {nothing ? <Empty>Nothing matches “{query}”.</Empty> : null}
 
       {reagents.length ? (
         <>
           <SectionLabel>Reagents</SectionLabel>
-          {reagents.map((g) => (
-            <Group key={g.chemicalId} group={g} owner={owner} />
-          ))}
+          <div className="lg:columns-2 lg:gap-6 xl:columns-3">
+            {reagents.map((g) => (
+              <Group key={g.chemicalId} group={g} owner={owner} />
+            ))}
+          </div>
         </>
       ) : null}
 
       {finished.length ? (
         <>
           <SectionLabel>Finished goods</SectionLabel>
-          <Card className="mb-2.5">
+          <Card className="mb-2.5 lg:columns-2 lg:gap-x-10">
             {finished.map((l) => (
               <Row key={l.id} line={l} owner={owner} />
             ))}
@@ -186,7 +195,7 @@ export function StockClient({
       {packaging.length ? (
         <>
           <SectionLabel>Packaging</SectionLabel>
-          <Card className="mb-2.5">
+          <Card className="mb-2.5 lg:columns-2 lg:gap-x-10">
             {packaging.map((l) => (
               <Row key={l.id} line={l} owner={owner} />
             ))}

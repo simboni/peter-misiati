@@ -53,7 +53,7 @@ export default async function CustomersPage(props: {
     <div>
       <PageTitle title="Debtors" subtitle="Who owes what, oldest debts first" />
 
-      <div className="grid grid-cols-2 gap-2.5">
+      <div className="grid grid-cols-2 gap-2.5 lg:max-w-xl">
         <Stat
           label="Total owed"
           value={formatKes(owed)}
@@ -66,7 +66,7 @@ export default async function CustomersPage(props: {
         />
       </div>
 
-      <form method="get" className="mt-4">
+      <form method="get" className="mt-4 lg:max-w-xl">
         <input
           type="search"
           name="q"
@@ -94,9 +94,11 @@ export default async function CustomersPage(props: {
         </p>
       ) : null}
 
+      <div className="lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-8">
+      <div className="lg:col-span-7">
       <SectionLabel>Owing now</SectionLabel>
       {rows.length ? (
-        <div className="space-y-2.5">
+        <div className="space-y-2.5 xl:grid xl:grid-cols-2 xl:gap-3 xl:space-y-0">
           {rows.map((r) => {
             const over = isOverLimit(r, r.balance_cents);
             return (
@@ -157,6 +159,8 @@ export default async function CustomersPage(props: {
         </Card>
       )}
 
+      </div>
+      <div className="lg:col-span-5">
       <SectionLabel>Everyone else</SectionLabel>
       {settled.length ? (
         <TableWrap>
@@ -198,7 +202,8 @@ export default async function CustomersPage(props: {
           </Link>
         </p>
       ) : null}
-
+      </div>
+      </div>
     </div>
   );
 }

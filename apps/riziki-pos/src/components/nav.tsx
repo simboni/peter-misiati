@@ -4,7 +4,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 /**
- * Bottom tab bar — thumb-reachable on the counter phone.
+ * Navigation, one client component, three renderings by breakpoint:
+ *   - phone: bottom tab bar, thumb-reachable at the counter;
+ *   - tablet (md): the same bar as a floating island;
+ *   - desktop (lg+): a fixed left rail carrying the tabs AND the More groups,
+ *     so every destination is one click on a big screen.
  * Owner-only destinations are filtered by the server before this renders.
  */
 
@@ -26,8 +30,44 @@ const TABS: Tab[] = [
   // home — a dead tab. Now it simply isn't shown to them.
   { href: "/reports", label: "Reports", icon: I("M4 20V10 M10 20V4 M16 20v-8 M22 20H2"), ownerOnly: true },
   // "More" opens the everything-else grid — the only path to day close, sales
-  // history and the rest, which were otherwise reachable only via the logo.
+  // history and the rest on a phone. The desktop rail lists them directly.
   { href: "/more", label: "More", icon: I("M4 6h16 M4 12h16 M4 18h16") },
+];
+
+// Repack and stock take both read raw-reagent quantities off the shelf.
+// Those numbers are how a formula could be reverse-engineered, so both are
+// owner-only, alongside the rest of raw-chemical handling.
+const MORE_GROUPS: Array<{
+  label: string;
+  links: Array<{ href: string; label: string; owner: boolean }>;
+}> = [
+  {
+    label: "Every day",
+    links: [
+      { href: "/sales", label: "Sales history", owner: false },
+      { href: "/day-close", label: "Day close", owner: false },
+      { href: "/expenses", label: "Expenses", owner: false },
+      { href: "/purchases", label: "Suppliers & purchases", owner: false },
+    ],
+  },
+  {
+    label: "Stock & making",
+    links: [
+      { href: "/repack", label: "Repack", owner: true },
+      { href: "/stocktake", label: "Stock take", owner: true },
+      { href: "/formulas", label: "Formulas", owner: true },
+      { href: "/items", label: "Products & prices", owner: true },
+    ],
+  },
+  {
+    label: "Setup & records",
+    links: [
+      { href: "/activity", label: "Activity log", owner: true },
+      { href: "/settings", label: "Users & settings", owner: true },
+      { href: "/settings/printer", label: "Receipt printer", owner: true },
+      { href: "/pin", label: "Change my PIN", owner: false },
+    ],
+  },
 ];
 
 export function BottomNav({ isOwner }: { isOwner: boolean }) {
@@ -35,74 +75,99 @@ export function BottomNav({ isOwner }: { isOwner: boolean }) {
   const tabs = TABS.filter((t) => !t.ownerOnly || isOwner);
 
   return (
-    <nav
-      className="no-print fixed inset-x-0 bottom-0 z-30 mx-auto grid max-w-lg rounded-t-3xl bg-white pt-1.5 pb-[env(safe-area-inset-bottom)] shadow-nav"
-      style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }}
-    >
-      {tabs.map((t) => {
-        const active = path === t.href || path.startsWith(t.href + "/");
-        return (
-          <Link
-            key={t.href}
-            href={t.href}
-            aria-current={active ? "page" : undefined}
-            className={`flex min-h-[52px] flex-col items-center gap-0.5 pt-2 pb-2 text-[10.5px] font-semibold transition-colors ${
-              active ? "text-brand-deep" : "text-muted"
-            }`}
-          >
-            <span
-              className={
-                active ? "rounded-full bg-brand px-4 py-1 text-white shadow-sm" : "rounded-full px-4 py-1"
-              }
+    <>
+      {/* Phone bottom bar; floating island at md; gone at lg. */}
+      <nav
+        className="no-print fixed inset-x-0 bottom-0 z-30 mx-auto grid max-w-lg rounded-t-3xl bg-white pt-1.5 pb-[env(safe-area-inset-bottom)] shadow-nav md:bottom-3 md:max-w-xl md:rounded-3xl md:shadow-lift md:ring-1 md:ring-ink/5 lg:hidden"
+        style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }}
+      >
+        {tabs.map((t) => {
+          const active = path === t.href || path.startsWith(t.href + "/");
+          return (
+            <Link
+              key={t.href}
+              href={t.href}
+              aria-current={active ? "page" : undefined}
+              className={`flex min-h-[52px] flex-col items-center gap-0.5 pt-2 pb-2 text-[10.5px] font-semibold transition-colors ${
+                active ? "text-brand-deep" : "text-muted"
+              }`}
             >
-              {t.icon}
-            </span>
-            {t.label}
-          </Link>
-        );
-      })}
-    </nav>
+              <span
+                className={
+                  active ? "rounded-full bg-brand px-4 py-1 text-white shadow-sm" : "rounded-full px-4 py-1"
+                }
+              >
+                {t.icon}
+              </span>
+              {t.label}
+            </Link>
+          );
+        })}
+      </nav>
+
+      {/* Desktop rail. Same tabs, then the More groups laid out flat. */}
+      <nav className="no-print fixed inset-y-0 left-0 z-30 hidden w-60 flex-col overflow-y-auto bg-white px-3 pb-6 pt-5 shadow-[6px_0_24px_-8px_rgb(13_43_48/0.18)] lg:flex">
+        <Link href="/" className="mb-5 flex items-center gap-2.5 px-2">
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-deep text-xs font-extrabold text-white">
+            RZ
+          </span>
+          <span className="text-sm font-bold text-brand-deep">Riziki POS</span>
+        </Link>
+
+        {tabs
+          .filter((t) => t.href !== "/more")
+          .map((t) => {
+            const active = path === t.href || path.startsWith(t.href + "/");
+            return (
+              <Link
+                key={t.href}
+                href={t.href}
+                aria-current={active ? "page" : undefined}
+                className={`flex items-center gap-3 rounded-2xl px-3.5 py-2.5 text-sm font-semibold transition-colors ${
+                  active ? "bg-brand text-white shadow-sm" : "text-muted hover:bg-wash hover:text-ink"
+                }`}
+              >
+                {t.icon}
+                {t.label}
+              </Link>
+            );
+          })}
+
+        {MORE_GROUPS.map((g) => {
+          const links = g.links.filter((l) => !l.owner || isOwner);
+          if (!links.length) return null;
+          return (
+            <div key={g.label}>
+              <div className="mt-5 mb-1 px-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted">
+                {g.label}
+              </div>
+              {links.map((l) => {
+                const active = path === l.href;
+                return (
+                  <Link
+                    key={l.href}
+                    href={l.href}
+                    className={`flex items-center rounded-xl px-3.5 py-2 text-[13px] font-semibold ${
+                      active ? "bg-brand-soft text-brand-dark" : "text-muted hover:bg-wash hover:text-ink"
+                    }`}
+                  >
+                    {l.label}
+                  </Link>
+                );
+              })}
+            </div>
+          );
+        })}
+      </nav>
+    </>
   );
 }
 
 /** Secondary links that don't earn a tab, grouped by how often they're used. */
 export function MoreMenu({ isOwner }: { isOwner: boolean }) {
-  // Repack and stock take both read raw-reagent quantities off the shelf.
-  // Those numbers are how a formula could be reverse-engineered, so both are
-  // owner-only, alongside the rest of raw-chemical handling.
-  const groups: Array<{ label: string; links: Array<{ href: string; label: string; owner: boolean }> }> = [
-    {
-      label: "Every day",
-      links: [
-        { href: "/sales", label: "Sales history", owner: false },
-        { href: "/day-close", label: "Day close", owner: false },
-        { href: "/expenses", label: "Expenses", owner: false },
-        { href: "/purchases", label: "Suppliers & purchases", owner: false },
-      ],
-    },
-    {
-      label: "Stock & making",
-      links: [
-        { href: "/repack", label: "Repack", owner: true },
-        { href: "/stocktake", label: "Stock take", owner: true },
-        { href: "/formulas", label: "Formulas", owner: true },
-        { href: "/items", label: "Products & prices", owner: true },
-      ],
-    },
-    {
-      label: "Setup & records",
-      links: [
-        { href: "/activity", label: "Activity log", owner: true },
-        { href: "/settings", label: "Users & settings", owner: true },
-        { href: "/settings/printer", label: "Receipt printer", owner: true },
-        { href: "/pin", label: "Change my PIN", owner: false },
-      ],
-    },
-  ];
-
   return (
-    <div className="space-y-1">
-      {groups.map((g) => {
+    <div className="space-y-1 lg:max-w-4xl">
+      {MORE_GROUPS.map((g) => {
         const links = g.links.filter((l) => !l.owner || isOwner);
         if (!links.length) return null;
         return (
@@ -110,7 +175,7 @@ export function MoreMenu({ isOwner }: { isOwner: boolean }) {
             <h2 className="mt-5 mb-2 flex items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted after:h-px after:flex-1 after:bg-line after:content-['']">
               {g.label}
             </h2>
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-2 gap-2.5 md:grid-cols-3 lg:grid-cols-4">
               {links.map((l) => (
                 <Link
                   key={l.href}

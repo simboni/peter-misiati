@@ -199,6 +199,8 @@ export default async function BatchPage(props: {
         </div>
       ) : null}
 
+      <div className="lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-8">
+      <div className="lg:col-span-7 xl:col-span-8 lg:order-2">
       {pending.length ? (
         <>
           <SectionLabel>Waiting on actual yield</SectionLabel>
@@ -232,7 +234,103 @@ export default async function BatchPage(props: {
         </>
       ) : null}
 
+      <SectionLabel>Recent batches</SectionLabel>
+      {recent.length === 0 ? (
+        <Empty>Nothing has been mixed yet.</Empty>
+      ) : (
+        <TableWrap>
+          <thead>
+            <tr>
+              <Th>Batch</Th>
+              <Th align="right">Target</Th>
+              <Th align="right">Actual</Th>
+              <Th align="right">Difference</Th>
+              {owner ? <Th align="right">Cost</Th> : null}
+            </tr>
+          </thead>
+          <tbody>
+            {recent.map((b) => {
+              const variance = b.actual_milli === null ? null : b.actual_milli - b.target_milli;
+              return (
+                <tr key={b.id} className={b.status === "voided" ? "opacity-60" : ""}>
+                  <Td>
+                    <span className="block font-bold tnum">
+                      {b.batch_no}
+                      {b.status === "voided" ? (
+                        <span className="ml-1.5 text-[11px] font-bold text-bad">voided</span>
+                      ) : null}
+                    </span>
+                    <span className="block text-xs text-muted">
+                      {b.formula_name} v{b.version} · {formatDateTime(b.at)}
+                    </span>
+                    {b.status === "completed" ? (
+                      <details className="mt-1">
+                        <summary className="cursor-pointer text-[11px] font-bold text-bad">
+                          Void this batch
+                        </summary>
+                        <form action={voidBatchAction} className="mt-1.5 flex items-center gap-1.5">
+                          <input type="hidden" name="batchId" value={b.id} />
+                          <input
+                            className={`${inputClass} !py-1.5 text-xs`}
+                            name="reason"
+                            placeholder="Why? e.g. wrong litres entered"
+                            required
+                          />
+                          <button
+                            type="submit"
+                            className="shrink-0 rounded-lg bg-bad px-2.5 py-1.5 text-[11px] font-bold text-white"
+                          >
+                            Void
+                          </button>
+                        </form>
+                        <p className="mt-1 text-[11px] text-muted">
+                          Puts every chemical back and removes any bottled output. The batch stays
+                          on the record, marked voided.
+                        </p>
+                      </details>
+                    ) : null}
+                  </Td>
+                  <Td align="right">{formatQty(b.target_milli, "L")}</Td>
+                  <Td align="right">
+                    {b.actual_milli === null ? (
+                      <span className="text-muted">pending</span>
+                    ) : (
+                      formatQty(b.actual_milli, "L")
+                    )}
+                  </Td>
+                  <Td align="right">
+                    {variance === null ? (
+                      <span className="text-muted">—</span>
+                    ) : (
+                      // formatQty drops the sign when it falls back to ml, so
+                      // the direction of the variance is written out here.
+                      <span className={variance < 0 ? "text-bad" : "text-good"}>
+                        {variance === 0 ? "" : variance < 0 ? "−" : "+"}
+                        {formatQty(Math.abs(variance), "L")}
+                        <span className="block text-xs text-muted">
+                          {pct(variance, b.target_milli).toFixed(1)}%
+                        </span>
+                      </span>
+                    )}
+                  </Td>
+                  {owner ? <Td align="right">{formatKes(b.cost_cents ?? 0)}</Td> : null}
+                </tr>
+              );
+            })}
+          </tbody>
+        </TableWrap>
+      )}
 
+      {owner ? (
+        <p className="mt-3 text-sm">
+          <Link href="/formulas" className="font-bold text-brand-dark">
+            Formulas →
+          </Link>
+        </p>
+      ) : null}
+
+      </div>
+      <div className="lg:col-span-5 xl:col-span-4 lg:order-1">
       {/* A GET form: the calculation lives in the URL, so it survives a reload
           on a phone that lost signal halfway through the morning. */}
       <form method="get" className="space-y-3">
@@ -374,101 +472,8 @@ export default async function BatchPage(props: {
           )}
         </>
       ) : null}
-
-      <SectionLabel>Recent batches</SectionLabel>
-      {recent.length === 0 ? (
-        <Empty>Nothing has been mixed yet.</Empty>
-      ) : (
-        <TableWrap>
-          <thead>
-            <tr>
-              <Th>Batch</Th>
-              <Th align="right">Target</Th>
-              <Th align="right">Actual</Th>
-              <Th align="right">Difference</Th>
-              {owner ? <Th align="right">Cost</Th> : null}
-            </tr>
-          </thead>
-          <tbody>
-            {recent.map((b) => {
-              const variance = b.actual_milli === null ? null : b.actual_milli - b.target_milli;
-              return (
-                <tr key={b.id} className={b.status === "voided" ? "opacity-60" : ""}>
-                  <Td>
-                    <span className="block font-bold tnum">
-                      {b.batch_no}
-                      {b.status === "voided" ? (
-                        <span className="ml-1.5 text-[11px] font-bold text-bad">voided</span>
-                      ) : null}
-                    </span>
-                    <span className="block text-xs text-muted">
-                      {b.formula_name} v{b.version} · {formatDateTime(b.at)}
-                    </span>
-                    {b.status === "completed" ? (
-                      <details className="mt-1">
-                        <summary className="cursor-pointer text-[11px] font-bold text-bad">
-                          Void this batch
-                        </summary>
-                        <form action={voidBatchAction} className="mt-1.5 flex items-center gap-1.5">
-                          <input type="hidden" name="batchId" value={b.id} />
-                          <input
-                            className={`${inputClass} !py-1.5 text-xs`}
-                            name="reason"
-                            placeholder="Why? e.g. wrong litres entered"
-                            required
-                          />
-                          <button
-                            type="submit"
-                            className="shrink-0 rounded-lg bg-bad px-2.5 py-1.5 text-[11px] font-bold text-white"
-                          >
-                            Void
-                          </button>
-                        </form>
-                        <p className="mt-1 text-[11px] text-muted">
-                          Puts every chemical back and removes any bottled output. The batch stays
-                          on the record, marked voided.
-                        </p>
-                      </details>
-                    ) : null}
-                  </Td>
-                  <Td align="right">{formatQty(b.target_milli, "L")}</Td>
-                  <Td align="right">
-                    {b.actual_milli === null ? (
-                      <span className="text-muted">pending</span>
-                    ) : (
-                      formatQty(b.actual_milli, "L")
-                    )}
-                  </Td>
-                  <Td align="right">
-                    {variance === null ? (
-                      <span className="text-muted">—</span>
-                    ) : (
-                      // formatQty drops the sign when it falls back to ml, so
-                      // the direction of the variance is written out here.
-                      <span className={variance < 0 ? "text-bad" : "text-good"}>
-                        {variance === 0 ? "" : variance < 0 ? "−" : "+"}
-                        {formatQty(Math.abs(variance), "L")}
-                        <span className="block text-xs text-muted">
-                          {pct(variance, b.target_milli).toFixed(1)}%
-                        </span>
-                      </span>
-                    )}
-                  </Td>
-                  {owner ? <Td align="right">{formatKes(b.cost_cents ?? 0)}</Td> : null}
-                </tr>
-              );
-            })}
-          </tbody>
-        </TableWrap>
-      )}
-
-      {owner ? (
-        <p className="mt-3 text-sm">
-          <Link href="/formulas" className="font-bold text-brand-dark">
-            Formulas →
-          </Link>
-        </p>
-      ) : null}
+      </div>
+      </div>
     </div>
   );
 }

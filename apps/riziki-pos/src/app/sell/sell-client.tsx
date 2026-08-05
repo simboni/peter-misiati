@@ -271,6 +271,13 @@ export default function SellClient({
 
   const uuid = useRef<string>(newUuid());
 
+  // Desktop only: land the cursor in search so a keyboard till can start
+  // typing immediately. An autoFocus attribute would pop the phone keyboard.
+  const searchRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (window.matchMedia("(min-width: 1024px)").matches) searchRef.current?.focus();
+  }, []);
+
   /**
    * Every submit goes through here, online or not.
    *
@@ -501,6 +508,302 @@ export default function SellClient({
 
   const wholesale = tier === "wholesale";
 
+
+  // ---- shared render closures: one markup, two dressings (phone sheet /
+  // desktop panel). They close over all state; nothing is duplicated. ----
+
+  /**
+   * After a sale: the receipt is one tap away, the next customer zero taps.
+   * Queued (offline) sales have no server receipt yet, so they keep the
+   * reassurance banner instead.
+   */
+  const renderReceipt = () => {
+    if (!receipt) return null;
+    if (receipt.status === "queued") {
+      return (
+        <Alert tone="warn">
+          Saved on this phone — {formatKes(receipt.totalCents)}.{" "}
+          {receipt.reason === "offline" ? "There is no network." : "The till did not answer."}{" "}
+          It will send itself as soon as the connection is back. Nothing is lost.
+        </Alert>
+      );
+    }
+    return (
+      <div className="rounded-2xl bg-good-soft p-3.5 ring-1 ring-inset ring-good/25">
+        <p className="text-sm font-semibold text-good">
+          Sale #{receipt.saleId} recorded — {formatKes(receipt.totalCents)}.{" "}
+          {receipt.outstandingCents > 0
+            ? `${formatKes(receipt.outstandingCents)} on credit.`
+            : "Paid in full."}
+        </p>
+        <div className="mt-2.5 flex gap-2">
+          <Link
+            href={`/invoice/${receipt.saleId}?new=1`}
+            className="flex-1 rounded-full bg-brand px-4 py-2.5 text-center text-sm font-bold text-white shadow-sm hover:bg-brand-dark"
+          >
+            Receipt / invoice
+          </Link>
+          <button
+            type="button"
+            onClick={() => setReceipt(null)}
+            className="flex-1 rounded-full bg-white px-4 py-2.5 text-sm font-bold text-brand-dark ring-1 ring-inset ring-line hover:bg-wash"
+          >
+            Next sale
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  const renderCartBody = () => (
+    <>
+        <div className="space-y-2">
+          {lines.map(({ line, item }) => (
+            <CartRow
+              key={line.itemId}
+              item={item}
+              line={line}
+              tier={tier}
+              onUnits={(d) => changeUnits(line.itemId, d)}
+              onPrice={(c) => setLinePrice(line.itemId, c)}
+            />
+          ))}
+        </div>
+        {oversold.length ? (
+          <div className="mt-3">
+            <Alert tone="warn">
+              Selling more {oversold.length === 1 ? oversold[0].item.name : "of some items"} than the
+              shelf shows. The sale is fine — the count will just go negative until you do a stock
+              take.
+            </Alert>
+          </div>
+        ) : null}
+
+    </>
+  );
+
+  const renderPayBody = () => (
+    <>
+        <div className="rounded-2xl border border-line bg-wash p-3">
+          <Row label="Order total" value={formatKes(totalCents)} strong />
+          <Row label="Paid so far" value={formatKes(tenderedCents)} />
+          <Row
+            label={remainingCents > 0 ? "Still to pay" : "Covered"}
+            value={formatKes(remainingCents)}
+            strong
+          />
+        </div>
+
+        {tenders.length ? (
+          <div className="mt-3 space-y-2">
+            {tenders.map((t) => (
+              <div key={t.key} className="rounded-xl border border-line p-2.5">
+                <div className="flex items-center gap-2">
+                  <Chip tone={t.method === "credit" ? "warn" : "good"}>
+                    {t.method === "mpesa" ? "M-Pesa" : t.method === "cash" ? "Cash" : "Credit"}
+                  </Chip>
+                  <span className="text-sm font-bold tnum">{formatKes(t.amountCents)}</span>
+                  <button
+                    type="button"
+                    onClick={() => removeTender(t.key)}
+                    className="ml-auto rounded-lg px-2 py-1 text-xs font-bold text-bad"
+                  >
+                    Remove
+                  </button>
+                </div>
+                {t.method === "mpesa" ? (
+                  <input
+                    className={`${inputClass} mt-2 uppercase`}
+                    value={t.mpesaCode}
+                    onChange={(e) => setCode(t.key, e.target.value)}
+                    placeholder="M-Pesa code, e.g. QGH7X1TEST"
+                    aria-label="M-Pesa transaction code"
+                    autoCapitalize="characters"
+                    autoComplete="off"
+                    required
+                  />
+                ) : null}
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        {/* Customer first: if credit is about to be involved, the required
+            field sits above the button that would otherwise fail below it. */}
+        {needsCustomer || customers.length ? (
+          <div className="mt-3">
+            <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
+              Customer {needsCustomer ? "(required — this sale is not fully paid)" : "(optional)"}
+            </label>
+            <select
+              className={inputClass}
+              value={customerId ?? ""}
+              onChange={(e) => setCustomerId(e.target.value ? Number(e.target.value) : null)}
+            >
+              <option value="">Walk-in — no name</option>
+              {customers.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} — owes {formatKes(c.outstandingCents)}
+                  {c.limitCents > 0 ? ` of ${formatKes(c.limitCents)}` : ""}
+                </option>
+              ))}
+            </select>
+
+            {/* A wholesale buyer on a retail-priced cart is a bill nobody
+                wants to argue about at the counter. Prompt, don't switch
+                silently — the attendant may have priced it retail on purpose. */}
+            {customer && customer.kind === "wholesale" && tier === "retail" ? (
+              <div className="mt-2 flex items-center justify-between gap-2 rounded-xl bg-warn-soft px-3 py-2">
+                <span className="text-xs font-semibold text-warn">
+                  {customer.name} usually buys at wholesale.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => switchTier("wholesale")}
+                  className="shrink-0 rounded-lg bg-warn px-2.5 py-1 text-xs font-bold text-white"
+                >
+                  Use wholesale prices
+                </button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        <div className="mt-3">
+          {splitPay ? (
+            <input
+              className={inputClass}
+              value={amountInput}
+              onChange={(e) => setAmountInput(e.target.value)}
+              inputMode="decimal"
+              autoFocus
+              placeholder="Amount for this payment"
+              aria-label="Payment amount in shillings"
+            />
+          ) : null}
+          <div className="mt-2 grid grid-cols-3 gap-2">
+            <button
+              type="button"
+              onClick={() => addTender("cash")}
+              className="rounded-2xl bg-brand px-2 py-3.5 text-sm font-extrabold text-white shadow-sm"
+            >
+              Cash
+              {!splitPay && remainingCents > 0 ? (
+                <span className="block text-[10px] font-semibold opacity-90 tnum">
+                  all {formatKes(remainingCents)}
+                </span>
+              ) : null}
+            </button>
+            <button
+              type="button"
+              onClick={() => addTender("mpesa")}
+              className="rounded-2xl bg-brand px-2 py-3.5 text-sm font-extrabold text-white shadow-sm"
+            >
+              M-Pesa
+              {!splitPay && remainingCents > 0 ? (
+                <span className="block text-[10px] font-semibold opacity-90 tnum">
+                  all {formatKes(remainingCents)}
+                </span>
+              ) : null}
+            </button>
+            <button
+              type="button"
+              onClick={() => addTender("credit")}
+              className="rounded-2xl bg-warn px-2 py-3.5 text-sm font-extrabold text-white shadow-sm"
+            >
+              Credit
+              {!splitPay && remainingCents > 0 ? (
+                <span className="block text-[10px] font-semibold opacity-90 tnum">
+                  all {formatKes(remainingCents)}
+                </span>
+              ) : null}
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setSplitPay((s) => !s);
+              setAmountInput("");
+            }}
+            className="mt-2 w-full py-1 text-center text-xs font-bold text-brand-dark"
+          >
+            {splitPay ? "Back to full payment" : "Split payment — part cash, part M-Pesa or credit"}
+          </button>
+        </div>
+
+        {state.status === "pin" ? (
+          <div className="mt-3 space-y-2">
+            <Alert tone="warn">{state.message}</Alert>
+            <input
+              className={inputClass}
+              type="password"
+              inputMode="numeric"
+              autoComplete="off"
+              value={ownerPin}
+              onChange={(e) => setOwnerPin(e.target.value)}
+              placeholder="Owner PIN"
+              aria-label="Owner PIN"
+            />
+          </div>
+        ) : null}
+
+        {state.status === "credit" ? (
+          <div className="mt-3">
+            <Alert tone="warn">{state.message}</Alert>
+          </div>
+        ) : null}
+
+        {state.status === "error" ? (
+          <div className="mt-3">
+            <Alert tone="bad">{state.message}</Alert>
+          </div>
+        ) : null}
+
+        {outstandingCents > 0 && customer ? (
+          <p className="mt-3 text-xs text-muted">
+            {formatKes(outstandingCents)} goes onto {customer.name}&apos;s account. They already owe{" "}
+            {formatKes(customer.outstandingCents)}.
+          </p>
+        ) : null}
+
+        <Button
+          className="mt-4 w-full text-base"
+          disabled={
+            pending ||
+            !cart.length ||
+            mpesaIncomplete ||
+            (needsCustomer && !customerId) ||
+            (state.status === "pin" && !ownerPin.trim())
+          }
+          onClick={() => complete(state.status === "credit")}
+        >
+          {pending
+            ? online
+              ? "Recording…"
+              : "Saving on this phone…"
+            : state.status === "credit"
+              ? "Sell on credit anyway"
+              : !online
+                ? `Save offline — ${formatKes(totalCents)}`
+                : outstandingCents > 0
+                  ? `Complete — ${formatKes(outstandingCents)} on credit`
+                  : `Complete sale — ${formatKes(totalCents)}`}
+        </Button>
+
+        {mpesaIncomplete ? (
+          <p className="mt-2 text-xs font-semibold text-bad">
+            Type the M-Pesa code before completing.
+          </p>
+        ) : null}
+        {needsCustomer && !customerId ? (
+          <p className="mt-2 text-xs font-semibold text-bad">
+            Choose the customer who owes the balance.
+          </p>
+        ) : null}
+
+    </>
+  );
+
   return (
     <div className="pb-24">
       {/* Wholesale has to be impossible to miss — a toggle left in the wrong
@@ -544,31 +847,7 @@ export default function SellClient({
         </div>
       </div>
 
-      {receipt ? (
-        <div className="mb-3">
-          {receipt.status === "queued" ? (
-            /* Never a spinner, never a shrug: the sale is somewhere durable and
-               the counter is told exactly where, and what happens next. */
-            <Alert tone="warn">
-              Saved on this phone — {formatKes(receipt.totalCents)}.{" "}
-              {receipt.reason === "offline"
-                ? "There is no network."
-                : "The till did not answer."}{" "}
-              It will send itself as soon as the connection is back. Nothing is lost.
-            </Alert>
-          ) : (
-            <Alert tone={receipt.outstandingCents > 0 ? "warn" : "good"}>
-              Sale #{receipt.saleId} recorded — {formatKes(receipt.totalCents)}.{" "}
-              {receipt.outstandingCents > 0
-                ? `${formatKes(receipt.outstandingCents)} on credit.`
-                : "Paid in full."}{" "}
-              <Link href="/sales" className="font-bold underline">
-                View
-              </Link>
-            </Alert>
-          )}
-        </div>
-      ) : null}
+      {receipt ? <div className="mb-3 lg:hidden">{renderReceipt()}</div> : null}
 
       {/* Stock read from the till at a moment in time. Offline — or with sales
           still sitting in the outbox — that moment has passed, so say when it
@@ -585,7 +864,16 @@ export default function SellClient({
         </div>
       ) : null}
 
+      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_380px] lg:items-start lg:gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+      <div className="min-w-0">
       <input
+        ref={searchRef}
+        onKeyDown={(e) => {
+          if (e.key !== "Enter" || !matches.length) return;
+          e.preventDefault();
+          addItem(matches.find((i) => i.qtyMilli > 0) ?? matches[0]);
+          setQuery("");
+        }}
         className={inputClass}
         type="search"
         value={query}
@@ -604,7 +892,7 @@ export default function SellClient({
           {top.length ? (
             <>
               <SectionLabel>Top sellers today</SectionLabel>
-              <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
+              <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 md:mx-0 md:flex-wrap md:overflow-visible md:px-0">
                 {top.map((item) => (
                   <button
                     key={item.id}
@@ -649,24 +937,49 @@ export default function SellClient({
         </>
       )}
 
+      </div>
+
+      {/* Desktop: the persistent till panel — cart, tenders and Complete,
+          always visible. The phone's sheets stay untouched below lg. */}
+      <aside
+        aria-label="Current sale"
+        className="hidden rounded-3xl bg-white p-4 shadow-lift ring-1 ring-ink/5 lg:sticky lg:top-4 lg:flex lg:max-h-[calc(100dvh-5.5rem)] lg:flex-col lg:overflow-y-auto"
+      >
+        <h2 className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted">
+          Current sale{unitCount ? ` — ${unitCount} item${unitCount === 1 ? "" : "s"}` : ""}
+        </h2>
+        {receipt ? <div className="mb-3">{renderReceipt()}</div> : null}
+        {cart.length ? (
+          <>
+            {renderCartBody()}
+            <div className="mt-4 border-t border-line pt-4">{renderPayBody()}</div>
+          </>
+        ) : (
+          <p className="rounded-2xl border border-dashed border-line bg-wash/60 py-10 text-center text-sm font-medium text-muted">
+            Click a product to start a sale.
+          </p>
+        )}
+      </aside>
+      </div>
+
       {/* Pay bar — sits above the tab bar, always one tap from payment. */}
       {cart.length ? (
-        <div className="no-print fixed inset-x-0 bottom-[3.9rem] z-30 mx-auto max-w-lg px-3 pb-[env(safe-area-inset-bottom)]">
-          <div className="flex items-stretch gap-2">
+        <div className="no-print fixed inset-x-0 bottom-[calc(3.9rem+env(safe-area-inset-bottom))] z-30 mx-auto max-w-lg px-3 md:bottom-24 lg:hidden">
+          <div className="flex items-stretch overflow-hidden rounded-full bg-white shadow-lift ring-1 ring-ink/5">
             <button
               type="button"
               onClick={() => setSheet("cart")}
-              className="flex flex-col justify-center rounded-xl border border-line bg-white px-3 py-2 text-left shadow-lg"
+              className="flex flex-col justify-center py-2 pl-5 pr-4 text-left"
             >
-              <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-muted">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">
                 {unitCount} item{unitCount === 1 ? "" : "s"}
               </span>
-              <span className="text-xs font-bold text-brand">Edit cart</span>
+              <span className="text-xs font-bold text-brand-dark">Edit cart</span>
             </button>
             <button
               type="button"
               onClick={() => setSheet("pay")}
-              className={`flex-1 rounded-xl px-4 py-3 text-base font-extrabold text-white shadow-lg tnum ${
+              className={`min-h-14 flex-1 px-4 text-base font-extrabold text-white tnum ${
                 wholesale ? "bg-warn" : "bg-brand"
               }`}
             >
@@ -676,29 +989,10 @@ export default function SellClient({
         </div>
       ) : null}
 
-      {sheet === "cart" ? (
-        <Sheet title="Cart" onClose={() => setSheet("none")}>
-          <div className="space-y-2">
-            {lines.map(({ line, item }) => (
-              <CartRow
-                key={line.itemId}
-                item={item}
-                line={line}
-                tier={tier}
-                onUnits={(d) => changeUnits(line.itemId, d)}
-                onPrice={(c) => setLinePrice(line.itemId, c)}
-              />
-            ))}
-          </div>
-          {oversold.length ? (
-            <div className="mt-3">
-              <Alert tone="warn">
-                Selling more {oversold.length === 1 ? oversold[0].item.name : "of some items"} than the
-                shelf shows. The sale is fine — the count will just go negative until you do a stock
-                take.
-              </Alert>
-            </div>
-          ) : null}
+      <div className="lg:hidden">
+        {sheet === "cart" ? (
+          <Sheet title="Cart" onClose={() => setSheet("none")}>
+            {renderCartBody()}
           <div className="mt-4 flex items-center justify-between border-t border-line pt-3">
             <span className="text-sm font-bold uppercase tracking-[0.1em] text-muted">Total</span>
             <span className="text-2xl font-extrabold tnum">{formatKes(totalCents)}</span>
@@ -706,229 +1000,13 @@ export default function SellClient({
           <Button className="mt-4 w-full" onClick={() => setSheet("pay")}>
             Pay {formatKes(totalCents)}
           </Button>
-        </Sheet>
-      ) : null}
+          </Sheet>
+        ) : null}
 
-      {sheet === "pay" ? (
-        <Sheet title="Payment" onClose={() => setSheet("none")}>
-          <div className="rounded-2xl border border-line bg-wash p-3">
-            <Row label="Order total" value={formatKes(totalCents)} strong />
-            <Row label="Paid so far" value={formatKes(tenderedCents)} />
-            <Row
-              label={remainingCents > 0 ? "Still to pay" : "Covered"}
-              value={formatKes(remainingCents)}
-              strong
-            />
-          </div>
-
-          {tenders.length ? (
-            <div className="mt-3 space-y-2">
-              {tenders.map((t) => (
-                <div key={t.key} className="rounded-xl border border-line p-2.5">
-                  <div className="flex items-center gap-2">
-                    <Chip tone={t.method === "credit" ? "warn" : "good"}>
-                      {t.method === "mpesa" ? "M-Pesa" : t.method === "cash" ? "Cash" : "Credit"}
-                    </Chip>
-                    <span className="text-sm font-bold tnum">{formatKes(t.amountCents)}</span>
-                    <button
-                      type="button"
-                      onClick={() => removeTender(t.key)}
-                      className="ml-auto rounded-lg px-2 py-1 text-xs font-bold text-bad"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                  {t.method === "mpesa" ? (
-                    <input
-                      className={`${inputClass} mt-2 uppercase`}
-                      value={t.mpesaCode}
-                      onChange={(e) => setCode(t.key, e.target.value)}
-                      placeholder="M-Pesa code, e.g. QGH7X1TEST"
-                      aria-label="M-Pesa transaction code"
-                      autoCapitalize="characters"
-                      autoComplete="off"
-                      required
-                    />
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          ) : null}
-
-          {/* Customer first: if credit is about to be involved, the required
-              field sits above the button that would otherwise fail below it. */}
-          {needsCustomer || customers.length ? (
-            <div className="mt-3">
-              <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
-                Customer {needsCustomer ? "(required — this sale is not fully paid)" : "(optional)"}
-              </label>
-              <select
-                className={inputClass}
-                value={customerId ?? ""}
-                onChange={(e) => setCustomerId(e.target.value ? Number(e.target.value) : null)}
-              >
-                <option value="">Walk-in — no name</option>
-                {customers.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} — owes {formatKes(c.outstandingCents)}
-                    {c.limitCents > 0 ? ` of ${formatKes(c.limitCents)}` : ""}
-                  </option>
-                ))}
-              </select>
-
-              {/* A wholesale buyer on a retail-priced cart is a bill nobody
-                  wants to argue about at the counter. Prompt, don't switch
-                  silently — the attendant may have priced it retail on purpose. */}
-              {customer && customer.kind === "wholesale" && tier === "retail" ? (
-                <div className="mt-2 flex items-center justify-between gap-2 rounded-xl bg-warn-soft px-3 py-2">
-                  <span className="text-xs font-semibold text-warn">
-                    {customer.name} usually buys at wholesale.
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => switchTier("wholesale")}
-                    className="shrink-0 rounded-lg bg-warn px-2.5 py-1 text-xs font-bold text-white"
-                  >
-                    Use wholesale prices
-                  </button>
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-
-          <div className="mt-3">
-            {splitPay ? (
-              <input
-                className={inputClass}
-                value={amountInput}
-                onChange={(e) => setAmountInput(e.target.value)}
-                inputMode="decimal"
-                autoFocus
-                placeholder="Amount for this payment"
-                aria-label="Payment amount in shillings"
-              />
-            ) : null}
-            <div className="mt-2 grid grid-cols-3 gap-2">
-              <button
-                type="button"
-                onClick={() => addTender("cash")}
-                className="rounded-2xl bg-brand px-2 py-3.5 text-sm font-extrabold text-white shadow-sm"
-              >
-                Cash
-                {!splitPay && remainingCents > 0 ? (
-                  <span className="block text-[10px] font-semibold opacity-90 tnum">
-                    all {formatKes(remainingCents)}
-                  </span>
-                ) : null}
-              </button>
-              <button
-                type="button"
-                onClick={() => addTender("mpesa")}
-                className="rounded-2xl bg-brand px-2 py-3.5 text-sm font-extrabold text-white shadow-sm"
-              >
-                M-Pesa
-                {!splitPay && remainingCents > 0 ? (
-                  <span className="block text-[10px] font-semibold opacity-90 tnum">
-                    all {formatKes(remainingCents)}
-                  </span>
-                ) : null}
-              </button>
-              <button
-                type="button"
-                onClick={() => addTender("credit")}
-                className="rounded-2xl bg-warn px-2 py-3.5 text-sm font-extrabold text-white shadow-sm"
-              >
-                Credit
-                {!splitPay && remainingCents > 0 ? (
-                  <span className="block text-[10px] font-semibold opacity-90 tnum">
-                    all {formatKes(remainingCents)}
-                  </span>
-                ) : null}
-              </button>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                setSplitPay((s) => !s);
-                setAmountInput("");
-              }}
-              className="mt-2 w-full py-1 text-center text-xs font-bold text-brand-dark"
-            >
-              {splitPay ? "Back to full payment" : "Split payment — part cash, part M-Pesa or credit"}
-            </button>
-          </div>
-
-          {state.status === "pin" ? (
-            <div className="mt-3 space-y-2">
-              <Alert tone="warn">{state.message}</Alert>
-              <input
-                className={inputClass}
-                type="password"
-                inputMode="numeric"
-                autoComplete="off"
-                value={ownerPin}
-                onChange={(e) => setOwnerPin(e.target.value)}
-                placeholder="Owner PIN"
-                aria-label="Owner PIN"
-              />
-            </div>
-          ) : null}
-
-          {state.status === "credit" ? (
-            <div className="mt-3">
-              <Alert tone="warn">{state.message}</Alert>
-            </div>
-          ) : null}
-
-          {state.status === "error" ? (
-            <div className="mt-3">
-              <Alert tone="bad">{state.message}</Alert>
-            </div>
-          ) : null}
-
-          {outstandingCents > 0 && customer ? (
-            <p className="mt-3 text-xs text-muted">
-              {formatKes(outstandingCents)} goes onto {customer.name}&apos;s account. They already owe{" "}
-              {formatKes(customer.outstandingCents)}.
-            </p>
-          ) : null}
-
-          <Button
-            className="mt-4 w-full text-base"
-            disabled={
-              pending ||
-              !cart.length ||
-              mpesaIncomplete ||
-              (needsCustomer && !customerId) ||
-              (state.status === "pin" && !ownerPin.trim())
-            }
-            onClick={() => complete(state.status === "credit")}
-          >
-            {pending
-              ? online
-                ? "Recording…"
-                : "Saving on this phone…"
-              : state.status === "credit"
-                ? "Sell on credit anyway"
-                : !online
-                  ? `Save offline — ${formatKes(totalCents)}`
-                  : outstandingCents > 0
-                    ? `Complete — ${formatKes(outstandingCents)} on credit`
-                    : `Complete sale — ${formatKes(totalCents)}`}
-          </Button>
-
-          {mpesaIncomplete ? (
-            <p className="mt-2 text-xs font-semibold text-bad">
-              Type the M-Pesa code before completing.
-            </p>
-          ) : null}
-          {needsCustomer && !customerId ? (
-            <p className="mt-2 text-xs font-semibold text-bad">
-              Choose the customer who owes the balance.
-            </p>
-          ) : null}
-        </Sheet>
-      ) : null}
+        {sheet === "pay" ? (
+          <Sheet title="Payment" onClose={() => setSheet("none")}>{renderPayBody()}</Sheet>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -996,16 +1074,16 @@ function Grid({
 
   return (
     <>
-      <div className="grid grid-cols-2 gap-2">{inStock.map(tile)}</div>
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-3 md:gap-3 lg:grid-cols-4 xl:grid-cols-5">{inStock.map(tile)}</div>
       {outOfStock.length ? (
         searching ? (
-          <div className="mt-2 grid grid-cols-2 gap-2">{outOfStock.map(tile)}</div>
+          <div className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-3 md:gap-3 lg:grid-cols-4 xl:grid-cols-5">{outOfStock.map(tile)}</div>
         ) : (
           <details className="mt-2">
             <summary className="cursor-pointer py-1.5 text-center text-sm font-semibold text-muted">
               Out of stock ({outOfStock.length}) ▾
             </summary>
-            <div className="mt-2 grid grid-cols-2 gap-2">{outOfStock.map(tile)}</div>
+            <div className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-3 md:gap-3 lg:grid-cols-4 xl:grid-cols-5">{outOfStock.map(tile)}</div>
           </details>
         )
       ) : null}

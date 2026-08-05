@@ -77,6 +77,8 @@ export default async function ReportsPage() {
     <div>
       <PageTitle title="Reports" subtitle="Owner only · costs and profit are never shown to staff" />
 
+      <div className="lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-8">
+      <div className="lg:col-span-5">
       <SectionLabel>Today</SectionLabel>
       <div className="grid grid-cols-2 gap-2.5">
         <Stat
@@ -120,11 +122,18 @@ export default async function ReportsPage() {
         </p>
       </Card>
 
+      </div>
+      <div className="lg:col-span-7">
       <SectionLabel>Last 6 months</SectionLabel>
       <Card>
         <SalesChart data={months.map((m) => ({ ym: m.ym, label: m.label, salesCents: m.salesCents }))} />
       </Card>
 
+      </div>
+      </div>
+
+      <div className="lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-8">
+      <div className="lg:col-span-7">
       <SectionLabel>Profit per product · {monthName}</SectionLabel>
       {losers.length ? (
         <div className="mb-2.5">
@@ -175,6 +184,8 @@ export default async function ReportsPage() {
         changes what a past month earned.
       </p>
 
+      </div>
+      <div className="lg:col-span-5">
       <SectionLabel>Which line earns · {monthName}</SectionLabel>
       {lines.length ? (
         <div className="space-y-2.5">
@@ -200,6 +211,11 @@ export default async function ReportsPage() {
         </Card>
       )}
 
+      </div>
+      </div>
+
+      <div className="lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-8">
+      <div className="lg:col-span-7">
       <SectionLabel>Dead stock · nothing sold in 60 days</SectionLabel>
       {dead.length ? (
         <>
@@ -240,6 +256,8 @@ export default async function ReportsPage() {
         </Card>
       )}
 
+      </div>
+      <div className="lg:col-span-5">
       <SectionLabel>Shrinkage · stock take and repack loss</SectionLabel>
       {shrink.some((s) => s.milli !== 0 || s.value_cents !== 0) ? (
         <>
@@ -267,8 +285,11 @@ export default async function ReportsPage() {
         </Card>
       )}
 
+      </div>
+      </div>
+
       <SectionLabel>Backup &amp; exports</SectionLabel>
-      <Card>
+      <Card className="lg:max-w-2xl">
         <Link
           href="/backup"
           prefetch={false}

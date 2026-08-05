@@ -53,7 +53,7 @@ export default async function SalesPage(props: {
   const lines = saleLinesFor(rows.map((r) => r.id));
 
   return (
-    <div>
+    <div className="lg:max-w-4xl">
       <PageTitle
         title="Sales"
         subtitle={`${total} sale${total === 1 ? "" : "s"} · newest first`}

@@ -93,7 +93,7 @@ export default async function DayClosePage() {
   const history = recentCloses(7);
 
   return (
-    <div>
+    <div className="lg:max-w-2xl">
       <PageTitle
         title="Day close"
         subtitle={`${formatDate(noonOn(today))} · counted in Nairobi time, so evening sales are on today`}
