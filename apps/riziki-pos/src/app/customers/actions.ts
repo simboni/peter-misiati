@@ -10,8 +10,15 @@
 
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth";
-import { createCustomer, updateCustomer, recordPayment, type CustomerKind, type PaymentMethod } from "@/lib/credit";
-import { toCents } from "@/lib/units";
+import {
+  createCustomer,
+  updateCustomer,
+  recordPayment,
+  balanceOf,
+  type CustomerKind,
+  type PaymentMethod,
+} from "@/lib/credit";
+import { toCents, formatKes } from "@/lib/units";
 
 export interface FormState {
   error?: string;
@@ -82,12 +89,15 @@ export async function recordPaymentAction(_prev: FormState, formData: FormData):
     revalidatePath(`/customers/${customerId}`);
     revalidatePath("/customers");
 
-    const cleared = parts.filter((p) => p.clearedSale).length;
+    // The one thing the person at the counter needs read back to them is the
+    // new balance — not how the money was spread across invoices. Which
+    // invoices it cleared is on the statement, for whoever asks later.
+    const left = balanceOf(customerId);
     return {
       ok:
-        parts.length === 1
-          ? `Payment recorded. ${cleared ? "That sale is now settled." : "Part-payment applied to the oldest sale."}`
-          : `Payment split across ${parts.length} sales, oldest first. ${cleared} settled.`,
+        left > 0
+          ? `${formatKes(amountCents)} received. Still owing ${formatKes(left)}.`
+          : `${formatKes(amountCents)} received. The account is now clear.`,
     };
   } catch (err) {
     return { error: message(err) };
