@@ -198,17 +198,18 @@ function ItemCard({ item, sizeText }: { item: AdminItem; sizeText: string }) {
       </div>
 
       <details className="mt-2.5">
-        <summary className="cursor-pointer text-sm font-bold text-brand">Edit prices</summary>
+        <summary className="cursor-pointer text-sm font-bold text-brand-dark">Edit prices</summary>
         <PriceForm item={item} />
+        {/* Hiding is a twice-a-year act; it lives inside the editor, in quiet
+            ghost dress — red is for the moment of destruction, not the menu. */}
+        <form action={toggleActive} className="mt-2.5">
+          <input type="hidden" name="itemId" value={item.id} />
+          <input type="hidden" name="active" value={item.active ? "0" : "1"} />
+          <Button type="submit" variant="ghost">
+            {item.active ? "Hide from the counter" : "Show on the counter"}
+          </Button>
+        </form>
       </details>
-
-      <form action={toggleActive} className="mt-2.5">
-        <input type="hidden" name="itemId" value={item.id} />
-        <input type="hidden" name="active" value={item.active ? "0" : "1"} />
-        <Button type="submit" variant={item.active ? "danger" : "ghost"}>
-          {item.active ? "Hide from the counter" : "Show on the counter"}
-        </Button>
-      </form>
     </Card>
   );
 }
@@ -327,7 +328,7 @@ export default async function ItemsPage(props: {
                       <form action={toggleActive} className="mt-2.5">
                         <input type="hidden" name="itemId" value={p.id} />
                         <input type="hidden" name="active" value={p.active ? "0" : "1"} />
-                        <Button type="submit" variant={p.active ? "danger" : "ghost"}>
+                        <Button type="submit" variant="ghost">
                           {p.active ? "Hide this size" : "Show this size"}
                         </Button>
                       </form>

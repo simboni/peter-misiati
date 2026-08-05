@@ -83,6 +83,17 @@ export default async function LoginPage(props: {
         Demo PINs — Owner <span className="font-bold">1234</span>, Attendant{" "}
         <span className="font-bold">1111</span>. Change these before the shop goes live.
       </p>
+      <p className="mt-3 text-center text-[11px] text-muted">
+        System by{" "}
+        <a
+          href="https://smp-developers.com/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-bold text-brand-dark"
+        >
+          SMP Developers Limited
+        </a>
+      </p>
     </div>
   );
 }

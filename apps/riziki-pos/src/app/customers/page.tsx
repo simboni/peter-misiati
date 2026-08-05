@@ -76,6 +76,15 @@ export default async function CustomersPage(props: {
           aria-label="Search customers"
         />
       </form>
+      {/* You add customers when you can't find them — right after searching. */}
+      <details className="mt-2">
+        <summary className="cursor-pointer text-sm font-bold text-brand-dark">
+          ＋ New customer
+        </summary>
+        <Card className="mt-2">
+          <CustomerForm />
+        </Card>
+      </details>
       {needle ? (
         <p className="mt-1.5 text-xs text-muted">
           Showing matches for &ldquo;{q.trim()}&rdquo;.{" "}
@@ -190,15 +199,6 @@ export default async function CustomersPage(props: {
         </p>
       ) : null}
 
-      <SectionLabel>Add a customer</SectionLabel>
-      <Card>
-        <details>
-          <summary className="cursor-pointer text-sm font-bold text-brand">New customer</summary>
-          <div className="mt-4">
-            <CustomerForm />
-          </div>
-        </details>
-      </Card>
     </div>
   );
 }

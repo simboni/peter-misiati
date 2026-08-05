@@ -5,7 +5,17 @@
  *
  * This is demo data only — it never runs against the shop's live database.
  */
-import { all, get, run, postMovement, tx } from "../src/lib/db.ts";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { all, get, run, postMovement, tx, db } from "../src/lib/db.ts";
+
+// Backdating demo sales means editing `at`, which the immutability trigger
+// rightly forbids in real life. Demo data is the one legitimate exception:
+// drop the trigger, and re-run the schema at the end to restore every guard.
+run(`DROP TRIGGER IF EXISTS sales_no_money_update`);
+process.on("exit", () => {
+  db().exec(readFileSync(join(process.cwd(), "src", "lib", "schema.sql"), "utf8"));
+});
 import { recordSale } from "../src/lib/sales.ts";
 import { recordPayment } from "../src/lib/credit.ts";
 import { recordPurchase } from "../src/lib/purchasing.ts";

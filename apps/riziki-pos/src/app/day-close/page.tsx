@@ -21,7 +21,7 @@ import {
   VARIANCE_WARN_CENTS,
   VARIANCE_BAD_CENTS,
 } from "@/lib/reports";
-import { PageTitle, Card, SectionLabel, Stat, TableWrap, Th, Td, Empty, Chip } from "@/components/ui";
+import { PageTitle, Card, SectionLabel, Stat, TableWrap, Th, Td, Empty, Chip, Alert } from "@/components/ui";
 import { CloseForm, type CloseState } from "./close-form";
 
 export const dynamic = "force-dynamic";
@@ -133,6 +133,16 @@ export default async function DayClosePage() {
           M-Pesa and credit are excluded — neither is money you can count tonight.
         </p>
       </Card>
+
+      {totals.expectedCashCents < 0 ? (
+        <div className="mt-2.5">
+          <Alert tone="warn">
+            Expected cash is below zero — today&rsquo;s cash expenses were more than the cash
+            taken. That usually means the drawer started with a float that isn&rsquo;t set up:
+            check the float in Users &amp; settings, or the expense entries above.
+          </Alert>
+        </div>
+      ) : null}
 
       <SectionLabel>Count the cash</SectionLabel>
       <Card>

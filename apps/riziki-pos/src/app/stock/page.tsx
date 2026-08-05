@@ -5,7 +5,11 @@ import { StockClient } from "./stock-client";
 
 export const dynamic = "force-dynamic";
 
-export default async function StockPage() {
+export default async function StockPage(props: {
+  searchParams: Promise<{ q?: string }>;
+}) {
+  // `q` lets the home screen's low-stock rows land here pre-searched.
+  const { q = "" } = await props.searchParams;
   const user = await currentUser();
   if (!user) redirect("/login");
   const owner = user.role === "owner";
@@ -30,5 +34,5 @@ export default async function StockPage() {
         packaging: view.packaging.map((l) => ({ ...l, costCents: 0, valueCents: 0 })),
       };
 
-  return <StockClient view={safe} owner={owner} />;
+  return <StockClient view={safe} owner={owner} initialQuery={q} />;
 }

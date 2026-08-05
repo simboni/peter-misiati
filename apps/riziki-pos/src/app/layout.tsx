@@ -28,18 +28,18 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <html lang="en">
       <body className="min-h-dvh">
         <RegisterSW />
-        <div className="mx-auto min-h-dvh max-w-lg bg-white shadow-sm">
+        <div className="mx-auto min-h-dvh max-w-lg">
           {user ? (
-            <header className="no-print flex items-center gap-2.5 border-b border-line px-4 py-3">
+            <header className="no-print header-deep relative flex items-center gap-3 px-4 py-3 text-white">
               <Link
                 href="/"
-                className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand text-sm font-extrabold text-white"
+                className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/10 text-sm font-extrabold tracking-wide text-white ring-1 ring-inset ring-white/25"
               >
                 RZ
               </Link>
               <div className="flex-1 leading-tight">
                 <div className="text-sm font-bold">Riziki Industrial Chemicals</div>
-                <div className="text-[11px] text-muted">
+                <div className="text-[11px] font-medium text-frost">
                   {user.name} · {user.role === "owner" ? "Owner" : "Attendant"}
                 </div>
               </div>
@@ -47,15 +47,16 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               <form action={signOut}>
                 <button
                   type="submit"
-                  className="rounded-lg border border-line px-2.5 py-1.5 text-[11px] font-bold text-muted"
+                  className="flex min-h-11 items-center rounded-full px-3.5 text-[11px] font-bold text-frost ring-1 ring-inset ring-white/30"
                 >
                   Sign out
                 </button>
               </form>
+              <span aria-hidden className="brand-thread absolute inset-x-0 bottom-0 h-[3px]" />
             </header>
           ) : null}
 
-          <main className={user ? "px-4 pb-28 pt-4" : "px-4 py-6"}>{children}</main>
+          <main className={user ? "px-4 pb-32 pt-5" : "px-4 py-6"}>{children}</main>
 
           {user ? <BottomNav isOwner={user.role === "owner"} /> : null}
         </div>

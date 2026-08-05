@@ -27,6 +27,7 @@ import {
   TableWrap,
   Th,
   Td,
+  ListRow,
   Stat,
   Empty,
   Button,
@@ -198,6 +199,40 @@ export default async function BatchPage(props: {
         </div>
       ) : null}
 
+      {pending.length ? (
+        <>
+          <SectionLabel>Waiting on actual yield</SectionLabel>
+          <div className="space-y-2.5">
+            {pending.map((b) => (
+              <Card key={b.id} className="space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-bold tnum">{b.batch_no}</div>
+                    <div className="mt-0.5 text-xs text-muted">
+                      {b.formula_name} · target {formatQty(b.target_milli, "L")} ·{" "}
+                      {formatDateTime(b.at)}
+                    </div>
+                  </div>
+                  <Chip tone="warn">Yield due</Chip>
+                </div>
+                <YieldForm
+                  action={recordYieldAction}
+                  batchId={b.id}
+                  batchNo={b.batch_no}
+                  targetLitres={String(fromMilli(b.target_milli))}
+                  outputs={outputItemsFor(b.formula_name).map((o) => ({
+                    id: o.id,
+                    name: o.name,
+                    suggested: o.suggested,
+                  }))}
+                />
+              </Card>
+            ))}
+          </div>
+        </>
+      ) : null}
+
+
       {/* A GET form: the calculation lives in the URL, so it survives a reload
           on a phone that lost signal halfway through the morning. */}
       <form method="get" className="space-y-3">
@@ -273,43 +308,10 @@ export default async function BatchPage(props: {
 
               {plan ? (
                 <>
-                  <SectionLabel>Ingredients for this batch</SectionLabel>
-                  <TableWrap>
-                    <thead>
-                      <tr>
-                        <Th>Chemical</Th>
-                        <Th align="right">Needed</Th>
-                        <Th align="right">On hand</Th>
-                        <Th align="right">Cost</Th>
-                        <Th align="right">&nbsp;</Th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {plan.lines.map((line) => (
-                        <tr key={line.chemicalId}>
-                          <Td>{line.chemicalName}</Td>
-                          <Td align="right">{formatQty(line.neededMilli, line.unit)}</Td>
-                          <Td align="right" className="text-muted">
-                            {formatQty(line.availableMilli, line.unit)}
-                          </Td>
-                          <Td align="right">{formatKes(line.costCents)}</Td>
-                          <Td align="right">
-                            {line.ok ? (
-                              <Chip tone="good">OK</Chip>
-                            ) : (
-                              <Chip tone="bad">
-                                Short {formatQty(line.shortMilli, line.unit)}
-                              </Chip>
-                            )}
-                          </Td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </TableWrap>
-
+                  {/* The economics first — go/no-go — then the picking list. */}
                   <div className="mt-2.5 grid grid-cols-2 gap-2.5">
                     <Stat
-                      label="Reagent cost"
+                      label="Chemical cost"
                       value={formatKes(plan.totalCostCents)}
                       detail="chemicals only — no packaging or labour"
                     />
@@ -320,10 +322,30 @@ export default async function BatchPage(props: {
                     />
                   </div>
 
-                  <p className="mt-2 text-xs text-muted">
-                    Owner only. Staff see the same batch number and the same ready/short answer,
-                    never the recipe or the cost.
-                  </p>
+                  <SectionLabel>Ingredients for this batch</SectionLabel>
+                  <Card className="!py-2.5">
+                    {plan.lines.map((line) => (
+                      <ListRow
+                        key={line.chemicalId}
+                        title={line.chemicalName}
+                        value={formatQty(line.neededMilli, line.unit)}
+                        valueTone={line.ok ? "plain" : "bad"}
+                        meta={
+                          line.ok ? (
+                            <>
+                              {formatQty(line.availableMilli, line.unit)} on the shelf ·{" "}
+                              {formatKes(line.costCents)}
+                            </>
+                          ) : (
+                            <span className="font-bold text-bad">
+                              Short {formatQty(line.shortMilli, line.unit)} — only{" "}
+                              {formatQty(line.availableMilli, line.unit)} on the shelf
+                            </span>
+                          )
+                        }
+                      />
+                    ))}
+                  </Card>
                 </>
               ) : (
                 <p className="mt-2 text-sm text-muted">
@@ -350,39 +372,6 @@ export default async function BatchPage(props: {
               />
             </>
           )}
-        </>
-      ) : null}
-
-      {pending.length ? (
-        <>
-          <SectionLabel>Waiting on actual yield</SectionLabel>
-          <div className="space-y-2.5">
-            {pending.map((b) => (
-              <Card key={b.id} className="space-y-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-bold tnum">{b.batch_no}</div>
-                    <div className="mt-0.5 text-xs text-muted">
-                      {b.formula_name} · target {formatQty(b.target_milli, "L")} ·{" "}
-                      {formatDateTime(b.at)}
-                    </div>
-                  </div>
-                  <Chip tone="warn">Yield due</Chip>
-                </div>
-                <YieldForm
-                  action={recordYieldAction}
-                  batchId={b.id}
-                  batchNo={b.batch_no}
-                  targetLitres={String(fromMilli(b.target_milli))}
-                  outputs={outputItemsFor(b.formula_name).map((o) => ({
-                    id: o.id,
-                    name: o.name,
-                    suggested: o.suggested,
-                  }))}
-                />
-              </Card>
-            ))}
-          </div>
         </>
       ) : null}
 
@@ -474,10 +463,9 @@ export default async function BatchPage(props: {
       )}
 
       {owner ? (
-        <p className="mt-3 text-sm text-muted">
-          The difference is measured against the target.{" "}
-          <Link href="/formulas" className="font-bold text-brand">
-            Formulas
+        <p className="mt-3 text-sm">
+          <Link href="/formulas" className="font-bold text-brand-dark">
+            Formulas →
           </Link>
         </p>
       ) : null}

@@ -40,6 +40,8 @@ import {
   Td,
   Empty,
   Chip,
+  Alert,
+  ListRow,
 } from "@/components/ui";
 import { SalesChart } from "./sales-chart";
 
@@ -59,6 +61,7 @@ export default async function ReportsPage() {
   const monthSummary = profitSummary(monthRange(ym));
   const months = monthlySales(6, today);
   const products = profitPerProduct(monthRange(ym));
+  const losers = products.filter((p) => p.profit_cents < 0);
   const lines = businessLineSplit(monthRange(ym));
   const dead = deadStock(60);
   const shrink = shrinkageByMonth(6, today);
@@ -123,39 +126,45 @@ export default async function ReportsPage() {
       </Card>
 
       <SectionLabel>Profit per product · {monthName}</SectionLabel>
+      {losers.length ? (
+        <div className="mb-2.5">
+          <Alert tone="bad">
+            <strong>Losing money:</strong>{" "}
+            {losers.map((p) => `${p.name} (${formatKes(p.profit_cents)})`).join(", ")}. Check the
+            price or the cost.
+          </Alert>
+        </div>
+      ) : null}
       {products.length ? (
-        <TableWrap>
-          <thead>
-            <tr>
-              <Th>Product</Th>
-              <Th align="right">Sold</Th>
-              <Th align="right">Sales</Th>
-              <Th align="right">Profit</Th>
-              <Th align="right">Margin</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {products.map((p) => (
-              <tr key={`${p.item_id}-${p.name}`}>
-                <Td>
-                  <div className="font-semibold">{p.name}</div>
-                  <div className="text-xs text-muted tnum">
-                    at {formatKes(p.unit_price_cents)} each
-                  </div>
-                </Td>
-                <Td align="right">{p.units}</Td>
-                <Td align="right">{formatKes(p.revenue_cents)}</Td>
-                <Td
-                  align="right"
-                  className={p.profit_cents < 0 ? "font-bold text-bad" : "font-semibold"}
-                >
-                  {formatKes(p.profit_cents)}
-                </Td>
-                <Td align="right">{p.margin_pct.toFixed(1)}%</Td>
-              </tr>
-            ))}
-          </tbody>
-        </TableWrap>
+        <Card className="!py-2.5">
+          {products.slice(0, 8).map((p) => (
+            <ListRow
+              key={`${p.item_id}-${p.name}`}
+              title={p.name}
+              value={`${formatKes(p.profit_cents)} profit`}
+              valueTone={p.profit_cents < 0 ? "bad" : "plain"}
+              meta={`${p.units} sold · ${formatKes(p.revenue_cents)} sales · ${p.margin_pct.toFixed(0)}% margin`}
+            />
+          ))}
+          {products.length > 8 ? (
+            <details className="pt-2">
+              <summary className="cursor-pointer text-sm font-bold text-brand-dark">
+                All {products.length} products ▾
+              </summary>
+              <div className="mt-1">
+                {products.slice(8).map((p) => (
+                  <ListRow
+                    key={`${p.item_id}-${p.name}`}
+                    title={p.name}
+                    value={`${formatKes(p.profit_cents)} profit`}
+                    valueTone={p.profit_cents < 0 ? "bad" : "plain"}
+                    meta={`${p.units} sold · ${formatKes(p.revenue_cents)} sales · ${p.margin_pct.toFixed(0)}% margin`}
+                  />
+                ))}
+              </div>
+            </details>
+          ) : null}
+        </Card>
       ) : (
         <Card>
           <Empty>No sales this month yet.</Empty>
@@ -232,64 +241,61 @@ export default async function ReportsPage() {
       )}
 
       <SectionLabel>Shrinkage · stock take and repack loss</SectionLabel>
-      <TableWrap>
-        <thead>
-          <tr>
-            <Th>Month</Th>
-            <Th align="right">Quantity</Th>
-            <Th align="right">At cost</Th>
-          </tr>
-        </thead>
-        <tbody>
-          {shrink.map((s) => (
-            <tr key={s.ym}>
-              <Td>
-                {s.label} {s.ym.slice(0, 4)}
-              </Td>
-              <Td align="right">{s.milli === 0 ? "—" : (s.milli / 1000).toFixed(3)}</Td>
-              <Td align="right" className={s.value_cents < 0 ? "font-semibold text-bad" : ""}>
-                {s.value_cents === 0 ? "—" : formatKes(s.value_cents)}
-              </Td>
-            </tr>
-          ))}
-        </tbody>
-      </TableWrap>
-      <p className="mt-1.5 text-xs text-muted">
-        Repack loss of roughly 1.5% is expected. A stock-take gap that grows month on month is
-        not.
-      </p>
-
-      <SectionLabel>Take your data out</SectionLabel>
-      <Card>
-        <p className="mb-2.5 text-sm text-muted">
-          Download any of these as a spreadsheet file. Your data is yours, always.
-        </p>
-        <div className="flex flex-wrap gap-2">
-          {EXPORT_TABLES.map((t) => (
-            <Link
-              key={t}
-              href={`/export?table=${t}`}
-              prefetch={false}
-              className="rounded-xl border border-line px-3 py-2.5 text-sm font-semibold capitalize hover:bg-wash"
-            >
-              {t.replace("_", " ")} CSV
-            </Link>
-          ))}
-        </div>
-        <div className="mt-3 border-t border-line pt-3">
-          <Link
-            href="/backup"
-            prefetch={false}
-            className="inline-block rounded-xl bg-brand px-4 py-3 text-sm font-bold text-white hover:bg-brand-dark"
-          >
-            Download full backup
-          </Link>
+      {shrink.some((s) => s.milli !== 0 || s.value_cents !== 0) ? (
+        <>
+          <Card className="!py-2.5">
+            {shrink
+              .filter((s) => s.milli !== 0 || s.value_cents !== 0)
+              .map((s) => (
+                <ListRow
+                  key={s.ym}
+                  title={`${s.label} ${s.ym.slice(0, 4)}`}
+                  value={formatKes(s.value_cents)}
+                  valueTone={s.value_cents < 0 ? "bad" : "plain"}
+                  meta={`${(s.milli / 1000).toFixed(3)} kg/L lost or gained`}
+                />
+              ))}
+          </Card>
           <p className="mt-1.5 text-xs text-muted">
-            One file holding everything — sales, stock, formulas, users. Keep a copy off this
-            phone (email it to yourself, or save it to a memory stick) at least once a week.
-            Restoring is putting the file back in place.
+            Repack loss of roughly 1.5% is expected. A stock-take gap that grows month on month
+            is not.
           </p>
-        </div>
+        </>
+      ) : (
+        <Card>
+          <Empty>No shrinkage recorded in the last six months.</Empty>
+        </Card>
+      )}
+
+      <SectionLabel>Backup &amp; exports</SectionLabel>
+      <Card>
+        <Link
+          href="/backup"
+          prefetch={false}
+          className="inline-flex min-h-12 items-center rounded-full bg-brand px-5 text-sm font-bold text-white shadow-sm hover:bg-brand-dark"
+        >
+          Download full backup
+        </Link>
+        <p className="mt-2 text-xs text-muted">
+          One file holding everything. Keep a copy off this phone at least once a week.
+        </p>
+        <details className="mt-3 border-t border-line pt-3">
+          <summary className="cursor-pointer text-sm font-bold text-brand-dark">
+            Spreadsheet exports (CSV) ▾
+          </summary>
+          <div className="mt-2.5 flex flex-wrap gap-2">
+            {EXPORT_TABLES.map((t) => (
+              <Link
+                key={t}
+                href={`/export?table=${t}`}
+                prefetch={false}
+                className="rounded-full px-3.5 py-2.5 text-sm font-semibold capitalize ring-1 ring-inset ring-line hover:bg-wash"
+              >
+                {t.replace("_", " ")} CSV
+              </Link>
+            ))}
+          </div>
+        </details>
       </Card>
     </div>
   );

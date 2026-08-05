@@ -182,13 +182,26 @@ test("ageing buckets put a 40-day-old unpaid sale in 30+", () => {
   assert.equal(credit.ageBand(31), "old");
 });
 
-test("the debtors book totals and sorts by what is owed", () => {
+test("the debtors book puts overdue bands first, then the biggest balance", () => {
   const before = credit.totalOwed();
-  const id = newCustomer("Biggest Debtor");
-  newSale(id, toCents(90000), 0, 3);
+  // Big but fresh: must NOT outrank the 30-day-plus accounts above it.
+  const freshId = newCustomer("Big Fresh Debtor");
+  newSale(freshId, toCents(90000), 0, 3);
+  // Old AND biggest in its band: leads the whole list.
+  const oldId = newCustomer("Old Big Debtor");
+  newSale(oldId, toCents(95000), 0, 45);
 
-  assert.equal(credit.totalOwed(), before + toCents(90000));
-  assert.equal(credit.debtors()[0].id, id, "largest balance leads the list");
+  assert.equal(credit.totalOwed(), before + toCents(185000));
+  const rows = credit.debtors();
+  assert.equal(rows[0].id, oldId, "an overdue debt leads even against fresh money");
+  const firstFresh = rows.findIndex((r) => r.band === "fresh");
+  const lastOld = rows.map((r) => r.band).lastIndexOf("old");
+  assert.ok(lastOld < firstFresh, "every 30+ day account sits above every fresh one");
+  assert.equal(
+    rows.find((r) => r.band === "fresh")!.id,
+    freshId,
+    "within a band, the biggest balance leads",
+  );
 });
 
 test("credit limits are compared against the derived balance", () => {
