@@ -116,6 +116,12 @@ export default async function SalesPage(props: {
                 ) : (
                   <Chip tone="good">Paid</Chip>
                 )}
+                <Link
+                  href={`/invoice/${s.id}`}
+                  className="ml-auto text-xs font-bold text-brand-dark"
+                >
+                  Invoice →
+                </Link>
               </div>
 
               {voided ? (
@@ -147,7 +153,7 @@ export default async function SalesPage(props: {
 
               {isOwner && !voided ? (
                 <details className="mt-2">
-                  <summary className="cursor-pointer text-xs font-bold text-bad">Void this sale</summary>
+                  <summary className="cursor-pointer text-xs font-semibold text-muted">Void this sale…</summary>
                   <form action={voidAction} className="mt-2 space-y-2">
                     <input type="hidden" name="saleId" value={s.id} />
                     <input type="hidden" name="page" value={current} />

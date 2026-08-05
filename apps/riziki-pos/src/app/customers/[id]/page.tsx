@@ -45,6 +45,9 @@ export default async function CustomerPage(props: { params: Promise<{ id: string
 
   return (
     <div>
+      <Link href="/customers" className="mb-2 inline-block text-sm font-bold text-brand-dark">
+        ← All debtors
+      </Link>
       <PageTitle
         title={customer.name}
         subtitle={`${customer.kind === "wholesale" ? "Wholesale" : "Retail"} · ${customer.phone || "no phone on file"}`}
@@ -143,6 +146,10 @@ export default async function CustomerPage(props: { params: Promise<{ id: string
 
       <SectionLabel>Full history</SectionLabel>
       {sales.length ? (
+        <details open={open.length === 0}>
+          <summary className="cursor-pointer pb-2 text-sm font-bold text-brand-dark">
+            {sales.length} {sales.length === 1 ? "sale" : "sales"} on record ▾
+          </summary>
         <TableWrap>
           <thead>
             <tr>
@@ -177,6 +184,7 @@ export default async function CustomerPage(props: { params: Promise<{ id: string
             })}
           </tbody>
         </TableWrap>
+        </details>
       ) : (
         <Card>
           <Empty>No sales recorded for this customer yet.</Empty>
@@ -193,11 +201,6 @@ export default async function CustomerPage(props: { params: Promise<{ id: string
         </details>
       </Card>
 
-      <div className="mt-4">
-        <Link href="/customers" className="text-sm font-bold text-brand">
-          ← All debtors
-        </Link>
-      </div>
     </div>
   );
 }

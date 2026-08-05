@@ -255,6 +255,9 @@ export default function SellClient({
 
   const [tenders, setTenders] = useState<Tender[]>([]);
   const [amountInput, setAmountInput] = useState("");
+  // Full payment is the labelled default; the amount box only appears for a
+  // split. The old placeholder-as-documentation was invisible once typed over.
+  const [splitPay, setSplitPay] = useState(false);
   const [customerId, setCustomerId] = useState<number | null>(null);
   const [ownerPin, setOwnerPin] = useState("");
   const [receipt, setReceipt] = useState<Extract<
@@ -594,7 +597,7 @@ export default function SellClient({
       {q ? (
         <>
           <SectionLabel>{matches.length} match{matches.length === 1 ? "" : "es"}</SectionLabel>
-          <Grid items={matches} tier={tier} onAdd={addItem} cart={cart} />
+          <Grid items={matches} tier={tier} onAdd={addItem} cart={cart} searching />
         </>
       ) : (
         <>
@@ -710,9 +713,9 @@ export default function SellClient({
         <Sheet title="Payment" onClose={() => setSheet("none")}>
           <div className="rounded-2xl border border-line bg-wash p-3">
             <Row label="Order total" value={formatKes(totalCents)} strong />
-            <Row label="Tendered" value={formatKes(tenderedCents)} />
+            <Row label="Paid so far" value={formatKes(tenderedCents)} />
             <Row
-              label={remainingCents > 0 ? "Still to cover" : "Covered"}
+              label={remainingCents > 0 ? "Still to pay" : "Covered"}
               value={formatKes(remainingCents)}
               strong
             />
@@ -752,43 +755,11 @@ export default function SellClient({
             </div>
           ) : null}
 
-          <div className="mt-3">
-            <input
-              className={inputClass}
-              value={amountInput}
-              onChange={(e) => setAmountInput(e.target.value)}
-              inputMode="decimal"
-              placeholder={`Amount — blank means all ${formatKes(remainingCents)}`}
-              aria-label="Payment amount in shillings"
-            />
-            <div className="mt-2 grid grid-cols-3 gap-2">
-              <button
-                type="button"
-                onClick={() => addTender("cash")}
-                className="rounded-xl bg-brand px-3 py-3.5 text-sm font-extrabold text-white"
-              >
-                Cash
-              </button>
-              <button
-                type="button"
-                onClick={() => addTender("mpesa")}
-                className="rounded-xl bg-brand px-3 py-3.5 text-sm font-extrabold text-white"
-              >
-                M-Pesa
-              </button>
-              <button
-                type="button"
-                onClick={() => addTender("credit")}
-                className="rounded-xl bg-warn px-3 py-3.5 text-sm font-extrabold text-white"
-              >
-                Credit
-              </button>
-            </div>
-          </div>
-
+          {/* Customer first: if credit is about to be involved, the required
+              field sits above the button that would otherwise fail below it. */}
           {needsCustomer || customers.length ? (
             <div className="mt-3">
-              <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-[0.1em] text-muted">
+              <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
                 Customer {needsCustomer ? "(required — this sale is not fully paid)" : "(optional)"}
               </label>
               <select
@@ -824,6 +795,68 @@ export default function SellClient({
               ) : null}
             </div>
           ) : null}
+
+          <div className="mt-3">
+            {splitPay ? (
+              <input
+                className={inputClass}
+                value={amountInput}
+                onChange={(e) => setAmountInput(e.target.value)}
+                inputMode="decimal"
+                autoFocus
+                placeholder="Amount for this payment"
+                aria-label="Payment amount in shillings"
+              />
+            ) : null}
+            <div className="mt-2 grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => addTender("cash")}
+                className="rounded-2xl bg-brand px-2 py-3.5 text-sm font-extrabold text-white shadow-sm"
+              >
+                Cash
+                {!splitPay && remainingCents > 0 ? (
+                  <span className="block text-[10px] font-semibold opacity-90 tnum">
+                    all {formatKes(remainingCents)}
+                  </span>
+                ) : null}
+              </button>
+              <button
+                type="button"
+                onClick={() => addTender("mpesa")}
+                className="rounded-2xl bg-brand px-2 py-3.5 text-sm font-extrabold text-white shadow-sm"
+              >
+                M-Pesa
+                {!splitPay && remainingCents > 0 ? (
+                  <span className="block text-[10px] font-semibold opacity-90 tnum">
+                    all {formatKes(remainingCents)}
+                  </span>
+                ) : null}
+              </button>
+              <button
+                type="button"
+                onClick={() => addTender("credit")}
+                className="rounded-2xl bg-warn px-2 py-3.5 text-sm font-extrabold text-white shadow-sm"
+              >
+                Credit
+                {!splitPay && remainingCents > 0 ? (
+                  <span className="block text-[10px] font-semibold opacity-90 tnum">
+                    all {formatKes(remainingCents)}
+                  </span>
+                ) : null}
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setSplitPay((s) => !s);
+                setAmountInput("");
+              }}
+              className="mt-2 w-full py-1 text-center text-xs font-bold text-brand-dark"
+            >
+              {splitPay ? "Back to full payment" : "Split payment — part cash, part M-Pesa or credit"}
+            </button>
+          </div>
 
           {state.status === "pin" ? (
             <div className="mt-3 space-y-2">
@@ -907,51 +940,76 @@ function Grid({
   tier,
   onAdd,
   cart,
+  searching = false,
 }: {
   items: SellItem[];
   tier: Tier;
   onAdd: (item: SellItem) => void;
   cart: CartLine[];
+  searching?: boolean;
 }) {
-  if (!items.length) {
+  // The counter's worst enemy is scrolling past dead tiles with a queue
+  // watching. Browsing shows sellable stock first and folds the rest away;
+  // an explicit search still finds everything, including unpriced items.
+  const visible = searching ? items : items.filter((i) => listPrice(i, tier) > 0);
+  const inStock = visible.filter((i) => i.qtyMilli > 0);
+  const outOfStock = visible.filter((i) => i.qtyMilli <= 0);
+
+  if (!visible.length) {
     return <p className="py-6 text-center text-sm text-muted">Nothing here.</p>;
   }
+
+  const tile = (item: SellItem) => {
+    const inCart = cart.find((l) => l.itemId === item.id);
+    const out = item.qtyMilli <= 0;
+    const unpriced = listPrice(item, tier) === 0;
+    return (
+      <button
+        key={item.id}
+        type="button"
+        onClick={() => onAdd(item)}
+        className={`relative rounded-2xl p-3 text-left shadow-card ring-1 transition-colors ${
+          inCart ? "bg-brand-soft ring-brand/40" : "bg-white ring-ink/5"
+        }`}
+      >
+        {inCart ? (
+          <span className="absolute right-2 top-2 flex h-6 min-w-6 items-center justify-center rounded-full bg-brand px-1.5 text-xs font-extrabold text-white tnum">
+            {inCart.units}
+          </span>
+        ) : null}
+        <div className="line-clamp-2 min-h-[2.4rem] pr-6 text-[13px] font-bold leading-tight">
+          {item.name}
+        </div>
+        <div
+          className={`mt-1 text-base font-extrabold tnum ${
+            tier === "wholesale" ? "text-warn" : "text-brand-deep"
+          }`}
+        >
+          {unpriced ? "No price set" : formatKes(listPrice(item, tier))}
+        </div>
+        <div className={`mt-0.5 text-[11px] tnum ${out ? "font-bold text-bad" : "text-muted"}`}>
+          {out ? "Out of stock" : formatUnits(item.qtyMilli, item.sizeMilli, item.unitLabel)}
+        </div>
+      </button>
+    );
+  };
+
   return (
-    <div className="grid grid-cols-2 gap-2">
-      {items.map((item) => {
-        const inCart = cart.find((l) => l.itemId === item.id);
-        const out = item.qtyMilli <= 0;
-        return (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => onAdd(item)}
-            className={`relative rounded-2xl border p-3 text-left transition-colors ${
-              inCart ? "border-brand bg-brand-soft" : "border-line bg-white"
-            }`}
-          >
-            {inCart ? (
-              <span className="absolute right-2 top-2 flex h-6 min-w-6 items-center justify-center rounded-full bg-brand px-1.5 text-xs font-extrabold text-white tnum">
-                {inCart.units}
-              </span>
-            ) : null}
-            <div className="line-clamp-2 min-h-[2.4rem] pr-6 text-[13px] font-bold leading-tight">
-              {item.name}
-            </div>
-            <div
-              className={`mt-1 text-base font-extrabold tnum ${
-                tier === "wholesale" ? "text-warn" : "text-ink"
-              }`}
-            >
-              {formatKes(listPrice(item, tier))}
-            </div>
-            <div className={`mt-0.5 text-[11px] tnum ${out ? "font-bold text-bad" : "text-muted"}`}>
-              {out ? "Out of stock" : formatUnits(item.qtyMilli, item.sizeMilli, item.unitLabel)}
-            </div>
-          </button>
-        );
-      })}
-    </div>
+    <>
+      <div className="grid grid-cols-2 gap-2">{inStock.map(tile)}</div>
+      {outOfStock.length ? (
+        searching ? (
+          <div className="mt-2 grid grid-cols-2 gap-2">{outOfStock.map(tile)}</div>
+        ) : (
+          <details className="mt-2">
+            <summary className="cursor-pointer py-1.5 text-center text-sm font-semibold text-muted">
+              Out of stock ({outOfStock.length}) ▾
+            </summary>
+            <div className="mt-2 grid grid-cols-2 gap-2">{outOfStock.map(tile)}</div>
+          </details>
+        )
+      ) : null}
+    </>
   );
 }
 

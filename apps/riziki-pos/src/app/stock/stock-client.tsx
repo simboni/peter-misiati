@@ -79,8 +79,16 @@ function matches(haystack: string, terms: string[]): boolean {
   return terms.every((t) => haystack.includes(t));
 }
 
-export function StockClient({ view, owner }: { view: StockView; owner: boolean }) {
-  const [query, setQuery] = useState("");
+export function StockClient({
+  view,
+  owner,
+  initialQuery = "",
+}: {
+  view: StockView;
+  owner: boolean;
+  initialQuery?: string;
+}) {
+  const [query, setQuery] = useState(initialQuery);
 
   const terms = useMemo(
     () => query.trim().toLowerCase().split(/\s+/).filter(Boolean),

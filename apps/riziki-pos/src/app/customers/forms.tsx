@@ -8,7 +8,7 @@
 
 import { useActionState, useState } from "react";
 import { Button, Field, inputClass, Alert } from "@/components/ui";
-import { fromCents } from "@/lib/units";
+import { fromCents, formatKes } from "@/lib/units";
 import { saveCustomerAction, recordPaymentAction, type FormState } from "./actions";
 
 const EMPTY: FormState = {};
@@ -97,6 +97,7 @@ export function PaymentForm({
 }) {
   const [state, action, pending] = useActionState(recordPaymentAction, EMPTY);
   const [method, setMethod] = useState("cash");
+  const [amount, setAmount] = useState("");
 
   return (
     <form action={action} className="space-y-3.5">
@@ -119,10 +120,20 @@ export function PaymentForm({
           type="text"
           inputMode="decimal"
           placeholder={String(fromCents(balanceCents))}
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
           autoComplete="off"
           required
         />
       </Field>
+      {/* The common case — "here is everything I owe" — becomes one tap. */}
+      <button
+        type="button"
+        onClick={() => setAmount(String(fromCents(balanceCents)))}
+        className="rounded-full bg-brand-soft px-3.5 py-2 text-xs font-bold text-brand-dark"
+      >
+        All of it — {formatKes(balanceCents)}
+      </button>
 
       <div className="grid grid-cols-2 gap-3">
         <Field label="How">

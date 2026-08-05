@@ -234,10 +234,15 @@ export function debtors(now: Date = new Date()): DebtorRow[] {
       GROUP BY c.id
       ORDER BY balance_cents DESC, c.name`,
   );
-  return rows.map((r) => {
-    const days = ageDays(r.oldest_at, now);
-    return { ...r, days, band: ageBand(days) };
-  });
+  // Overdue before big: the page promises "oldest debts first", and a 40-day
+  // KES 500 debt needs chasing before a week-old KES 5,000 one.
+  const BAND_RANK: Record<AgeBand, number> = { old: 0, mid: 1, fresh: 2, none: 3 };
+  return rows
+    .map((r) => {
+      const days = ageDays(r.oldest_at, now);
+      return { ...r, days, band: ageBand(days) };
+    })
+    .sort((a, b) => BAND_RANK[a.band] - BAND_RANK[b.band] || b.balance_cents - a.balance_cents);
 }
 
 /** Everything the shop is owed, across every customer. */

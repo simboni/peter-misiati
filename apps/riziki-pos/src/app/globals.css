@@ -7,27 +7,55 @@
 */
 
 @theme {
-  --color-ink: #14262b;
-  --color-muted: #5d7278;
-  --color-line: #d9e5e6;
-  --color-wash: #f2f8f8;
+  /* Neutrals — all teal-cast, no plain grey */
+  --color-ink: #0d2b30;
+  --color-muted: #47646a;
+  --color-line: #dde8e8;
+  --color-wash: #f2f7f7;
+
+  /* Brand teal family, evolved from the signage */
   --color-brand: #0e7c86;
   --color-brand-dark: #0a5f67;
-  --color-brand-soft: #e2f0f1;
-  --color-leaf: #5a9c2f;
-  --color-good: #276b2b;
-  --color-good-soft: #e6f2e6;
+  --color-brand-deep: #0b3a40; /* header band, titles, headline numbers */
+  --color-brand-soft: #e3f1f2;
+  --color-frost: #b7d9dc; /* secondary text on brand-deep */
+
+  /* Leaf green family (signage) */
+  --color-leaf: #5a9c2f; /* accent graphics only, never small text */
+  --color-leaf-deep: #3c7317;
+  --color-leaf-soft: #ecf5e3;
+
+  /* Status */
+  --color-good: #256d2a;
+  --color-good-soft: #e7f3e7;
   --color-warn: #8a570a;
-  --color-warn-soft: #f8efdc;
-  --color-bad: #c62828;
-  --color-bad-soft: #fbe7e7;
+  --color-warn-soft: #f9f0dd;
+  --color-bad: #bb2727;
+  --color-bad-dark: #9f1f1f;
+  --color-bad-soft: #fbe9e9;
+
+  /* Depth — teal-tinted, layered; replaces grey borders as the card language */
+  --shadow-card: 0 1px 2px rgb(13 43 48 / 0.05), 0 6px 20px -6px rgb(13 43 48 / 0.1);
+  --shadow-lift: 0 2px 4px rgb(13 43 48 / 0.08), 0 10px 28px -8px rgb(13 43 48 / 0.16);
+  --shadow-nav: 0 -6px 24px -8px rgb(13 43 48 / 0.18);
 }
 
 html,
 body {
-  background: #eef3f4;
+  background: var(--color-wash);
   color: var(--color-ink);
   -webkit-tap-highlight-color: transparent;
+}
+
+/* The one gradient in the system: brand teal into signage leaf.
+   Used only as a 3px accent (header base, stat-card top). */
+.brand-thread {
+  background: linear-gradient(90deg, var(--color-brand), var(--color-leaf));
+}
+
+/* Header band: barely-there vertical shift, reads as material not gradient. */
+.header-deep {
+  background: linear-gradient(170deg, #0e474f 0%, var(--color-brand-deep) 75%);
 }
 
 body {

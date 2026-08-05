@@ -1,10 +1,9 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { currentUser } from "@/lib/auth";
-import { all } from "@/lib/db";
+import { all, get } from "@/lib/db";
 import { formatKes, formatQty, businessDate } from "@/lib/units";
 import { Stat, SectionLabel, Card, Chip, Alert } from "@/components/ui";
-import { MoreMenu } from "@/components/nav";
 import { usersOnDemoPin } from "@/lib/users";
 
 export const dynamic = "force-dynamic";
@@ -43,6 +42,24 @@ export default async function HomePage() {
       LIMIT 6`,
   );
 
+  // Two "you left something unfinished" states belong on the front door:
+  // mixed batches whose yield was never measured, and — each evening — a day
+  // that took money but was never closed.
+  const pendingYield = owner
+    ? (get<{ n: number }>(
+        `SELECT COUNT(*) AS n FROM batches WHERE actual_milli IS NULL AND status = 'completed'`,
+      )?.n ?? 0)
+    : 0;
+  const hour = Number(
+    new Intl.DateTimeFormat("en-GB", { hour: "numeric", hour12: false, timeZone: "Africa/Nairobi" }).format(
+      new Date(),
+    ),
+  );
+  const dayUnclosed =
+    hour >= 17 &&
+    (todayRow?.n ?? 0) > 0 &&
+    !get(`SELECT 1 FROM day_closes WHERE business_date = ?`, today);
+
   // The starting-PIN warning lived only on Settings, which is easy to never open.
   // The home screen is the one everyone sees, so it belongs here too.
   const demoPin = owner ? usersOnDemoPin() : [];
@@ -62,7 +79,7 @@ export default async function HomePage() {
           </Alert>
         </div>
       ) : null}
-      <h1 className="mb-1 text-xl font-bold tracking-tight">Today</h1>
+      <h1 className="mb-1 text-[22px] font-bold tracking-tight text-brand-deep">Today</h1>
       <p className="mb-4 text-sm text-muted">
         {new Date().toLocaleDateString("en-GB", {
           weekday: "long",
@@ -73,16 +90,54 @@ export default async function HomePage() {
         })}
       </p>
 
+      {/* A number you can't act on is a dead end — both stats are doors. */}
       <div className="grid grid-cols-2 gap-2.5">
-        <Stat label="Sales today" value={formatKes(todayRow?.total ?? 0)} detail={`${todayRow?.n ?? 0} sales`} />
-        <Stat label="Owed to you" value={formatKes(owed?.owed ?? 0)} detail="unpaid balances" />
+        <Link href="/sales" className="block">
+          <Stat
+            label="Sales today"
+            value={formatKes(todayRow?.total ?? 0)}
+            detail={`${todayRow?.n ?? 0} sales · see them →`}
+          />
+        </Link>
+        <Link href="/customers" className="block">
+          <Stat label="Owed to you" value={formatKes(owed?.owed ?? 0)} detail="open the debtors book →" />
+        </Link>
       </div>
+
+      {dayUnclosed ? (
+        <div className="mt-3">
+          <Link href="/day-close" className="block">
+            <Alert tone="warn">
+              <strong>The day hasn&rsquo;t been closed.</strong> Count the drawer before locking
+              up — tap to close the day.
+            </Alert>
+          </Link>
+        </div>
+      ) : null}
+
+      {pendingYield > 0 ? (
+        <div className="mt-3">
+          <Link href="/batch" className="block">
+            <Alert tone="warn">
+              <strong>
+                {pendingYield} {pendingYield === 1 ? "batch is" : "batches are"} waiting for the
+                actual litres.
+              </strong>{" "}
+              The stock and cost stay provisional until it&rsquo;s recorded — tap to finish.
+            </Alert>
+          </Link>
+        </div>
+      ) : null}
 
       <SectionLabel>Needs attention</SectionLabel>
       {lowStock.length ? (
         <Card className="space-y-2.5">
           {lowStock.map((r) => (
-            <div key={r.name} className="flex items-center justify-between gap-3">
+            <Link
+              key={r.name}
+              href={`/stock?q=${encodeURIComponent(r.name)}`}
+              className="flex items-center justify-between gap-3"
+            >
               <span className="text-sm font-semibold">{r.name}</span>
               <span className="flex items-center gap-2">
                 <span className="text-xs text-muted tnum">
@@ -92,11 +147,16 @@ export default async function HomePage() {
                   {r.qty_milli <= 0 ? "Out" : "Low"}
                 </Chip>
               </span>
-            </div>
+            </Link>
           ))}
-          <Link href="/stock" className="block pt-1 text-sm font-bold text-brand">
-            View all stock →
-          </Link>
+          <div className="flex flex-wrap gap-x-4 pt-1">
+            <Link href="/stock" className="text-sm font-bold text-brand-dark">
+              View all stock →
+            </Link>
+            <Link href="/purchases" className="text-sm font-bold text-brand-dark">
+              Record a delivery →
+            </Link>
+          </div>
         </Card>
       ) : (
         <Card>
@@ -104,8 +164,23 @@ export default async function HomePage() {
         </Card>
       )}
 
-      <SectionLabel>Everything else</SectionLabel>
-      <MoreMenu isOwner={owner} />
+      {/* Three doors, not eleven — the full menu already lives on the More tab. */}
+      <SectionLabel>Shortcuts</SectionLabel>
+      <div className="grid grid-cols-3 gap-2.5">
+        {[
+          { href: "/day-close", label: "Day close" },
+          { href: "/sales", label: "Sales history" },
+          { href: "/expenses", label: "Expenses" },
+        ].map((l) => (
+          <Link
+            key={l.href}
+            href={l.href}
+            className="flex min-h-14 items-center justify-center rounded-2xl bg-white px-3 text-center text-sm font-semibold text-ink shadow-card ring-1 ring-ink/5 transition-shadow hover:shadow-lift"
+          >
+            {l.label}
+          </Link>
+        ))}
+      </div>
     </div>
   );
 }

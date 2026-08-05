@@ -92,7 +92,7 @@ export default async function FormulasPage(props: {
                       {formatQty(f.ref_size_milli, "L")} · version {f.version}
                     </div>
                   </div>
-                  {f.note.trim() ? <Chip tone="warn">Confirm</Chip> : <Chip tone="good">Set</Chip>}
+                  {f.note.trim() ? <Chip tone="warn">Check this</Chip> : <Chip tone="good">Confirmed</Chip>}
                 </div>
               </Card>
             </Link>
