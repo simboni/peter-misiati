@@ -241,6 +241,16 @@ export default async function InvoicePage(props: {
             Printer settings
           </Link>
         </p>
+
+        {/* Fresh from the counter: the way back to the queue is one big button. */}
+        {justSold === "1" ? (
+          <Link
+            href="/sell"
+            className="flex min-h-12 w-full items-center justify-center rounded-full bg-brand text-sm font-bold text-white shadow-sm hover:bg-brand-dark"
+          >
+            Next sale →
+          </Link>
+        ) : null}
       </div>
 
       <div className="no-print mt-4 flex gap-4 text-sm font-bold text-brand">
