@@ -104,12 +104,19 @@ docker compose start pos
 ## Updating — app and website together
 
 ```bash
-git pull
-docker compose up -d --build
-sh deploy/smoke.sh
+sh /root/peter-misiati/apps/riziki-pos/deploy/update.sh
 ```
 
-That is the whole update, for both the shop system and the public website.
+That is the whole update, for both the shop system and the public website: it
+checks out the deploy branch, rebuilds both containers, reloads Caddy and then
+smoke-tests every public URL.
+
+**Use the script rather than `git pull` by hand.** `git pull` updates whatever
+branch the server happens to be sitting on, and a server parked on the wrong
+branch is indistinguishable from an up-to-date one — the build succeeds, the POS
+restarts, and none of the work that was pushed is anywhere on the disk. That is
+a real failure this shop had: the public website was months behind and nobody
+could see why. The script pins the branch (override with `RIZIKI_BRANCH=…`).
 There is no separate website step, deliberately: there used to be, and the
 result was a server quietly serving a months-old website while the POS was
 current, because the missing step left no trace anywhere. Now the site is built
