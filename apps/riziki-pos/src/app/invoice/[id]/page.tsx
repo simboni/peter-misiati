@@ -5,6 +5,7 @@ import { getInvoice, issueInvoiceNo, invoiceMessage, waLink, getBusiness } from 
 import { getPrintSettings, receiptFromInvoice } from "@/lib/print-settings";
 import { formatKes, formatAmount, formatQty, formatDateTime } from "@/lib/units";
 import { ThermalPrint } from "@/components/thermal-print";
+import { PdfShareButton } from "@/components/pdf-share-button";
 import { PrintButton } from "./print-button";
 
 export const dynamic = "force-dynamic";
@@ -225,18 +226,26 @@ export default async function InvoicePage(props: {
 
         <div className="flex gap-2">
           <PrintButton />
+          <PdfShareButton
+            href={`/invoice/${sale.id}/pdf`}
+            fileName={`${sale.invoice_no ?? `sale-${sale.id}`}.pdf`}
+            shareTitle={sale.invoice_no ?? `Sale #${sale.id}`}
+            shareText={invoiceMessage(invoice)}
+          />
           <a
             href={waLink(sale.customer_phone ?? "", invoiceMessage(invoice))}
             target="_blank"
             rel="noopener noreferrer"
             className="flex-1 rounded-xl bg-good-soft px-4 py-3 text-center text-sm font-bold text-good"
           >
-            Share on WhatsApp
+            Message
           </a>
         </div>
 
         <p className="text-center text-[11px] text-muted">
-          &ldquo;Print&rdquo; makes the A5 paper copy.{" "}
+          &ldquo;Print&rdquo; makes the A5 paper copy. &ldquo;PDF&rdquo; sends the file itself — on a
+          phone, straight into WhatsApp as an attachment. &ldquo;Message&rdquo; is a text summary only,
+          for when a file is not needed.{" "}
           <Link href="/settings/printer" className="font-semibold text-brand">
             Printer settings
           </Link>

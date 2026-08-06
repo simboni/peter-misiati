@@ -312,6 +312,13 @@ export interface Receipt {
 
 export interface ReceiptOptions {
   paper?: PaperWidth;
+  /**
+   * Characters per line, overriding the width `paper` would otherwise imply.
+   * `paper` means a physical thermal roll — 58 mm and 80 mm are the only two
+   * that exist — so a medium with no roll (the PDF export, in `./pdf.ts`) sets
+   * this instead of inventing a fictional paper size to get a wider column.
+   */
+  width?: number;
   /** Pop the till drawer once the receipt is printed. */
   openDrawer?: boolean;
   /** Blank lines fed before the cut, so the tear-off clears the print head. */
@@ -333,7 +340,7 @@ export interface ReceiptBlock {
  * and what the settings screen previews: the paper, before it is paper.
  */
 export function renderReceipt(receipt: Receipt, opts: ReceiptOptions = {}): ReceiptBlock[] {
-  const w = charsPerLine(opts.paper ?? 58);
+  const w = opts.width ?? charsPerLine(opts.paper ?? 58);
   const out: ReceiptBlock[] = [];
   const rule = "-".repeat(w);
 

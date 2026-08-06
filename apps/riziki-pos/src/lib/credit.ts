@@ -13,6 +13,7 @@
 
 import { all, get, run, tx, audit, db } from "./db.ts";
 import { formatKes, formatDate } from "./units.ts";
+import { twoCol, wrapText, money, type ReceiptBlock } from "./escpos.ts";
 
 // --------------------------------------------------------------- the shop
 
@@ -374,6 +375,59 @@ export function statement(customerId: number): StatementRow[] {
       balance_cents: balance,
     };
   });
+}
+
+/**
+ * The statement laid out as printable blocks — the same shape `renderReceipt`
+ * produces for a receipt, so it can go through the same PDF writer
+ * (`blocksToPdf` in `./pdf.ts`) with no separate rendering path to drift out of
+ * sync. There is no thermal-printer form of a statement — it is a document for
+ * a bookkeeper, not the counter — so this is the only renderer it has.
+ */
+export function renderStatementBlocks(
+  customer: Customer,
+  rows: StatementRow[],
+  balanceCents: number,
+  width: number,
+): ReceiptBlock[] {
+  const business = getBusiness();
+  const rule = "-".repeat(width);
+  const out: ReceiptBlock[] = [];
+  const push = (text: string, style: Omit<ReceiptBlock, "text"> = {}) => out.push({ text, ...style });
+  const pushMany = (lines: string[], style: Omit<ReceiptBlock, "text"> = {}) =>
+    lines.forEach((l) => push(l, style));
+
+  pushMany(wrapText(business.name, width), { align: "center", bold: true, tall: true });
+  if (business.address) pushMany(wrapText(business.address, width), { align: "center" });
+  if (business.phone) pushMany(wrapText(business.phone, width), { align: "center" });
+
+  push(rule);
+  pushMany(twoCol("STATEMENT OF ACCOUNT", formatDate(new Date().toISOString()), width), { bold: true });
+  pushMany(wrapText(customer.name, width), { bold: true });
+  if (customer.phone) pushMany(wrapText(customer.phone, width));
+  if (customer.kra_pin) pushMany(wrapText(`KRA PIN ${customer.kra_pin}`, width));
+  push(rule);
+
+  if (!rows.length) {
+    push("No completed sales on this account yet.");
+  }
+  for (const r of rows) {
+    const amount = r.kind === "sale" ? r.debit_cents : -r.credit_cents;
+    const sign = amount >= 0 ? "+" : "-";
+    pushMany(twoCol(`${formatDate(r.at)}  ${r.ref}`, `${sign}${money(Math.abs(amount))}`, width));
+  }
+  push(rule);
+  pushMany(twoCol("BALANCE DUE", money(balanceCents), width), { bold: true, tall: true });
+
+  push("");
+  pushMany(
+    wrapText(
+      `Amounts marked + are goods taken, - is money received. Queries: ${business.phone}.`,
+      width,
+    ),
+  );
+
+  return out;
 }
 
 // ---------------------------------------------------------------- payments

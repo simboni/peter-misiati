@@ -5,6 +5,7 @@ import { getCustomer, balanceOf, statement, getBusiness } from "@/lib/credit";
 import { formatAmount, formatKes, formatDate } from "@/lib/units";
 import { Empty } from "@/components/ui";
 import { PrintButton } from "@/app/invoice/[id]/print-button";
+import { PdfShareButton } from "@/components/pdf-share-button";
 
 export const dynamic = "force-dynamic";
 
@@ -50,7 +51,14 @@ export default async function StatementPage(props: { params: Promise<{ id: strin
         <Link href={`/customers/${customerId}`} className="text-sm font-bold text-brand">
           ← {customer.name}
         </Link>
-        <PrintButton />
+        <div className="flex gap-2">
+          <PdfShareButton
+            href={`/customers/${customerId}/statement/pdf`}
+            fileName={`statement-${customer.name.replace(/[^a-z0-9]+/gi, "-")}.pdf`}
+            shareTitle={`Statement — ${customer.name}`}
+          />
+          <PrintButton />
+        </div>
       </div>
 
       <div className="sheet mx-auto rounded-2xl border border-line bg-white p-5">

@@ -1869,8 +1869,12 @@ function Grid({
             row on a phone there is not — "KES 500" beside "181 jerricans" wraps
             the price onto two lines — so there they stack. */}
         <div className="mt-auto flex flex-col gap-0.5 md:flex-row md:items-baseline md:justify-between md:gap-2">
+          {/* Price never gives ground — it is the one figure a tile cannot be
+              wrong about. The status beside it truncates instead, so a narrow
+              column shortens "Out of stock" rather than spilling it over the
+              next tile, which is what a hard, unclipped overflow used to do. */}
           <span
-            className={`whitespace-nowrap font-extrabold leading-none tnum ${
+            className={`shrink-0 whitespace-nowrap font-extrabold leading-none tnum ${
               unpriced
                 ? "text-[13px] font-bold text-muted"
                 : `text-[17px] ${tier === "wholesale" ? "text-warn" : "text-brand-deep"}`
@@ -1879,7 +1883,7 @@ function Grid({
             {unpriced ? "No price set" : formatKes(listPrice(item, tier))}
           </span>
           <span
-            className={`shrink-0 text-[11px] leading-none tnum ${out ? "font-bold text-bad" : "text-muted"}`}
+            className={`min-w-0 truncate text-[11px] leading-none tnum ${out ? "font-bold text-bad" : "text-muted"}`}
           >
             {out ? "Out of stock" : formatUnits(item.qtyMilli, item.sizeMilli, item.unitLabel)}
           </span>
@@ -1893,6 +1897,36 @@ function Grid({
   // product names start being eaten by the ellipsis again.
   const cols =
     "grid grid-cols-2 gap-2 @[28rem]:grid-cols-3 @[28rem]:gap-3 @[46.5rem]:grid-cols-4 @[64rem]:grid-cols-5";
+
+  /*
+   * Nothing in stock is not the same as nothing here — everything priced is
+   * still real, still visible, just unsellable right now. Folded behind a
+   * closed disclosure it reads as an empty screen, exactly like this file
+   * being missing entirely, which is precisely the alarm "products have
+   * disappeared" describes. So when there is nothing else to show, the
+   * out-of-stock list IS the screen: open, with the reason and the two
+   * places stock actually comes from, not a small triangle to hunt for.
+   */
+  if (!inStock.length) {
+    return (
+      <>
+        <div className="rounded-2xl border border-dashed border-line bg-wash/60 px-4 py-5 text-center">
+          <p className="text-sm font-semibold text-ink">
+            Nothing here is in stock — {outOfStock.length} priced item
+            {outOfStock.length === 1 ? "" : "s"} shown below, at zero.
+          </p>
+          <p className="mt-1 text-xs text-muted">
+            Chemicals arrive by <Link href="/repack" className="font-semibold text-brand">Repack</Link> or{" "}
+            <Link href="/purchases" className="font-semibold text-brand">a delivery</Link>. Products come from{" "}
+            <Link href="/batch" className="font-semibold text-brand">Batch</Link>. Already have some on the
+            shelf that is not showing? Fix it with a{" "}
+            <Link href="/stocktake" className="font-semibold text-brand">Stock take</Link>.
+          </p>
+        </div>
+        <div className={`mt-3 ${cols}`}>{outOfStock.map(tile)}</div>
+      </>
+    );
+  }
 
   return (
     <>
