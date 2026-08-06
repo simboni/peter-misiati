@@ -33,6 +33,10 @@ import type { PayMethod, Tier } from "@/lib/sales";
 import { countOutbox, enqueueSale, onOutboxChange, type QueuedSalePayload } from "@/lib/offline";
 import { formatDateTime, formatKes, formatUnits } from "@/lib/units";
 import { Alert, Button, Chip, SectionLabel, inputClass } from "@/components/ui";
+import { quickAddCustomerAction } from "@/app/customers/actions";
+
+/** Sentinel value for the "＋ New customer" row in the customer dropdown. */
+const NEW_CUSTOMER = "__new";
 
 // ------------------------------------------------------------- wire types
 
@@ -76,7 +80,6 @@ export interface SalePayload {
   tenders: PayloadTender[];
   customerId: number | null;
   ownerPin?: string;
-  acknowledgeCredit?: boolean;
 }
 
 export type SellState =
@@ -85,8 +88,6 @@ export type SellState =
   | { status: "error"; message: string }
   /** A price below the floor: the owner has to approve it in person. */
   | { status: "pin"; message: string }
-  /** The customer would go past their credit limit. Warn, never silently allow. */
-  | { status: "credit"; message: string }
   | {
       status: "done";
       saleId: number;
@@ -162,10 +163,14 @@ function withDeadline<T>(work: Promise<T>, ms: number): Promise<T> {
 /**
  * Move a cart into the outbox.
  *
- * The owner PIN and the credit acknowledgement are deliberately dropped: a PIN
- * must never sit at rest on the shared counter phone, and the credit-limit
- * warning is an interactive check that cannot be answered by a queue. Both are
- * asked again at send time if they are still needed.
+ * The owner PIN is deliberately dropped: it must never sit at rest on the shared
+ * counter phone. It is asked for again at send time if it is still needed.
+ *
+ * The credit-limit check does not travel either, and cannot: it is a question
+ * asked of an owner standing at the counter, and by the time a queued sale
+ * reaches the till the goods have gone home with the customer. Offline credit is
+ * therefore recorded as it happened rather than refused after the fact — the
+ * sync audit line is where the owner sees what came in while the line was down.
  */
 async function queueSale(
   payload: SalePayload,
@@ -312,6 +317,21 @@ export default function SellClient({
   );
   const [customerId, setCustomerId] = useState<number | null>(null);
   const [ownerPin, setOwnerPin] = useState("");
+
+  /**
+   * Adding a customer without leaving the sale.
+   *
+   * A new face who wants a receipt used to mean abandoning the counter screen
+   * for the debtors screen and coming back — four steps with somebody waiting.
+   * `added` holds the ones created here so they appear in the list immediately,
+   * without waiting for the page's own data to come round again.
+   */
+  const [adding, setAdding] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newPhone, setNewPhone] = useState("");
+  const [addPending, setAddPending] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+  const [added, setAdded] = useState<SellCustomer[]>([]);
   const [receipt, setReceipt] = useState<Extract<
     SellState,
     { status: "done" } | { status: "queued" }
@@ -355,6 +375,20 @@ export default function SellClient({
   );
 
   const [state, submit, pending] = useActionState(submitSale, IDLE);
+
+  /**
+   * When the till asks for the owner's PIN, put the cursor in it.
+   *
+   * The box appears low in a panel that scrolls, under the reason it appeared —
+   * so without this the counter sees a greyed-out Complete button and no
+   * obvious cause. Focusing scrolls it into view and the owner can just type.
+   */
+  const pinRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (state.status !== "pin") return;
+    pinRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+    pinRef.current?.focus();
+  }, [state]);
   const handled = useRef<string>("");
 
   const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
@@ -371,7 +405,39 @@ export default function SellClient({
   const overpaidCents = Math.max(0, paidCents - totalCents);
   const outstandingCents = onAccountCents;
 
-  const customer = customers.find((c) => c.id === customerId) ?? null;
+  const allCustomers = useMemo(() => [...customers, ...added], [customers, added]);
+  const customer = allCustomers.find((c) => c.id === customerId) ?? null;
+
+  async function saveNewCustomer() {
+    const name = newName.trim();
+    if (!name) return;
+    setAddPending(true);
+    setAddError(null);
+    try {
+      const result = await quickAddCustomerAction(name, newPhone.trim());
+      if (!result.ok) {
+        setAddError(result.error);
+        return;
+      }
+      // Straight into the sale: adding them and then having to find them in the
+      // list would be the same four steps in a smaller box.
+      setAdded((prev) => [...prev, {
+        id: result.id,
+        name: result.name,
+        kind: "retail",
+        limitCents: 0,
+        outstandingCents: 0,
+      }]);
+      setCustomerId(result.id);
+      setAdding(false);
+      setNewName("");
+      setNewPhone("");
+    } catch {
+      setAddError("Could not reach the till. Add them from Debts when the network is back.");
+    } finally {
+      setAddPending(false);
+    }
+  }
 
   // Selling more than is on the shelf is allowed — the customer is holding the
   // goods — but it must not be silent, or the stock count and the profit report
@@ -544,7 +610,7 @@ export default function SellClient({
 
   // --- submit -------------------------------------------------------------
 
-  function complete(acknowledgeCredit = false) {
+  function complete() {
     const payload: SalePayload = {
       clientUuid: uuid.current,
       tier,
@@ -552,7 +618,6 @@ export default function SellClient({
       tenders: buildTenders(),
       customerId,
       ownerPin: ownerPin.trim() || undefined,
-      acknowledgeCredit,
     };
     startTransition(() => submit(payload));
   }
@@ -671,36 +736,23 @@ export default function SellClient({
             aria-label="Amount being paid now, in shillings"
           />
         </label>
-        <div className="mt-2 flex gap-2">
+        {/* One control, not two. Typing a smaller number already says "the rest
+            is owed" — the balance below works it out — so a second button for
+            it was a button that said the same thing twice. "Paid in full" stays
+            because it is the way back, and it only appears when there is
+            something to come back from. */}
+        {onAccountCents > 0 || overpaidCents > 0 ? (
           <button
             type="button"
             onClick={() => {
               setPayNow(null);
               setSecond(null);
             }}
-            className={`flex-1 rounded-full px-3 py-2.5 text-sm font-bold ring-1 ring-inset transition-colors ${
-              onAccountCents === 0 && !overpaidCents
-                ? "bg-brand text-white ring-brand"
-                : "bg-white text-brand-dark ring-line"
-            }`}
+            className="mt-2 w-full rounded-full bg-white px-3 py-2.5 text-sm font-bold text-brand-dark ring-1 ring-inset ring-line transition-colors hover:bg-wash"
           >
-            Paid in full
+            Paid in full — {formatKes(totalCents)}
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              setPayNow("0");
-              setSecond(null);
-            }}
-            className={`flex-1 rounded-full px-3 py-2.5 text-sm font-bold ring-1 ring-inset transition-colors ${
-              paidCents === 0
-                ? "bg-warn text-white ring-warn"
-                : "bg-white text-brand-dark ring-line"
-            }`}
-          >
-            Paying later
-          </button>
-        </div>
+        ) : null}
 
         {paidCents > 0 ? (
           <div className="mt-3">
@@ -834,19 +886,85 @@ export default function SellClient({
             <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
               {needsCustomer ? "Who is paying later?" : "Customer (optional)"}
             </label>
-            <select
-              className={inputClass}
-              value={customerId ?? ""}
-              onChange={(e) => setCustomerId(e.target.value ? Number(e.target.value) : null)}
-            >
-              <option value="">Walk-in — no name</option>
-              {customers.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name} — owes {formatKes(c.outstandingCents)}
-                  {c.limitCents > 0 ? ` of ${formatKes(c.limitCents)}` : ""}
+            {adding ? (
+              /* Two fields, because the moment this is used is the moment
+                 somebody is standing there waiting. Everything else about a
+                 customer is the owner's to fill in afterwards, on the debtors
+                 screen, and the sale should not wait for it. */
+              <div className="rounded-2xl bg-wash p-3 ring-1 ring-inset ring-line">
+                <input
+                  className={inputClass}
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder="Name"
+                  aria-label="New customer's name"
+                  autoComplete="off"
+                  autoFocus
+                />
+                <input
+                  className={`${inputClass} mt-2`}
+                  value={newPhone}
+                  onChange={(e) => setNewPhone(e.target.value)}
+                  placeholder="Phone — for the receipt (optional)"
+                  aria-label="New customer's phone number"
+                  type="tel"
+                  inputMode="tel"
+                  autoComplete="off"
+                />
+                {addError ? (
+                  <p className="mt-2 text-xs font-semibold text-bad">{addError}</p>
+                ) : null}
+                <div className="mt-2 flex gap-2">
+                  <Button
+                    className="flex-1 py-2.5 text-sm"
+                    disabled={addPending || !newName.trim()}
+                    onClick={saveNewCustomer}
+                  >
+                    {addPending ? "Adding…" : "Add & use"}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    className="px-4 py-2.5 text-sm"
+                    onClick={() => {
+                      setAdding(false);
+                      setAddError(null);
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+                <p className="mt-2 text-[11px] text-muted">
+                  New customers start with no credit limit, so anything they owe needs the owner&apos;s
+                  PIN until he sets one.
+                </p>
+              </div>
+            ) : (
+              <select
+                className={inputClass}
+                value={customerId ?? ""}
+                onChange={(e) => {
+                  if (e.target.value === NEW_CUSTOMER) {
+                    setAdding(true);
+                    setAddError(null);
+                    return;
+                  }
+                  setCustomerId(e.target.value ? Number(e.target.value) : null);
+                }}
+              >
+                <option value="">Walk-in — no name</option>
+                {allCustomers.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} — owes {formatKes(c.outstandingCents)}
+                    {c.limitCents > 0 ? ` of ${formatKes(c.limitCents)}` : ""}
+                  </option>
+                ))}
+                {/* Offline this cannot work — the till assigns the id — and a
+                    disabled option that says why beats one that fails. */}
+                <option value={NEW_CUSTOMER} disabled={!online}>
+                  {online ? "＋ New customer…" : "＋ New customer (needs the network)"}
                 </option>
-              ))}
-            </select>
+              </select>
+            )}
 
             {/* A wholesale buyer on a retail-priced cart is a bill nobody
                 wants to argue about at the counter. Prompt, don't switch
@@ -872,6 +990,7 @@ export default function SellClient({
           <div className="mt-3 space-y-2">
             <Alert tone="warn">{state.message}</Alert>
             <input
+              ref={pinRef}
               className={inputClass}
               type="password"
               inputMode="numeric"
@@ -881,12 +1000,6 @@ export default function SellClient({
               placeholder="Owner PIN"
               aria-label="Owner PIN"
             />
-          </div>
-        ) : null}
-
-        {state.status === "credit" ? (
-          <div className="mt-3">
-            <Alert tone="warn">{state.message}</Alert>
           </div>
         ) : null}
 
@@ -925,7 +1038,7 @@ export default function SellClient({
           (needsCustomer && !customerId) ||
           (state.status === "pin" && !ownerPin.trim())
         }
-        onClick={() => complete(state.status === "credit")}
+        onClick={() => complete()}
       >
         {/* The label states the outcome, so nobody has to reconstruct it from
             a running total: "Take 3,000 · 5,400 later". */}
@@ -933,9 +1046,7 @@ export default function SellClient({
           ? online
             ? "Recording…"
             : "Saving on this phone…"
-          : state.status === "credit"
-            ? "Let them take it anyway"
-            : !online
+          : !online
               ? `Save on this phone — ${formatKes(totalCents)}`
               : paidCents > 0 && onAccountCents > 0
                 ? `Take ${formatKes(paidCents)} · ${formatKes(onAccountCents)} later`

@@ -69,7 +69,12 @@ login screen, and prints ok/FAIL per URL. It is the last step of every deploy.
    as current as that sheet.
 4. **Prices** — Products & prices: confirm retail/wholesale/floor on the
    items that actually move.
-5. **On the counter phone**: open the site in Chrome → menu → *Add to Home
+5. **Credit limits** — Debts, one number per regular. This is not optional
+   paperwork: a customer with no limit set cannot be sold to on credit without
+   the owner's PIN, by design. Set limits for the names that buy on account and
+   the counter stops needing him; leave them unset for everyone else and it
+   stays his decision.
+6. **On the counter phone**: open the site in Chrome → menu → *Add to Home
    screen*. Then turn on flight mode and confirm the Sell screen still loads —
    that is the offline mode working.
 
@@ -117,11 +122,12 @@ branch is indistinguishable from an up-to-date one — the build succeeds, the P
 restarts, and none of the work that was pushed is anywhere on the disk. That is
 a real failure this shop had: the public website was months behind and nobody
 could see why. The script pins the branch (override with `RIZIKI_BRANCH=…`).
-There is no separate website step, deliberately: there used to be, and the
-result was a server quietly serving a months-old website while the POS was
-current, because the missing step left no trace anywhere. Now the site is built
-from the checked-out commit inside `docker compose up --build`, so it cannot
-drift — and `smoke.sh` says so out loud either way.
+
+There is no separate website step either, deliberately: there used to be, and
+the result was the same silence — a server serving a months-old website while
+the POS was current. The site is now built from the checked-out commit inside
+`docker compose up --build`, so it cannot drift, and `smoke.sh` says so out loud
+either way.
 
 The database is in the mounted `data/` directory, untouched by rebuilds.
 Schema additions apply themselves on boot (`CREATE TABLE IF NOT EXISTS` plus

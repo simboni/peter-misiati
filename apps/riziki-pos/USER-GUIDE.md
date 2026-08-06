@@ -52,10 +52,23 @@ the message on the *shop's* phone — a customer's screen can be faked.
 come down to the shop's floor price on your own. Below that the owner has to type
 their PIN, and the system writes down who allowed it.
 
-**Selling on credit.** On the payment screen choose the customer, then pay in
-less than the total. What is left becomes their debt. If they are already over
-their limit the system warns you — it will still let you sell, because you know
-your customers, but it says so first.
+**Selling on credit.** On the payment screen type in what they are handing over
+now — less than the bill, or nothing at all. Whatever is left shows as *To pay
+later*, and the screen asks whose name it goes under. There is no separate
+"credit" button to find: the balance is simply what was not paid.
+
+**A customer who is not on the list.** Choose *＋ New customer* at the bottom of
+that list and type a name and a phone number. They are added and selected
+without leaving the sale, and the phone number is what the receipt gets sent to.
+
+**How much credit staff can give.** Every customer has a limit the owner sets in
+*Debts*. Inside that limit, nobody is asked anything — that is normal trade.
+Past it, or for anyone with no limit set yet (including a customer just added at
+the counter), the sale will not complete without the owner's PIN. The system
+writes down who approved it.
+
+> A limit of zero means *no credit agreed*, not *unlimited*. Set a real limit
+> for the regulars, or the counter will call the owner over for every one.
 
 ---
 

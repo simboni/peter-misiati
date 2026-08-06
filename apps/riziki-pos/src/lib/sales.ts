@@ -425,7 +425,12 @@ export interface CreditStatus {
   limitCents: number;
   outstandingCents: number;
   afterCents: number;
+  /** Past a limit the owner actually agreed. */
   exceeds: boolean;
+  /** No limit has ever been agreed for this customer. */
+  noLimitAgreed: boolean;
+  /** Either of the above: this credit needs the owner, in person. */
+  needsApproval: boolean;
 }
 
 /** What a customer already owes, from the sales themselves — never a cached column. */
@@ -452,13 +457,27 @@ export function creditStatus(customerId: number, addCents: number): CreditStatus
 
   const outstandingCents = customerOutstanding(customerId);
   const afterCents = outstandingCents + addCents;
+
+  /**
+   * A limit of zero is not "unlimited" — it is "no credit agreed yet".
+   *
+   * It used to read as unlimited, which meant every customer whose limit had
+   * never been set could take any amount on credit with nothing said. That is
+   * the whole gate, defeated by a default value. Anyone the owner trusts has a
+   * number against their name; everyone else needs him at the counter.
+   */
+  const noLimitAgreed = c.credit_limit_cents <= 0;
+  const exceeds = !noLimitAgreed && afterCents > c.credit_limit_cents;
+
   return {
     customerId: c.id,
     name: c.name,
     limitCents: c.credit_limit_cents,
     outstandingCents,
     afterCents,
-    exceeds: c.credit_limit_cents > 0 && afterCents > c.credit_limit_cents,
+    exceeds,
+    noLimitAgreed,
+    needsApproval: noLimitAgreed || exceeds,
   };
 }
 

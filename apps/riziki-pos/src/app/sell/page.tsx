@@ -30,19 +30,28 @@ async function sellAction(_prev: SellState, payload: SalePayload): Promise<SellS
   const user = await requireUser();
 
   try {
-    // A below-floor price is only allowed with an owner standing at the counter.
-    let floorOverrideBy: number | null = null;
+    // One PIN, one meaning: the owner is standing here and approves this sale.
+    // It authorises a below-floor price and credit beyond what was agreed —
+    // both are the same decision, made by the same person, about one sale.
+    let approvedBy: number | null = null;
     if (payload.ownerPin) {
-      floorOverrideBy = authoriseOwnerPin(payload.ownerPin);
-      if (!floorOverrideBy) {
-        return { status: "pin", message: "That is not an owner's PIN. Ask the owner to approve this price." };
+      approvedBy = authoriseOwnerPin(payload.ownerPin);
+      if (!approvedBy) {
+        return { status: "pin", message: "That is not an owner's PIN. Ask the owner to approve this sale." };
       }
     }
 
-    // Warn before the debt is taken on, not after. The owner decides who gets
-    // stretched, so this is a warning the staff can override, not a block.
+    /**
+     * Credit beyond what the owner agreed needs the owner, in person.
+     *
+     * This used to be a warning the counter could click past ("Let them take it
+     * anyway"), which is not a control — and it only fired for customers who
+     * had a limit at all, so an unknown name could take any amount in silence.
+     * Now: inside an agreed limit, nobody is asked anything; past it, or with no
+     * limit agreed, the sale does not complete without a PIN.
+     */
     const customerId = payload.customerId ?? null;
-    if (customerId && !payload.acknowledgeCredit) {
+    if (customerId && !approvedBy) {
       const totalCents = cartTotal(
         payload.lines.map((l) => ({ unitPriceCents: l.unitPriceCents, units: l.units })),
       );
@@ -53,12 +62,15 @@ async function sellAction(_prev: SellState, payload: SalePayload): Promise<SellS
 
       if (creditCents > 0) {
         const status = creditStatus(customerId, creditCents);
-        if (status?.exceeds) {
+        if (status?.needsApproval) {
           return {
-            status: "credit",
-            message:
-              `${status.name} owes ${formatKes(status.outstandingCents)} and their limit is ` +
-              `${formatKes(status.limitCents)}. This sale takes them to ${formatKes(status.afterCents)}.`,
+            status: "pin",
+            message: status.noLimitAgreed
+              ? `${status.name} has no credit limit agreed, so ${formatKes(creditCents)} on credit ` +
+                `needs the owner's PIN. (Set a limit in Debts and this stops being asked.)`
+              : `${status.name} owes ${formatKes(status.outstandingCents)} and their limit is ` +
+                `${formatKes(status.limitCents)}. This sale takes them to ${formatKes(status.afterCents)}, ` +
+                `so it needs the owner's PIN.`,
           };
         }
       }
@@ -71,7 +83,7 @@ async function sellAction(_prev: SellState, payload: SalePayload): Promise<SellS
       lines: payload.lines,
       tenders: payload.tenders,
       customerId,
-      floorOverrideBy,
+      floorOverrideBy: approvedBy,
     });
 
     // Pull fresh stock counts and top sellers back into the grid.

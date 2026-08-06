@@ -381,6 +381,28 @@ test("credit tenders are debt, not takings, and the limit warns", () => {
   const stretched = creditStatus(CUSTOMER, 20000)!;
   assert.equal(stretched.afterCents, 115000);
   assert.equal(stretched.exceeds, true); // limit is 100000
+  assert.equal(stretched.needsApproval, true);
+});
+
+test("a customer with no limit agreed cannot take credit without the owner", () => {
+  // This is the case that used to be silently unlimited: `exceeds` was only ever
+  // true when a limit had been set, so a zero limit — the default every new
+  // customer starts with — waved any amount through.
+  const { lastInsertRowid: stranger } = run(
+    `INSERT INTO customers (name, phone, kind, credit_limit_cents) VALUES (?, '', 'retail', 0)`,
+    "Stranger With A Jerrican",
+  );
+
+  const status = creditStatus(Number(stranger), 500)!;
+  assert.equal(status.limitCents, 0);
+  assert.equal(status.noLimitAgreed, true);
+  assert.equal(status.exceeds, false, "nothing to exceed — but that is not permission");
+  assert.equal(status.needsApproval, true, "no agreed limit means the owner decides");
+
+  // And a customer inside an agreed limit is still waved through, because most
+  // of this shop's trade is exactly that and it must not need a PIN.
+  const easy = creditStatus(CUSTOMER, 1000)!;
+  assert.equal(easy.needsApproval, false);
 });
 
 // -------------------------------------------------------------------- (f)

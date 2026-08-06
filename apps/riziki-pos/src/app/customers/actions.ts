@@ -103,3 +103,31 @@ export async function recordPaymentAction(_prev: FormState, formData: FormData):
     return { error: message(err) };
   }
 }
+
+/**
+ * Add a customer from the counter, mid-sale.
+ *
+ * The full form lives on the debtors screen and asks for five things. This asks
+ * for two, because the moment it is used is the moment somebody is standing
+ * there waiting: a name, and the phone number the receipt will be sent to.
+ * Everything else — what they buy at, their credit limit, their KRA PIN — is
+ * the owner's to set afterwards, and the sale should not wait for it.
+ *
+ * A new customer therefore starts with no credit limit agreed, which is the
+ * safe default and not an oversight: credit to them needs the owner's PIN until
+ * he decides otherwise.
+ */
+export async function quickAddCustomerAction(
+  name: string,
+  phone: string,
+): Promise<{ ok: true; id: number; name: string } | { ok: false; error: string }> {
+  const user = await requireUser();
+
+  try {
+    const id = createCustomer({ name, phone, kind: "retail", creditLimitCents: 0, kraPin: "" }, user.id);
+    revalidatePath("/customers");
+    return { ok: true, id, name: name.trim() };
+  } catch (err) {
+    return { ok: false, error: message(err) };
+  }
+}
