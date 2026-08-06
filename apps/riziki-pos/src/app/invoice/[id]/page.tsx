@@ -227,7 +227,7 @@ export default async function InvoicePage(props: {
         <div className="flex gap-2">
           <PrintButton />
           <PdfShareButton
-            href={`/invoice/${sale.id}/pdf`}
+            source={{ href: `/invoice/${sale.id}/pdf` }}
             fileName={`${sale.invoice_no ?? `sale-${sale.id}`}.pdf`}
             shareTitle={sale.invoice_no ?? `Sale #${sale.id}`}
             shareText={invoiceMessage(invoice)}

@@ -53,7 +53,7 @@ export default async function StatementPage(props: { params: Promise<{ id: strin
         </Link>
         <div className="flex gap-2">
           <PdfShareButton
-            href={`/customers/${customerId}/statement/pdf`}
+            source={{ href: `/customers/${customerId}/statement/pdf` }}
             fileName={`statement-${customer.name.replace(/[^a-z0-9]+/gi, "-")}.pdf`}
             shareTitle={`Statement — ${customer.name}`}
           />

@@ -34,6 +34,10 @@ import { countOutbox, enqueueSale, onOutboxChange, type QueuedSalePayload } from
 import { formatDate, formatDateTime, formatKes, formatQty, formatUnits } from "@/lib/units";
 import { Alert, Button, Chip, SectionLabel, inputClass } from "@/components/ui";
 import { quickAddCustomerAction } from "@/app/customers/actions";
+import type { PaperWidth, Receipt, ReceiptLine } from "@/lib/escpos";
+import { ThermalPrint } from "@/components/thermal-print";
+import { PdfShareButton } from "@/components/pdf-share-button";
+import { receiptToPdf } from "@/lib/pdf";
 
 /** Sentinel value for the "＋ New customer" row in the customer dropdown. */
 const NEW_CUSTOMER = "__new";
@@ -151,6 +155,16 @@ export type SellState =
       queuedAt: string;
       /** `offline` = the phone knew; `unreachable` = it thought it was online. */
       reason: "offline" | "unreachable";
+      /**
+       * Enough of the sale to hand the customer something on the way out —
+       * a paper copy or a PDF — before the till has ever seen it. Nothing
+       * here is fetched from the server; a queued sale by definition cannot
+       * reach it, so this is exactly what the counter already had in memory.
+       */
+      lines: PayloadLine[];
+      tenders: PayloadTender[];
+      customerName: string | null;
+      tier: Tier;
     };
 
 export const IDLE: SellState = { status: "idle" };
@@ -220,6 +234,7 @@ function withDeadline<T>(work: Promise<T>, ms: number): Promise<T> {
 async function queueSale(
   payload: SalePayload,
   reason: "offline" | "unreachable",
+  customerName: string | null,
 ): Promise<SellState> {
   const totalCents = payload.lines.reduce((sum, l) => sum + l.unitPriceCents * l.units, 0);
   const queuedAt = new Date().toISOString();
@@ -242,7 +257,17 @@ async function queueSale(
 
   try {
     await enqueueSale(queued);
-    return { status: "queued", clientUuid: payload.clientUuid, totalCents, queuedAt, reason };
+    return {
+      status: "queued",
+      clientUuid: payload.clientUuid,
+      totalCents,
+      queuedAt,
+      reason,
+      lines: payload.lines.map((l) => ({ ...l })),
+      tenders: payload.tenders.map((t) => ({ ...t })),
+      customerName,
+      tier: payload.tier,
+    };
   } catch {
     // The one case where the counter must be told to reach for the notebook:
     // there is no network AND no storage. Never a silent failure.
@@ -253,6 +278,59 @@ async function queueSale(
         "Write it down and enter it when the connection is back.",
     };
   }
+}
+
+const QUEUED_METHOD_LABEL: Record<string, string> = { cash: "Cash", mpesa: "M-Pesa", credit: "On credit" };
+
+/**
+ * A receipt for a sale the till has not seen yet.
+ *
+ * Everything here comes from what the counter already had in memory — the
+ * cart, the tenders, the customer's name — because a queued sale by
+ * definition cannot reach the server for anything more. It is deliberately
+ * not called an invoice: there is no invoice number yet (that is issued once,
+ * sequentially, when the sale actually reaches the till), so this is marked
+ * PENDING and says so on the page, rather than showing a number that might
+ * not match what prints again once the sale has synced.
+ */
+function receiptFromQueued(
+  q: Extract<SellState, { status: "queued" }>,
+  byId: Map<number, SellItem>,
+  printer: { header: string[]; footer: string },
+): Receipt {
+  const lines: ReceiptLine[] = q.lines
+    .map((l) => {
+      const item = byId.get(l.itemId);
+      if (!item) return null;
+      return {
+        name: item.name,
+        units: l.units,
+        unitPriceCents: l.unitPriceCents,
+        lineTotalCents: l.unitPriceCents * l.units,
+      };
+    })
+    .filter((l): l is ReceiptLine => l !== null);
+
+  const paidCents = q.tenders.filter((t) => t.method !== "credit").reduce((s, t) => s + t.amountCents, 0);
+
+  return {
+    header: printer.header,
+    title: "PENDING",
+    invoiceNo: `Not yet sent · ${q.clientUuid.slice(0, 8)}`,
+    dateTime: formatDateTime(q.queuedAt),
+    customer: q.customerName,
+    lines,
+    totalCents: q.totalCents,
+    paidCents,
+    balanceCents: q.totalCents - paidCents,
+    tenders: q.tenders.map((t) => ({
+      label: QUEUED_METHOD_LABEL[t.method] ?? t.method,
+      amountCents: t.amountCents,
+      codes: t.mpesaCode ?? null,
+    })),
+    note: "Saved on this phone — not yet on the till. The real invoice number is issued once this reaches the till; reprint from Sales history then.",
+    footer: printer.footer,
+  };
 }
 
 function listPrice(item: SellItem, tier: Tier): number {
@@ -325,6 +403,7 @@ export default function SellClient({
   kits,
   onLastOrder,
   onKit,
+  printer,
 }: {
   items: SellItem[];
   topSellerIds: number[];
@@ -337,6 +416,9 @@ export default function SellClient({
   kits: KitChoice[];
   onLastOrder: (customerId: number) => Promise<RepeatOrder | null>;
   onKit: (versionId: number, targetMilli: number) => Promise<KitOffer | null>;
+  /** The shop's letterhead — nothing owner-sensitive — so a queued sale can
+   *  build its own receipt on the phone with no server round trip. */
+  printer: { paper: PaperWidth; header: string[]; footer: string; autoPrint: boolean };
 }) {
   const [tier, setTier] = useState<Tier>("retail");
   const [cart, setCart] = useState<CartLine[]>([]);
@@ -414,6 +496,8 @@ export default function SellClient({
     if (window.matchMedia("(min-width: 1024px)").matches) searchRef.current?.focus();
   }, []);
 
+  const allCustomers = useMemo(() => [...customers, ...added], [customers, added]);
+
   /**
    * Every submit goes through here, online or not.
    *
@@ -428,14 +512,18 @@ export default function SellClient({
    */
   const submitSale = useCallback(
     async (prev: SellState, payload: SalePayload): Promise<SellState> => {
-      if (!seemsOnline()) return queueSale(payload, "offline");
+      // Resolved here, not inside queueSale: this is the one place with a
+      // fresh customer list on every call, including one just quick-added
+      // this session, which a memoised closure could otherwise miss.
+      const name = allCustomers.find((c) => c.id === payload.customerId)?.name ?? null;
+      if (!seemsOnline()) return queueSale(payload, "offline", name);
       try {
         return await withDeadline(action(prev, payload), TILL_TIMEOUT_MS);
       } catch {
-        return queueSale(payload, "unreachable");
+        return queueSale(payload, "unreachable", name);
       }
     },
-    [action],
+    [action, allCustomers],
   );
 
   const [state, submit, pending] = useActionState(submitSale, IDLE);
@@ -469,7 +557,6 @@ export default function SellClient({
   const overpaidCents = Math.max(0, paidCents - totalCents);
   const outstandingCents = onAccountCents;
 
-  const allCustomers = useMemo(() => [...customers, ...added], [customers, added]);
   const customer = allCustomers.find((c) => c.id === customerId) ?? null;
 
   /**
@@ -866,18 +953,35 @@ export default function SellClient({
 
   /**
    * After a sale: the receipt is one tap away, the next customer zero taps.
-   * Queued (offline) sales have no server receipt yet, so they keep the
-   * reassurance banner instead.
+   * Queued (offline) sales get the same reassurance banner, plus a receipt the
+   * customer can actually be handed — built entirely from what the counter
+   * already had in memory, since a queued sale by definition cannot ask the
+   * server for anything more.
    */
   const renderReceipt = () => {
     if (!receipt) return null;
     if (receipt.status === "queued") {
+      const local = receiptFromQueued(receipt, byId, printer);
       return (
-        <Alert tone="warn">
-          Saved on this phone — {formatKes(receipt.totalCents)}.{" "}
-          {receipt.reason === "offline" ? "There is no network." : "The till did not answer."}{" "}
-          It will send itself as soon as the connection is back. Nothing is lost.
-        </Alert>
+        <div className="space-y-2.5">
+          <Alert tone="warn">
+            Saved on this phone — {formatKes(receipt.totalCents)}.{" "}
+            {receipt.reason === "offline" ? "There is no network." : "The till did not answer."}{" "}
+            It will send itself as soon as the connection is back. Nothing is lost.
+          </Alert>
+          <div className="flex gap-2">
+            <ThermalPrint receipt={local} paper={printer.paper} auto={false} />
+            <PdfShareButton
+              source={{ bytes: receiptToPdf(local) }}
+              fileName="pending-sale.pdf"
+              shareTitle="Pending sale"
+              label="PDF"
+            />
+          </div>
+          <p className="text-center text-[11px] text-muted">
+            Marked PENDING — the real invoice number is issued once this sale reaches the till.
+          </p>
+        </div>
       );
     }
     return (

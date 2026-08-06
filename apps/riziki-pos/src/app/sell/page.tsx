@@ -12,6 +12,7 @@ import {
   SaleError,
 } from "@/lib/sales";
 import { buildKit, listFormulas } from "@/lib/production";
+import { getPrintSettings } from "@/lib/print-settings";
 import { formatKes } from "@/lib/units";
 import SellClient, {
   type KitChoice,
@@ -246,6 +247,10 @@ export default async function SellPage() {
       topSellerIds={topSellerItemIds(6)}
       customers={customers}
       isOwner={user.role === "owner"}
+      // The shop's letterhead only — nothing owner-sensitive — so a queued
+      // sale can print or PDF a receipt entirely on the phone, with no
+      // server to ask, before the till has ever seen the sale.
+      printer={getPrintSettings()}
       // The recipe list itself is owner-only, so staff are handed an empty one
       // rather than a picker that would refuse them after the click.
       kits={kits}
