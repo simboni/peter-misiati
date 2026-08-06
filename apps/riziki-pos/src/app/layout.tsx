@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import Link from "next/link";
+import { cookies } from "next/headers";
 import "./globals.css";
 import { currentUser } from "@/lib/auth";
 import { BottomNav } from "@/components/nav";
@@ -25,13 +26,19 @@ export const dynamic = "force-dynamic";
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const user = await currentUser();
 
+  // Read here rather than in the browser so the rail is already the right width
+  // on the first paint. A rail that renders wide and then snaps shut reads as a
+  // fault, and on a counter screen that is the last impression to give.
+  const rail = (await cookies()).get("riziki_rail")?.value === "mini" ? "mini" : "wide";
+
   return (
-    <html lang="en">
+    <html lang="en" data-rail={rail}>
       <body className="min-h-dvh">
         <RegisterSW />
         {/* Phone: centered column under the band. Desktop (lg+): a fixed left
-            rail takes over navigation and the content anchors beside it. */}
-        <div className="min-h-dvh lg:pl-60">
+            rail takes over navigation and the content anchors beside it. The
+            rail's width is one CSS variable, so collapsing it moves both. */}
+        <div className="min-h-dvh lg:pl-[var(--rail-w)] lg:transition-[padding] lg:duration-200">
           {user ? (
             <header className="no-print header-deep relative flex items-center gap-3 px-4 py-3 text-white md:px-6 lg:px-10">
               <Link
@@ -62,7 +69,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <main
             className={
               user
-                ? "mx-auto w-full max-w-lg px-4 pb-32 pt-5 md:max-w-3xl md:px-6 md:pt-6 lg:mx-0 lg:max-w-6xl lg:px-10 lg:pb-16 lg:pt-8 xl:max-w-7xl"
+                ? "mx-auto w-full max-w-lg px-4 pb-32 pt-5 md:max-w-3xl md:px-6 md:pt-6 lg:mx-0 lg:max-w-6xl lg:px-10 lg:pb-16 lg:pt-8 xl:max-w-7xl 2xl:max-w-[100rem]"
                 : "mx-auto w-full max-w-lg px-4 py-6"
             }
           >
@@ -70,7 +77,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             {children}
           </main>
 
-          {user ? <BottomNav isOwner={user.role === "owner"} /> : null}
+          {user ? <BottomNav isOwner={user.role === "owner"} rail={rail} /> : null}
         </div>
       </body>
     </html>

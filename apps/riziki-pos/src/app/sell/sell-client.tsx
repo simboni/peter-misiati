@@ -1023,7 +1023,11 @@ export default function SellClient({
           panel still hung below the fold on load, which is the one thing this
           panel must never do. Phones and tablets keep the ordinary page scroll. */}
       <div className="lg:grid lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-stretch lg:gap-6 2xl:grid-cols-[minmax(0,1fr)_24rem]">
-      <div className="min-w-0 lg:h-full lg:overflow-y-auto lg:pr-1">
+      {/* A container, so the tile grid counts columns from the space it actually
+          has rather than from the window. Collapsing the left rail hands this
+          column 168px, and it turns that into another column of products by
+          itself — no breakpoint anywhere has to know the rail exists. */}
+      <div className="@container min-w-0 lg:h-full lg:overflow-y-auto lg:pr-1">
       {/* Pinned to the top of the scrolling column: on a keyboard till, search
           is how the counter works, and it must never be somewhere up the page. */}
       <div className="lg:sticky lg:top-0 lg:z-10 lg:-mt-1 lg:bg-wash lg:pb-2.5 lg:pt-1">
@@ -1322,10 +1326,11 @@ function Grid({
     );
   };
 
-  // Three columns on a laptop, not five. Five left each tile ~115px wide inside
-  // the column the till panel leaves behind, which is how every second product
-  // name ended up as an ellipsis.
-  const cols = "grid grid-cols-2 gap-2 md:grid-cols-3 md:gap-3 lg:grid-cols-3 2xl:grid-cols-4";
+  // Measured against the column, not the window (see the @container above), and
+  // chosen so a tile is never narrower than about 180px — the width at which
+  // product names start being eaten by the ellipsis again.
+  const cols =
+    "grid grid-cols-2 gap-2 @[28rem]:grid-cols-3 @[28rem]:gap-3 @[46.5rem]:grid-cols-4 @[64rem]:grid-cols-5";
 
   return (
     <>

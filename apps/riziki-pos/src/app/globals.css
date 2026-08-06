@@ -67,6 +67,23 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/*
+  The desktop rail's width, in one place.
+
+  Both the rail and the padding that keeps content clear of it read this, so
+  collapsing the rail is one value changing rather than two that can disagree.
+  The attribute is written on <html> by the server from a cookie, so the rail
+  renders at the right width on the very first paint — no flash of a wide rail
+  snapping shut, which on a counter screen looks like a fault.
+*/
+:root {
+  --rail-w: 15rem;
+}
+
+[data-rail="mini"] {
+  --rail-w: 4.5rem;
+}
+
 /* Keyboard users must always be able to see where they are. */
 :focus-visible {
   outline: 2px solid var(--color-brand);

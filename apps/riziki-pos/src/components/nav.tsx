@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useState } from "react";
 
 /**
  * Navigation, one client component, three renderings by breakpoint:
@@ -10,6 +11,16 @@ import { usePathname } from "next/navigation";
  *   - desktop (lg+): a fixed left rail carrying the tabs AND the More groups,
  *     so every destination is one click on a big screen.
  * Owner-only destinations are filtered by the server before this renders.
+ *
+ * The desktop rail collapses, because 240px of navigation is 240px the counter
+ * screen cannot use for products. It collapses to icons rather than to nothing:
+ * a rail that disappears takes every destination with it, and an attendant
+ * hunting for Stock behind a hidden menu is slower than one who never had the
+ * space back. Collapsed, the five tabs and More stay one click away and the
+ * screen gains 168px — a whole extra column of products at most laptop sizes.
+ *
+ * The choice is remembered in a cookie the server reads, so the rail is already
+ * the right width on the first paint.
  */
 
 type Tab = { href: string; label: string; icon: React.ReactNode; ownerOnly?: boolean };
@@ -70,9 +81,24 @@ const MORE_GROUPS: Array<{
   },
 ];
 
-export function BottomNav({ isOwner }: { isOwner: boolean }) {
+/** How long the rail remembers: a year, i.e. until somebody changes it back. */
+const RAIL_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
+
+export function BottomNav({ isOwner, rail = "wide" }: { isOwner: boolean; rail?: "wide" | "mini" }) {
   const path = usePathname();
   const tabs = TABS.filter((t) => !t.ownerOnly || isOwner);
+
+  // Seeded from the server's cookie read, so this matches what was painted.
+  const [mini, setMini] = useState(rail === "mini");
+
+  function toggleRail() {
+    const next = mini ? "wide" : "mini";
+    setMini(!mini);
+    // The CSS variable lives on <html>; moving it here rather than re-rendering
+    // through the server keeps the rail instant and the layout in step with it.
+    document.documentElement.dataset.rail = next;
+    document.cookie = `riziki_rail=${next}; path=/; max-age=${RAIL_COOKIE_MAX_AGE}; samesite=lax`;
+  }
 
   return (
     <>
@@ -105,59 +131,95 @@ export function BottomNav({ isOwner }: { isOwner: boolean }) {
         })}
       </nav>
 
-      {/* Desktop rail. Same tabs, then the More groups laid out flat. */}
-      <nav className="no-print fixed inset-y-0 left-0 z-30 hidden w-60 flex-col overflow-y-auto bg-white px-3 pb-6 pt-5 shadow-[6px_0_24px_-8px_rgb(13_43_48/0.18)] lg:flex">
-        <Link href="/" className="mb-5 flex items-center gap-2.5 px-2">
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-deep text-xs font-extrabold text-white">
-            RZ
-          </span>
-          <span className="text-sm font-bold text-brand-deep">Riziki POS</span>
-        </Link>
+      {/* Desktop rail. Same tabs, then the More groups laid out flat — or, when
+          collapsed, the tabs alone as icons with More at the end of them. */}
+      <nav
+        aria-label="Main"
+        className="no-print fixed inset-y-0 left-0 z-30 hidden w-[var(--rail-w)] flex-col overflow-y-auto overflow-x-hidden bg-white pb-6 pt-5 shadow-[6px_0_24px_-8px_rgb(13_43_48/0.18)] transition-[width] duration-200 lg:flex"
+      >
+        <div className={`mb-4 flex px-3 ${mini ? "flex-col items-center gap-2" : "items-center gap-2.5"}`}>
+          <Link href="/" className="flex min-w-0 items-center gap-2.5" title="Riziki POS">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-deep text-xs font-extrabold text-white">
+              RZ
+            </span>
+            {mini ? null : (
+              <span className="truncate text-sm font-bold text-brand-deep">Riziki POS</span>
+            )}
+          </Link>
+          <button
+            type="button"
+            onClick={toggleRail}
+            aria-expanded={!mini}
+            aria-label={mini ? "Show the menu labels" : "Collapse the menu to icons"}
+            title={mini ? "Show labels" : "Collapse menu"}
+            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-wash hover:text-ink ${
+              mini ? "" : "ml-auto"
+            }`}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              className={`h-4 w-4 transition-transform duration-200 ${mini ? "rotate-180" : ""}`}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M15 5l-7 7 7 7" />
+            </svg>
+          </button>
+        </div>
 
-        {tabs
-          .filter((t) => t.href !== "/more")
-          .map((t) => {
+        <div className={mini ? "px-2" : "px-3"}>
+          {(mini ? tabs : tabs.filter((t) => t.href !== "/more")).map((t) => {
             const active = path === t.href || path.startsWith(t.href + "/");
             return (
               <Link
                 key={t.href}
                 href={t.href}
                 aria-current={active ? "page" : undefined}
-                className={`flex items-center gap-3 rounded-2xl px-3.5 py-2.5 text-sm font-semibold transition-colors ${
-                  active ? "bg-brand text-white shadow-sm" : "text-muted hover:bg-wash hover:text-ink"
-                }`}
+                title={mini ? t.label : undefined}
+                className={`mb-0.5 flex items-center rounded-2xl text-sm font-semibold transition-colors ${
+                  mini ? "h-11 w-11 justify-center" : "gap-3 px-3.5 py-2.5"
+                } ${active ? "bg-brand text-white shadow-sm" : "text-muted hover:bg-wash hover:text-ink"}`}
               >
                 {t.icon}
-                {t.label}
+                {mini ? <span className="sr-only">{t.label}</span> : t.label}
               </Link>
             );
           })}
+        </div>
 
-        {MORE_GROUPS.map((g) => {
-          const links = g.links.filter((l) => !l.owner || isOwner);
-          if (!links.length) return null;
-          return (
-            <div key={g.label}>
-              <div className="mt-5 mb-1 px-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted">
-                {g.label}
-              </div>
-              {links.map((l) => {
-                const active = path === l.href;
-                return (
-                  <Link
-                    key={l.href}
-                    href={l.href}
-                    className={`flex items-center rounded-xl px-3.5 py-2 text-[13px] font-semibold ${
-                      active ? "bg-brand-soft text-brand-dark" : "text-muted hover:bg-wash hover:text-ink"
-                    }`}
-                  >
-                    {l.label}
-                  </Link>
-                );
-              })}
-            </div>
-          );
-        })}
+        {/* The twelve secondary destinations have no sensible icons, so
+            collapsed they fold behind the More tab above rather than becoming a
+            column of guesses. */}
+        {mini
+          ? null
+          : MORE_GROUPS.map((g) => {
+              const links = g.links.filter((l) => !l.owner || isOwner);
+              if (!links.length) return null;
+              return (
+                <div key={g.label} className="px-3">
+                  <div className="mt-5 mb-1 px-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted">
+                    {g.label}
+                  </div>
+                  {links.map((l) => {
+                    const active = path === l.href;
+                    return (
+                      <Link
+                        key={l.href}
+                        href={l.href}
+                        className={`flex items-center rounded-xl px-3.5 py-2 text-[13px] font-semibold ${
+                          active ? "bg-brand-soft text-brand-dark" : "text-muted hover:bg-wash hover:text-ink"
+                        }`}
+                      >
+                        {l.label}
+                      </Link>
+                    );
+                  })}
+                </div>
+              );
+            })}
       </nav>
     </>
   );
