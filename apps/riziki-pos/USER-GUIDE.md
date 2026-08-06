@@ -33,9 +33,15 @@ Tap **Sell**.
 
 Four taps. There is no "are you sure" — the queue does not wait.
 
+**Two boards.** The counter opens on **Products** — the things Riziki mixes and
+bottles. **Chemicals** is the other board: everything sold as a chemical, from
+Ungerol 250 g to a 20 kg sack. Tap the name at the top to change board, or swipe
+sideways on a phone.
+
 **Finding things.** The most-sold items sit at the top. Otherwise type in the
 search box: it knows the other names too, so *sles* finds Ungerol and
-*soda ash* finds Magadi.
+*soda ash* finds Magadi. **Search looks at both boards at once**, so you never
+have to work out which board a thing is on.
 
 **Wholesale prices.** Tap **Wholesale** and every price changes at once. The
 whole screen turns orange so nobody can miss it, and it goes back to retail by

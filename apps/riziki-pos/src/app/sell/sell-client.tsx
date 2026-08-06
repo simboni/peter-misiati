@@ -38,6 +38,23 @@ import { quickAddCustomerAction } from "@/app/customers/actions";
 /** Sentinel value for the "＋ New customer" row in the customer dropdown. */
 const NEW_CUSTOMER = "__new";
 
+/**
+ * The two things this shop sells, and the order they are offered in.
+ *
+ * Products first because it is the shorter list and the commoner walk-in; the
+ * chemical buyer knows what they came for and is one tap (or one swipe) away.
+ * Search cuts across both, so nobody has to guess which board a thing is on.
+ */
+type Board = "products" | "chemicals";
+const BOARDS: Array<{ key: Board; label: string }> = [
+  { key: "products", label: "Products" },
+  { key: "chemicals", label: "Chemicals" },
+];
+
+/** Far enough to be a swipe, and flat enough not to be a scroll. */
+const SWIPE_MIN_X = 56;
+const SWIPE_MAX_Y = 40;
+
 // ------------------------------------------------------------- wire types
 
 export interface SellItem {
@@ -324,6 +341,8 @@ export default function SellClient({
   const [tier, setTier] = useState<Tier>("retail");
   const [cart, setCart] = useState<CartLine[]>([]);
   const [query, setQuery] = useState("");
+  const [board, setBoard] = useState<Board>("products");
+  const swipeFrom = useRef<{ x: number; y: number } | null>(null);
   const [sheet, setSheet] = useState<"none" | "cart" | "pay">("none");
   /**
    * The desktop till panel shows one thing at a time — the cart, or payment.
@@ -485,6 +504,32 @@ export default function SellClient({
     };
   }, [customerId, onLastOrder]);
 
+  /**
+   * Swiping between the boards.
+   *
+   * Deliberately hand-rolled and deliberately fussy: the product grid scrolls
+   * vertically, and a carousel that hijacks a downward flick is worse than no
+   * carousel at all. So a gesture only counts if it travelled a good way
+   * sideways and barely at all up or down.
+   */
+  function onBoardTouchStart(e: React.TouchEvent) {
+    const t = e.touches[0];
+    swipeFrom.current = t ? { x: t.clientX, y: t.clientY } : null;
+  }
+
+  function onBoardTouchEnd(e: React.TouchEvent) {
+    const from = swipeFrom.current;
+    swipeFrom.current = null;
+    const t = e.changedTouches[0];
+    if (!from || !t) return;
+
+    const dx = t.clientX - from.x;
+    const dy = t.clientY - from.y;
+    if (Math.abs(dx) < SWIPE_MIN_X || Math.abs(dy) > SWIPE_MAX_Y) return;
+
+    setBoard(dx < 0 ? "chemicals" : "products");
+  }
+
   /** Fill the cart from that last order, at today's prices. */
   function fillFromRepeat() {
     if (!repeat) return;
@@ -603,6 +648,7 @@ export default function SellClient({
     setRepeat(null);
     setKitOpen(false);
     setKitOffer(null);
+    setBoard("products");
     uuid.current = newUuid();
   }, [state]);
 
@@ -797,8 +843,10 @@ export default function SellClient({
     ? items.filter((i) => i.search.includes(searchText)).sort(shelfOrder)
     : [];
   const finished = items.filter((i) => i.kind === "finished").sort(shelfOrder);
-  const packs = items.filter((i) => i.kind === "pack").sort(shelfOrder);
-  const other = items.filter((i) => i.kind === "other").sort(shelfOrder);
+  // Anything that is not something Riziki mixed is a chemical to the person
+  // buying it. Folding "other" in here rather than into its own section means a
+  // priced item can never end up on no board at all.
+  const chemicals = items.filter((i) => i.kind !== "finished").sort(shelfOrder);
   const top = topSellerIds.map((id) => byId.get(id)).filter((i): i is SellItem => Boolean(i));
 
   const wholesale = tier === "wholesale";
@@ -1357,6 +1405,38 @@ export default function SellClient({
           placeholder="Search — name, or chemical (sles, labsa…)"
           aria-label="Search items"
         />
+
+        {/* Sticky with the search, so changing board never means scrolling
+            back up for it. Hidden while searching: a search already looks
+            across both boards, and a switcher that filtered the results would
+            hide the very thing that was just found. */}
+        {q ? null : (
+          <div
+            role="tablist"
+            aria-label="What to sell"
+            className="mt-2 grid grid-cols-2 gap-1 rounded-2xl bg-wash p-1 ring-1 ring-inset ring-line"
+          >
+            {BOARDS.map((b) => {
+              const on = board === b.key;
+              const count = (b.key === "products" ? finished : chemicals).length;
+              return (
+                <button
+                  key={b.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={on}
+                  onClick={() => setBoard(b.key)}
+                  className={`flex min-h-11 items-center justify-center gap-2 rounded-xl text-sm font-bold transition-colors ${
+                    on ? "bg-white text-brand-deep shadow-card" : "text-muted hover:text-ink"
+                  }`}
+                >
+                  {b.label}
+                  <span className="text-[11px] font-semibold text-muted tnum">{count}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Two ways to fill a cart in one tap instead of thirty. Both are only
@@ -1556,26 +1636,41 @@ export default function SellClient({
             </>
           ) : null}
 
-          {finished.length ? (
-            <>
-              <SectionLabel>Finished products</SectionLabel>
-              <Grid items={finished} tier={tier} onAdd={addItem} cart={cart} />
-            </>
+          {/* Two boards, because two customers walk in.
+              One wants a bottle of laundry soap; the other wants two kilos of
+              caustic soda and does not care what Riziki mixes. Stacked, the
+              second had to scroll past all thirteen of the first's products
+              every single time. Side by side they are one tap apart, and the
+              board you are on is the whole screen. */}
+          {/* Said once, on touch screens, and only while nothing is being sold —
+              a hint is worth a line of a phone screen before the first sale and
+              never during one. */}
+          {!cart.length ? (
+            <p className="mt-1.5 text-center text-[11px] text-muted lg:hidden">
+              ‹ swipe to change board ›
+            </p>
           ) : null}
 
-          {packs.length ? (
-            <>
-              <SectionLabel>Repacked chemicals</SectionLabel>
-              <Grid items={packs} tier={tier} onAdd={addItem} cart={cart} />
-            </>
-          ) : null}
-
-          {other.length ? (
-            <>
-              <SectionLabel>Other</SectionLabel>
-              <Grid items={other} tier={tier} onAdd={addItem} cart={cart} />
-            </>
-          ) : null}
+          <div
+            role="tabpanel"
+            onTouchStart={onBoardTouchStart}
+            onTouchEnd={onBoardTouchEnd}
+            className="mt-3"
+          >
+            {board === "products" ? (
+              finished.length ? (
+                <Grid items={finished} tier={tier} onAdd={addItem} cart={cart} />
+              ) : (
+                <p className="py-8 text-center text-sm text-muted">
+                  Nothing mixed and bottled is on the price list yet.
+                </p>
+              )
+            ) : chemicals.length ? (
+              <Grid items={chemicals} tier={tier} onAdd={addItem} cart={cart} />
+            ) : (
+              <p className="py-8 text-center text-sm text-muted">No chemicals are priced yet.</p>
+            )}
+          </div>
         </>
       )}
 
