@@ -654,6 +654,39 @@ export const projects: Project[] = [
     ],
   },
   {
+    slug: "riziki-chemicals",
+    title: "Riziki Chemicals",
+    summary:
+      "A demo build pairing a chemicals-company website with an owner-facing point-of-sale system — a working showcase of how a small distributor can run its storefront and its counter from one stack.",
+    type: "Demo build",
+    year: "2026",
+    role: "Design & full-stack development",
+    stack: ["Web", "Point of Sale"],
+    tags: ["Web App", "Business"],
+    featured: false,
+    cover: { from: "from-green-600", to: "to-ink-950", initials: "RC" },
+    category: "Business",
+    links: { live: "https://rizikichemicals.co.ke", extra: { label: "POS demo", href: "https://pos.rizikichemicals.co.ke" } },
+    problem:
+      "Small chemicals distributors usually run two disconnected worlds: a website (if any) that customers see, and a counter that still runs on paper or a spreadsheet. Stock, sales and pricing live in someone's head, and nothing reconciles at the end of the day.",
+    approach:
+      "I built Riziki Chemicals as a demonstration of the pairing I recommend to trading businesses: a clean public site for products and enquiries, plus a separate owner-facing POS on its own subdomain for sales at the counter. It doubles as a live sandbox prospective clients can click through before commissioning their own.",
+    architecture: [
+      "Public marketing site and the point-of-sale app deployed separately (pos. subdomain) so the storefront and the counter scale independently.",
+      "Owner-role sign-in gating the POS away from the public site.",
+      "Demo data throughout — the build exists to be explored, not to hold live business records.",
+    ],
+    highlights: [
+      "One project covering both sides of a trading business: the public storefront and the internal counter system.",
+      "A clickable demo prospective clients can try before commissioning their own build.",
+    ],
+    impact: [
+      { value: "2-in-1", label: "Website + POS" },
+      { value: "Demo", label: "Clickable sandbox" },
+    ],
+    media: [],
+  },
+  {
     slug: "talitha-kum-kenya",
     title: "Talitha Kum International Kenya",
     summary:

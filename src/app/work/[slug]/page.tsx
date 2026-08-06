@@ -95,6 +95,16 @@ export default async function CaseStudyPage({
                 <GitHubIcon className="h-4 w-4" /> view code
               </Button>
             )}
+            {project.links.extra && (
+              <Button
+                href={project.links.extra.href}
+                variant="outline"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <ExternalLinkIcon className="h-4 w-4" /> {project.links.extra.label}
+              </Button>
+            )}
           </div>
         </div>
       </section>
