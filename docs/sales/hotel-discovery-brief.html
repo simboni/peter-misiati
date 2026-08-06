@@ -1,0 +1,240 @@
+<!doctype html><html><head><meta charset="utf-8">
+<style>
+  @page { size: A4; margin: 14mm 13mm 12mm; }
+  *{margin:0;padding:0;box-sizing:border-box}
+  :root{--ink:#0f1a16;--body:#33403a;--muted:#63736c;--accent:#0a7d4f;--accent-l:#eaf4ee;
+        --gold:#b8860b;--line:#dce4de;--soft:#f4f8f5}
+  body{font-family:'DejaVu Sans','Liberation Sans',Arial,Helvetica,sans-serif;color:var(--body);font-size:10pt;line-height:1.5}
+  a{color:var(--accent);text-decoration:none}
+  h1{font-size:23pt;color:var(--ink);line-height:1.12;letter-spacing:-.4px}
+  h2{font-size:12.5pt;color:var(--accent);margin:0 0 3px;letter-spacing:-.2px}
+  .lead{font-size:10.5pt;color:var(--body);margin-top:9px}
+  .cover{border-bottom:3px solid var(--accent);padding-bottom:14px;margin-bottom:16px}
+  .eyebrow{font-size:8.5pt;letter-spacing:2px;text-transform:uppercase;color:var(--accent);font-weight:700}
+  .byline{margin-top:12px;font-size:9pt;color:var(--muted);line-height:1.6}
+  .byline b{color:var(--ink)}
+
+  section{page-break-inside:avoid;margin-bottom:15px}
+  .shead{display:flex;align-items:baseline;gap:9px;border-bottom:1px solid var(--line);padding-bottom:4px;margin-bottom:9px}
+  .num{background:var(--accent);color:#fff;font-weight:700;font-size:9pt;width:20px;height:20px;
+       border-radius:5px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
+  .hint{font-size:9pt;color:var(--muted);font-style:italic;margin-bottom:7px}
+
+  .q{margin-bottom:7px;padding-left:2px}
+  .q .t{color:var(--ink);font-weight:600;font-size:9.8pt}
+  .opts{margin-top:3px;font-size:9.3pt;color:var(--body)}
+  .box{display:inline-block;width:10px;height:10px;border:1.3px solid var(--accent);border-radius:2px;
+       margin-right:5px;vertical-align:-1px}
+  .opts span{display:inline-block;margin-right:14px;white-space:nowrap}
+  .write{border-bottom:1px dotted #b9c5be;height:14px;margin-top:4px}
+  .write2{border-bottom:1px dotted #b9c5be;height:14px;margin-top:11px}
+
+  table{width:100%;border-collapse:collapse;font-size:9.3pt;margin-top:5px}
+  th{background:var(--accent-l);color:var(--ink);text-align:left;padding:6px 8px;font-size:8.6pt;
+     text-transform:uppercase;letter-spacing:.7px;border:1px solid var(--line)}
+  td{padding:6px 8px;border:1px solid var(--line);vertical-align:top}
+  td.c{text-align:center;width:60px}
+  .phase{background:var(--soft);border-left:3px solid var(--accent);padding:9px 12px;margin-bottom:8px}
+  .phase b{color:var(--ink)}
+  .phase .w{color:var(--accent);font-weight:700;font-size:9pt;text-transform:uppercase;letter-spacing:1px}
+  .note{background:var(--accent-l);border-radius:7px;padding:11px 13px;font-size:9.5pt}
+  .note b{color:var(--ink)}
+  .work{display:grid;grid-template-columns:1fr 1fr;gap:5px 16px;font-size:9.3pt;margin-top:6px}
+  .work div{padding:3px 0;border-bottom:1px solid var(--line)}
+  .work b{color:var(--ink)}
+  .work span{color:var(--muted);font-size:8.7pt;display:block}
+  .foot{margin-top:14px;border-top:2px solid var(--accent);padding-top:11px;font-size:9.3pt}
+  .foot b{color:var(--ink)}
+  .sign{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-top:16px}
+  .sign div{border-top:1px solid var(--muted);padding-top:4px;font-size:8.7pt;color:var(--muted)}
+  .pill{display:inline-block;background:var(--accent);color:#fff;font-size:8.3pt;font-weight:700;
+        padding:3px 9px;border-radius:999px;letter-spacing:.4px}
+  .pill.g{background:var(--gold)}
+  .pill.o{background:#fff;color:var(--accent);border:1.3px solid var(--accent)}
+</style></head>
+<body>
+
+<div class="cover">
+  <div class="eyebrow">Discovery Document &amp; Requirements Brief</div>
+  <h1>Your Hotel Online &mdash; from website<br>to a system that runs the property</h1>
+  <p class="lead">This short document is here to help us agree on <b>exactly what you need</b>, and in what order.
+  You don&rsquo;t need to know the technology &mdash; just tell us how your hotel actually works today and where it hurts.
+  <b>Tick the boxes, write in the blanks, and send it back.</b> We&rsquo;ll turn your answers into a clear proposal,
+  a timeline and a fixed price.</p>
+  <div class="byline">
+    <b>Prepared by:</b> Simboni Misiati Peter (SMP) &mdash; SMP Developers &nbsp;·&nbsp;
+    <b>Portfolio:</b> <a href="https://smp-developers.com">smp-developers.com</a><br>
+    <b>Email:</b> info@smp-developers.com &nbsp;·&nbsp; <b>Phone / WhatsApp:</b> +254 706 289 514 &nbsp;·&nbsp;
+    10+ years &middot; 100+ projects delivered
+  </div>
+</div>
+
+<div class="note" style="margin-bottom:15px">
+  <b>How to read this.</b> A hotel system is usually built in stages, not all at once &mdash; you get value early and
+  spread the cost. Section&nbsp;6 lays out those stages. Everything before it simply helps us work out which stage
+  you should start at. <b>If you&rsquo;re unsure about an answer, leave it blank or write &ldquo;not sure&rdquo;</b> &mdash;
+  that&rsquo;s useful information too, and we&rsquo;ll advise.
+</div>
+
+<section>
+  <div class="shead"><span class="num">1</span><h2>About your property</h2></div>
+  <div class="q"><span class="t">Hotel / property name and location</span><div class="write"></div></div>
+  <div class="q"><span class="t">What best describes you?</span>
+    <div class="opts"><span><i class="box"></i>Hotel</span><span><i class="box"></i>Resort</span><span><i class="box"></i>Lodge</span><span><i class="box"></i>Guest house</span><span><i class="box"></i>Serviced apartments</span><span><i class="box"></i>Airbnb / villas</span></div></div>
+  <div class="q"><span class="t">How many rooms, and how many room types?</span>
+    <div class="opts">Rooms: <i class="box"></i>1&ndash;10 &nbsp; <i class="box"></i>11&ndash;30 &nbsp; <i class="box"></i>31&ndash;60 &nbsp; <i class="box"></i>60+ &nbsp;&nbsp;&nbsp; Room types (single, double, suite&hellip;): ______</div></div>
+  <div class="q"><span class="t">Do you have more than one property or branch?</span>
+    <div class="opts"><span><i class="box"></i>One only</span><span><i class="box"></i>Two or more &mdash; how many? ______</span><span><i class="box"></i>Planning to expand</span></div></div>
+  <div class="q"><span class="t">Besides rooms, what else do you run?</span>
+    <div class="opts"><span><i class="box"></i>Restaurant</span><span><i class="box"></i>Bar</span><span><i class="box"></i>Conference / events</span><span><i class="box"></i>Pool / spa</span><span><i class="box"></i>Tours</span><span><i class="box"></i>Other: ______</span></div></div>
+</section>
+
+<section>
+  <div class="shead"><span class="num">2</span><h2>How guests book you today</h2></div>
+  <div class="hint">This tells us how much money is currently leaking to middlemen.</div>
+  <div class="q"><span class="t">Where do most bookings come from?</span>
+    <div class="opts"><span><i class="box"></i>Phone call</span><span><i class="box"></i>WhatsApp</span><span><i class="box"></i>Walk-in</span><span><i class="box"></i>Booking.com / Expedia</span><span><i class="box"></i>Airbnb</span><span><i class="box"></i>Agents</span><span><i class="box"></i>Our website</span></div></div>
+  <div class="q"><span class="t">Roughly what % of bookings come through online travel agents (Booking.com etc.), and what commission do they take?</span>
+    <div class="opts">Share: ______% &nbsp;&nbsp; Commission: ______%</div></div>
+  <div class="q"><span class="t">Do you currently have a website?</span>
+    <div class="opts"><span><i class="box"></i>No</span><span><i class="box"></i>Yes, but outdated</span><span><i class="box"></i>Yes &mdash; address: ______________________</span></div></div>
+  <div class="q"><span class="t">Can guests pay you online right now?</span>
+    <div class="opts"><span><i class="box"></i>No, cash / on arrival</span><span><i class="box"></i>M-Pesa till or paybill</span><span><i class="box"></i>Bank transfer</span><span><i class="box"></i>Card</span></div></div>
+</section>
+
+<section>
+  <div class="shead"><span class="num">3</span><h2>How you run the property today</h2></div>
+  <div class="hint">Be honest here &mdash; &ldquo;a book at reception&rdquo; is a perfectly normal answer, and it&rsquo;s where most hotels start.</div>
+  <table>
+    <tr><th style="width:46%">How do you currently handle&hellip;</th><th class="c">Paper /<br>book</th><th class="c">Excel</th><th class="c">A system<br>we bought</th><th class="c">Not at<br>all</th></tr>
+    <tr><td>Reservations &amp; the room diary</td><td class="c"><i class="box"></i></td><td class="c"><i class="box"></i></td><td class="c"><i class="box"></i></td><td class="c"><i class="box"></i></td></tr>
+    <tr><td>Check-in / check-out &amp; guest register</td><td class="c"><i class="box"></i></td><td class="c"><i class="box"></i></td><td class="c"><i class="box"></i></td><td class="c"><i class="box"></i></td></tr>
+    <tr><td>Guest bills &amp; receipts / invoices</td><td class="c"><i class="box"></i></td><td class="c"><i class="box"></i></td><td class="c"><i class="box"></i></td><td class="c"><i class="box"></i></td></tr>
+    <tr><td>Restaurant &amp; bar orders (POS)</td><td class="c"><i class="box"></i></td><td class="c"><i class="box"></i></td><td class="c"><i class="box"></i></td><td class="c"><i class="box"></i></td></tr>
+    <tr><td>Stock &mdash; kitchen, bar, housekeeping</td><td class="c"><i class="box"></i></td><td class="c"><i class="box"></i></td><td class="c"><i class="box"></i></td><td class="c"><i class="box"></i></td></tr>
+    <tr><td>Housekeeping &amp; room status</td><td class="c"><i class="box"></i></td><td class="c"><i class="box"></i></td><td class="c"><i class="box"></i></td><td class="c"><i class="box"></i></td></tr>
+    <tr><td>Staff, shifts &amp; who did what</td><td class="c"><i class="box"></i></td><td class="c"><i class="box"></i></td><td class="c"><i class="box"></i></td><td class="c"><i class="box"></i></td></tr>
+    <tr><td>Daily takings &amp; reports for the owner</td><td class="c"><i class="box"></i></td><td class="c"><i class="box"></i></td><td class="c"><i class="box"></i></td><td class="c"><i class="box"></i></td></tr>
+  </table>
+</section>
+
+<section>
+  <div class="shead"><span class="num">4</span><h2>What hurts most right now?</h2></div>
+  <div class="hint">Tick everything that sounds like your hotel. This is the single most useful section &mdash; it decides what we build first.</div>
+  <div class="opts" style="line-height:1.85">
+    <span><i class="box"></i>Guests can&rsquo;t find us online</span>
+    <span><i class="box"></i>We lose too much to OTA commission</span>
+    <span><i class="box"></i>Double bookings</span><br>
+    <span><i class="box"></i>We don&rsquo;t know our true daily income</span>
+    <span><i class="box"></i>Stock / stores go missing</span>
+    <span><i class="box"></i>Bar &amp; kitchen sales don&rsquo;t reconcile</span><br>
+    <span><i class="box"></i>No proper receipts or invoices</span>
+    <span><i class="box"></i>Can&rsquo;t see the business when away</span>
+    <span><i class="box"></i>Too much paperwork at reception</span><br>
+    <span><i class="box"></i>Corporate clients want invoices &amp; credit</span>
+    <span><i class="box"></i>KRA / eTIMS compliance</span>
+    <span><i class="box"></i>Staff accountability</span>
+  </div>
+  <div class="q" style="margin-top:8px"><span class="t">If we could fix only ONE thing in the next three months, what should it be?</span>
+    <div class="write"></div><div class="write2"></div></div>
+</section>
+
+<section>
+  <div class="shead"><span class="num">5</span><h2>The website itself</h2></div>
+  <div class="q"><span class="t">What must the website do for you? (tick all)</span>
+    <div class="opts" style="line-height:1.8">
+      <span><i class="box"></i>Look credible &amp; show the property</span>
+      <span><i class="box"></i>Photo gallery</span>
+      <span><i class="box"></i>Show rooms &amp; live rates</span><br>
+      <span><i class="box"></i>Take direct bookings</span>
+      <span><i class="box"></i>Take deposits / full payment online</span>
+      <span><i class="box"></i>Conference &amp; events enquiries</span><br>
+      <span><i class="box"></i>Restaurant menu</span>
+      <span><i class="box"></i>Reviews &amp; testimonials</span>
+      <span><i class="box"></i>Blog / offers &amp; packages</span><br>
+      <span><i class="box"></i>Multi-language</span>
+      <span><i class="box"></i>WhatsApp enquiry button</span>
+      <span><i class="box"></i>We update content ourselves</span>
+    </div></div>
+  <div class="q"><span class="t">Do you have professional photos of the property?</span>
+    <div class="opts"><span><i class="box"></i>Yes, good ones</span><span><i class="box"></i>Some, need more</span><span><i class="box"></i>No &mdash; we&rsquo;d need a shoot</span></div></div>
+  <div class="q"><span class="t">Do you own your domain name (e.g. yourhotel.co.ke)?</span>
+    <div class="opts"><span><i class="box"></i>Yes: ______________________</span><span><i class="box"></i>No &mdash; please register one for us</span></div></div>
+  <div class="q"><span class="t">Any hotel websites you like the look of? (a link or two really helps)</span><div class="write"></div></div>
+</section>
+
+<section>
+  <div class="shead"><span class="num">6</span><h2>How we&rsquo;d build it &mdash; in stages</h2></div>
+  <div class="hint">You don&rsquo;t have to decide the whole system now. Each stage stands on its own and pays for itself before the next one starts. <b>Tick where you&rsquo;d like to begin.</b></div>
+
+  <div class="phase"><span class="pill">STAGE 1</span> &nbsp;<span class="w">Be found &amp; be trusted</span><br>
+    <b>A professional hotel website</b> &mdash; rooms, photos, location, contact, WhatsApp enquiries and an enquiry form.
+    Fast, mobile-first, and built so booking can be switched on later without a rebuild.
+    <div class="opts" style="margin-top:5px"><i class="box"></i> <b>Start here</b></div></div>
+
+  <div class="phase"><span class="pill">STAGE 2</span> &nbsp;<span class="w">Take direct bookings</span><br>
+    <b>Live availability, online booking and payment</b> (M-Pesa and/or card), automatic confirmation emails, and a
+    simple reservations calendar for reception. This is the stage that starts cutting OTA commission.
+    <div class="opts" style="margin-top:5px"><i class="box"></i> <b>Include this</b></div></div>
+
+  <div class="phase"><span class="pill">STAGE 3</span> &nbsp;<span class="w">Run the front desk</span><br>
+    <b>Property management:</b> room diary, check-in / check-out, guest register and history, folio &amp; guest billing,
+    receipts and invoices, housekeeping room status, and daily reports for the owner.
+    <div class="opts" style="margin-top:5px"><i class="box"></i> <b>Include this</b></div></div>
+
+  <div class="phase"><span class="pill g">STAGE 4</span> &nbsp;<span class="w">Restaurant, bar &amp; stores</span><br>
+    <b>Point of sale and stock:</b> table &amp; room-charge orders, kitchen/bar tickets, printed receipts,
+    stock control for kitchen, bar and housekeeping, supplier purchases, wastage and stocktakes.
+    <div class="opts" style="margin-top:5px"><i class="box"></i> <b>Include this</b></div></div>
+
+  <div class="phase"><span class="pill o">STAGE 5</span> &nbsp;<span class="w">Control &amp; grow</span><br>
+    <b>The owner&rsquo;s layer:</b> revenue &amp; occupancy dashboards you can see from anywhere, staff roles and
+    permissions, an activity log of who did what, corporate accounts &amp; credit, KRA / eTIMS-ready invoicing,
+    channel sync with Booking.com, and multi-property support.
+    <div class="opts" style="margin-top:5px"><i class="box"></i> <b>Include this</b></div></div>
+</section>
+
+<section>
+  <div class="shead"><span class="num">7</span><h2>Practicalities</h2></div>
+  <div class="q"><span class="t">When would you like to go live?</span>
+    <div class="opts"><span><i class="box"></i>As soon as possible</span><span><i class="box"></i>1&ndash;2 months</span><span><i class="box"></i>3&ndash;6 months</span><span><i class="box"></i>Just exploring for now</span></div></div>
+  <div class="q"><span class="t">Do you have a budget range in mind?</span>
+    <div class="opts"><span><i class="box"></i>Website only (smaller)</span><span><i class="box"></i>Website + booking</span><span><i class="box"></i>Full system, phased</span><span><i class="box"></i>Prefer you advise us</span></div></div>
+  <div class="q"><span class="t">At the property, is there&hellip;</span>
+    <div class="opts"><span>Reliable internet? <i class="box"></i>Yes <i class="box"></i>Sometimes <i class="box"></i>No</span> &nbsp;&nbsp;
+      <span>Computers/tablets at reception? <i class="box"></i>Yes <i class="box"></i>No</span> &nbsp;&nbsp;
+      <span>A receipt printer? <i class="box"></i>Yes <i class="box"></i>No</span></div></div>
+  <div class="q"><span class="t">Who will we work with day to day, and who signs off decisions?</span><div class="write"></div></div>
+  <div class="q"><span class="t">Anything else we should know about how your hotel works?</span>
+    <div class="write"></div><div class="write2"></div><div class="write2"></div></div>
+</section>
+
+<section>
+  <div class="shead"><span class="num">8</span><h2>Who you&rsquo;d be working with</h2></div>
+  <p style="font-size:9.6pt">I&rsquo;m <b>Simboni Misiati Peter (SMP)</b> &mdash; a software engineer and tech consultant with an
+  <b>MSc in Software Engineering</b>, 10+ years&rsquo; experience and 100+ delivered projects. I build both sides of a
+  business: the website guests see, and the system your staff run. Recent, relevant work:</p>
+  <div class="work">
+    <div><b>Zuri Hotels &amp; Resorts</b> &mdash; hospitality website &amp; enquiry funnel<span>Four properties across Kenya &amp; Uganda &middot; zuriplaceresort.com</span></div>
+    <div><b>Riziki Industrial Chemicals</b> &mdash; website + full POS &amp; stock system<span>Sales, stock ledger, batches, credit, reports &middot; rizikichemicals.co.ke</span></div>
+    <div><b>64 Theatre</b> &mdash; ticketing with M-Pesa checkout<span>Online sales, signed QR tickets, offline gate scanning</span></div>
+    <div><b>TallyPay</b> &mdash; billing &amp; payments platform<span>Quote &rarr; invoice &rarr; receipt, M-Pesa collection &middot; tallypay.co.ke</span></div>
+    <div><b>StackUp</b> &mdash; multi-tenant SaaS product<span>Secure, role-based, web &amp; mobile &middot; stackup.co.ke</span></div>
+    <div><b>Fit Generations</b> &mdash; membership &amp; classes site<span>Timetable and join/enquiry journeys &middot; fitgenerationsgym.com</span></div>
+  </div>
+  <p style="font-size:9.4pt;margin-top:8px">See the full portfolio and case studies at <a href="https://smp-developers.com"><b>smp-developers.com</b></a>.</p>
+</section>
+
+<div class="foot">
+  <b>What happens next.</b> Send this back &mdash; photographed, scanned or filled in on your phone &mdash; and within
+  <b>three working days</b> you&rsquo;ll receive a written proposal with a recommended starting stage, a timeline, a fixed
+  price and exactly what&rsquo;s included. There&rsquo;s no cost or obligation for this step.
+  <br><br>
+  <b>Return to:</b> info@smp-developers.com &nbsp;·&nbsp; WhatsApp <b>+254 706 289 514</b> &nbsp;·&nbsp; smp-developers.com
+  <div class="sign">
+    <div>Completed by (name &amp; role)</div>
+    <div>Date</div>
+  </div>
+</div>
+
+</body></html>
