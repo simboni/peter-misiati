@@ -223,6 +223,40 @@ function centsToInput(cents: number): string {
   return String(cents / 100);
 }
 
+/**
+ * Split "Carwash Shampoo 1 L" into the product and the pack size.
+ *
+ * The size is the whole point of the tile — the same chemical sits on the shelf
+ * in five sizes, and picking the wrong one is the counter's most expensive slip.
+ * Kept in one string it was the first thing an ellipsis ate: "Carwash Shampo…",
+ * "Caustic Soda — …", size gone. Pulled out, the product name gets the line it
+ * needs and the size gets its own, always legible, always in the same place.
+ *
+ * Display-only, and it never invents anything: a name it cannot split is shown
+ * whole with no size line.
+ */
+function splitName(name: string): { base: string; size: string | null } {
+  const dash = name.lastIndexOf(" — ");
+  if (dash > 0) return { base: name.slice(0, dash), size: name.slice(dash + 3) };
+  // Finished products are named without the dash: "Laundry Soap 1 L".
+  const tail = name.match(/^(.*\S)\s+(\d+(?:\.\d+)?\s?(?:kg|g|ml|l|pcs|pc))$/i);
+  if (tail) return { base: tail[1], size: tail[2] };
+  return { base: name, size: null };
+}
+
+/**
+ * Shelf order, not string order.
+ *
+ * Sorted by name alone, Ungerol reads 1 kg, 20 kg, 250 g, 500 g, 5 kg — five
+ * sizes of one chemical in an order that matches nothing on the shelf and
+ * nothing in anyone's head. Grouping by product and then by ascending size
+ * gives 250 g, 500 g, 1 kg, 5 kg, 20 kg.
+ */
+function shelfOrder(a: SellItem, b: SellItem): number {
+  const cmp = splitName(a.name).base.localeCompare(splitName(b.name).base);
+  return cmp !== 0 ? cmp : a.sizeMilli - b.sizeMilli;
+}
+
 interface CartLine {
   itemId: number;
   units: number;
@@ -249,6 +283,16 @@ export default function SellClient({
   const [cart, setCart] = useState<CartLine[]>([]);
   const [query, setQuery] = useState("");
   const [sheet, setSheet] = useState<"none" | "cart" | "pay">("none");
+  /**
+   * The desktop till panel shows one thing at a time — the cart, or payment.
+   *
+   * Both at once is what broke it: the payment form under six cart lines is
+   * taller than any laptop screen, so the bill and the Complete button lived
+   * below the fold. One pane at a time keeps the panel a fixed height, the total
+   * always in view, and the sale three clicks long — the same three the phone
+   * has always had.
+   */
+  const [deskPane, setDeskPane] = useState<"cart" | "pay">("cart");
 
   /**
    * Payment, the way a shopkeeper says it: "he is giving me 3,000 now, the rest
@@ -369,6 +413,7 @@ export default function SellClient({
     setTier("retail");
     setQuery("");
     setSheet("none");
+    setDeskPane("cart");
     uuid.current = newUuid();
   }, [state]);
 
@@ -515,10 +560,10 @@ export default function SellClient({
   // --- item lists ---------------------------------------------------------
 
   const q = query.trim().toLowerCase();
-  const matches = q ? items.filter((i) => i.search.includes(q)) : [];
-  const finished = items.filter((i) => i.kind === "finished");
-  const packs = items.filter((i) => i.kind === "pack");
-  const other = items.filter((i) => i.kind === "other");
+  const matches = q ? items.filter((i) => i.search.includes(q)).sort(shelfOrder) : [];
+  const finished = items.filter((i) => i.kind === "finished").sort(shelfOrder);
+  const packs = items.filter((i) => i.kind === "pack").sort(shelfOrder);
+  const other = items.filter((i) => i.kind === "other").sort(shelfOrder);
   const top = topSellerIds.map((id) => byId.get(id)).filter((i): i is SellItem => Boolean(i));
 
   const wholesale = tier === "wholesale";
@@ -572,7 +617,9 @@ export default function SellClient({
 
   const renderCartBody = () => (
     <>
-        <div className="space-y-2">
+        {/* Hairlines between rows, not a box around each one: a list of six
+            things should read as one list. */}
+        <div className="divide-y divide-line">
           {lines.map(({ line, item }) => (
             <CartRow
               key={line.itemId}
@@ -856,51 +903,62 @@ export default function SellClient({
           </p>
         ) : null}
 
-        <Button
-          className="mt-4 w-full text-base"
-          disabled={
-            pending ||
-            !cart.length ||
-            overpaidCents > 0 ||
-            mpesaIncomplete ||
-            (needsCustomer && !customerId) ||
-            (state.status === "pin" && !ownerPin.trim())
-          }
-          onClick={() => complete(state.status === "credit")}
-        >
-          {/* The label states the outcome, so nobody has to reconstruct it from
-              a running total: "Take 3,000 · 5,400 later". */}
-          {pending
-            ? online
-              ? "Recording…"
-              : "Saving on this phone…"
-            : state.status === "credit"
-              ? "Let them take it anyway"
-              : !online
-                ? `Save on this phone — ${formatKes(totalCents)}`
-                : paidCents > 0 && onAccountCents > 0
-                  ? `Take ${formatKes(paidCents)} · ${formatKes(onAccountCents)} later`
-                  : onAccountCents > 0
-                    ? `${formatKes(onAccountCents)} to pay later`
-                    : `Take ${formatKes(totalCents)} — done`}
-        </Button>
+    </>
+  );
 
-        {mpesaIncomplete ? (
-          <p className="mt-2 text-xs font-semibold text-bad">
-            Type the M-Pesa code before completing.
-          </p>
-        ) : null}
-        {needsCustomer && !customerId ? (
-          <p className="mt-2 text-xs font-semibold text-bad">
-            Choose who is paying later — the balance has to sit under a name.
-          </p>
-        ) : null}
+  /**
+   * The button that ends the sale, kept separate from the form above it.
+   *
+   * On the phone it simply follows the form inside the sheet, exactly as before.
+   * On a laptop it is pinned to the bottom of the till panel, because a Complete
+   * button that scrolls away below six cart lines is a button nobody can find.
+   */
+  const renderPayButton = () => (
+    <>
+      <Button
+        className="w-full text-base"
+        disabled={
+          pending ||
+          !cart.length ||
+          overpaidCents > 0 ||
+          mpesaIncomplete ||
+          (needsCustomer && !customerId) ||
+          (state.status === "pin" && !ownerPin.trim())
+        }
+        onClick={() => complete(state.status === "credit")}
+      >
+        {/* The label states the outcome, so nobody has to reconstruct it from
+            a running total: "Take 3,000 · 5,400 later". */}
+        {pending
+          ? online
+            ? "Recording…"
+            : "Saving on this phone…"
+          : state.status === "credit"
+            ? "Let them take it anyway"
+            : !online
+              ? `Save on this phone — ${formatKes(totalCents)}`
+              : paidCents > 0 && onAccountCents > 0
+                ? `Take ${formatKes(paidCents)} · ${formatKes(onAccountCents)} later`
+                : onAccountCents > 0
+                  ? `${formatKes(onAccountCents)} to pay later`
+                  : `Take ${formatKes(totalCents)} — done`}
+      </Button>
 
+      {mpesaIncomplete ? (
+        <p className="mt-2 text-xs font-semibold text-bad">
+          Type the M-Pesa code before completing.
+        </p>
+      ) : null}
+      {needsCustomer && !customerId ? (
+        <p className="mt-2 text-xs font-semibold text-bad">
+          Choose who is paying later — the balance has to sit under a name.
+        </p>
+      ) : null}
     </>
   );
 
   return (
-    <div className="pb-24">
+    <div className="pb-24 lg:flex lg:h-[calc(100dvh-10.25rem)] lg:flex-col lg:pb-0">
       {/* Wholesale has to be impossible to miss — a toggle left in the wrong
           position mis-prices every sale until somebody notices at day close. */}
       {wholesale ? (
@@ -959,23 +1017,32 @@ export default function SellClient({
         </div>
       ) : null}
 
-      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_380px] lg:items-start lg:gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
-      <div className="min-w-0">
-      <input
-        ref={searchRef}
-        onKeyDown={(e) => {
-          if (e.key !== "Enter" || !matches.length) return;
-          e.preventDefault();
-          addItem(matches.find((i) => i.qtyMilli > 0) ?? matches[0]);
-          setQuery("");
-        }}
-        className={inputClass}
-        type="search"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder="Search — name, or chemical (sles, labsa…)"
-        aria-label="Search items"
-      />
+      {/* On a laptop the counter is an app, not a document: the page itself
+          stops scrolling and each column scrolls on its own. That is what keeps
+          the bill and the Complete button on screen at all times — a sticky
+          panel still hung below the fold on load, which is the one thing this
+          panel must never do. Phones and tablets keep the ordinary page scroll. */}
+      <div className="lg:grid lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-stretch lg:gap-6 2xl:grid-cols-[minmax(0,1fr)_24rem]">
+      <div className="min-w-0 lg:h-full lg:overflow-y-auto lg:pr-1">
+      {/* Pinned to the top of the scrolling column: on a keyboard till, search
+          is how the counter works, and it must never be somewhere up the page. */}
+      <div className="lg:sticky lg:top-0 lg:z-10 lg:-mt-1 lg:bg-wash lg:pb-2.5 lg:pt-1">
+        <input
+          ref={searchRef}
+          onKeyDown={(e) => {
+            if (e.key !== "Enter" || !matches.length) return;
+            e.preventDefault();
+            addItem(matches.find((i) => i.qtyMilli > 0) ?? matches[0]);
+            setQuery("");
+          }}
+          className={inputClass}
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search — name, or chemical (sles, labsa…)"
+          aria-label="Search items"
+        />
+      </div>
 
       {q ? (
         <>
@@ -987,22 +1054,31 @@ export default function SellClient({
           {top.length ? (
             <>
               <SectionLabel>Top sellers today</SectionLabel>
+              {/* Shortcuts, not products: one line each, sized to the words, so
+                  six of them cost a strip of screen instead of a whole band. */}
               <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 md:mx-0 md:flex-wrap md:overflow-visible md:px-0">
                 {top.map((item) => (
                   <button
                     key={item.id}
                     type="button"
                     onClick={() => addItem(item)}
-                    className={`w-36 shrink-0 rounded-2xl border p-3 text-left ${
-                      wholesale ? "border-warn/40 bg-warn-soft" : "border-brand/30 bg-brand-soft"
+                    title={item.name}
+                    className={`flex shrink-0 items-baseline gap-2 rounded-full border py-2 pl-3.5 pr-3 text-left transition-colors ${
+                      wholesale
+                        ? "border-warn/40 bg-warn-soft hover:border-warn"
+                        : "border-brand/30 bg-brand-soft hover:border-brand/60"
                     }`}
                   >
-                    <div className="line-clamp-2 min-h-[2.4rem] text-[13px] font-bold leading-tight">
+                    <span className="max-w-[11rem] truncate text-[13px] font-bold leading-none">
                       {item.name}
-                    </div>
-                    <div className={`mt-1 text-sm font-extrabold tnum ${wholesale ? "text-warn" : "text-brand"}`}>
+                    </span>
+                    <span
+                      className={`text-[13px] font-extrabold leading-none tnum ${
+                        wholesale ? "text-warn" : "text-brand"
+                      }`}
+                    >
                       {formatKes(listPrice(item, tier))}
-                    </div>
+                    </span>
                   </button>
                 ))}
               </div>
@@ -1038,22 +1114,78 @@ export default function SellClient({
           always visible. The phone's sheets stay untouched below lg. */}
       <aside
         aria-label="Current sale"
-        className="hidden rounded-3xl bg-white p-4 shadow-lift ring-1 ring-ink/5 lg:sticky lg:top-4 lg:flex lg:max-h-[calc(100dvh-5.5rem)] lg:flex-col lg:overflow-y-auto"
+        className="hidden overflow-hidden rounded-3xl bg-white shadow-lift ring-1 ring-ink/5 lg:flex lg:h-full lg:flex-col"
       >
-        <h2 className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted">
-          Current sale{unitCount ? ` — ${unitCount} item${unitCount === 1 ? "" : "s"}` : ""}
-        </h2>
-        {receipt ? <div className="mb-3">{renderReceipt()}</div> : null}
+        {/* Header — fixed. Names the pane and, in payment, gets back out of it. */}
+        <div className="flex shrink-0 items-center gap-2 border-b border-line px-4 py-3">
+          {deskPane === "pay" ? (
+            <button
+              type="button"
+              onClick={() => setDeskPane("cart")}
+              className="-ml-1 rounded-lg px-1.5 py-1 text-[11px] font-bold uppercase tracking-[0.14em] text-brand hover:bg-wash"
+            >
+              ← Cart
+            </button>
+          ) : (
+            <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted">
+              Current sale
+            </h2>
+          )}
+          {unitCount ? (
+            <span className="ml-auto text-[11px] font-bold text-muted tnum">
+              {unitCount} item{unitCount === 1 ? "" : "s"}
+            </span>
+          ) : null}
+          {cart.length && deskPane === "cart" ? (
+            <button
+              type="button"
+              onClick={() => setCart([])}
+              className="rounded-lg px-1.5 py-1 text-[11px] font-bold text-muted hover:bg-wash hover:text-bad"
+            >
+              Clear
+            </button>
+          ) : null}
+        </div>
+
+        {/* Body — the only part that scrolls. */}
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+          {receipt ? <div className="mb-3">{renderReceipt()}</div> : null}
+          {!cart.length ? (
+            <p className="rounded-2xl border border-dashed border-line bg-wash/60 py-10 text-center text-sm font-medium text-muted">
+              Click a product to start a sale.
+            </p>
+          ) : deskPane === "cart" ? (
+            renderCartBody()
+          ) : (
+            renderPayBody()
+          )}
+        </div>
+
+        {/* Footer — never scrolls. The bill and the next action, always in view. */}
         {cart.length ? (
-          <>
-            {renderCartBody()}
-            <div className="mt-4 border-t border-line pt-4">{renderPayBody()}</div>
-          </>
-        ) : (
-          <p className="rounded-2xl border border-dashed border-line bg-wash/60 py-10 text-center text-sm font-medium text-muted">
-            Click a product to start a sale.
-          </p>
-        )}
+          <div className="shrink-0 border-t border-line bg-wash/60 px-4 py-3">
+            {deskPane === "cart" ? (
+              <>
+                <div className="mb-2.5 flex items-baseline justify-between gap-3">
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">
+                    Total
+                  </span>
+                  <span className="text-[26px] font-extrabold leading-none tracking-tight text-brand-deep tnum">
+                    {formatKes(totalCents)}
+                  </span>
+                </div>
+                <Button
+                  className={`w-full text-base ${wholesale ? "!bg-warn hover:!bg-warn" : ""}`}
+                  onClick={() => setDeskPane("pay")}
+                >
+                  Pay {formatKes(totalCents)}
+                </Button>
+              </>
+            ) : (
+              renderPayButton()
+            )}
+          </div>
+        ) : null}
       </aside>
       </div>
 
@@ -1099,7 +1231,10 @@ export default function SellClient({
         ) : null}
 
         {sheet === "pay" ? (
-          <Sheet title="Payment" onClose={() => setSheet("none")}>{renderPayBody()}</Sheet>
+          <Sheet title="Payment" onClose={() => setSheet("none")}>
+            {renderPayBody()}
+            <div className="mt-4">{renderPayButton()}</div>
+          </Sheet>
         ) : null}
       </div>
     </div>
@@ -1136,49 +1271,74 @@ function Grid({
     const inCart = cart.find((l) => l.itemId === item.id);
     const out = item.qtyMilli <= 0;
     const unpriced = listPrice(item, tier) === 0;
+    const { base, size } = splitName(item.name);
     return (
       <button
         key={item.id}
         type="button"
         onClick={() => onAdd(item)}
-        className={`relative rounded-2xl p-3 text-left shadow-card ring-1 transition-colors ${
-          inCart ? "bg-brand-soft ring-brand/40" : "bg-white ring-ink/5"
-        }`}
+        title={item.name}
+        // A fixed height on every tile is what turns forty of these from a
+        // ragged pile into something scannable: price sits at the same eye
+        // level in every column, so the grid can be read down as well as across.
+        className={`relative flex h-[6.5rem] flex-col rounded-2xl px-3 py-2.5 text-left shadow-card ring-1 transition-colors md:h-[5.75rem] ${
+          inCart ? "bg-brand-soft ring-brand/40" : "bg-white ring-ink/5 hover:ring-brand/30"
+        } ${out ? "opacity-70" : ""}`}
       >
         {inCart ? (
           <span className="absolute right-2 top-2 flex h-6 min-w-6 items-center justify-center rounded-full bg-brand px-1.5 text-xs font-extrabold text-white tnum">
             {inCart.units}
           </span>
         ) : null}
-        <div className="line-clamp-2 min-h-[2.4rem] pr-6 text-[13px] font-bold leading-tight">
-          {item.name}
+        {/* One line, never clipped mid-word: the size below carries what an
+            ellipsis used to eat. */}
+        <div className={`truncate text-[13px] font-bold leading-tight ${inCart ? "pr-7" : ""}`}>
+          {base}
         </div>
-        <div
-          className={`mt-1 text-base font-extrabold tnum ${
-            tier === "wholesale" ? "text-warn" : "text-brand-deep"
-          }`}
-        >
-          {unpriced ? "No price set" : formatKes(listPrice(item, tier))}
-        </div>
-        <div className={`mt-0.5 text-[11px] tnum ${out ? "font-bold text-bad" : "text-muted"}`}>
-          {out ? "Out of stock" : formatUnits(item.qtyMilli, item.sizeMilli, item.unitLabel)}
+        <div className="mt-0.5 h-4 text-[11px] font-semibold text-muted">{size ?? ""}</div>
+        {/* Price and shelf count share the last line: the tile is as wide as
+            three columns make it, and a price alone left two thirds of it
+            empty. Side by side they answer both counter questions at a glance. */}
+        {/* Side by side from tablet up, where there is room for both. Two to a
+            row on a phone there is not — "KES 500" beside "181 jerricans" wraps
+            the price onto two lines — so there they stack. */}
+        <div className="mt-auto flex flex-col gap-0.5 md:flex-row md:items-baseline md:justify-between md:gap-2">
+          <span
+            className={`whitespace-nowrap font-extrabold leading-none tnum ${
+              unpriced
+                ? "text-[13px] font-bold text-muted"
+                : `text-[17px] ${tier === "wholesale" ? "text-warn" : "text-brand-deep"}`
+            }`}
+          >
+            {unpriced ? "No price set" : formatKes(listPrice(item, tier))}
+          </span>
+          <span
+            className={`shrink-0 text-[11px] leading-none tnum ${out ? "font-bold text-bad" : "text-muted"}`}
+          >
+            {out ? "Out of stock" : formatUnits(item.qtyMilli, item.sizeMilli, item.unitLabel)}
+          </span>
         </div>
       </button>
     );
   };
 
+  // Three columns on a laptop, not five. Five left each tile ~115px wide inside
+  // the column the till panel leaves behind, which is how every second product
+  // name ended up as an ellipsis.
+  const cols = "grid grid-cols-2 gap-2 md:grid-cols-3 md:gap-3 lg:grid-cols-3 2xl:grid-cols-4";
+
   return (
     <>
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-3 md:gap-3 lg:grid-cols-4 xl:grid-cols-5">{inStock.map(tile)}</div>
+      <div className={cols}>{inStock.map(tile)}</div>
       {outOfStock.length ? (
         searching ? (
-          <div className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-3 md:gap-3 lg:grid-cols-4 xl:grid-cols-5">{outOfStock.map(tile)}</div>
+          <div className={`mt-2 ${cols}`}>{outOfStock.map(tile)}</div>
         ) : (
           <details className="mt-2">
             <summary className="cursor-pointer py-1.5 text-center text-sm font-semibold text-muted">
               Out of stock ({outOfStock.length}) ▾
             </summary>
-            <div className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-3 md:gap-3 lg:grid-cols-4 xl:grid-cols-5">{outOfStock.map(tile)}</div>
+            <div className={`mt-2 ${cols}`}>{outOfStock.map(tile)}</div>
           </details>
         )
       ) : null}
@@ -1211,67 +1371,96 @@ function CartRow({
     setEditing(false);
   }
 
+  const { base, size } = splitName(item.name);
+
+  /**
+   * One row, three columns: how many, what, how much.
+   *
+   * It used to be a bordered card with the quantity stepper on its own line, the
+   * unit price spelled out with "· tap to change" after it, and the pack word
+   * repeated in the corner — about 118px of chrome for three facts, times every
+   * line. Six items filled a laptop screen and pushed the bill and the Complete
+   * button clean out of sight, which is the worst thing a till can do.
+   *
+   * So: the stepper leads (it is the only thing here anyone adjusts, and in a
+   * column it forms one clean edge), the name and the unit price share the
+   * middle, and the line total closes on the right where a total belongs. The
+   * instruction is gone — the price is styled as the link it is.
+   */
   return (
-    <div className="rounded-xl border border-line p-2.5">
-      <div className="flex items-start gap-2">
-        <div className="min-w-0 flex-1">
-          <div className="text-sm font-bold leading-tight">{item.name}</div>
-          {editing ? (
-            <div className="mt-1.5 flex items-center gap-2">
-              <input
-                className={inputClass}
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                inputMode="decimal"
-                autoFocus
-                aria-label={`Price for ${item.name}`}
-              />
-              <Button variant="ghost" className="shrink-0 px-3 py-2" onClick={commit}>
-                Set
-              </Button>
+    <div className="flex items-center gap-2.5 py-2">
+      <div className="flex shrink-0 items-center rounded-lg bg-white ring-1 ring-inset ring-line">
+        <button
+          type="button"
+          onClick={() => onUnits(-1)}
+          aria-label={`One less ${item.name}`}
+          className="h-8 w-7 rounded-l-lg text-base font-extrabold text-brand-dark hover:bg-wash"
+        >
+          −
+        </button>
+        <span className="w-5 text-center text-[13px] font-extrabold tnum">{line.units}</span>
+        <button
+          type="button"
+          onClick={() => onUnits(1)}
+          aria-label={`One more ${item.name}`}
+          className="h-8 w-7 rounded-r-lg text-base font-extrabold text-brand-dark hover:bg-wash"
+        >
+          +
+        </button>
+      </div>
+
+      {editing ? (
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <input
+            className={`${inputClass} !py-2 tnum`}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commit();
+              if (e.key === "Escape") setEditing(false);
+            }}
+            inputMode="decimal"
+            autoFocus
+            aria-label={`Price for ${item.name}`}
+          />
+          <Button variant="ghost" className="shrink-0 px-3 py-2" onClick={commit}>
+            Set
+          </Button>
+        </div>
+      ) : (
+        <>
+          {/* The name gets the line to itself — squeezed beside the size it was
+              the first thing to be cut, and "Carwash Shampo…" beside "Carwash
+              Shampoo 5 L" on the same bill is a mistake waiting to happen. The
+              size drops to the second line, where it is still the thing next to
+              the price it belongs to. */}
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[13px] font-bold leading-tight" title={item.name}>
+              {base}
             </div>
-          ) : (
             <button
               type="button"
               onClick={() => {
                 setDraft(centsToInput(line.priceCents));
                 setEditing(true);
               }}
-              className="mt-0.5 text-xs font-semibold text-brand"
+              className="mt-0.5 block max-w-full truncate text-[11px] font-semibold text-brand"
+              aria-label={`Change the price of ${item.name}`}
             >
-              {formatKes(line.priceCents)} each
+              {size ? <span className="text-muted">{size} · </span> : null}
+              <span className="underline decoration-brand/30 decoration-dotted underline-offset-2">
+                {formatKes(line.priceCents)} each
+              </span>
               {discounted ? (
                 <span className="ml-1.5 text-muted line-through">{formatKes(list)}</span>
               ) : null}
-              <span className="ml-1 text-muted">· tap to change</span>
             </button>
-          )}
-        </div>
-        <div className="text-right text-sm font-extrabold tnum">
-          {formatKes(line.priceCents * line.units)}
-        </div>
-      </div>
-
-      <div className="mt-2 flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => onUnits(-1)}
-          aria-label={`One less ${item.name}`}
-          className="h-10 w-12 rounded-lg border border-line text-lg font-extrabold"
-        >
-          −
-        </button>
-        <span className="min-w-10 text-center text-base font-extrabold tnum">{line.units}</span>
-        <button
-          type="button"
-          onClick={() => onUnits(1)}
-          aria-label={`One more ${item.name}`}
-          className="h-10 w-12 rounded-lg border border-line text-lg font-extrabold"
-        >
-          +
-        </button>
-        <span className="ml-auto text-[11px] text-muted">{item.unitLabel}</span>
-      </div>
+          </div>
+          <div className="shrink-0 text-right text-sm font-extrabold tnum">
+            {formatKes(line.priceCents * line.units)}
+          </div>
+        </>
+      )}
     </div>
   );
 }
