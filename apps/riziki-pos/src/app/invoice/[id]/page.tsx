@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect, notFound } from "next/navigation";
 import { currentUser } from "@/lib/auth";
-import { getInvoice, issueInvoiceNo, invoiceMessage, waLink, getBusiness } from "@/lib/credit";
+import { getInvoice, issueInvoiceNo, invoiceMessage, getBusiness } from "@/lib/credit";
 import { getPrintSettings, receiptFromInvoice } from "@/lib/print-settings";
 import { formatKes, formatAmount, formatQty, formatDateTime } from "@/lib/units";
 import { ThermalPrint } from "@/components/thermal-print";
@@ -231,21 +231,14 @@ export default async function InvoicePage(props: {
             fileName={`${sale.invoice_no ?? `sale-${sale.id}`}.pdf`}
             shareTitle={sale.invoice_no ?? `Sale #${sale.id}`}
             shareText={invoiceMessage(invoice)}
+            label="Share on WhatsApp"
+            busyLabel="Preparing…"
           />
-          <a
-            href={waLink(sale.customer_phone ?? "", invoiceMessage(invoice))}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex-1 rounded-xl bg-good-soft px-4 py-3 text-center text-sm font-bold text-good"
-          >
-            Message
-          </a>
         </div>
 
         <p className="text-center text-[11px] text-muted">
-          &ldquo;Print&rdquo; makes the A5 paper copy. &ldquo;PDF&rdquo; sends the file itself — on a
-          phone, straight into WhatsApp as an attachment. &ldquo;Message&rdquo; is a text summary only,
-          for when a file is not needed.{" "}
+          &ldquo;Print&rdquo; makes the A5 paper copy. &ldquo;Share on WhatsApp&rdquo; sends the invoice
+          itself — on a phone, straight into WhatsApp as a file, the same as sharing any document.{" "}
           <Link href="/settings/printer" className="font-semibold text-brand">
             Printer settings
           </Link>

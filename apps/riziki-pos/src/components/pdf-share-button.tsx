@@ -3,14 +3,15 @@
 /**
  * Get a PDF out of the phone: to WhatsApp, to email, to Drive, or just saved.
  *
- * `wa.me` — the deep link the "Share on WhatsApp" button next to this one
- * opens — can only ever pre-fill a text message. There is no parameter that
- * attaches a file; that is a WhatsApp platform limit, not something this app
- * can route around. The one way to actually hand someone a *file* over
- * WhatsApp from a phone browser is the OS share sheet, which `navigator.share`
- * opens when it is given a `File` — so that is what this does when it can, and
- * falls back to an ordinary download everywhere it can't (desktop Chrome,
- * older phones): a real PDF either way, never nothing.
+ * A `wa.me` deep link — the old "Share on WhatsApp" — can only ever pre-fill a
+ * text message; there is no parameter that attaches a file, which is a
+ * WhatsApp platform limit, not something this app can route around. The one
+ * way to actually hand someone a *file* over WhatsApp from a phone browser is
+ * the OS share sheet, which `navigator.share` opens when it is given a `File`
+ * — WhatsApp is then just one of the apps listed there, exactly as if the PDF
+ * had been shared from the Files app. That is what this does when the browser
+ * supports it, and falls back to an ordinary download everywhere it can't
+ * (desktop Chrome, older phones): a real PDF either way, never nothing.
  */
 
 import { useState } from "react";
@@ -20,12 +21,16 @@ export function PdfShareButton({
   fileName,
   shareTitle,
   shareText,
+  label = "PDF",
+  busyLabel = "Preparing…",
 }: {
   /** The route that returns the PDF bytes, e.g. `/invoice/42/pdf`. */
   href: string;
   fileName: string;
   shareTitle: string;
   shareText?: string;
+  label?: string;
+  busyLabel?: string;
 }) {
   const [state, setState] = useState<"idle" | "busy">("idle");
   const [error, setError] = useState<string | null>(null);
@@ -78,7 +83,7 @@ export function PdfShareButton({
         disabled={state === "busy"}
         className="w-full rounded-xl bg-brand-soft px-4 py-3 text-center text-sm font-bold text-brand-dark disabled:opacity-60"
       >
-        {state === "busy" ? "Preparing…" : "PDF"}
+        {state === "busy" ? busyLabel : label}
       </button>
       {error ? <p className="mt-1.5 text-center text-[11px] font-semibold text-bad">{error}</p> : null}
     </div>
