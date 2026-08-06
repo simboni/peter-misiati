@@ -6,12 +6,22 @@ import {
   authoriseOwnerPin,
   cartTotal,
   creditStatus,
+  lastOrderFor,
   recordSale,
   topSellerItemIds,
   SaleError,
 } from "@/lib/sales";
+import { buildKit, listFormulas } from "@/lib/production";
 import { formatKes } from "@/lib/units";
-import SellClient, { type SalePayload, type SellCustomer, type SellItem, type SellState } from "./sell-client";
+import SellClient, {
+  type KitChoice,
+  type KitOffer,
+  type RepeatOrder,
+  type SalePayload,
+  type SellCustomer,
+  type SellItem,
+  type SellState,
+} from "./sell-client";
 
 // Stock and prices change with every sale; never serve a cached counter.
 export const dynamic = "force-dynamic";
@@ -105,6 +115,57 @@ async function sellAction(_prev: SellState, payload: SalePayload): Promise<SellS
   }
 }
 
+/**
+ * "Same as last time" — what this customer bought on their last completed sale.
+ *
+ * Only quantities come back. The counter re-prices everything at today's list,
+ * because reviving a price agreed three weeks ago would be a way to sell below
+ * today's floor with nobody having decided to.
+ */
+async function lastOrderAction(customerId: number): Promise<RepeatOrder | null> {
+  "use server";
+
+  await requireUser();
+  const order = lastOrderFor(customerId);
+  if (!order) return null;
+
+  return {
+    at: order.at,
+    lines: order.lines.map((l) => ({ itemId: l.itemId, name: l.name, units: l.units, available: l.available })),
+  };
+}
+
+/**
+ * Build a mix kit: a recipe, at the size the customer wants, as whole packs.
+ *
+ * **Owner only, deliberately.** Every other door onto formula quantities in this
+ * app is owner-only, and a kit picker that let an attendant dial any recipe to
+ * any size would be the formula book with extra steps. Selling kits from a staff
+ * login is a decision for the owner to make out loud, not one to leak through a
+ * convenience feature — flip the guard here when he does.
+ */
+async function kitAction(versionId: number, targetMilli: number): Promise<KitOffer | null> {
+  "use server";
+
+  const user = await requireUser();
+  if (user.role !== "owner") return null;
+
+  const kit = buildKit(versionId, targetMilli);
+  return {
+    formulaName: kit.formulaName,
+    targetMilli: kit.targetMilli,
+    ingredients: kit.ingredients.map((i) => ({
+      chemicalName: i.chemicalName,
+      unit: i.unit,
+      neededMilli: i.neededMilli,
+      suppliedMilli: i.suppliedMilli,
+      missing: i.missing,
+      oversized: i.oversized,
+      picks: i.picks.map((p) => ({ itemId: p.itemId, name: p.name, units: p.units })),
+    })),
+  };
+}
+
 interface ItemRow {
   id: number;
   name: string;
@@ -148,6 +209,15 @@ export default async function SellPage() {
     search: r.search,
   }));
 
+  const kits: KitChoice[] =
+    user.role === "owner"
+      ? listFormulas().map((f) => ({
+          versionId: f.version_id,
+          name: f.name,
+          refSizeMilli: f.ref_size_milli,
+        }))
+      : [];
+
   const customers: SellCustomer[] = all<{
     id: number;
     name: string;
@@ -175,6 +245,12 @@ export default async function SellPage() {
       items={items}
       topSellerIds={topSellerItemIds(6)}
       customers={customers}
+      isOwner={user.role === "owner"}
+      // The recipe list itself is owner-only, so staff are handed an empty one
+      // rather than a picker that would refuse them after the click.
+      kits={kits}
+      onLastOrder={lastOrderAction}
+      onKit={kitAction}
       // The counter may still be looking at this page hours later, served from
       // the service worker cache with no network. Stamping the read means a
       // stale stock count can be labelled as stale instead of read as gospel.

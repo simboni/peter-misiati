@@ -873,3 +873,173 @@ export function createFormulaVersion(input: FormulaVersionInput): {
     return { versionId, version };
   });
 }
+
+// ------------------------------------------------------------- selling a kit
+
+export interface KitPick {
+  itemId: number;
+  name: string;
+  /** How much one of these holds, in milli of the canonical unit. */
+  sizeMilli: number;
+  units: number;
+}
+
+export interface KitIngredient {
+  chemicalId: number;
+  chemicalName: string;
+  unit: Unit;
+  /** What the recipe asks for at this batch size. */
+  neededMilli: number;
+  /** The packs that cover it — empty when nothing suitable is on the shelf. */
+  picks: KitPick[];
+  /** What those packs actually come to; never less than needed. */
+  suppliedMilli: number;
+  /** True when this chemical has no sellable pack at all. */
+  missing: boolean;
+  /**
+   * True when the smallest pack dwarfs what the recipe asks for — 5 kg of
+   * C.D.E for a recipe needing 25 g. Not an error, but not something to put in
+   * a customer's cart without being asked.
+   */
+  oversized: boolean;
+}
+
+export interface Kit {
+  formulaId: number;
+  versionId: number;
+  formulaName: string;
+  /** Batch size, in litres — the unit every formula's reference size is in. */
+  targetMilli: number;
+  ingredients: KitIngredient[];
+}
+
+/**
+ * How much more than the recipe asks for a pack may be before it is called out.
+ *
+ * Rounding 1.5 kg up to two 1 kg packs is ordinary shopkeeping. Handing over
+ * 5 kg of C.D.E because the recipe wants 25 g is not — it is a bill nobody
+ * would pay, and quietly adding it to the cart would make the kit feature worse
+ * than useless. Twice the requirement is the line; past it the counter is told,
+ * and told what would fix it.
+ */
+const OVERSHOOT_LIMIT = 2;
+
+/**
+ * Turn a recipe into a basket of packs the shop can actually hand over.
+ *
+ * A formula asks for weights — 1.5 kg of unga, 80 g of optical brightener — and
+ * the shop sells packs. Nothing here invents a way to sell a fraction of a pack:
+ * the sale stays whole units of real items, so stock, costing and the receipt
+ * behave exactly as they do for any other sale. The kit is a way of *filling the
+ * cart*, not a new kind of line.
+ *
+ * Because packs are lumpy, the customer is always given at least what the recipe
+ * needs, never less — a short ingredient is a failed batch, and they would be
+ * back. What they are given over is shown, so nobody is surprised at the till.
+ */
+export function buildKit(versionId: number, targetMilli: number): Kit {
+  const version = versionById(versionId);
+  if (!version) throw new Error("That formula version no longer exists.");
+  const formula = formulaById(version.formula_id);
+
+  const ingredients = scaleFormula(versionId, targetMilli).map<KitIngredient>((line) => {
+    // Only what is actually on the price list: a pack of this chemical that the
+    // shop sells. Bulk drums and packaging are not part of a kit.
+    const packs = all<{ id: number; name: string; size_milli: number }>(
+      `SELECT id, name, size_milli
+         FROM items
+        WHERE chemical_id = ? AND kind = 'pack' AND sellable = 1 AND active = 1
+          AND retail_cents > 0
+        ORDER BY size_milli DESC`,
+      line.chemicalId,
+    );
+
+    if (!packs.length) {
+      return { ...toIngredient(line), picks: [], suppliedMilli: 0, missing: true, oversized: false };
+    }
+
+    const filled = fillWithPacks(packs, line.neededMilli);
+    return {
+      ...toIngredient(line),
+      ...filled,
+      missing: false,
+      oversized: filled.suppliedMilli > line.neededMilli * OVERSHOOT_LIMIT,
+    };
+  });
+
+  return {
+    formulaId: version.formula_id,
+    versionId,
+    formulaName: formula?.name ?? "Kit",
+    targetMilli,
+    ingredients,
+  };
+}
+
+function toIngredient(line: ScaledLine) {
+  return {
+    chemicalId: line.chemicalId,
+    chemicalName: line.chemicalName,
+    unit: line.unit,
+    neededMilli: line.neededMilli,
+  };
+}
+
+/**
+ * Fewest packs that cover a weight, without going far over.
+ *
+ * Largest-first is the obvious rule and mostly right, but it has one silly
+ * failure: 800 g from packs of 1 kg / 500 g / 250 g comes out as 500 + 250 +
+ * 250 — three packs to hand over exactly the same kilogram that one 1 kg pack
+ * would have been. So the greedy answer is compared against the smallest single
+ * pack that covers the whole amount, and the better of the two wins: less
+ * overshoot first, then fewer packs to weigh and carry.
+ */
+function fillWithPacks(
+  packs: Array<{ id: number; name: string; size_milli: number }>,
+  neededMilli: number,
+): { picks: KitPick[]; suppliedMilli: number } {
+  const byId = new Map<number, KitPick>();
+  let remaining = neededMilli;
+
+  const take = (p: { id: number; name: string; size_milli: number }, n: number) => {
+    const at = byId.get(p.id);
+    if (at) at.units += n;
+    else byId.set(p.id, { itemId: p.id, name: p.name, sizeMilli: p.size_milli, units: n });
+  };
+
+  // packs arrive largest first
+  for (const p of packs) {
+    if (remaining < p.size_milli) continue;
+    const n = Math.floor(remaining / p.size_milli);
+    take(p, n);
+    remaining -= n * p.size_milli;
+  }
+
+  // Whatever is left is smaller than the smallest pack: round up by one of the
+  // smallest pack that still covers it.
+  if (remaining > 0) {
+    const covering = [...packs].reverse().find((p) => p.size_milli >= remaining) ?? packs[packs.length - 1];
+    take(covering, 1);
+    remaining = 0;
+  }
+
+  const greedy = [...byId.values()];
+  const greedySupplied = greedy.reduce((s, p) => s + p.sizeMilli * p.units, 0);
+  const greedyCount = greedy.reduce((s, p) => s + p.units, 0);
+
+  const single = [...packs].reverse().find((p) => p.size_milli >= neededMilli);
+  if (single) {
+    const better =
+      single.size_milli < greedySupplied ||
+      (single.size_milli === greedySupplied && greedyCount > 1);
+    if (better) {
+      return {
+        picks: [{ itemId: single.id, name: single.name, sizeMilli: single.size_milli, units: 1 }],
+        suppliedMilli: single.size_milli,
+      };
+    }
+  }
+
+  return { picks: greedy, suppliedMilli: greedySupplied };
+}

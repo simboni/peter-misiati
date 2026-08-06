@@ -15,7 +15,7 @@ import { join } from "node:path";
 const TMP = mkdtempSync(join(tmpdir(), "riziki-production-"));
 process.env.RIZIKI_DB = join(TMP, "test.db");
 
-const { all, get, chemicalStock } = await import("../src/lib/db.ts");
+const { all, get, run, chemicalStock } = await import("../src/lib/db.ts");
 const { seed } = await import("../src/lib/seed.ts");
 const { toMilli } = await import("../src/lib/units.ts");
 const {
@@ -36,6 +36,7 @@ const {
   pendingYieldBatches,
   voidBatch,
   allocate,
+  buildKit,
   StockShortError,
 } = await import("../src/lib/production.ts");
 
@@ -472,4 +473,160 @@ test("a void without a reason is refused before anything moves", () => {
   assert.throws(() => voidBatch(batchId, OWNER, "   "), /why/i);
   assert.equal(ledgerSnapshot().length, before, "nothing was written");
   voidBatch(batchId, OWNER, "cleanup"); // leave the fixture tidy
+});
+
+// ------------------------------------------------------------------ (k) kits
+
+test("a kit turns a recipe into whole packs, never short, and says what is missing", () => {
+  const version = versionOf("Shower Gel");
+  const kit = buildKit(version.id, toMilli(20));
+
+  assert.equal(kit.targetMilli, toMilli(20));
+  assert.ok(kit.ingredients.length > 0, "a kit has the recipe's ingredients");
+
+  for (const ing of kit.ingredients) {
+    if (ing.missing) {
+      assert.equal(ing.picks.length, 0, "nothing is picked for a chemical with no pack");
+      assert.equal(ing.suppliedMilli, 0);
+      continue;
+    }
+
+    // Whole units of real, sellable items — the sale stays an ordinary sale.
+    for (const p of ing.picks) {
+      assert.ok(Number.isInteger(p.units) && p.units > 0, `${p.name} must be whole packs`);
+      const item = get<{ kind: string; sellable: number; active: number; size_milli: number }>(
+        `SELECT kind, sellable, active, size_milli FROM items WHERE id = ?`,
+        p.itemId,
+      );
+      assert.equal(item!.kind, "pack");
+      assert.equal(item!.sellable, 1);
+      assert.equal(item!.active, 1);
+      assert.equal(item!.size_milli, p.sizeMilli);
+    }
+
+    const supplied = ing.picks.reduce((s, p) => s + p.sizeMilli * p.units, 0);
+    assert.equal(supplied, ing.suppliedMilli, "the stated total is the packs' total");
+    assert.ok(
+      ing.suppliedMilli >= ing.neededMilli,
+      `${ing.chemicalName}: a kit must never be short (${ing.suppliedMilli} < ${ing.neededMilli})`,
+    );
+  }
+});
+
+test("doubling the batch size doubles what the kit asks for", () => {
+  const version = versionOf("Shower Gel");
+  const small = buildKit(version.id, toMilli(20));
+  const big = buildKit(version.id, toMilli(40));
+
+  for (const [i, ing] of small.ingredients.entries()) {
+    assert.equal(big.ingredients[i].chemicalId, ing.chemicalId);
+    assert.equal(big.ingredients[i].neededMilli, ing.neededMilli * 2);
+  }
+});
+
+test("a kit prefers one pack over three that weigh the same", () => {
+  // 800 g from 1 kg / 500 g / 250 g packs: largest-first gives 500+250+250,
+  // which is the same kilogram in three packs. One 1 kg pack wins.
+  const { lastInsertRowid: chem } = run(
+    `INSERT INTO chemicals (name, canonical_unit) VALUES ('Kit Test Powder', 'kg')`,
+  );
+  for (const [size, label] of [[1000, "1 kg"], [500, "500 g"], [250, "250 g"]] as const) {
+    run(
+      `INSERT INTO items (chemical_id, name, kind, canonical_unit, size_milli, unit_label,
+                          sellable, retail_cents, active)
+       VALUES (?, ?, 'pack', 'kg', ?, 'pack', 1, 100, 1)`,
+      chem,
+      `Kit Test Powder — ${label}`,
+      size,
+    );
+  }
+
+  const packs = all<{ id: number; name: string; size_milli: number }>(
+    `SELECT id, name, size_milli FROM items WHERE chemical_id = ? ORDER BY size_milli DESC`,
+    chem,
+  );
+  assert.equal(packs.length, 3);
+
+  // buildKit works from a formula, so exercise the same rule through one: a
+  // recipe needing 800 g of this powder.
+  const { lastInsertRowid: f } = run(`INSERT INTO formulas (name) VALUES ('Kit Test Formula')`);
+  const { lastInsertRowid: v } = run(
+    `INSERT INTO formula_versions (formula_id, version, ref_size_milli, is_current)
+     VALUES (?, 1, ?, 1)`,
+    f,
+    toMilli(20),
+  );
+  run(
+    `INSERT INTO formula_items (formula_version_id, chemical_id, qty_milli, sort_order)
+     VALUES (?, ?, 800, 1)`,
+    v,
+    chem,
+  );
+
+  const kit = buildKit(Number(v), toMilli(20));
+  const ing = kit.ingredients[0];
+  assert.equal(ing.neededMilli, 800);
+  assert.equal(ing.suppliedMilli, 1000, "rounds up to a kilogram");
+  assert.equal(ing.picks.length, 1, "one pack, not three");
+  assert.equal(ing.picks[0].units, 1);
+  assert.equal(ing.picks[0].sizeMilli, 1000);
+});
+
+test("a kit refuses to bill 5 kg for a recipe that needs 25 g", () => {
+  // The real case from the shop's own Carwash Shampoo: C.D.E is stocked in
+  // 5 kg packs and the recipe wants 25 g. Rounding up is fine at 1.5 kg; at
+  // two hundred times the requirement it is a bill nobody would pay, so the
+  // ingredient is flagged and left out rather than added silently.
+  const { lastInsertRowid: chem } = run(
+    `INSERT INTO chemicals (name, canonical_unit) VALUES ('Overshoot Test Gum', 'kg')`,
+  );
+  run(
+    `INSERT INTO items (chemical_id, name, kind, canonical_unit, size_milli, unit_label,
+                        sellable, retail_cents, active)
+     VALUES (?, 'Overshoot Test Gum — 5 kg', 'pack', 'kg', 5000, 'pack', 1, 100, 1)`,
+    chem,
+  );
+
+  const { lastInsertRowid: f } = run(`INSERT INTO formulas (name) VALUES ('Overshoot Test Formula')`);
+  const { lastInsertRowid: v } = run(
+    `INSERT INTO formula_versions (formula_id, version, ref_size_milli, is_current)
+     VALUES (?, 1, ?, 1)`,
+    f,
+    toMilli(20),
+  );
+  run(
+    `INSERT INTO formula_items (formula_version_id, chemical_id, qty_milli, sort_order)
+     VALUES (?, ?, 25, 1)`,
+    v,
+    chem,
+  );
+
+  const ing = buildKit(Number(v), toMilli(20)).ingredients[0];
+  assert.equal(ing.neededMilli, 25);
+  assert.equal(ing.missing, false, "there IS a pack — it is just far too big");
+  assert.equal(ing.oversized, true);
+  assert.equal(ing.suppliedMilli, 5000, "the smallest pack is still reported, so it can be shown");
+
+  // And ordinary rounding is not flagged: 1.5 kg from 1 kg packs is 2 kg.
+  const { lastInsertRowid: chem2 } = run(
+    `INSERT INTO chemicals (name, canonical_unit) VALUES ('Overshoot Test Flour', 'kg')`,
+  );
+  run(
+    `INSERT INTO items (chemical_id, name, kind, canonical_unit, size_milli, unit_label,
+                        sellable, retail_cents, active)
+     VALUES (?, 'Overshoot Test Flour — 1 kg', 'pack', 'kg', 1000, 'pack', 1, 100, 1)`,
+    chem2,
+  );
+  run(
+    `INSERT INTO formula_items (formula_version_id, chemical_id, qty_milli, sort_order)
+     VALUES (?, ?, 1500, 2)`,
+    v,
+    chem2,
+  );
+
+  const flour = buildKit(Number(v), toMilli(20)).ingredients.find(
+    (i) => i.chemicalName === "Overshoot Test Flour",
+  )!;
+  assert.equal(flour.suppliedMilli, 2000);
+  assert.equal(flour.oversized, false, "2 kg for 1.5 kg is ordinary shopkeeping");
 });

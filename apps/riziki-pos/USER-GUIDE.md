@@ -48,6 +48,22 @@ then type the rest and tap **M-Pesa**. Keep going until the bill is covered.
 the same code twice, so nobody can pay for two things with one message. Wait for
 the message on the *shop's* phone — a customer's screen can be faked.
 
+**How many.** Tap a tile once per unit, or tap the number in the cart and type
+it — twenty is a number, not twenty taps. On a keyboard till you can also type
+the count into the search box: `20 laundry` and Enter.
+
+**The customer, first.** Name them at the top of the Sell screen before you
+start. If they buy at wholesale the prices switch there and then, instead of
+being noticed at payment when the whole cart is already priced wrong. Naming
+them also offers **Same as last time** — their last order, re-rung at today's
+prices, ready to adjust.
+
+**Mix kits (owner).** *Mix kit…* turns a recipe into packs: choose the recipe
+and the batch size, and the screen works out what to weigh. Where packs do not
+divide evenly it rounds up, and where the smallest pack is far more than the
+recipe needs it says so and leaves that ingredient out rather than billing for
+it. If that happens often, add a smaller pack size in Products & prices.
+
 **Giving a discount.** Tap the price on the line and type the lower one. You can
 come down to the shop's floor price on your own. Below that the owner has to type
 their PIN, and the system writes down who allowed it.

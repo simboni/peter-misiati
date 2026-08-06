@@ -31,7 +31,7 @@ import {
 } from "react";
 import type { PayMethod, Tier } from "@/lib/sales";
 import { countOutbox, enqueueSale, onOutboxChange, type QueuedSalePayload } from "@/lib/offline";
-import { formatDateTime, formatKes, formatUnits } from "@/lib/units";
+import { formatDate, formatDateTime, formatKes, formatQty, formatUnits } from "@/lib/units";
 import { Alert, Button, Chip, SectionLabel, inputClass } from "@/components/ui";
 import { quickAddCustomerAction } from "@/app/customers/actions";
 
@@ -59,6 +59,34 @@ export interface SellCustomer {
   kind: "retail" | "wholesale";
   limitCents: number;
   outstandingCents: number;
+}
+
+/** A previous order, offered back as "same as last time". Quantities only. */
+export interface RepeatOrder {
+  at: string;
+  lines: Array<{ itemId: number; name: string; units: number; available: boolean }>;
+}
+
+/** One recipe the owner can sell as a kit. */
+export interface KitChoice {
+  versionId: number;
+  name: string;
+  refSizeMilli: number;
+}
+
+/** A recipe worked out into whole packs, ready to drop into the cart. */
+export interface KitOffer {
+  formulaName: string;
+  targetMilli: number;
+  ingredients: Array<{
+    chemicalName: string;
+    unit: string;
+    neededMilli: number;
+    suppliedMilli: number;
+    missing: boolean;
+    oversized: boolean;
+    picks: Array<{ itemId: number; name: string; units: number }>;
+  }>;
 }
 
 export interface PayloadLine {
@@ -276,6 +304,10 @@ export default function SellClient({
   customers,
   stockAsOf,
   action,
+  isOwner,
+  kits,
+  onLastOrder,
+  onKit,
 }: {
   items: SellItem[];
   topSellerIds: number[];
@@ -283,6 +315,11 @@ export default function SellClient({
   /** When the server read these stock counts. Shown whenever they may be stale. */
   stockAsOf: string;
   action: (prev: SellState, payload: SalePayload) => Promise<SellState>;
+  isOwner: boolean;
+  /** Empty for staff: recipe quantities stay owner-only. */
+  kits: KitChoice[];
+  onLastOrder: (customerId: number) => Promise<RepeatOrder | null>;
+  onKit: (versionId: number, targetMilli: number) => Promise<KitOffer | null>;
 }) {
   const [tier, setTier] = useState<Tier>("retail");
   const [cart, setCart] = useState<CartLine[]>([]);
@@ -332,6 +369,14 @@ export default function SellClient({
   const [addPending, setAddPending] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
   const [added, setAdded] = useState<SellCustomer[]>([]);
+
+  /** The named customer's last order, once looked up. `null` = not looked up. */
+  const [repeat, setRepeat] = useState<RepeatOrder | null>(null);
+  const [kitOpen, setKitOpen] = useState(false);
+  const [kitVersion, setKitVersion] = useState<number | null>(null);
+  const [kitSize, setKitSize] = useState("");
+  const [kitOffer, setKitOffer] = useState<KitOffer | null>(null);
+  const [kitBusy, setKitBusy] = useState(false);
   const [receipt, setReceipt] = useState<Extract<
     SellState,
     { status: "done" } | { status: "queued" }
@@ -408,6 +453,81 @@ export default function SellClient({
   const allCustomers = useMemo(() => [...customers, ...added], [customers, added]);
   const customer = allCustomers.find((c) => c.id === customerId) ?? null;
 
+  /**
+   * Choose the customer, and price the cart the way that customer buys.
+   *
+   * Only upward, to wholesale: a wholesale buyer on retail prices is a bill
+   * nobody wants to argue about. The reverse is left alone — an attendant who
+   * deliberately set wholesale for a walk-in bulk order should not have it
+   * silently undone by naming a retail customer.
+   */
+  function pickCustomer(id: number | null) {
+    setCustomerId(id);
+    setRepeat(null);
+    const c = id === null ? null : allCustomers.find((x) => x.id === id);
+    if (c?.kind === "wholesale" && tier === "retail") switchTier("wholesale");
+  }
+
+  // Look up what a named customer bought last time, once, when they are named.
+  useEffect(() => {
+    if (customerId === null) return;
+    let live = true;
+    onLastOrder(customerId)
+      .then((order) => {
+        if (live) setRepeat(order);
+      })
+      .catch(() => {
+        // Offline, or the till did not answer. The button simply does not
+        // appear; nothing about the sale depends on it.
+      });
+    return () => {
+      live = false;
+    };
+  }, [customerId, onLastOrder]);
+
+  /** Fill the cart from that last order, at today's prices. */
+  function fillFromRepeat() {
+    if (!repeat) return;
+    setCart(
+      repeat.lines
+        .filter((l) => l.available)
+        .map((l) => {
+          const item = byId.get(l.itemId);
+          return item ? { itemId: item.id, units: l.units, priceCents: listPrice(item, tier) } : null;
+        })
+        .filter((l): l is CartLine => l !== null),
+    );
+  }
+
+  /** Work the recipe out into packs, then show what it comes to before adding. */
+  async function previewKit() {
+    if (kitVersion === null) return;
+    const litres = Number(kitSize);
+    if (!Number.isFinite(litres) || litres <= 0) return;
+    setKitBusy(true);
+    try {
+      setKitOffer(await onKit(kitVersion, Math.round(litres * 1000)));
+    } catch {
+      setKitOffer(null);
+    } finally {
+      setKitBusy(false);
+    }
+  }
+
+  /** Drop the worked-out packs into the cart as ordinary lines. */
+  function addKitToCart() {
+    if (!kitOffer) return;
+    for (const ing of kitOffer.ingredients) {
+      if (ing.missing || ing.oversized) continue;
+      for (const pick of ing.picks) {
+        const item = byId.get(pick.itemId);
+        if (item) addUnits(item, pick.units);
+      }
+    }
+    setKitOpen(false);
+    setKitOffer(null);
+  }
+
   async function saveNewCustomer() {
     const name = newName.trim();
     if (!name) return;
@@ -480,6 +600,9 @@ export default function SellClient({
     setQuery("");
     setSheet("none");
     setDeskPane("cart");
+    setRepeat(null);
+    setKitOpen(false);
+    setKitOffer(null);
     uuid.current = newUuid();
   }, [state]);
 
@@ -563,6 +686,39 @@ export default function SellClient({
     );
   }
 
+  /**
+   * Set a quantity outright.
+   *
+   * Twenty of something used to be twenty taps. `recordSale` still insists on a
+   * whole number of units — that rule is what keeps stock, costing and the
+   * receipt honest — so this clamps to one rather than accepting anything else.
+   */
+  function setUnits(itemId: number, units: number) {
+    if (!Number.isFinite(units)) return;
+    const whole = Math.max(1, Math.min(9999, Math.floor(units)));
+    setCart((prev) => prev.map((l) => (l.itemId === itemId ? { ...l, units: whole } : l)));
+  }
+
+  /**
+   * Put an item in the cart n times over.
+   *
+   * Used by the search box ("20 laundry ⏎"), by "same as last time" and by the
+   * kit builder. Adding to whatever is already there is deliberate: two kits of
+   * the same recipe should come to two kits' worth of chemicals.
+   */
+  function addUnits(item: SellItem, units: number) {
+    const n = Math.max(1, Math.floor(units));
+    setCart((prev) => {
+      const at = prev.findIndex((l) => l.itemId === item.id);
+      if (at >= 0) {
+        const next = [...prev];
+        next[at] = { ...next[at], units: next[at].units + n };
+        return next;
+      }
+      return [...prev, { itemId: item.id, units: n, priceCents: listPrice(item, tier) }];
+    });
+  }
+
   function setLinePrice(itemId: number, cents: number) {
     setCart((prev) => prev.map((l) => (l.itemId === itemId ? { ...l, priceCents: cents } : l)));
   }
@@ -625,13 +781,36 @@ export default function SellClient({
   // --- item lists ---------------------------------------------------------
 
   const q = query.trim().toLowerCase();
-  const matches = q ? items.filter((i) => i.search.includes(q)).sort(shelfOrder) : [];
+  /**
+   * "20 laundry" means twenty of it.
+   *
+   * A leading number is never part of a product name here — sizes live at the
+   * end ("Laundry Soap 5 L") — so a count at the front is unambiguous, and it
+   * turns the commonest wholesale line into one keystroke sequence. The number
+   * is stripped before matching, so "20 laundry" still finds Laundry Soap.
+   */
+  const countMatch = q.match(/^(\d{1,4})\s*[x*]?\s+(.*)$/);
+  const queryCount = countMatch ? Math.max(1, Number(countMatch[1])) : 1;
+  const searchText = countMatch ? countMatch[2].trim() : q;
+
+  const matches = searchText
+    ? items.filter((i) => i.search.includes(searchText)).sort(shelfOrder)
+    : [];
   const finished = items.filter((i) => i.kind === "finished").sort(shelfOrder);
   const packs = items.filter((i) => i.kind === "pack").sort(shelfOrder);
   const other = items.filter((i) => i.kind === "other").sort(shelfOrder);
   const top = topSellerIds.map((id) => byId.get(id)).filter((i): i is SellItem => Boolean(i));
 
   const wholesale = tier === "wholesale";
+
+  /** Lines from the last order that can still be sold today. */
+  const repeatUsable = repeat ? repeat.lines.filter((l) => l.available && byId.has(l.itemId)) : [];
+
+  /** Kit ingredients this shop cannot sell as packs, and how many it can. */
+  const kitLeftOut = (kitOffer?.ingredients ?? [])
+    .filter((i) => i.missing || i.oversized)
+    .map((i) => i.chemicalName);
+  const kitAddable = (kitOffer?.ingredients ?? []).filter((i) => !i.missing && !i.oversized).length;
 
 
   // ---- shared render closures: one markup, two dressings (phone sheet /
@@ -1085,12 +1264,33 @@ export default function SellClient({
         </div>
       ) : null}
 
-      <div className="mb-3 flex items-center gap-2">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
         <h1 className="text-xl font-bold tracking-tight">Sell</h1>
         <Link href="/sales" className="text-xs font-bold text-brand">
           History
         </Link>
-        <div className="ml-auto grid grid-cols-2 overflow-hidden rounded-xl border border-line">
+
+        {/* Who is buying, before what they are buying.
+            The tier toggle used to be set by hand and the mismatch only noticed
+            at payment — after every line had been priced retail. Naming the
+            customer first prices the cart right from the first tap, which is
+            also what makes "same as last time" possible. */}
+        <select
+          className="ml-auto max-w-[13rem] truncate rounded-xl border border-line bg-white px-2.5 py-2 text-xs font-bold text-brand-dark"
+          value={customerId ?? ""}
+          onChange={(e) => pickCustomer(e.target.value ? Number(e.target.value) : null)}
+          aria-label="Customer for this sale"
+        >
+          <option value="">Walk-in — no name</option>
+          {allCustomers.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+              {c.kind === "wholesale" ? " (wholesale)" : ""}
+            </option>
+          ))}
+        </select>
+
+        <div className="grid grid-cols-2 overflow-hidden rounded-xl border border-line">
           {(["retail", "wholesale"] as const).map((t) => (
             <button
               key={t}
@@ -1147,7 +1347,7 @@ export default function SellClient({
           onKeyDown={(e) => {
             if (e.key !== "Enter" || !matches.length) return;
             e.preventDefault();
-            addItem(matches.find((i) => i.qtyMilli > 0) ?? matches[0]);
+            addUnits(matches.find((i) => i.qtyMilli > 0) ?? matches[0], queryCount);
             setQuery("");
           }}
           className={inputClass}
@@ -1159,10 +1359,166 @@ export default function SellClient({
         />
       </div>
 
+      {/* Two ways to fill a cart in one tap instead of thirty. Both are only
+          offered when they would help: an empty cart, and something to offer. */}
+      {!cart.length && (repeatUsable.length > 0 || kits.length > 0) ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {repeatUsable.length > 0 ? (
+            <button
+              type="button"
+              onClick={fillFromRepeat}
+              className="flex items-center gap-2 rounded-full border border-brand/30 bg-brand-soft py-2 pl-3.5 pr-4 text-left transition-colors hover:border-brand/60"
+            >
+              <span className="text-[13px] font-bold leading-none text-brand-dark">
+                Same as last time
+              </span>
+              <span className="text-[11px] font-semibold leading-none text-muted">
+                {repeatUsable.length} item{repeatUsable.length === 1 ? "" : "s"} ·{" "}
+                {formatDate(repeat!.at)}
+              </span>
+            </button>
+          ) : null}
+
+          {kits.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => setKitOpen((v) => !v)}
+              aria-expanded={kitOpen}
+              className="rounded-full border border-line bg-white py-2 pl-3.5 pr-4 text-[13px] font-bold text-brand-dark transition-colors hover:border-brand/40"
+            >
+              Mix kit…
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {kitOpen && kits.length > 0 ? (
+        <div className="mt-3 rounded-2xl bg-white p-3.5 shadow-card ring-1 ring-ink/5">
+          <div className="flex flex-wrap items-end gap-2">
+            <label className="min-w-0 flex-1">
+              <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
+                Recipe
+              </span>
+              <select
+                className={inputClass}
+                value={kitVersion ?? ""}
+                onChange={(e) => {
+                  const id = e.target.value ? Number(e.target.value) : null;
+                  setKitVersion(id);
+                  setKitOffer(null);
+                  const chosen = kits.find((k) => k.versionId === id);
+                  if (chosen) setKitSize(String(chosen.refSizeMilli / 1000));
+                }}
+              >
+                <option value="">Choose…</option>
+                {kits.map((k) => (
+                  <option key={k.versionId} value={k.versionId}>
+                    {k.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="w-28">
+              <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
+                Batch (L)
+              </span>
+              <input
+                className={`${inputClass} tnum`}
+                value={kitSize}
+                onChange={(e) => {
+                  setKitSize(e.target.value);
+                  setKitOffer(null);
+                }}
+                inputMode="decimal"
+                aria-label="Batch size in litres"
+              />
+            </label>
+            <Button
+              variant="ghost"
+              className="px-4 py-2.5 text-sm"
+              disabled={kitBusy || kitVersion === null || !kitSize.trim()}
+              onClick={previewKit}
+            >
+              {kitBusy ? "Working…" : "Work it out"}
+            </Button>
+          </div>
+
+          {kitOffer ? (
+            <div className="mt-3">
+              <div className="divide-y divide-line">
+                {kitOffer.ingredients.map((ing) => (
+                  <div key={ing.chemicalName} className="flex items-baseline gap-2 py-1.5">
+                    <span className="min-w-0 flex-1 truncate text-[13px] font-bold">
+                      {ing.chemicalName}
+                    </span>
+                    <span className="shrink-0 text-[11px] text-muted tnum">
+                      needs {formatQty(ing.neededMilli, ing.unit)}
+                    </span>
+                    <span
+                      className={`shrink-0 text-[12px] font-bold tnum ${
+                        ing.missing ? "text-bad" : ing.oversized ? "text-warn" : "text-brand-dark"
+                      }`}
+                    >
+                      {ing.missing
+                        ? "no pack on sale"
+                        : ing.oversized
+                          ? `smallest is ${formatQty(ing.suppliedMilli, ing.unit)}`
+                          : ing.picks
+                              .map((p) => `${p.units} × ${splitName(p.name).size ?? p.name}`)
+                              .join(" + ")}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Packs are lumpy. Say so here rather than at the till. */}
+              {kitOffer.ingredients.some(
+                (i) => !i.missing && !i.oversized && i.suppliedMilli > i.neededMilli,
+              ) ? (
+                <p className="mt-2 text-[11px] text-muted">
+                  Packs do not divide evenly, so some ingredients round up. The customer gets at
+                  least what the recipe needs — never less.
+                </p>
+              ) : null}
+              {/* The kit must not quietly bill someone for 5 kg of a chemical
+                  their recipe needs 25 g of. Those are left out and named. */}
+              {kitLeftOut.length ? (
+                <div className="mt-2">
+                  <Alert tone="warn">
+                    Not in this kit: {kitLeftOut.join(", ")}. Either the shop has no pack that
+                    size, or the smallest one is far more than the recipe needs — weigh those out
+                    separately, or add a smaller pack in Products &amp; prices.
+                  </Alert>
+                </div>
+              ) : null}
+
+              <Button
+                className="mt-3 w-full text-sm"
+                disabled={!kitAddable}
+                onClick={addKitToCart}
+              >
+                {kitAddable
+                  ? `Add ${kitAddable} of ${kitOffer.ingredients.length} ingredients — ${kitOffer.formulaName}, ${formatQty(kitOffer.targetMilli, "L")}`
+                  : "Nothing here can be sold as packs"}
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
       {q ? (
         <>
-          <SectionLabel>{matches.length} match{matches.length === 1 ? "" : "es"}</SectionLabel>
-          <Grid items={matches} tier={tier} onAdd={addItem} cart={cart} searching />
+          <SectionLabel>
+            {matches.length} match{matches.length === 1 ? "" : "es"}
+            {queryCount > 1 ? ` · tapping adds ${queryCount}` : ""}
+          </SectionLabel>
+          <Grid
+            items={matches}
+            tier={tier}
+            onAdd={(item) => addUnits(item, queryCount)}
+            cart={cart}
+            searching
+          />
         </>
       ) : (
         <>
@@ -1477,6 +1833,8 @@ function CartRow({
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(() => centsToInput(line.priceCents));
+  /** Held while the box is being typed in, so a half-typed "2" of "20" is not applied. */
+  const [qtyDraft, setQtyDraft] = useState<string | null>(null);
   const list = listPrice(item, tier);
   const discounted = line.priceCents !== list;
 
@@ -1514,7 +1872,30 @@ function CartRow({
         >
           −
         </button>
-        <span className="w-5 text-center text-[13px] font-extrabold tnum">{line.units}</span>
+        {/* Typing beats tapping: twenty of something was twenty taps. */}
+        <input
+          className="w-7 bg-transparent text-center text-[13px] font-extrabold tnum outline-none"
+          value={qtyDraft ?? String(line.units)}
+          onChange={(e) => setQtyDraft(e.target.value.replace(/[^\d]/g, ""))}
+          onFocus={(e) => {
+            setQtyDraft(String(line.units));
+            e.currentTarget.select();
+          }}
+          onBlur={() => {
+            const n = Number(qtyDraft);
+            if (qtyDraft !== null && qtyDraft !== "" && Number.isFinite(n)) onUnits(n - line.units);
+            setQtyDraft(null);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.currentTarget.blur();
+            if (e.key === "Escape") {
+              setQtyDraft(null);
+              e.currentTarget.blur();
+            }
+          }}
+          inputMode="numeric"
+          aria-label={`How many ${item.name}`}
+        />
         <button
           type="button"
           onClick={() => onUnits(1)}

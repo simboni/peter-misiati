@@ -600,3 +600,72 @@ export function topSellerItemIds(limit = 6): number[] {
   const today = query(`date(s.at, '+3 hours') = date('now', '+3 hours')`);
   return today.length ? today : query(`s.at >= datetime('now', '-7 days')`);
 }
+
+// ------------------------------------------------------- repeating an order
+
+export interface LastOrderLine {
+  itemId: number;
+  /** The name as it was sold, so a renamed item is still recognisable. */
+  name: string;
+  units: number;
+  /** False if the item has since been retired or made unsellable. */
+  available: boolean;
+}
+
+export interface LastOrder {
+  saleId: number;
+  at: string;
+  lines: LastOrderLine[];
+}
+
+/**
+ * What this customer bought last time.
+ *
+ * Wholesale regulars order the same thing most weeks, and re-ringing a
+ * twelve-line order by hand is where the counter loses its morning. This
+ * returns only *what* and *how many* — never the prices. Today's prices are
+ * applied when the cart is filled, because a price agreed three weeks ago is
+ * not a price agreed today, and quietly reviving an old one would be a way to
+ * sell below the floor with nobody deciding to.
+ *
+ * Voided sales are skipped: "the same as last time" must not mean the mistake.
+ */
+export function lastOrderFor(customerId: number): LastOrder | null {
+  const sale = get<{ id: number; at: string }>(
+    `SELECT id, at FROM sales
+      WHERE customer_id = ? AND status = 'completed'
+      ORDER BY at DESC, id DESC
+      LIMIT 1`,
+    customerId,
+  );
+  if (!sale) return null;
+
+  const rows = all<{
+    item_id: number | null;
+    name_snapshot: string;
+    units: number;
+    active: number;
+    sellable: number;
+  }>(
+    `SELECT sl.item_id, sl.name_snapshot, sl.units,
+            COALESCE(i.active, 0) AS active, COALESCE(i.sellable, 0) AS sellable
+       FROM sale_lines sl
+       LEFT JOIN items i ON i.id = sl.item_id
+      WHERE sl.sale_id = ?
+      ORDER BY sl.id`,
+    sale.id,
+  );
+
+  return {
+    saleId: sale.id,
+    at: sale.at,
+    lines: rows
+      .filter((r): r is typeof r & { item_id: number } => r.item_id !== null)
+      .map((r) => ({
+        itemId: r.item_id,
+        name: r.name_snapshot,
+        units: r.units,
+        available: r.active === 1 && r.sellable === 1,
+      })),
+  };
+}
