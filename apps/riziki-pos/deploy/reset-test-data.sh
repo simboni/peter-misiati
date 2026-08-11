@@ -1,38 +1,33 @@
 #!/bin/sh
-# Clear pre-launch test data before the client starts testing for real. Run
-# this on the server, from apps/riziki-pos:
+# Reset the shop system to an empty training state. Run on the server, from
+# apps/riziki-pos:
 #
 #   sh deploy/reset-test-data.sh
 #
-# Why this cannot be a simple DELETE: sales, sale_lines and stock_movements
-# are permanently immutable on this system, by design — triggers block even
-# an UPDATE or DELETE from the database owner. That is not a bug to route
-# around; it is the whole point of an audit trail (see DEPLOY.md, "If
-# something goes wrong": "every correction has an in-app path"). So the only
-# way to get a genuinely empty sales history is a fresh database file, the
-# same way `docker compose stop; cp a backup over data/riziki.db; start`
-# already works for restoring a snapshot (also documented in DEPLOY.md).
+# What you get afterwards: the shelves, empty. Every product, pack size and
+# chemical is there and correctly named, every formula is there, and every
+# single number is zero — no stock, no sales, no batches, no repacks, no
+# customers, no suppliers, no expenses, no purchases, no day closes, no
+# history of any kind. The team learns the system by putting the first real
+# numbers in themselves.
 #
-# The one thing a plain fresh reseed would lose is real: if the owner has
-# already changed their PIN away from the shipped demo one, that lives in the
-# same database file. So this script carries the CURRENT users table forward
-# across the rebuild — the owner's real PIN survives; only the sales, stock
-# and shop history reset to zero. Settings (shop name/phone/KRA PIN) carry
-# forward the same way, in case those were filled in for real already too.
+# Two things carry across from the current database, because they are real
+# and would be painful to lose:
+#   - every user account, with its current PIN (the owner has already changed
+#     theirs away from the shipped demo one — that must not be undone here);
+#   - the settings table (shop name, phone, KRA PIN, cash float), in case any
+#     of it has been filled in for real already.
 #
-# What ends up fresh (never existed until now, by definition):
-#   sales, sale_lines, payments, batches, batch_lines, repacks, repack_lines,
-#   expenses, day_closes, purchases, purchase_lines, customers, audit_log,
-#   sessions, stock_movements (rebuilt as: the catalogue's original opening
-#   count from the client's stock sheet, then the later physical-count
-#   correction applied on top of it — the same real numbers already checked
-#   into this repo's own reset, nothing invented here).
+# Why this rebuilds the database rather than deleting rows: sales, sale_lines
+# and stock_movements are all trigger-guarded append-only on this system, on
+# purpose — the database refuses to delete them even for its owner, because
+# that is what makes the audit trail worth anything (DEPLOY.md, "If something
+# goes wrong": every correction has an in-app path). Opening stock therefore
+# cannot be removed after the fact; it has to never be written, which is what
+# seed({ openingStock: false }) does.
 #
-# What survives the rebuild unchanged:
-#   users (so the owner's real PIN is not lost), settings (if anything in
-#   there was filled in for real), the catalogue, chemicals and formulas
-#   (these were never demo data to begin with — see seed.ts's own sourcing
-#   notes).
+# The database is backed up before anything is touched, and the old file is
+# moved aside rather than deleted, so this is reversible.
 
 set -eu
 
@@ -52,10 +47,10 @@ echo "==> Backing up the database before anything is touched"
 docker compose exec -T pos npm run backup
 
 echo
-echo "This rebuilds the database from scratch: every sale, batch, repack,"
-echo "customer, expense, purchase and day close on this server will be gone"
-echo "for good, and stock resets to the client's original counted numbers."
-echo "The owner's PIN and shop settings are carried forward, not lost."
+echo "This empties the system completely: no stock, no sales, no batches, no"
+echo "customers, no history — the catalogue and formulas stay, every number"
+echo "goes to zero. User accounts (with their PINs) and shop settings are"
+echo "carried across."
 printf "Type CLEAR to continue: "
 read -r confirm
 if [ "$confirm" != "CLEAR" ]; then
@@ -66,7 +61,7 @@ fi
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-echo "==> Saving the current users and settings tables"
+echo "==> Saving the current user accounts and shop settings"
 docker compose exec -T pos node --experimental-strip-types -e '
 const { all } = await import("./src/lib/db.ts");
 console.log(JSON.stringify({
@@ -75,25 +70,22 @@ console.log(JSON.stringify({
 }));
 ' > "$WORK/carry-forward.json"
 
+CARRY_FORWARD_JSON="$(cat "$WORK/carry-forward.json")"
+echo "    saved $(printf '%s' "$CARRY_FORWARD_JSON" | tr ',' '\n' | grep -c '"name"') account(s)"
+
 echo "==> Stopping the app"
 docker compose stop pos
 
-echo "==> Building a fresh database"
-docker compose run --rm --no-deps \
-  -e RIZIKI_DB=/app/data/.reset-fresh.db \
-  pos node --experimental-strip-types -e '
-const { seed } = await import("./src/lib/seed.ts");
-console.log(seed());
-'
-
-echo "==> Restoring the owner account, shop settings, and the real stock count"
-CARRY_FORWARD_JSON="$(cat "$WORK/carry-forward.json")" \
+echo "==> Building an empty database (catalogue and formulas, all counts zero)"
 docker compose run --rm --no-deps \
   -e RIZIKI_DB=/app/data/.reset-fresh.db \
   -e CARRY_FORWARD_JSON="$CARRY_FORWARD_JSON" \
   pos node --experimental-strip-types -e '
-const { run, get, tx, closeDb } = await import("./src/lib/db.ts");
-const { performStocktake } = await import("./src/lib/stock-service.ts");
+const { seed } = await import("./src/lib/seed.ts");
+const { run, get, all, tx, closeDb } = await import("./src/lib/db.ts");
+
+const counts = seed({ openingStock: false });
+console.log(`Catalogue: ${counts.chemicals} chemicals, ${counts.items} items, ${counts.formulas} formulas.`);
 
 const carried = JSON.parse(process.env.CARRY_FORWARD_JSON);
 
@@ -102,18 +94,17 @@ tx(() => {
   // reinserted: seed() has already written formula_versions rows whose
   // created_by points at the fresh owner user id, and deleting that row
   // first breaks the foreign key. Any accounts the shop added beyond those
-  // two (extra attendants, a second owner) are inserted alongside, so
-  // nobody loses their login.
-  const takenIds = new Set();
+  // two are inserted alongside, so nobody loses their login.
+  const taken = [];
   const leftovers = [];
   for (const u of carried.users) {
     const existing = get(
       "SELECT id FROM users WHERE role = ? AND id NOT IN (SELECT value FROM json_each(?))",
       u.role,
-      JSON.stringify([...takenIds]),
+      JSON.stringify(taken),
     );
     if (existing) {
-      takenIds.add(existing.id);
+      taken.push(existing.id);
       run("UPDATE users SET name = ?, pin_hash = ?, active = ? WHERE id = ?",
         u.name, u.pin_hash, u.active, existing.id);
     } else {
@@ -130,48 +121,31 @@ tx(() => {
     run("INSERT INTO settings (key, value) VALUES (?, ?)", s.key, s.value);
   }
 });
-console.log(`Carried forward ${carried.users.length} user(s), ${carried.settings.length} setting(s).`);
+console.log(`Carried across: ${carried.users.length} account(s), ${carried.settings.length} setting(s).`);
 
-// The same physical-count correction already checked into this session,
-// applied on top of the fresh seed opening stock — real numbers, not invented.
-const COUNTS = [
-  ["Ungerol — 20 kg", 19], ["Ungerol — 5 kg", 6], ["Ungerol — 1 kg", 14], ["Ungerol — 500 g", 33], ["Ungerol — 250 g", 30],
-  ["Ufacid — 20 kg", 2], ["Ufacid — 5 kg", 18], ["Ufacid — 500 g", 12], ["Ufacid — 250 g", 14], ["Ufacid — 125 g", 12],
-  ["Salt — 50 kg bag", 10], ["Salt — 1 kg", 24], ["Salt — 500 g", 12], ["Salt — 250 g", 26],
-  ["H.C.L — 40 kg drum", 5], ["H.C.L — 1 kg", 11], ["H.C.L — 500 g", 8],
-  ["Hypo — 23 L drum", 1], ["Hypo — 5 L", 5], ["Hypo — 1 L", 2],
-  ["Chlorine — 45 kg drum", 20], ["Chlorine — 20 kg", 1], ["Chlorine — 1 kg", 40],
-  ["Caustic Soda — 25 kg bag", 5], ["Caustic Soda — 1 kg", 19],
-  ["Magadi — 50 kg bag", 15], ["Magadi — 1 kg", 45],
-  ["Finesalt — 50 kg bag", 4], ["Finesalt — 1 kg", 55],
-  ["C.D.E — 20 kg drum", 7], ["C.D.E — 5 kg", 5],
-  ["DOD — 20 kg drum", 7], ["DOD — 5 kg", 6], ["DOD — 1 kg", 2],
-  ["Blue Colour — 1 kg tub", 34], ["Green Colour — 1 kg tub", 46],
-  ["C.M.C — 25 kg bag", 3], ["C.M.C — 1 kg", 42],
-  ["S.T.P.P — 25 kg bag", 21], ["S.T.P.P — 1 kg", 21],
-  ["Simet — 25 kg bag", 2], ["Simet — 1 kg", 22],
-  ["Conditioner Base — 25 kg bag", 1], ["Conditioner Base — 1 kg", 29],
-  ["Peroxide — 30 kg drum", 5], ["Peroxide — 5 kg", 6],
-  ["White Oil — 20 L drum", 6], ["White Oil — 5 L", 2],
-  ["I.P.A — 20 L drum", 2], ["I.P.A — 5 L", 6],
-];
-const owner = get("SELECT id FROM users WHERE role = \x27owner\x27 LIMIT 1");
-const counts = [];
-for (const [name, countedUnits] of COUNTS) {
-  const item = get("SELECT id FROM items WHERE name = ? AND active = 1", name);
-  if (item) counts.push({ itemId: item.id, countedUnits });
+// Prove it is actually empty rather than assuming it, and fail loudly if not:
+// a reset that quietly left data behind is the whole problem being solved.
+const TABLES = ["stock_movements", "sales", "sale_lines", "payments", "batches",
+  "batch_lines", "repacks", "repack_lines", "customers", "suppliers",
+  "expenses", "purchases", "purchase_lines", "day_closes"];
+const leftover = [];
+for (const t of TABLES) {
+  const n = get(`SELECT COUNT(*) AS n FROM ${t}`).n;
+  if (n > 0) leftover.push(`${t}=${n}`);
 }
-const result = performStocktake({
-  counts,
-  reason: "Physical count sheet (PARTICULARS), applied to the fresh database ahead of client testing.",
-  userId: owner ? owner.id : null,
-});
-console.log(`Stock: posted ${result.posted} of ${result.countedItems} counted corrections.`);
+const stocked = all("SELECT item_name FROM v_stock WHERE qty_milli != 0");
+if (stocked.length) leftover.push(`${stocked.length} item(s) with non-zero stock`);
+if (leftover.length) {
+  console.error("NOT EMPTY: " + leftover.join(", "));
+  process.exit(1);
+}
+console.log("Verified empty: every count above is zero.");
 closeDb();
 '
 
-echo "==> Swapping the fresh database into place"
-docker compose exec -T pos rm -f /app/data/.reset-fresh.db-shm /app/data/.reset-fresh.db-wal
+echo "==> Swapping the empty database into place"
+rm -f "$DATA_DIR/.reset-fresh.db-shm" "$DATA_DIR/.reset-fresh.db-wal"
+mkdir -p "$DATA_DIR/backups"
 mv "$DATA_DIR/riziki.db" "$DATA_DIR/backups/riziki.db.superseded-$(date -u +%Y%m%dT%H%M%SZ).bak"
 rm -f "$DATA_DIR/riziki.db-shm" "$DATA_DIR/riziki.db-wal"
 mv "$DATA_DIR/.reset-fresh.db" "$DATA_DIR/riziki.db"
@@ -180,6 +154,6 @@ echo "==> Starting the app"
 docker compose start pos
 
 echo
-echo "==> Done. Sign in with the owner PIN you already set and confirm it"
-echo "    still works. The pre-reset database is saved in data/backups/ if"
-echo "    anything here needs to be undone."
+echo "==> Done. Sign in with the PIN you already set — it still works."
+echo "    Everything reads zero; the team fills it in from here."
+echo "    The previous database is in data/backups/ if this needs undoing."

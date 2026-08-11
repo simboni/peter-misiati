@@ -283,7 +283,25 @@ const PACKAGING: Array<{ name: string; cost: number; qty: number }> = [
 
 // ------------------------------------------------------------------ runner
 
-export function seed(): { chemicals: number; items: number; formulas: number } {
+export interface SeedOptions {
+  /**
+   * Post the opening stock counts from the client's stock sheet.
+   *
+   * Default true — a first boot at the shop wants the shelf as the paper says
+   * it is. Set false to lay out the same catalogue with every count at zero,
+   * which is what a training system needs: the shelves are all there and
+   * correctly named, and the team learns by putting the first real numbers in
+   * themselves. Opening stock cannot be removed after the fact — the ledger is
+   * append-only by design — so it has to be skipped here or not at all.
+   */
+  openingStock?: boolean;
+}
+
+export function seed(
+  options: SeedOptions = {},
+): { chemicals: number; items: number; formulas: number } {
+  const withOpeningStock = options.openingStock ?? true;
+
   db(); // ensure schema
 
   const already = get<{ n: number }>(`SELECT COUNT(*) AS n FROM chemicals`);
@@ -388,7 +406,9 @@ export function seed(): { chemicals: number; items: number; formulas: number } {
     );
     itemIds[`pack:${p.name}`] = id;
     itemCount++;
-    postMovement({ itemId: id, deltaMilli: toMilli(p.qty), reason: "opening", userId: ownerId, note: "opening count" });
+    if (withOpeningStock) {
+      postMovement({ itemId: id, deltaMilli: toMilli(p.qty), reason: "opening", userId: ownerId, note: "opening count" });
+    }
   }
 
   // --- what each finished product is packed into -------------------------
@@ -418,19 +438,21 @@ export function seed(): { chemicals: number; items: number; formulas: number } {
   }
 
   // --- opening stock from the stock-take sheet ---------------------------
-  for (const [key, sizes] of Object.entries(OPENING)) {
-    for (const [sizeKey, units] of Object.entries(sizes)) {
-      const itemId = itemIds[`${key}:${sizeKey}`];
-      if (!itemId || units <= 0) continue;
-      const item = get<{ size_milli: number }>(`SELECT size_milli FROM items WHERE id = ?`, itemId);
-      if (!item) continue;
-      postMovement({
-        itemId,
-        deltaMilli: Math.round(units * item.size_milli),
-        reason: "opening",
-        userId: ownerId,
-        note: "closing stock carried from the stock-take sheet",
-      });
+  if (withOpeningStock) {
+    for (const [key, sizes] of Object.entries(OPENING)) {
+      for (const [sizeKey, units] of Object.entries(sizes)) {
+        const itemId = itemIds[`${key}:${sizeKey}`];
+        if (!itemId || units <= 0) continue;
+        const item = get<{ size_milli: number }>(`SELECT size_milli FROM items WHERE id = ?`, itemId);
+        if (!item) continue;
+        postMovement({
+          itemId,
+          deltaMilli: Math.round(units * item.size_milli),
+          reason: "opening",
+          userId: ownerId,
+          note: "closing stock carried from the stock-take sheet",
+        });
+      }
     }
   }
 
@@ -464,16 +486,21 @@ export function seed(): { chemicals: number; items: number; formulas: number } {
   }
 
   // --- suppliers and customers ------------------------------------------
-  run(`INSERT INTO suppliers (name, phone, note) VALUES (?, ?, ?)`,
-    "Nairobi Chemical Suppliers", "+254 720 000 001", "Ungerol, Ufacid, C.D.E");
-  run(`INSERT INTO suppliers (name, phone, note) VALUES (?, ?, ?)`,
-    "Magadi Soda Distributors", "+254 720 000 002", "Magadi, salt, caustic");
+  // Illustrative names, not the shop's real trading partners — so they go in
+  // with the opening stock and stay out of a training system, where entering
+  // the first supplier and the first debtor is part of what is being learned.
+  if (withOpeningStock) {
+    run(`INSERT INTO suppliers (name, phone, note) VALUES (?, ?, ?)`,
+      "Nairobi Chemical Suppliers", "+254 720 000 001", "Ungerol, Ufacid, C.D.E");
+    run(`INSERT INTO suppliers (name, phone, note) VALUES (?, ?, ?)`,
+      "Magadi Soda Distributors", "+254 720 000 002", "Magadi, salt, caustic");
 
-  run(`INSERT INTO customers (name, phone, kind, credit_limit_cents) VALUES (?, ?, 'wholesale', ?)`,
-    "Mama Njeri Wholesalers", "+254 722 111 222", toCents(50000));
-  run(`INSERT INTO customers (name, phone, kind, credit_limit_cents) VALUES (?, ?, 'wholesale', ?)`,
-    "Kariobangi Hardware", "+254 733 444 555", toCents(30000));
-  run(`INSERT INTO customers (name, phone, kind) VALUES (?, ?, 'retail')`, "Walk-in Customer", "");
+    run(`INSERT INTO customers (name, phone, kind, credit_limit_cents) VALUES (?, ?, 'wholesale', ?)`,
+      "Mama Njeri Wholesalers", "+254 722 111 222", toCents(50000));
+    run(`INSERT INTO customers (name, phone, kind, credit_limit_cents) VALUES (?, ?, 'wholesale', ?)`,
+      "Kariobangi Hardware", "+254 733 444 555", toCents(30000));
+    run(`INSERT INTO customers (name, phone, kind) VALUES (?, ?, 'retail')`, "Walk-in Customer", "");
+  }
 
   audit(ownerId, "seed", "system", null, "database seeded with Riziki data");
 
