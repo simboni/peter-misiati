@@ -65,6 +65,11 @@ const WARM_ROUTES = [
   "/expenses",
   "/batch",
   "/purchases",
+  // The page, not the document inside it. The handbook is ~3 MB, and warming
+  // that into every phone in the background would spend the shop's data on
+  // something most of them open rarely. Opening it once saves it; after that it
+  // is there on a dead line, which is when a stuck attendant most needs it.
+  "/handbook",
 ];
 
 /** How long the network gets when we already hold a usable copy. */

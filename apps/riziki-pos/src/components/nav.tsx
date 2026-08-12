@@ -79,6 +79,15 @@ const MORE_GROUPS: Array<{
       { href: "/pin", label: "Change my PIN", owner: false },
     ],
   },
+  // Its own group rather than an entry under Setup: the handbook is the thing
+  // somebody reaches for when they are stuck mid-task, and hunting for it
+  // among the settings is the moment they give up and phone the owner instead.
+  // Not owner-only — an attendant is who it is mostly for. They are served a
+  // copy with the owner's screens cut out; see `@/lib/handbook`.
+  {
+    label: "Help",
+    links: [{ href: "/handbook", label: "My handbook", owner: false }],
+  },
 ];
 
 /** How long the rail remembers: a year, i.e. until somebody changes it back. */
@@ -104,6 +113,9 @@ export function BottomNav({ isOwner, rail = "wide" }: { isOwner: boolean; rail?:
     <>
       {/* Phone bottom bar; floating island at md; gone at lg. */}
       <nav
+        // Marked so a full-height screen can measure the space this bar covers
+        // rather than guess at it — see `@/components/handbook-frame`.
+        data-bottom-bar=""
         className="no-print fixed inset-x-0 bottom-0 z-30 mx-auto grid max-w-lg rounded-t-3xl bg-white pt-1.5 pb-[env(safe-area-inset-bottom)] shadow-nav md:bottom-3 md:max-w-xl md:rounded-3xl md:shadow-lift md:ring-1 md:ring-ink/5 lg:hidden"
         style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }}
       >

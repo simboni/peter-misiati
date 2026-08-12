@@ -640,12 +640,12 @@ a { color: var(--brand); }
   <label class="learn"><input type="checkbox" data-learn="stock"><span class="box">✓</span><span class="txt">Tick when you have tried this</span></label>
 </section>
 
-<section id="stocktake" data-aud="all">
+<section id="stocktake" data-aud="owner">
   <div class="sec-head">
     <div class="sec-kicker">
       <span class="sec-gl">◨</span>
       <span class="sec-group">Stock &amp; making</span>
-      <span class="tag both">Everyone</span>
+      <span class="tag owner">Owner only</span>
     </div>
     <h2>Stock take — correcting the count</h2>
     <p class="purpose">Walk the shelf, type what is really there, and let the system fix the difference.</p>
@@ -656,12 +656,12 @@ a { color: var(--brand); }
   <label class="learn"><input type="checkbox" data-learn="stocktake"><span class="box">✓</span><span class="txt">Tick when you have tried this</span></label>
 </section>
 
-<section id="repack" data-aud="all">
+<section id="repack" data-aud="owner">
   <div class="sec-head">
     <div class="sec-kicker">
       <span class="sec-gl">◧</span>
       <span class="sec-group">Stock &amp; making</span>
-      <span class="tag both">Everyone</span>
+      <span class="tag owner">Owner only</span>
     </div>
     <h2>Repack — breaking a drum down</h2>
     <p class="purpose">Turn one 20 kg drum into smaller packs to sell, and record the spillage honestly.</p>
@@ -672,12 +672,12 @@ a { color: var(--brand); }
   <label class="learn"><input type="checkbox" data-learn="repack"><span class="box">✓</span><span class="txt">Tick when you have tried this</span></label>
 </section>
 
-<section id="batch" data-aud="all">
+<section id="batch" data-aud="owner">
   <div class="sec-head">
     <div class="sec-kicker">
       <span class="sec-gl">▣</span>
       <span class="sec-group">Stock &amp; making</span>
-      <span class="tag both">Everyone</span>
+      <span class="tag owner">Owner only</span>
     </div>
     <h2>Batch — mixing a product</h2>
     <p class="purpose">The heart of the system. Scale a recipe, check the shelf can cover it, mix, and record what came out.</p>
@@ -791,12 +791,12 @@ a { color: var(--brand); }
   <label class="learn"><input type="checkbox" data-learn="settings"><span class="box">✓</span><span class="txt">Tick when you have tried this</span></label>
 </section>
 
-<section id="printer" data-aud="all">
+<section id="printer" data-aud="owner">
   <div class="sec-head">
     <div class="sec-kicker">
       <span class="sec-gl">▬</span>
       <span class="sec-group">Setup</span>
-      <span class="tag both">Everyone</span>
+      <span class="tag owner">Owner only</span>
     </div>
     <h2>Receipt printer</h2>
     <p class="purpose">Pair a Bluetooth thermal printer with the counter phone.</p>
@@ -924,6 +924,18 @@ a { color: var(--brand); }
     });
   }, { rootMargin: '-15% 0px -78% 0px' });
   document.querySelectorAll('section[id]').forEach(function (s) { spy.observe(s); });
+
+  // The screenshots load lazily, so the layout the observer judged on the way in
+  // is not the one that settles a moment later: several sections are briefly
+  // stacked in its band, the last one wins, and the contents rail ends up
+  // pointing at some screen the reader has never scrolled to. At the top of the
+  // document no screen is current, so mark none — the first real scroll hands it
+  // back to the observer.
+  window.addEventListener('load', function () {
+    if ((window.scrollY || document.documentElement.scrollTop || 0) < 40) {
+      links.forEach(function (l) { l.classList.remove('on'); });
+    }
+  });
 
   // ---- screenshot lightbox ----
   var lb = document.getElementById('lb'), lbi = document.getElementById('lbi'),
