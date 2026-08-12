@@ -31,7 +31,7 @@
   --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "DejaVu Sans", sans-serif;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 
-  --rail: 252px;
+  --rail: 268px;
   --pad: clamp(1rem, 3vw, 2.5rem);
 }
 
@@ -125,16 +125,16 @@ code, .mono { font-family: var(--mono); }
 
 .rail-group { padding: 1.15rem 1.25rem .3rem; color: #7fb3b8; font-size: .65rem; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }
 .rail a {
-  display: flex; align-items: center; gap: .55rem;
+  display: flex; align-items: flex-start; gap: .55rem;
   padding: .5rem 1.25rem; color: #d5e9ea; text-decoration: none;
   font-size: .875rem; font-weight: 600; line-height: 1.3;
   border-left: 3px solid transparent;
 }
 .rail a:hover { background: rgba(255,255,255,.07); color: #fff; }
 .rail a.on { background: rgba(255,255,255,.12); color: #fff; border-left-color: var(--leaf); }
-.rail a .gl { font-size: .8rem; color: #8fc0c4; width: 1em; flex: none; text-align: center; }
+.rail a .gl { font-size: .8rem; line-height: 1.42; color: #8fc0c4; width: 1em; flex: none; text-align: center; }
 .rail a.on .gl { color: var(--leaf); }
-.rail a .tick { margin-left: auto; color: var(--leaf); font-size: .8rem; opacity: 0; }
+.rail a .tick { margin-left: auto; padding-left: .4rem; line-height: 1.42; color: var(--leaf); font-size: .8rem; opacity: 0; }
 .rail a.done .tick { opacity: 1; }
 
 /* ---------------------------------------------------------------- mobile bar */
@@ -324,26 +324,26 @@ a { color: var(--brand); }
       </div>
     </div>
     <div class="rail-group">Start here</div>
-<a href="#what" data-id="what"><span class="gl">◈</span><span>What this system does</span><span class="tick">✓</span></a>
-<a href="#roles" data-id="roles"><span class="gl">◑</span><span>Owner and attendant</span><span class="tick">✓</span></a>
+<a href="#what" data-id="what"><span class="gl">◈</span><span>What it does</span><span class="tick">✓</span></a>
+<a href="#roles" data-id="roles"><span class="gl">◑</span><span>Owner &amp; attendant</span><span class="tick">✓</span></a>
 <a href="#signin" data-id="signin"><span class="gl">→</span><span>Signing in and out</span><span class="tick">✓</span></a>
-<a href="#around" data-id="around"><span class="gl">≡</span><span>Finding your way around</span><span class="tick">✓</span></a>
+<a href="#around" data-id="around"><span class="gl">≡</span><span>Getting around</span><span class="tick">✓</span></a>
 <div class="rail-group">Every day</div>
-<a href="#sell" data-id="sell"><span class="gl">▤</span><span>Sell — making a sale</span><span class="tick">✓</span></a>
-<a href="#kit" data-id="kit"><span class="gl">◎</span><span>Mix kit and repeat orders</span><span class="tick">✓</span></a>
-<a href="#invoice" data-id="invoice"><span class="gl">▭</span><span>Receipts and invoices</span><span class="tick">✓</span></a>
+<a href="#sell" data-id="sell"><span class="gl">▤</span><span>Sell</span><span class="tick">✓</span></a>
+<a href="#kit" data-id="kit"><span class="gl">◎</span><span>Mix kit</span><span class="tick">✓</span></a>
+<a href="#invoice" data-id="invoice"><span class="gl">▭</span><span>Receipts</span><span class="tick">✓</span></a>
 <a href="#sales" data-id="sales"><span class="gl">◫</span><span>Sales history</span><span class="tick">✓</span></a>
-<a href="#debts" data-id="debts"><span class="gl">◱</span><span>Debts — who owes what</span><span class="tick">✓</span></a>
+<a href="#debts" data-id="debts"><span class="gl">◱</span><span>Debts</span><span class="tick">✓</span></a>
 <a href="#dayclose" data-id="dayclose"><span class="gl">◐</span><span>Day close</span><span class="tick">✓</span></a>
 <a href="#expenses" data-id="expenses"><span class="gl">◲</span><span>Expenses</span><span class="tick">✓</span></a>
 <div class="rail-group">Stock &amp; making</div>
-<a href="#stock" data-id="stock"><span class="gl">▦</span><span>Stock — what is on the shelf</span><span class="tick">✓</span></a>
-<a href="#stocktake" data-id="stocktake"><span class="gl">◨</span><span>Stock take — correcting the count</span><span class="tick">✓</span></a>
-<a href="#repack" data-id="repack"><span class="gl">◧</span><span>Repack — breaking a drum down</span><span class="tick">✓</span></a>
-<a href="#batch" data-id="batch"><span class="gl">⚗</span><span>Batch — mixing a product</span><span class="tick">✓</span></a>
-<a href="#formulas" data-id="formulas"><span class="gl">◉</span><span>Formulas — the recipes</span><span class="tick">✓</span></a>
+<a href="#stock" data-id="stock"><span class="gl">▦</span><span>Stock</span><span class="tick">✓</span></a>
+<a href="#stocktake" data-id="stocktake"><span class="gl">◨</span><span>Stock take</span><span class="tick">✓</span></a>
+<a href="#repack" data-id="repack"><span class="gl">◧</span><span>Repack</span><span class="tick">✓</span></a>
+<a href="#batch" data-id="batch"><span class="gl">▣</span><span>Batch</span><span class="tick">✓</span></a>
+<a href="#formulas" data-id="formulas"><span class="gl">◉</span><span>Formulas</span><span class="tick">✓</span></a>
 <a href="#prices" data-id="prices"><span class="gl">◍</span><span>Products &amp; prices</span><span class="tick">✓</span></a>
-<a href="#purchases" data-id="purchases"><span class="gl">◰</span><span>Suppliers &amp; purchases</span><span class="tick">✓</span></a>
+<a href="#purchases" data-id="purchases"><span class="gl">◰</span><span>Purchases</span><span class="tick">✓</span></a>
 <div class="rail-group">Owner's view</div>
 <a href="#reports" data-id="reports"><span class="gl">◭</span><span>Reports</span><span class="tick">✓</span></a>
 <a href="#activity" data-id="activity"><span class="gl">◊</span><span>Activity log</span><span class="tick">✓</span></a>
@@ -351,7 +351,7 @@ a { color: var(--brand); }
 <a href="#settings" data-id="settings"><span class="gl">◇</span><span>Users &amp; settings</span><span class="tick">✓</span></a>
 <a href="#printer" data-id="printer"><span class="gl">▬</span><span>Receipt printer</span><span class="tick">✓</span></a>
 <a href="#pin" data-id="pin"><span class="gl">◘</span><span>Change my PIN</span><span class="tick">✓</span></a>
-<a href="#offline" data-id="offline"><span class="gl">◌</span><span>When the internet drops</span><span class="tick">✓</span></a>
+<a href="#offline" data-id="offline"><span class="gl">◌</span><span>Working offline</span><span class="tick">✓</span></a>
   </nav>
 
   <main>
@@ -675,7 +675,7 @@ a { color: var(--brand); }
 <section id="batch" data-aud="all">
   <div class="sec-head">
     <div class="sec-kicker">
-      <span class="sec-gl">⚗</span>
+      <span class="sec-gl">▣</span>
       <span class="sec-group">Stock &amp; making</span>
       <span class="tag both">Everyone</span>
     </div>
