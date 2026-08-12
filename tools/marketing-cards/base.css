@@ -1,0 +1,124 @@
+/* ------------------------------------------------------------------ tokens
+   Lifted from the portfolio's own palette (src/app/globals.css) and the
+   existing ad posters, so this deck reads as the same brand — not a new one. */
+:root {
+  --bg:        #070d0a;
+  --bg-2:      #0a120d;
+  --surface:   #101712;
+  --surface-2: #18211b;
+  --line:      #223029;
+  --line-firm: #33453b;
+
+  --mint:      #2ee88a;   /* primary accent */
+  --mint-deep: #0a9d61;
+  --mint-dim:  #8bf7bd;
+  --gold:      #f5c451;
+
+  --white:     #ffffff;
+  --text:      #dfe7e2;
+  --muted:     #97a29a;
+  --faint:     #6c7a71;
+
+  --sans:    "Inter", sans-serif;
+  --display: "Space Grotesk", "Inter", sans-serif;
+  --mono:    "JetBrains Mono", monospace;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #000; font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+
+/* Each card is an exact export frame. */
+.card {
+  position: relative; overflow: hidden;
+  width: 1080px; height: 1080px;
+  padding: 64px;
+  background:
+    radial-gradient(900px 520px at 82% -8%, rgba(46,232,138,.16), transparent 62%),
+    radial-gradient(700px 520px at -12% 108%, rgba(10,157,97,.13), transparent 60%),
+    linear-gradient(168deg, var(--bg-2) 0%, var(--bg) 55%);
+  color: var(--text);
+  display: flex; flex-direction: column;
+}
+/* Story frames reserve WhatsApp's own furniture. Status overlays the sender
+   row across the top (~190px) and a Reply bar across the bottom (~230px); a
+   phone number or CTA placed in either is a phone number nobody can read. */
+.card.story { width: 1080px; height: 1920px; padding: 170px 72px 250px; }
+
+/* A hairline of brand gradient along the very top — the one flourish, used on
+   every card so the deck is recognisable at thumbnail size. */
+.card::before {
+  content: ""; position: absolute; inset: 0 0 auto 0; height: 6px;
+  background: linear-gradient(90deg, var(--mint), var(--mint-deep) 55%, var(--gold));
+}
+
+/* ------------------------------------------------------------------ lockup */
+.top { display: flex; align-items: flex-start; gap: 20px; }
+.mark {
+  width: 74px; height: 74px; flex: none; border-radius: 20px;
+  border: 2px solid rgba(46,232,138,.5);
+  background: linear-gradient(150deg, rgba(46,232,138,.2), rgba(10,157,97,.08));
+  display: grid; place-items: center;
+  font-family: var(--mono); font-size: 28px; font-weight: 700; color: var(--mint);
+}
+.brand { font-family: var(--mono); font-size: 30px; font-weight: 700; color: var(--white); letter-spacing: -.01em; }
+.brand .dim { color: var(--mint); }
+.brand-sub { font-family: var(--mono); font-size: 17px; color: var(--faint); letter-spacing: .16em; margin-top: 4px; }
+.badge {
+  margin-left: auto; flex: none;
+  font-family: var(--mono); font-size: 19px; font-weight: 700; color: var(--mint-dim);
+  border: 1.5px solid var(--line-firm); border-radius: 999px; padding: 12px 22px;
+  background: rgba(16,23,18,.7);
+}
+
+/* ------------------------------------------------------------------ type */
+.kicker { font-family: var(--mono); font-size: 24px; color: var(--mint); letter-spacing: .02em; }
+h1 {
+  font-family: var(--display); font-weight: 700; letter-spacing: -.03em; line-height: .98;
+  color: var(--white); font-size: 92px;
+}
+h1 .accent { color: var(--mint); }
+h1.sm { font-size: 74px; }
+.lede { font-size: 30px; line-height: 1.42; color: var(--muted); max-width: 30ch; }
+
+/* ------------------------------------------------------------------ bits */
+.chips { display: flex; flex-wrap: wrap; gap: 12px; }
+.chip {
+  font-size: 23px; font-weight: 600; color: var(--text);
+  border: 1.5px solid var(--line-firm); border-radius: 999px; padding: 11px 20px;
+  background: rgba(16,23,18,.75);
+}
+.chip.on { background: var(--mint); border-color: var(--mint); color: #04140c; font-weight: 800; }
+
+.tile {
+  background: linear-gradient(160deg, var(--surface), rgba(10,18,13,.85));
+  border: 1.5px solid var(--line); border-radius: 22px; padding: 26px 28px;
+}
+.tile .n { font-family: var(--mono); font-size: 18px; color: var(--mint); letter-spacing: .12em; }
+.tile h3 { font-family: var(--display); font-size: 31px; font-weight: 700; color: var(--white); margin-top: 8px; letter-spacing: -.015em; }
+.tile p { font-size: 21px; line-height: 1.4; color: var(--muted); margin-top: 8px; }
+
+.rowitem { display: flex; gap: 18px; align-items: flex-start; }
+.tick {
+  width: 40px; height: 40px; flex: none; border-radius: 11px;
+  background: rgba(46,232,138,.14); border: 1.5px solid rgba(46,232,138,.45);
+  display: grid; place-items: center; color: var(--mint); font-size: 22px; font-weight: 800;
+}
+.rowitem .t { font-family: var(--display); font-size: 30px; font-weight: 700; color: var(--white); letter-spacing: -.01em; }
+.rowitem .s { font-size: 22px; color: var(--muted); margin-top: 3px; line-height: 1.35; }
+
+/* ------------------------------------------------------------------ footer */
+.foot {
+  margin-top: auto; padding-top: 30px; border-top: 1.5px solid var(--line);
+  display: flex; align-items: flex-end; gap: 28px;
+}
+.foot .lines { font-family: var(--mono); font-size: 24px; line-height: 1.65; }
+.foot .lines .k { color: var(--mint); }
+.foot .lines .v { color: var(--white); }
+.cta {
+  margin-left: auto; flex: none;
+  background: var(--mint); color: #04140c;
+  font-family: var(--display); font-size: 30px; font-weight: 700;
+  border-radius: 999px; padding: 22px 38px; letter-spacing: -.01em;
+  box-shadow: 0 18px 44px -14px rgba(46,232,138,.6);
+}
+.rule { height: 1.5px; background: var(--line); margin: 0 0 26px; }
