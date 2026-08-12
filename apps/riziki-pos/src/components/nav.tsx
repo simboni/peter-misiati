@@ -113,9 +113,6 @@ export function BottomNav({ isOwner, rail = "wide" }: { isOwner: boolean; rail?:
     <>
       {/* Phone bottom bar; floating island at md; gone at lg. */}
       <nav
-        // Marked so a full-height screen can measure the space this bar covers
-        // rather than guess at it — see `@/components/handbook-frame`.
-        data-bottom-bar=""
         className="no-print fixed inset-x-0 bottom-0 z-30 mx-auto grid max-w-lg rounded-t-3xl bg-white pt-1.5 pb-[env(safe-area-inset-bottom)] shadow-nav md:bottom-3 md:max-w-xl md:rounded-3xl md:shadow-lift md:ring-1 md:ring-ink/5 lg:hidden"
         style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }}
       >
