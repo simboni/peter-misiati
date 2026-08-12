@@ -125,3 +125,12 @@ for anything touching formulas, costs, profit or voids.
   `node --experimental-strip-types --test`. Set
   `process.env.RIZIKI_DB` to a temp file at the top so tests never touch real data.
 - Write comments the way the existing code does: explain *why*, not *what*.
+- **Deploying to the shop's server is one command, already in the repo:**
+  `sh deploy/update.sh` (see `DEPLOY.md`, "Updating — app and website
+  together"). It checks out the pinned branch, rebuilds the containers via
+  Docker Compose, reloads Caddy and smoke-tests every public URL. Don't
+  improvise a deploy by hand — installing Node on the server, running
+  `npm run dev` over SSH, or a bare `git pull` have all been tried and each
+  wastes a round trip the script already does correctly. If asked to deploy
+  changes to the live server, run that script; don't reach for anything else
+  first.
