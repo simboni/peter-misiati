@@ -137,6 +137,39 @@ export default function ProductsPage() {
         </div>
       </Section>
 
+
+      {/* Photographs of the actual stock. The catalogue below is names and pack
+          sizes; a buyer deciding whether to make the trip into town wants to see
+          that the drums are really there. */}
+      <Section tone="surface" className="pt-0">
+        <SectionHeading
+          eyebrow="From the store"
+          title="What you are buying"
+          lead="Photographs from our own store and deliveries — not stock pictures."
+        />
+        <ul className="mt-8 grid grid-cols-2 gap-4 md:grid-cols-4">
+          {[
+            { src: "/photos/sles-drums.webp", alt: "Labelled 170 kg drums of SLES in the store", cap: "SLES in 170 kg drums" },
+            { src: "/photos/salt-sacks.webp", alt: "Fifty-kilo sacks of industrial salt stacked in a delivery van", cap: "Industrial salt, by the sack" },
+            { src: "/photos/jerricans.webp", alt: "Rows of twenty-litre jerricans of liquid chemical on a delivery truck", cap: "Liquids in 20 L jerricans" },
+            { src: "/photos/biodigester.webp", alt: "A tub of Biodigester, a finished product for pit latrines and septic tanks", cap: "Finished products" },
+          ].map((photo) => (
+            <li key={photo.src} className="overflow-hidden rounded-2xl border border-line bg-surface">
+              <img
+                src={photo.src}
+                alt={photo.alt}
+                loading="lazy"
+                decoding="async"
+                className="aspect-square w-full object-cover"
+                width={414}
+                height={414}
+              />
+              <p className="px-3 py-2.5 text-xs font-bold text-muted">{photo.cap}</p>
+            </li>
+          ))}
+        </ul>
+      </Section>
+
       {/* The catalogue itself */}
       <Section tone="wash" className="pt-0">
         <h2 className="sr-only">Product catalogue</h2>

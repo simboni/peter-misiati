@@ -195,6 +195,27 @@ export default function AboutPage() {
             </figcaption>
           </figure>
         </div>
+
+        <ul className="mt-5 grid grid-cols-3 gap-4">
+          {[
+            { src: "/photos/raw-drum-open.webp", alt: "An open drum of SLES, lined, ready to be weighed out", cap: "Opened and weighed to order" },
+            { src: "/photos/labsa-pouring.webp", alt: "LABSA being decanted into a lined drum", cap: "Decanted from bulk" },
+            { src: "/photos/salt-sacks.webp", alt: "Fifty-kilo sacks of industrial salt in a delivery van", cap: "Deliveries as they arrive" },
+          ].map((photo) => (
+            <li key={photo.src} className="overflow-hidden rounded-2xl border border-line bg-surface">
+              <img
+                src={photo.src}
+                alt={photo.alt}
+                loading="lazy"
+                decoding="async"
+                className="aspect-square w-full object-cover"
+                width={414}
+                height={414}
+              />
+              <p className="px-3 py-2 text-[11px] font-bold leading-snug text-muted">{photo.cap}</p>
+            </li>
+          ))}
+        </ul>
         <div className="mt-6 grid gap-4 sm:grid-cols-2">
           <Card>
             <h3 className="text-sm font-extrabold">Where</h3>

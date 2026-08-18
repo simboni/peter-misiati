@@ -25,21 +25,24 @@ const WHAT_WE_DO = [
     title: "Raw chemicals",
     lead: "Our main trade.",
     body: "About thirty chemicals in stock. Buy the whole drum, or we weigh out as little as 125 g.",
-    art: "/art/raw.svg",
+    art: "/photos/raw-drum-open.webp",
+    artAlt: "An open 170 kg drum of SLES, lined and ready to be weighed out",
     cta: { href: "/products/", label: "See the chemical list" },
   },
   {
     title: "Finished cleaning products",
     lead: "Mixed here, ready to use.",
     body: "Handwash, shampoo, bleach, toilet cleaner and more — or in bulk for your own bottles.",
-    art: "/art/finished.svg",
+    art: "/photos/biodigester.webp",
+    artAlt: "A tub of Biodigester, one of the finished products mixed at the shop",
     cta: { href: "/products/#finished", label: "See finished products" },
   },
   {
     title: "Mix kits",
     lead: "The recipe, measured out.",
     body: "Your recipe, weighed chemical by chemical. Add water at home and follow the steps.",
-    art: "/art/kit.svg",
+    art: "/photos/labsa-pouring.webp",
+    artAlt: "LABSA being decanted into a lined drum",
     cta: { href: "/products/#mix-kits", label: "How mix kits work" },
   },
 ];
@@ -136,11 +139,12 @@ export default function HomePage() {
             <Card key={item.title} className="flex flex-col">
               <img
                 src={item.art}
-                alt=""
-                aria-hidden="true"
-                className="mb-4 h-32 w-full object-contain"
-                width={320}
-                height={210}
+                alt={item.artAlt}
+                loading="lazy"
+                decoding="async"
+                className="mb-4 h-40 w-full rounded-xl object-cover"
+                width={414}
+                height={414}
               />
               <h3 className="text-lg font-extrabold tracking-tight">{item.title}</h3>
               <p className="mt-1 text-sm font-bold text-leaf-ink">{item.lead}</p>
