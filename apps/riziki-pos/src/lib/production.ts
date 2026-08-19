@@ -807,9 +807,26 @@ export interface FormulaVersionInput {
  * one of them, and rewriting a version would silently restate what those
  * batches were made of and what they cost. Only the `is_current` flag moves.
  */
+/**
+ * How many batches were mixed against one formula version.
+ *
+ * Zero means the version is still only a piece of writing: nothing downstream
+ * depends on the numbers in it, so correcting it destroys no record. The edit
+ * screen asks this to tell the owner, before they type anything, whether the
+ * save ahead of them corrects this recipe or forks a new version from it.
+ */
+export function batchesUsingVersion(versionId: number): number {
+  return get<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM batches WHERE formula_version_id = ?`,
+    versionId,
+  )?.n ?? 0;
+}
+
 export function createFormulaVersion(input: FormulaVersionInput): {
   versionId: number;
   version: number;
+  /** True when the existing version was corrected rather than a new one forked. */
+  corrected: boolean;
 } {
   if (!Number.isInteger(input.refSizeMilli) || input.refSizeMilli <= 0) {
     throw new Error("The reference batch size must be more than zero.");
@@ -830,25 +847,62 @@ export function createFormulaVersion(input: FormulaVersionInput): {
     const formula = formulaById(input.formulaId);
     if (!formula) throw new Error("That formula no longer exists.");
 
-    const max =
-      get<{ v: number }>(
-        `SELECT COALESCE(MAX(version), 0) AS v FROM formula_versions WHERE formula_id = ?`,
-        input.formulaId,
-      )?.v ?? 0;
-    const version = max + 1;
-
-    run(`UPDATE formula_versions SET is_current = 0 WHERE formula_id = ?`, input.formulaId);
-
-    const { lastInsertRowid: versionId } = run(
-      `INSERT INTO formula_versions (formula_id, version, ref_size_milli, steps, note, is_current, created_by)
-       VALUES (?, ?, ?, ?, ?, 1, ?)`,
+    // A version exists to protect the batches that were mixed against it. Until
+    // a batch points at one, there is no history to protect — so correcting a
+    // recipe that has never been used rewrites it where it stands instead of
+    // forking. Without this, a shop fixing the placeholder recipes it was
+    // delivered with walks its way to "version 6" of a product it has not made
+    // once, and the version number stops meaning anything.
+    const current = get<{ id: number; version: number }>(
+      `SELECT id, version FROM formula_versions WHERE formula_id = ? AND is_current = 1`,
       input.formulaId,
-      version,
-      input.refSizeMilli,
-      input.steps,
-      input.note,
-      input.userId,
     );
+    const mixedAgainstCurrent = current
+      ? (get<{ n: number }>(`SELECT COUNT(*) AS n FROM batches WHERE formula_version_id = ?`, current.id)?.n ?? 0)
+      : 0;
+    const correctInPlace = Boolean(current) && mixedAgainstCurrent === 0;
+
+    let versionId: number | bigint;
+    let version: number;
+
+    if (correctInPlace && current) {
+      versionId = current.id;
+      version = current.version;
+      run(
+        `UPDATE formula_versions
+            SET ref_size_milli = ?, steps = ?, note = ?, created_by = ?, created_at = datetime('now')
+          WHERE id = ?`,
+        input.refSizeMilli,
+        input.steps,
+        input.note,
+        input.userId,
+        current.id,
+      );
+      // The ingredient rows are replaced wholesale rather than diffed: a recipe
+      // is the whole list, and a partial update is how a stray chemical from the
+      // old version survives into the corrected one.
+      run(`DELETE FROM formula_items WHERE formula_version_id = ?`, current.id);
+    } else {
+      const max =
+        get<{ v: number }>(
+          `SELECT COALESCE(MAX(version), 0) AS v FROM formula_versions WHERE formula_id = ?`,
+          input.formulaId,
+        )?.v ?? 0;
+      version = max + 1;
+
+      run(`UPDATE formula_versions SET is_current = 0 WHERE formula_id = ?`, input.formulaId);
+
+      versionId = run(
+        `INSERT INTO formula_versions (formula_id, version, ref_size_milli, steps, note, is_current, created_by)
+         VALUES (?, ?, ?, ?, ?, 1, ?)`,
+        input.formulaId,
+        version,
+        input.refSizeMilli,
+        input.steps,
+        input.note,
+        input.userId,
+      ).lastInsertRowid;
+    }
 
     let order = 0;
     for (const item of items) {
@@ -867,10 +921,12 @@ export function createFormulaVersion(input: FormulaVersionInput): {
       "formula_version",
       "formula",
       input.formulaId,
-      `${formula.name} · version ${version} (${items.length} ingredients)`,
+      correctInPlace
+        ? `${formula.name} · version ${version} corrected before any batch used it (${items.length} ingredients)`
+        : `${formula.name} · version ${version} (${items.length} ingredients)`,
     );
 
-    return { versionId, version };
+    return { versionId, version, corrected: correctInPlace };
   });
 }
 

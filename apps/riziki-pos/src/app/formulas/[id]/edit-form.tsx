@@ -38,6 +38,7 @@ export function EditFormulaForm({
   note,
   rows,
   cancelHref,
+  everMixed,
 }: {
   action: (state: SaveState, formData: FormData) => Promise<SaveState>;
   formulaId: number;
@@ -47,6 +48,8 @@ export function EditFormulaForm({
   note: string;
   rows: EditRow[];
   cancelHref: string;
+  /** Whether any batch was mixed against the version being edited. */
+  everMixed: boolean;
 }) {
   const [state, formAction, pending] = useActionState(action, {} as SaveState);
 
@@ -163,13 +166,14 @@ export function EditFormulaForm({
       </Card>
 
       <Alert tone="neutral">
-        Saving creates a new version. The old one stays exactly as it is, because
-        every batch already mixed points at it.
+        {everMixed
+          ? "Saving creates a new version. The old one stays exactly as it is, because every batch already mixed points at it."
+          : "This recipe has not been mixed yet, so saving corrects it where it stands — no new version and no history to keep. Once a batch is mixed against it, editing will start a new version instead."}
       </Alert>
 
       <div className="flex gap-2">
         <Button type="submit" disabled={pending} className="flex-1">
-          {pending ? "Saving…" : "Save as new version"}
+          {pending ? "Saving…" : everMixed ? "Save as new version" : "Save corrections"}
         </Button>
         <a
           href={cancelHref}

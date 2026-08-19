@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { currentUser, requireOwner } from "@/lib/auth";
 import {
+  batchesUsingVersion,
   formulaById,
   currentVersion,
   versionById,
@@ -149,6 +150,7 @@ export default async function FormulaDetailPage(props: {
             chemicalId: i.chemical_id,
             qty: String(fromMilli(i.qty_milli)),
           }))}
+          everMixed={batchesUsingVersion(shown.id) > 0}
           cancelHref={`/formulas/${formulaId}`}
         />
       </div>

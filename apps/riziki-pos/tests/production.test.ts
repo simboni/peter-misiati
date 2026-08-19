@@ -245,7 +245,7 @@ test("a batch that exceeds available stock is rejected and leaves the ledger unt
 
 // -------------------------------------------------------------- (e) versions
 
-test("editing a formula creates version 2 and leaves version 1's rows untouched", () => {
+test("editing a formula that HAS been mixed creates version 2 and leaves version 1 untouched", () => {
   const target = formula("Carwash Shampoo");
   const v1 = currentVersion(target.id)!;
   assert.equal(v1.version, 1);
@@ -255,6 +255,23 @@ test("editing a formula creates version 2 and leaves version 1's rows untouched"
   const v1Before = { ...get<Record<string, unknown>>(`SELECT * FROM formula_versions WHERE id = ?`, v1.id)! };
   const v1ItemsBefore = all(`SELECT * FROM formula_items WHERE formula_version_id = ? ORDER BY id`, v1.id);
   assert.ok(v1ItemsBefore.length > 0);
+
+  // Mix one batch against version 1 first. Without a batch depending on it the
+  // version is only a piece of writing, and an edit now corrects it where it
+  // stands instead of forking — see the two tests at the end of this file.
+  for (const item of formulaItems(v1.id)) {
+    const itemRow = get<{ id: number }>(
+      `SELECT id FROM items WHERE chemical_id = ? ORDER BY id LIMIT 1`, item.chemical_id);
+    if (itemRow) {
+      run(`INSERT INTO stock_movements (item_id, delta_milli, reason, user_id)
+           VALUES (?, ?, 'opening', ?)`, itemRow.id, toMilli(500), OWNER);
+    }
+  }
+  runBatch({
+    formulaVersionId: v1.id,
+    targetMilli: minimumTargetMilli(v1.id),
+    userId: OWNER,
+  });
 
   const edited = formulaItems(v1.id).map((i) => ({ chemicalId: i.chemical_id, qtyMilli: i.qty_milli }));
   edited[0].qtyMilli += toMilli(0.25);
@@ -629,4 +646,83 @@ test("a kit refuses to bill 5 kg for a recipe that needs 25 g", () => {
   )!;
   assert.equal(flour.suppliedMilli, 2000);
   assert.equal(flour.oversized, false, "2 kg for 1.5 kg is ordinary shopkeeping");
+});
+
+/**
+ * Correcting a recipe that has never been mixed.
+ *
+ * The shop was delivered with placeholder recipes, and the owner has to correct
+ * them before the first batch. Forking a version each time would walk a product
+ * he has never made to "version 6" and make the number meaningless. The rule is
+ * about protecting batches, so it only has to bite once a batch exists.
+ */
+test("editing an unmixed recipe corrects it in place", () => {
+  const target = formula("Handwash");
+  const before = currentVersion(target.id)!;
+  const chemicalId = formulaItems(before.id)[0].chemical_id;
+
+  const first = createFormulaVersion({
+    formulaId: target.id,
+    refSizeMilli: toMilli(20),
+    steps: "corrected steps",
+    note: "",
+    items: [{ chemicalId, qtyMilli: toMilli(3) }],
+    userId: OWNER,
+  });
+  assert.equal(first.corrected, true, "a never-mixed recipe should be corrected, not forked");
+  assert.equal(first.version, before.version, "the version number should not move");
+  assert.equal(first.versionId, before.id, "it should be the same row");
+
+  // Correcting again also stays put, and leaves no orphan ingredient behind.
+  const second = createFormulaVersion({
+    formulaId: target.id,
+    refSizeMilli: toMilli(20),
+    steps: "corrected twice",
+    note: "",
+    items: [{ chemicalId, qtyMilli: toMilli(4) }],
+    userId: OWNER,
+  });
+  assert.equal(second.version, before.version);
+  const items = formulaItems(second.versionId as number);
+  assert.equal(items.length, 1, "the previous ingredient list must be replaced, not appended to");
+  assert.equal(items[0].qty_milli, toMilli(4));
+  assert.equal(all("SELECT id FROM formula_versions WHERE formula_id = ?", target.id).length, 1,
+    "no extra versions should have been created");
+});
+
+test("once a batch is mixed, editing forks a new version and the old one is untouched", () => {
+  const target = formula("Dettol-type Disinfectant");
+  const version = currentVersion(target.id)!;
+  const chemicalId = formulaItems(version.id)[0].chemical_id;
+
+  // Give the shelf enough to mix with, then mix.
+  for (const item of formulaItems(version.id)) {
+    const itemRow = get<{ id: number }>(
+      "SELECT id FROM items WHERE chemical_id = ? ORDER BY id LIMIT 1", item.chemical_id);
+    if (itemRow) {
+      run(`INSERT INTO stock_movements (item_id, delta_milli, reason, user_id)
+           VALUES (?, ?, 'opening', ?)`, itemRow.id, toMilli(500), OWNER);
+    }
+  }
+  runBatch({
+    formulaVersionId: version.id,
+    targetMilli: minimumTargetMilli(version.id),
+    userId: OWNER,
+  });
+
+  const after = createFormulaVersion({
+    formulaId: target.id,
+    refSizeMilli: toMilli(20),
+    steps: "changed after mixing",
+    note: "",
+    items: [{ chemicalId, qtyMilli: toMilli(9) }],
+    userId: OWNER,
+  });
+  assert.equal(after.corrected, false, "a mixed recipe must fork");
+  assert.equal(after.version, version.version + 1);
+
+  // The batch's own version still says exactly what it said when it was mixed.
+  const kept = formulaItems(version.id);
+  assert.ok(kept.length > 0, "the mixed version kept its ingredients");
+  assert.notEqual(kept[0].qty_milli, toMilli(9), "the mixed version was not rewritten");
 });
