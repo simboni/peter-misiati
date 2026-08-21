@@ -162,9 +162,7 @@ export default async function BatchPage(props: {
   const recent = listBatches(12, owner);
 
   return (
-    // Same tightening as Reports: the shared label/title spacing is phone-first,
-    // and this screen puts a form, a plan and a table on one laptop screen.
-    <div className="[&_h2]:mt-4 [&>header]:mb-3 xl:[&_h2]:mt-5 xl:[&>header]:mb-4">
+    <div>
       <PageTitle
         title="Production batch"
         subtitle={
@@ -242,7 +240,7 @@ export default async function BatchPage(props: {
       ) : (
         // Row height set from the wrapper — this table is read with a mouse,
         // and the shared Td is sized for a thumb at the counter.
-        <TableWrap className="[&_td]:py-2 [&_th]:py-2 xl:[&_td]:py-2.5">
+        <TableWrap>
           <thead>
             <tr>
               <Th>Batch</Th>

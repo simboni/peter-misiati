@@ -45,7 +45,9 @@ export function SalesChart({ data }: { data: MonthPoint[] }) {
           onClick={() => setAsTable((v) => !v)}
           aria-expanded={asTable}
           aria-controls={tableId}
-          className="rounded-lg border border-line px-2.5 py-1.5 text-[11px] font-bold text-muted hover:bg-wash"
+          // 31px tall before: below the 36px floor for something tapped on a
+          // tablet. Full 44px on touch widths, 36px once there is a mouse.
+          className="inline-flex min-h-11 items-center rounded-lg border border-line px-2.5 text-[11px] font-bold text-muted hover:bg-wash xl:min-h-9"
         >
           {asTable ? "View as chart" : "View as table"}
         </button>
@@ -53,7 +55,7 @@ export function SalesChart({ data }: { data: MonthPoint[] }) {
 
       {asTable ? (
         <div id={tableId}>
-          <TableWrap className="[&_td]:py-2 [&_th]:py-2 xl:[&_td]:py-2.5">
+          <TableWrap>
             <thead>
               <tr>
                 <Th>Month</Th>

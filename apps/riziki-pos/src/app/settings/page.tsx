@@ -156,7 +156,7 @@ export default async function SettingsPage(props: {
     // Everything here is a form, so each column stays at reading width — but
     // three stacked cards in a 672px gutter is 1800px of scrolling for what
     // fits beside itself. The cap widens; the columns inside it do not.
-    <div className="lg:max-w-3xl xl:max-w-5xl 2xl:max-w-6xl [&_h2]:mt-4 [&>header]:mb-3 xl:[&_h2]:mt-5 xl:[&>header]:mb-4">
+    <div className="lg:max-w-3xl xl:max-w-5xl 2xl:max-w-6xl">
       <PageTitle
         title="Users &amp; settings"
         subtitle="Who can use the system, and the details that appear on an invoice"

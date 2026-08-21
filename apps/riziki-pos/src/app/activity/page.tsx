@@ -102,7 +102,7 @@ export default async function ActivityPage(props: {
 
   return (
     // No width cap: this is fifty short, self-contained entries, not prose.
-    <div className="[&>header]:mb-3 xl:[&>header]:mb-4">
+    <div>
       <PageTitle
         title="Activity"
         subtitle={`Everything worth disputing, newest first — ${total.toLocaleString("en-KE")} entries and none of them editable`}
@@ -116,7 +116,7 @@ export default async function ActivityPage(props: {
         // Newest first still reads correctly across columns — left to right,
         // then down — and answering "who did what" means scanning many entries,
         // so a wide screen should show more of them rather than a longer margin.
-        <div className="grid gap-1.5 xl:grid-cols-2 2xl:grid-cols-3 min-[1920px]:grid-cols-4">
+        <div className="grid gap-1.5 xl:grid-cols-2 2xl:grid-cols-3 3xl:grid-cols-4">
           {rows.map((r) => {
             const a = ACTIONS[r.action] ?? { label: r.action.replaceAll("_", " "), tone: "neutral" as const };
             return (

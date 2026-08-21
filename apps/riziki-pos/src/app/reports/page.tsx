@@ -74,11 +74,7 @@ export default async function ReportsPage() {
   const deadValue = dead.reduce((sum, d) => sum + d.value_cents, 0);
 
   return (
-    // Eight ruled labels and a title stack up to a screenful of nothing on a
-    // 768px-tall laptop. The shared SectionLabel/PageTitle spacing is tuned for
-    // a phone; tightening it here from one selector keeps the component shared
-    // and still gives this screen — the densest in the app — its rows back.
-    <div className="[&_h2]:mt-4 [&>header]:mb-3 xl:[&_h2]:mt-5 xl:[&>header]:mb-4">
+    <div>
       <PageTitle title="Reports" subtitle="Owner only · costs and profit are never shown to staff" />
 
       <div className="lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-4 xl:gap-x-5 2xl:gap-x-6">
@@ -231,7 +227,7 @@ export default async function ReportsPage() {
           </p>
           {/* Row height set from the wrapper: the shared Td is tuned for a
               thumb, and this table is only ever read with a mouse. */}
-          <TableWrap className="[&_td]:py-2 [&_th]:py-2 xl:[&_td]:py-2.5">
+          <TableWrap>
             <thead>
               <tr>
                 <Th>Item</Th>

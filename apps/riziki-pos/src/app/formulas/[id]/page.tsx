@@ -160,7 +160,7 @@ export default async function FormulaDetailPage(props: {
   const steps = shown.steps.split("\n").map((s) => s.trim()).filter(Boolean);
 
   return (
-    <div className="[&_h2]:mt-4 [&>header]:mb-3 xl:[&_h2]:mt-5 xl:[&>header]:mb-4">
+    <div>
       <PageTitle
         title={formula.name}
         subtitle={`Version ${shown.version} · quantities per ${formatQty(shown.ref_size_milli, "L")}`}
@@ -204,7 +204,7 @@ export default async function FormulaDetailPage(props: {
         <div className="lg:col-span-6 xl:col-span-5">
           <SectionLabel>Ingredients per {formatQty(shown.ref_size_milli, "L")}</SectionLabel>
           {items.length ? (
-            <TableWrap className="[&_td]:py-2 [&_th]:py-2 xl:[&_td]:py-2.5">
+            <TableWrap>
               <thead>
                 <tr>
                   <Th>Chemical</Th>

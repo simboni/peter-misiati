@@ -44,7 +44,7 @@ export default async function FormulasPage(props: {
   return (
     // No width cap: the body of this screen is a grid of cards, not prose, so
     // a wider screen should mean more formulas at once rather than more margin.
-    <div className="[&_h2]:mt-4 [&>header]:mb-3 xl:[&_h2]:mt-5 xl:[&>header]:mb-4">
+    <div>
       <PageTitle
         title="Formulas"
         subtitle="Owner only. Every edit is saved as a new version, never over the old one."
@@ -83,7 +83,7 @@ export default async function FormulasPage(props: {
       {formulas.length === 0 ? (
         <Empty>No formula uses that name or ingredient.</Empty>
       ) : (
-        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 min-[1920px]:grid-cols-5">
+        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 3xl:grid-cols-5">
           {formulas.map((f) => (
             <Link key={f.id} href={`/formulas/${f.id}`} className="block">
               <Card className="hover:bg-wash">
