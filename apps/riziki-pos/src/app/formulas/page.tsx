@@ -42,13 +42,16 @@ export default async function FormulasPage(props: {
   const unresolved = formulas.filter((f) => f.note.trim().length > 0).length;
 
   return (
-    <div className="lg:max-w-4xl">
+    // No width cap: the body of this screen is a grid of cards, not prose, so
+    // a wider screen should mean more formulas at once rather than more margin.
+    <div className="[&_h2]:mt-4 [&>header]:mb-3 xl:[&_h2]:mt-5 xl:[&>header]:mb-4">
       <PageTitle
         title="Formulas"
         subtitle="Owner only. Every edit is saved as a new version, never over the old one."
       />
 
-      <form method="get" className="mb-3 flex gap-2">
+      {/* The search box is the one thing here that is read at reading width. */}
+      <form method="get" className="mb-2.5 flex max-w-xl gap-2">
         <input
           className={inputClass}
           type="search"
@@ -61,7 +64,7 @@ export default async function FormulasPage(props: {
       </form>
 
       {term ? (
-        <p className="mb-3 text-sm text-muted">
+        <p className="mb-2.5 text-sm text-muted">
           {formulas.length} {formulas.length === 1 ? "formula" : "formulas"} matching{" "}
           <span className="font-bold text-ink">{term}</span>.{" "}
           <Link href="/formulas" className="font-bold text-brand">
@@ -69,7 +72,7 @@ export default async function FormulasPage(props: {
           </Link>
         </p>
       ) : unresolved > 0 ? (
-        <div className="mb-3">
+        <div className="mb-2.5">
           <Alert tone="warn">
             {unresolved} {unresolved === 1 ? "formula has" : "formulas have"} an open question from
             the transcribed sheets. Settle these before the next mix.
@@ -80,7 +83,7 @@ export default async function FormulasPage(props: {
       {formulas.length === 0 ? (
         <Empty>No formula uses that name or ingredient.</Empty>
       ) : (
-        <div className="space-y-2">
+        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 min-[1920px]:grid-cols-5">
           {formulas.map((f) => (
             <Link key={f.id} href={`/formulas/${f.id}`} className="block">
               <Card className="hover:bg-wash">

@@ -36,7 +36,7 @@ export function YieldForm({
   const suggested = outputs.find((o) => o.suggested);
 
   return (
-    <form action={formAction} className="space-y-3">
+    <form action={formAction} className="space-y-2.5">
       <input type="hidden" name="batchId" value={batchId} />
 
       {state.error ? <Alert tone="bad">{state.error}</Alert> : null}

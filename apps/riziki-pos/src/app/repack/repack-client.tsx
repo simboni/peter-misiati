@@ -96,10 +96,12 @@ export function RepackClient({
           <p className="text-sm text-muted">No bulk container has a repack size set up yet.</p>
         </Card>
       ) : (
-        <form action={formAction} className="mt-3 space-y-3">
+        <form action={formAction} className="mt-3 space-y-2.5 xl:space-y-3">
           <input type="hidden" name="bulkItemId" value={bulkId} />
 
-          <Card className="space-y-3">
+          {/* What is being broken down and how much of it are one decision, so
+              from a tablet up they sit on one line instead of two. */}
+          <Card className="space-y-2.5 md:grid md:grid-cols-2 md:items-start md:gap-x-4 md:space-y-0">
             <Field label="Break down">
               <select
                 className={inputClass}
@@ -136,7 +138,7 @@ export function RepackClient({
           </Card>
 
           <SectionLabel>Packs produced</SectionLabel>
-          <Card className="space-y-2.5">
+          <Card className="grid gap-x-6 gap-y-2.5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 3xl:grid-cols-5">
             {sel?.packs.map((p) => (
               <div key={p.itemId} className="flex items-center gap-3">
                 <div className="min-w-0 flex-1">
@@ -146,7 +148,7 @@ export function RepackClient({
                   </div>
                 </div>
                 <input
-                  className={`${inputClassBase} w-24 shrink-0 text-right tnum`}
+                  className={`${inputClassBase} w-24 shrink-0 text-right tnum xl:!px-3 xl:!py-2`}
                   name={`units_${p.itemId}`}
                   type="number"
                   inputMode="numeric"
@@ -164,7 +166,7 @@ export function RepackClient({
           </Card>
 
           {/* The panel the whole screen exists for. */}
-          <div className="rounded-2xl border border-line bg-wash p-3.5">
+          <div className="rounded-2xl border border-line bg-wash p-3 xl:p-3.5">
             <div className="grid grid-cols-3 gap-2 text-center">
               <div>
                 <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted">In</div>
@@ -195,18 +197,20 @@ export function RepackClient({
             </div>
           </div>
 
-          {problem ? <Alert tone="bad">{problem}</Alert> : null}
+          <div className="space-y-2.5 xl:mx-auto xl:max-w-3xl">
+            {problem ? <Alert tone="bad">{problem}</Alert> : null}
 
-          <Button type="submit" className="w-full" disabled={pending || problem !== null}>
-            {pending ? "Saving…" : "Save repack"}
-          </Button>
+            <Button type="submit" className="w-full" disabled={pending || problem !== null}>
+              {pending ? "Saving…" : "Save repack"}
+            </Button>
+          </div>
         </form>
       )}
 
       {recent.length ? (
         <>
           <SectionLabel>Recent repacks</SectionLabel>
-          <Card className="space-y-2.5">
+          <Card className="grid items-start gap-x-6 gap-y-2.5 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 3xl:grid-cols-5">
             {recent.map((r) => (
               <div key={r.id} className={r.status === "voided" ? "opacity-60" : ""}>
                 <div className="flex items-start justify-between gap-3">

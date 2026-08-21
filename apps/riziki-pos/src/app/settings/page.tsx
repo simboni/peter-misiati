@@ -153,7 +153,10 @@ export default async function SettingsPage(props: {
   const floatCents = Number(getSetting("cash_float_cents", "0")) || 0;
 
   return (
-    <div className="lg:max-w-2xl">
+    // Everything here is a form, so each column stays at reading width — but
+    // three stacked cards in a 672px gutter is 1800px of scrolling for what
+    // fits beside itself. The cap widens; the columns inside it do not.
+    <div className="lg:max-w-3xl xl:max-w-5xl 2xl:max-w-6xl [&_h2]:mt-4 [&>header]:mb-3 xl:[&_h2]:mt-5 xl:[&>header]:mb-4">
       <PageTitle
         title="Users &amp; settings"
         subtitle="Who can use the system, and the details that appear on an invoice"
@@ -175,7 +178,7 @@ export default async function SettingsPage(props: {
       ) : null}
 
       <SectionLabel>People</SectionLabel>
-      <div className="space-y-2.5">
+      <div className="grid gap-2 md:grid-cols-2 2xl:grid-cols-3">
         {users.map((u) => (
           <Card key={u.id}>
             <div className="flex items-start justify-between gap-3">
@@ -254,9 +257,13 @@ export default async function SettingsPage(props: {
         ))}
       </div>
 
+      {/* Two short, unrelated forms: on a laptop they belong side by side
+          rather than one below the fold of the other. */}
+      <div className="xl:grid xl:grid-cols-2 xl:items-start xl:gap-x-5 2xl:gap-x-6">
+      <div>
       <SectionLabel>Add someone</SectionLabel>
       <Card>
-        <form action={addAttendant} className="space-y-3">
+        <form action={addAttendant} className="space-y-2.5 xl:space-y-3">
           <Field label="Name">
             <input className={inputClass} name="name" required placeholder="e.g. Grace" />
           </Field>
@@ -281,10 +288,12 @@ export default async function SettingsPage(props: {
           </Button>
         </form>
       </Card>
+      </div>
 
+      <div>
       <SectionLabel>Shop details</SectionLabel>
       <Card>
-        <form action={saveShop} className="space-y-3">
+        <form action={saveShop} className="space-y-2.5 xl:space-y-3">
           <Field label="Business name" hint="Printed at the top of every invoice.">
             <input className={inputClass} name="shop_name" defaultValue={shopName} />
           </Field>
@@ -319,8 +328,10 @@ export default async function SettingsPage(props: {
           </Button>
         </form>
       </Card>
+      </div>
+      </div>
 
-      <p className="mt-5 text-xs text-muted">
+      <p className="mt-4 text-xs text-muted">
         Every change here is recorded against your name. PINs are never stored or written to
         that record — only the fact that one was changed.{" "}
         <Link href="/settings/printer" className="font-bold text-brand">

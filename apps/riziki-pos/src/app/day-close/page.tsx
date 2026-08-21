@@ -93,13 +93,13 @@ export default async function DayClosePage() {
   const history = recentCloses(7);
 
   return (
-    <div className="lg:max-w-2xl">
+    <div>
       <PageTitle
         title="Day close"
         subtitle={`${formatDate(noonOn(today))} · counted in Nairobi time, so evening sales are on today`}
       />
 
-      <div className="grid grid-cols-2 gap-2.5">
+      <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4 xl:gap-3">
         <Stat
           label="Sales today"
           value={formatKes(totals.salesCents)}
@@ -114,6 +114,14 @@ export default async function DayClosePage() {
         />
       </div>
 
+      {/*
+        The arithmetic and the count are one narrow task; the seven-night run of
+        variances is a table. Past `xl` they sit side by side, so the run of
+        small shortages this screen exists to expose is on screen at the same
+        time as tonight's figure instead of a scroll below it.
+      */}
+      <div className="xl:grid xl:grid-cols-5 xl:items-start xl:gap-x-5">
+      <div className="xl:col-span-2">
       <SectionLabel>Expected in the drawer</SectionLabel>
       <Card>
         <dl className="space-y-1.5 text-sm">
@@ -164,7 +172,9 @@ export default async function DayClosePage() {
           action={saveClose}
         />
       </Card>
+      </div>
 
+      <div className="xl:col-span-3">
       <SectionLabel>Last 7 closes</SectionLabel>
       {history.length ? (
         <TableWrap>
@@ -215,6 +225,8 @@ export default async function DayClosePage() {
           <Empty>No day has been closed yet. Tonight’s count starts the record.</Empty>
         </Card>
       )}
+      </div>
+      </div>
     </div>
   );
 }

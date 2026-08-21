@@ -175,7 +175,7 @@ export default async function BatchPage(props: {
       />
 
       {done ? (
-        <div className="mb-3">
+        <div className="mb-2">
           <Alert tone="good">
             Batch <span className="font-bold">{done}</span> recorded and the chemicals taken off the
             shelf. Enter the litres actually produced below once it is mixed.
@@ -183,12 +183,12 @@ export default async function BatchPage(props: {
         </div>
       ) : null}
       {yieldDone ? (
-        <div className="mb-3">
+        <div className="mb-2">
           <Alert tone="good">Yield recorded.</Alert>
         </div>
       ) : null}
       {voided ? (
-        <div className="mb-3">
+        <div className="mb-2">
           <Alert tone="good">
             Batch voided. Every chemical it took is back on the shelf, and the correction is in
             the ledger next to the original.
@@ -196,7 +196,7 @@ export default async function BatchPage(props: {
         </div>
       ) : null}
       {verr ? (
-        <div className="mb-3">
+        <div className="mb-2">
           <Alert tone="bad">{verr}</Alert>
         </div>
       ) : null}
@@ -208,7 +208,7 @@ export default async function BatchPage(props: {
           <SectionLabel>Waiting on actual yield</SectionLabel>
           <div className="grid gap-2 2xl:grid-cols-2">
             {pending.map((b) => (
-              <Card key={b.id} className="space-y-3">
+              <Card key={b.id} className="space-y-2.5">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="text-sm font-bold tnum">{b.batch_no}</div>
@@ -240,7 +240,9 @@ export default async function BatchPage(props: {
       {recent.length === 0 ? (
         <Empty>Nothing has been mixed yet.</Empty>
       ) : (
-        <TableWrap>
+        // Row height set from the wrapper — this table is read with a mouse,
+        // and the shared Td is sized for a thumb at the counter.
+        <TableWrap className="[&_td]:py-2 [&_th]:py-2 xl:[&_td]:py-2.5">
           <thead>
             <tr>
               <Th>Batch</Th>
@@ -324,7 +326,7 @@ export default async function BatchPage(props: {
       )}
 
       {owner ? (
-        <p className="mt-3 text-sm">
+        <p className="mt-2.5 text-sm">
           <Link href="/formulas" className="font-bold text-brand-dark">
             Formulas →
           </Link>
@@ -335,8 +337,8 @@ export default async function BatchPage(props: {
       <div className="lg:col-span-5 xl:col-span-4 lg:order-1">
       {/* A GET form: the calculation lives in the URL, so it survives a reload
           on a phone that lost signal halfway through the morning. */}
-      <form method="get" className="space-y-3">
-        <Card className="space-y-3">
+      <form method="get" className="space-y-2.5 xl:space-y-3">
+        <Card className="space-y-2.5 xl:space-y-3">
           <Field label="Product">
             <select className={inputClass} name="f" defaultValue={selectedId}>
               {products.map((p) => (
@@ -409,7 +411,7 @@ export default async function BatchPage(props: {
               {plan ? (
                 <>
                   {/* The economics first — go/no-go — then the picking list. */}
-                  <div className="mt-2.5 grid grid-cols-2 gap-2.5">
+                  <div className="mt-2 grid grid-cols-2 gap-2 xl:gap-2.5">
                     <Stat
                       label="Chemical cost"
                       value={formatKes(plan.totalCostCents)}
@@ -448,7 +450,7 @@ export default async function BatchPage(props: {
                   </Card>
                 </>
               ) : (
-                <p className="mt-2 text-sm text-muted">
+                <p className="mt-1.5 text-sm text-muted">
                   The mixing sheet stays with the owner. This screen only tells you whether the
                   chemicals are on the shelf.
                 </p>

@@ -25,7 +25,7 @@ export function SupplierForm({ supplier }: { supplier?: SupplierFields }) {
   const [state, action, pending] = useActionState(saveSupplierAction, EMPTY);
 
   return (
-    <form action={action} className="space-y-3.5">
+    <form action={action} className="space-y-3">
       {state.error ? <Alert tone="bad">{state.error}</Alert> : null}
       {state.ok ? <Alert tone="good">{state.ok}</Alert> : null}
 
@@ -87,7 +87,7 @@ export function PurchaseForm({
   const groups = Object.keys(KIND_GROUP).filter((k) => items.some((i) => i.kind === k));
 
   return (
-    <form action={action} className="space-y-3.5">
+    <form action={action} className="space-y-3">
       {state.error ? <Alert tone="bad">{state.error}</Alert> : null}
       {state.ok ? <Alert tone="good">{state.ok}</Alert> : null}
 
@@ -108,7 +108,9 @@ export function PurchaseForm({
         </Field>
       </div>
 
-      <div className="space-y-3">
+      {/* A lorry drops three or four things at once; on a laptop the lines sit
+          side by side so the whole delivery is on screen while it is typed. */}
+      <div className="grid gap-3 xl:grid-cols-2 2xl:grid-cols-3">
         {rows.map((row, i) => (
           <div key={row} className="rounded-xl border border-line bg-wash p-3">
             <div className="mb-2 flex items-center justify-between">
@@ -176,7 +178,7 @@ export function PurchaseForm({
           setRows([...rows, nextRow]);
           setNextRow(nextRow + 1);
         }}
-        className="w-full rounded-xl border border-dashed border-line px-4 py-2.5 text-sm font-bold text-brand"
+        className="min-h-11 w-full rounded-xl border border-dashed border-line px-4 text-sm font-bold text-brand xl:min-h-9"
       >
         + Another item
       </button>
@@ -217,7 +219,7 @@ export function ItemPicker({
   selected?: number;
 }) {
   return (
-    <form method="get" className="flex gap-2">
+    <form method="get" className="flex max-w-xl gap-2">
       <select className={inputClass} name="item" defaultValue={selected ? String(selected) : ""}>
         <option value="">Choose an item…</option>
         {items.map((i) => (

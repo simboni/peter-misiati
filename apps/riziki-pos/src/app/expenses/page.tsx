@@ -106,11 +106,20 @@ export default async function ExpensesPage(props: {
   });
 
   return (
-    <div className="lg:max-w-2xl">
+    <div>
       <PageTitle title="Expenses" subtitle={`${monthName} · what the shop paid out`} />
 
+      {/*
+        Entering an expense and totting the month up are both narrow tasks; the
+        list of entries is a table and wants the width. Past `xl` the table
+        moves up beside them — before, not one entry was visible on a 1366
+        laptop without scrolling, which made it easy to record the same rent
+        twice.
+      */}
+      <div className="xl:grid xl:grid-cols-5 xl:items-start xl:gap-x-5">
+      <div className="xl:col-span-2">
       <Card>
-        <form action={addExpense} className="space-y-4">
+        <form action={addExpense} className="space-y-3 xl:space-y-3.5">
           {error ? <Alert tone="bad">{ERRORS[error] ?? "Could not save that expense."}</Alert> : null}
           {saved ? <Alert tone="good">Expense recorded.</Alert> : null}
 
@@ -128,7 +137,7 @@ export default async function ExpensesPage(props: {
                     defaultChecked={i === 0}
                     className="peer sr-only"
                   />
-                  <span className="block rounded-xl border border-line px-3 py-2.5 text-sm font-semibold peer-checked:border-brand peer-checked:bg-brand peer-checked:text-white peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-brand">
+                  <span className="flex min-h-11 items-center rounded-xl border border-line px-3 text-sm font-semibold xl:min-h-9 peer-checked:border-brand peer-checked:bg-brand peer-checked:text-white peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-brand">
                     {c}
                   </span>
                 </label>
@@ -169,7 +178,7 @@ export default async function ExpensesPage(props: {
                     defaultChecked={i === 0}
                     className="peer sr-only"
                   />
-                  <span className="block rounded-xl border border-line px-3 py-3 text-center text-sm font-bold peer-checked:border-brand peer-checked:bg-brand peer-checked:text-white peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-brand">
+                  <span className="flex min-h-12 items-center justify-center rounded-xl border border-line px-3 text-center text-sm font-bold xl:min-h-10 peer-checked:border-brand peer-checked:bg-brand peer-checked:text-white peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-brand">
                     {label}
                   </span>
                 </label>
@@ -189,9 +198,8 @@ export default async function ExpensesPage(props: {
           </Button>
         </form>
       </Card>
-
       <SectionLabel>This month</SectionLabel>
-      <div className="grid grid-cols-2 gap-2.5">
+      <div className="grid grid-cols-2 gap-2.5 xl:gap-3">
         <Stat
           label="Total spent"
           value={formatKes(totalCents)}
@@ -212,7 +220,9 @@ export default async function ExpensesPage(props: {
           </ul>
         </Card>
       ) : null}
+      </div>
 
+      <div className="xl:col-span-3">
       <SectionLabel>Entries</SectionLabel>
       {rows.length ? (
         <TableWrap>
@@ -251,6 +261,8 @@ export default async function ExpensesPage(props: {
           <Empty>Nothing recorded this month yet.</Empty>
         </Card>
       )}
+      </div>
+      </div>
     </div>
   );
 }

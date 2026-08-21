@@ -36,13 +36,15 @@ export default async function PurchasesPage(props: { searchParams: Promise<{ ite
     return (
       <div>
         <PageTitle title="Suppliers" subtitle="Who to call when something runs out" />
-        <Alert tone="warn">
-          Purchase prices are the owner&apos;s. Ask him to record deliveries — you can still keep the
-          supplier list up to date here.
-        </Alert>
+        <div className="max-w-4xl">
+          <Alert tone="warn">
+            Purchase prices are the owner&apos;s. Ask him to record deliveries — you can still keep
+            the supplier list up to date here.
+          </Alert>
+        </div>
         <SupplierList suppliers={suppliers} />
         <SectionLabel>Add a supplier</SectionLabel>
-        <Card>
+        <Card className="max-w-2xl">
           <SupplierForm />
         </Card>
       </div>
@@ -70,16 +72,18 @@ export default async function PurchasesPage(props: { searchParams: Promise<{ ite
     .reduce((s, p) => s + p.total_cents, 0);
 
   return (
-    <div className="lg:max-w-3xl">
+    <div>
       <PageTitle title="Suppliers & purchases" subtitle="Deliveries in, landed cost out" />
 
-      <div className="grid grid-cols-2 gap-2.5">
+      {/* Two tiles only — capped so they stay tile-sized instead of stretching
+          into two half-empty billboards on an office monitor. */}
+      <div className="grid grid-cols-2 gap-3 xl:max-w-2xl">
         <Stat label="Spent, last 30 days" value={formatKes(spent30)} detail={`${purchases.length} recent deliveries`} />
         <Stat label="Suppliers" value={String(suppliers.length)} detail="on the list" />
       </div>
 
       <SectionLabel>Record a delivery</SectionLabel>
-      <Card>
+      <Card className="max-w-3xl xl:max-w-5xl">
         <PurchaseForm suppliers={suppliers} items={items} />
       </Card>
 
@@ -138,7 +142,7 @@ export default async function PurchasesPage(props: { searchParams: Promise<{ ite
 
       <SectionLabel>Recent deliveries</SectionLabel>
       {purchases.length ? (
-        <div className="space-y-2.5">
+        <div className="grid items-start gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 3xl:grid-cols-5">
           {purchases.map((p) => (
             <Card key={p.id} className="space-y-2">
               <div className="flex items-start justify-between gap-3">
@@ -208,10 +212,10 @@ export default async function PurchasesPage(props: { searchParams: Promise<{ ite
       <SupplierList suppliers={suppliers} />
 
       <SectionLabel>Add a supplier</SectionLabel>
-      <Card>
+      <Card className="max-w-2xl">
         <details>
           <summary className="cursor-pointer text-sm font-bold text-brand">New supplier</summary>
-          <div className="mt-4">
+          <div className="mt-3">
             <SupplierForm />
           </div>
         </details>
@@ -233,7 +237,7 @@ function SupplierList({
     );
   }
   return (
-    <div className="space-y-2.5">
+    <div className="grid items-start gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 3xl:grid-cols-5">
       {suppliers.map((s) => (
         <Card key={s.id}>
           <div className="flex items-start justify-between gap-3">

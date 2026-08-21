@@ -69,7 +69,9 @@ export function EditFormulaForm({
   }
 
   return (
-    <form action={formAction} className="space-y-3">
+    // A form is one of the few things that should still be capped on a big
+    // monitor — a 1600px-wide ingredient row is harder to use, not denser.
+    <form action={formAction} className="space-y-2.5 xl:max-w-5xl xl:space-y-3 2xl:max-w-6xl">
       <input type="hidden" name="formulaId" value={formulaId} />
 
       {state.error ? <Alert tone="bad">{state.error}</Alert> : null}
@@ -97,6 +99,9 @@ export function EditFormulaForm({
           Ingredients
         </div>
 
+        {/* A long recipe is a lot of scrolling on a laptop; once a row can be
+            half the width and still hold a chemical name, run two abreast. */}
+        <div className="grid gap-2.5 xl:grid-cols-2 xl:gap-x-3">
         {lines.map((line) => (
           <div key={line.key} className="flex items-end gap-2">
             <label className="min-w-0 flex-1">
@@ -146,13 +151,14 @@ export function EditFormulaForm({
             </Button>
           </div>
         ))}
+        </div>
 
         <Button type="button" variant="ghost" onClick={addLine} className="w-full">
           + Add ingredient
         </Button>
       </Card>
 
-      <Card className="space-y-3">
+      <Card className="grid gap-3 xl:grid-cols-2">
         <Field label="Mixing steps" hint="One step per line.">
           <textarea className={inputClass} name="steps" defaultValue={steps} rows={6} />
         </Field>

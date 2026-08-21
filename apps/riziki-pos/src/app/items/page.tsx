@@ -370,7 +370,7 @@ export default async function ItemsPage(props: {
       </div>
 
       <SectionLabel>Add a chemical</SectionLabel>
-      <Card>
+      <Card className="max-w-2xl">
         <form action={addChemical} className="space-y-3">
           <Field label="Name">
             <input className={inputClass} name="name" required placeholder="e.g. Perfume Green Apple" />
@@ -416,7 +416,7 @@ export default async function ItemsPage(props: {
       {packaging.length > 0 ? (
         <>
           <SectionLabel>Packaging</SectionLabel>
-          <div className="space-y-2.5">
+          <div className="grid items-start gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 3xl:grid-cols-5">
             {packaging.map((i) => (
               <ItemCard key={i.id} item={i} sizeText={i.unit_label} />
             ))}

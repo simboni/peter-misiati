@@ -31,7 +31,7 @@ export function RunBatchForm({
   const [state, formAction, pending] = useActionState(action, {} as RunState);
 
   return (
-    <form action={formAction} className="mt-3 space-y-2.5">
+    <form action={formAction} className="mt-2.5 space-y-2">
       <input type="hidden" name="versionId" value={versionId} />
       <input type="hidden" name="targetMilli" value={targetMilli} />
 

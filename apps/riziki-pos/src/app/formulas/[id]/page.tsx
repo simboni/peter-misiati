@@ -160,14 +160,14 @@ export default async function FormulaDetailPage(props: {
   const steps = shown.steps.split("\n").map((s) => s.trim()).filter(Boolean);
 
   return (
-    <div>
+    <div className="[&_h2]:mt-4 [&>header]:mb-3 xl:[&_h2]:mt-5 xl:[&>header]:mb-4">
       <PageTitle
         title={formula.name}
         subtitle={`Version ${shown.version} · quantities per ${formatQty(shown.ref_size_milli, "L")}`}
       />
 
       {saved ? (
-        <div className="mb-3">
+        <div className="mb-2.5">
           <Alert tone="good">
             Saved as version {saved}. The previous version is kept exactly as it was.
           </Alert>
@@ -175,7 +175,7 @@ export default async function FormulaDetailPage(props: {
       ) : null}
 
       {!shown.is_current ? (
-        <div className="mb-3">
+        <div className="mb-2.5">
           <Alert tone="warn">
             This is version {shown.version}, superseded by version {current?.version}. It is shown
             because batches were mixed from it.{" "}
@@ -187,7 +187,7 @@ export default async function FormulaDetailPage(props: {
       ) : null}
 
       {shown.note.trim() ? (
-        <div className="mb-3">
+        <div className="mb-2.5">
           <Alert tone="warn">
             <span className="block text-[11px] font-bold uppercase tracking-[0.1em]">
               Open question from the sheet
@@ -197,44 +197,53 @@ export default async function FormulaDetailPage(props: {
         </div>
       ) : null}
 
-      <SectionLabel>Ingredients per {formatQty(shown.ref_size_milli, "L")}</SectionLabel>
-      {items.length ? (
-        <TableWrap>
-          <thead>
-            <tr>
-              <Th>Chemical</Th>
-              <Th align="right">Quantity</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((i) => (
-              <tr key={i.id}>
-                <Td>{i.chemical_name}</Td>
-                <Td align="right">{formatQty(i.qty_milli, i.canonical_unit)}</Td>
-              </tr>
-            ))}
-          </tbody>
-        </TableWrap>
-      ) : (
-        <Empty>No ingredients recorded on this version.</Empty>
-      )}
+      {/* The two halves of a mixing sheet — what goes in, and in what order.
+          They are read together, so once there is width they sit together
+          rather than pushing the steps a screen below the quantities. */}
+      <div className="lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-4 xl:gap-x-5 2xl:gap-x-6">
+        <div className="lg:col-span-6 xl:col-span-5">
+          <SectionLabel>Ingredients per {formatQty(shown.ref_size_milli, "L")}</SectionLabel>
+          {items.length ? (
+            <TableWrap className="[&_td]:py-2 [&_th]:py-2 xl:[&_td]:py-2.5">
+              <thead>
+                <tr>
+                  <Th>Chemical</Th>
+                  <Th align="right">Quantity</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((i) => (
+                  <tr key={i.id}>
+                    <Td>{i.chemical_name}</Td>
+                    <Td align="right">{formatQty(i.qty_milli, i.canonical_unit)}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </TableWrap>
+          ) : (
+            <Empty>No ingredients recorded on this version.</Empty>
+          )}
+        </div>
 
-      <SectionLabel>Mixing steps</SectionLabel>
-      <Card>
-        {steps.length ? (
-          <ol className="list-decimal space-y-1.5 pl-5 text-sm">
-            {steps.map((s, i) => (
-              <li key={i}>{s}</li>
-            ))}
-          </ol>
-        ) : (
-          <p className="text-sm text-muted">
-            No steps written down yet — add them so anyone can mix this.
-          </p>
-        )}
-      </Card>
+        <div className="lg:col-span-6 xl:col-span-7">
+          <SectionLabel>Mixing steps</SectionLabel>
+          <Card>
+            {steps.length ? (
+              <ol className="list-decimal space-y-1.5 pl-5 text-sm">
+                {steps.map((s, i) => (
+                  <li key={i}>{s}</li>
+                ))}
+              </ol>
+            ) : (
+              <p className="text-sm text-muted">
+                No steps written down yet — add them so anyone can mix this.
+              </p>
+            )}
+          </Card>
+        </div>
+      </div>
 
-      <div className="mt-4 flex gap-2">
+      <div className="mt-3 flex gap-2 xl:mt-4">
         <LinkButton href={`/formulas/${formulaId}?edit=1${v ? `&v=${v}` : ""}`} variant="primary">
           Edit recipe
         </LinkButton>
@@ -242,7 +251,7 @@ export default async function FormulaDetailPage(props: {
       </div>
 
       <SectionLabel>Version history</SectionLabel>
-      <div className="space-y-2">
+      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
         {versions.map((ver) => (
           <Card key={ver.id} className={ver.id === shown.id ? "border-brand" : ""}>
             <div className="flex items-start justify-between gap-3">
@@ -276,7 +285,7 @@ export default async function FormulaDetailPage(props: {
         ))}
       </div>
 
-      <div className="mt-4">
+      <div className="mt-3">
         <Link href="/formulas" className="text-sm font-bold text-brand">
           ← All formulas
         </Link>

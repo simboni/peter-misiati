@@ -105,7 +105,7 @@ export function StocktakeClient({
       {state.ok ? <Alert tone="good">{state.ok}</Alert> : null}
 
       <form action={formAction} className="mt-3 space-y-3">
-        <div className={owner ? "grid grid-cols-2 gap-2.5" : ""}>
+        <div className={owner ? "grid grid-cols-2 gap-3 xl:max-w-2xl" : "xl:max-w-sm"}>
           <Stat
             label="Counted"
             value={`${counted.length}`}
@@ -121,7 +121,7 @@ export function StocktakeClient({
         </div>
 
         <input
-          className={inputClass}
+          className={`${inputClass} xl:max-w-2xl`}
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -133,11 +133,17 @@ export function StocktakeClient({
         <SectionLabel>Items</SectionLabel>
         {!visible.length ? <Empty>Nothing matches “{query}”.</Empty> : null}
 
-        <Card className="space-y-3">
+        {/* A hundred-odd lines have to be counted in one pass. Flowing them into
+            newspaper columns is the difference between four rows on screen and
+            most of a shelf. */}
+        <Card className="gap-x-6 md:columns-2 xl:columns-3 2xl:columns-4 3xl:columns-5">
           {visible.map((line) => {
             const c = byId.get(line.id);
             return (
-              <div key={line.id} className="border-t border-line pt-3 first:border-t-0 first:pt-0">
+              <div
+                key={line.id}
+                className="break-inside-avoid border-t border-line py-2 first:border-t-0"
+              >
                 <div className="flex items-start gap-3">
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-semibold leading-snug">{line.name}</div>
@@ -147,7 +153,7 @@ export function StocktakeClient({
                     </div>
                   </div>
                   <input
-                    className={`${inputClassBase} w-24 shrink-0 text-right tnum`}
+                    className={`${inputClassBase} w-24 shrink-0 text-right tnum xl:!px-3 xl:!py-2`}
                     type="number"
                     inputMode="decimal"
                     min="0"
@@ -197,22 +203,26 @@ export function StocktakeClient({
           />
         ))}
 
-        <Field label="Reason" hint="Required. This is what the owner reads when the shelf is short.">
-          <textarea
-            className={inputClass}
-            name="reason"
-            rows={2}
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            placeholder="Monthly count — 4 packs missing from the shelf"
-          />
-        </Field>
+        {/* Writing and the decision to post stay at reading width, however wide
+            the monitor is. */}
+        <div className="max-w-2xl space-y-3">
+          <Field label="Reason" hint="Required. This is what the owner reads when the shelf is short.">
+            <textarea
+              className={inputClass}
+              name="reason"
+              rows={2}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Monthly count — 4 packs missing from the shelf"
+            />
+          </Field>
 
-        {problem ? <Alert tone="bad">{problem}</Alert> : null}
+          {problem ? <Alert tone="bad">{problem}</Alert> : null}
 
-        <Button type="submit" className="w-full" disabled={pending || problem !== null}>
-          {pending ? "Posting…" : `Post ${variances.length || ""} adjustment${variances.length === 1 ? "" : "s"}`}
-        </Button>
+          <Button type="submit" className="w-full" disabled={pending || problem !== null}>
+            {pending ? "Posting…" : `Post ${variances.length || ""} adjustment${variances.length === 1 ? "" : "s"}`}
+          </Button>
+        </div>
       </form>
     </div>
   );

@@ -44,7 +44,7 @@ export default async function CustomerPage(props: { params: Promise<{ id: string
   const headroom = customer.credit_limit_cents - balance;
 
   return (
-    <div className="lg:max-w-3xl">
+    <div>
       <Link href="/customers" className="mb-2 inline-block text-sm font-bold text-brand-dark">
         ← All debtors
       </Link>
@@ -53,7 +53,9 @@ export default async function CustomerPage(props: { params: Promise<{ id: string
         subtitle={`${customer.kind === "wholesale" ? "Wholesale" : "Retail"} · ${customer.phone || "no phone on file"}`}
       />
 
-      <div className="grid grid-cols-2 gap-2.5">
+      {/* Two figures, so they stay a readable pair rather than stretching to
+          the full width of an office monitor. */}
+      <div className="grid grid-cols-2 gap-2.5 xl:gap-3 lg:max-w-xl">
         <Stat
           label="Outstanding"
           value={formatKes(balance)}
@@ -102,6 +104,14 @@ export default async function CustomerPage(props: { params: Promise<{ id: string
         </div>
       ) : null}
 
+      {/*
+        The payment box is a form — it stays at reading width. The ledgers are
+        tables and want every pixel, so past `xl` they sit beside it instead of
+        under it: the point of opening a debtor is to see the unpaid sales, and
+        they were previously below the fold on a 1366 laptop.
+      */}
+      <div className="xl:grid xl:grid-cols-5 xl:items-start xl:gap-x-5">
+      <div className="xl:col-span-2">
       <SectionLabel>Record a payment</SectionLabel>
       <Card>
         {balance > 0 ? (
@@ -110,7 +120,9 @@ export default async function CustomerPage(props: { params: Promise<{ id: string
           <Empty>Nothing outstanding to pay off.</Empty>
         )}
       </Card>
+      </div>
 
+      <div className="xl:col-span-3">
       {open.length ? (
         <>
           <SectionLabel>Unpaid, oldest first</SectionLabel>
@@ -190,9 +202,12 @@ export default async function CustomerPage(props: { params: Promise<{ id: string
           <Empty>No sales recorded for this customer yet.</Empty>
         </Card>
       )}
+      </div>
+      </div>
 
       <SectionLabel>Details</SectionLabel>
-      <Card>
+      {/* A form, so it keeps a reading width however wide the screen gets. */}
+      <Card className="lg:max-w-2xl">
         <details>
           <summary className="cursor-pointer text-sm font-bold text-brand">Edit customer</summary>
           <div className="mt-4">

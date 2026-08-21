@@ -53,7 +53,7 @@ export default async function SalesPage(props: {
   const lines = saleLinesFor(rows.map((r) => r.id));
 
   return (
-    <div className="lg:max-w-4xl">
+    <div>
       <PageTitle
         title="Sales"
         subtitle={`${total} sale${total === 1 ? "" : "s"} · newest first`}
@@ -69,7 +69,12 @@ export default async function SalesPage(props: {
         <Empty>No sales yet. They will appear here as the counter records them.</Empty>
       ) : null}
 
-      <div className="space-y-2.5">
+      {/*
+        One sale per row wasted three quarters of a laptop screen. The card is
+        self-contained, so past `lg` it tiles: the list is read by scanning down
+        a column, and two or three columns simply means less scrolling.
+      */}
+      <div className="grid grid-cols-1 gap-2.5 lg:grid-cols-2 xl:gap-3 2xl:grid-cols-3 3xl:grid-cols-4">
         {rows.map((s) => {
           const voided = s.status === "voided";
           const owing = s.total_cents - s.paid_cents;
@@ -166,7 +171,7 @@ export default async function SalesPage(props: {
                     />
                     <button
                       type="submit"
-                      className="w-full rounded-xl bg-bad px-4 py-3 text-sm font-bold text-white"
+                      className="flex min-h-11 w-full items-center justify-center rounded-xl bg-bad px-4 text-sm font-bold text-white xl:min-h-9"
                     >
                       Void {formatKes(s.total_cents)} and return the stock
                     </button>
@@ -187,7 +192,7 @@ export default async function SalesPage(props: {
             {current > 1 ? (
               <Link
                 href={`/sales?page=${current - 1}`}
-                className="flex-1 rounded-xl border border-line bg-white px-4 py-3 text-center text-sm font-bold"
+                className="flex min-h-11 flex-1 items-center justify-center rounded-xl border border-line bg-white px-4 text-sm font-bold xl:min-h-9"
               >
                 ← Newer
               </Link>
@@ -195,7 +200,7 @@ export default async function SalesPage(props: {
             {current < pages ? (
               <Link
                 href={`/sales?page=${current + 1}`}
-                className="flex-1 rounded-xl border border-line bg-white px-4 py-3 text-center text-sm font-bold"
+                className="flex min-h-11 flex-1 items-center justify-center rounded-xl border border-line bg-white px-4 text-sm font-bold xl:min-h-9"
               >
                 Older →
               </Link>

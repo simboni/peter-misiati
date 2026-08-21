@@ -94,11 +94,17 @@ export default async function CustomersPage(props: {
         </p>
       ) : null}
 
-      <div className="lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-8">
-      <div className="lg:col-span-7">
+      {/*
+        The side-by-side split only pays for itself once both halves are wide
+        enough to hold their content: at 1366 a 5/12 column made every row of
+        the settled table wrap onto two lines. So the two lists stack — each
+        full width, each denser for it — until 2xl, where there is room for both.
+      */}
+      <div className="2xl:grid 2xl:grid-cols-12 2xl:items-start 2xl:gap-x-5">
+      <div className="2xl:col-span-7">
       <SectionLabel>Owing now</SectionLabel>
       {rows.length ? (
-        <div className="space-y-2.5 xl:grid xl:grid-cols-2 xl:gap-3 xl:space-y-0">
+        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-3 xl:gap-3 2xl:grid-cols-2 3xl:grid-cols-3">
           {rows.map((r) => {
             const over = isOverLimit(r, r.balance_cents);
             return (
@@ -130,7 +136,7 @@ export default async function CustomersPage(props: {
                 <div className="flex gap-2 pt-0.5">
                   <Link
                     href={`/customers/${r.id}`}
-                    className="flex-1 rounded-xl border border-line px-3 py-2 text-center text-xs font-bold hover:bg-wash"
+                    className="flex min-h-11 flex-1 items-center justify-center rounded-xl border border-line px-3 text-xs font-bold hover:bg-wash xl:min-h-9"
                   >
                     Record payment
                   </Link>
@@ -142,7 +148,7 @@ export default async function CustomersPage(props: {
                     href={waLink(r.phone, reminderMessage(r.name, r.balance_cents, r.oldest_at))}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex-1 rounded-xl bg-good-soft px-3 py-2 text-center text-xs font-bold text-good"
+                    className="flex min-h-11 flex-1 items-center justify-center rounded-xl bg-good-soft px-3 text-center text-xs font-bold text-good xl:min-h-9"
                   >
                     Remind on WhatsApp
                   </a>
@@ -160,7 +166,7 @@ export default async function CustomersPage(props: {
       )}
 
       </div>
-      <div className="lg:col-span-5">
+      <div className="2xl:col-span-5">
       <SectionLabel>Everyone else</SectionLabel>
       {settled.length ? (
         <TableWrap>

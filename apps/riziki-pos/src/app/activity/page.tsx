@@ -101,7 +101,8 @@ export default async function ActivityPage(props: {
   const hasMore = oldest !== null && (get(`SELECT 1 FROM audit_log WHERE id < ? LIMIT 1`, oldest) ? true : false);
 
   return (
-    <div className="lg:max-w-4xl">
+    // No width cap: this is fifty short, self-contained entries, not prose.
+    <div className="[&>header]:mb-3 xl:[&>header]:mb-4">
       <PageTitle
         title="Activity"
         subtitle={`Everything worth disputing, newest first — ${total.toLocaleString("en-KE")} entries and none of them editable`}
@@ -112,11 +113,14 @@ export default async function ActivityPage(props: {
           <Empty>Nothing recorded yet.</Empty>
         </Card>
       ) : (
-        <div className="space-y-2">
+        // Newest first still reads correctly across columns — left to right,
+        // then down — and answering "who did what" means scanning many entries,
+        // so a wide screen should show more of them rather than a longer margin.
+        <div className="grid gap-1.5 xl:grid-cols-2 2xl:grid-cols-3 min-[1920px]:grid-cols-4">
           {rows.map((r) => {
             const a = ACTIONS[r.action] ?? { label: r.action.replaceAll("_", " "), tone: "neutral" as const };
             return (
-              <Card key={r.id} className="!p-3.5">
+              <Card key={r.id} className="!p-2.5 xl:!p-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <Chip tone={a.tone}>{a.label}</Chip>
                   <span className="text-sm font-bold">{r.user_name ?? "System"}</span>
@@ -132,7 +136,7 @@ export default async function ActivityPage(props: {
       )}
 
       {hasMore && oldest !== null ? (
-        <p className="mt-4 text-center">
+        <p className="mt-3 text-center">
           <Link href={`/activity?before=${oldest}`} className="text-sm font-bold text-brand">
             Show older activity
           </Link>
