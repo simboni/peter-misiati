@@ -162,7 +162,9 @@ export default async function BatchPage(props: {
   const recent = listBatches(12, owner);
 
   return (
-    <div>
+    // Same tightening as Reports: the shared label/title spacing is phone-first,
+    // and this screen puts a form, a plan and a table on one laptop screen.
+    <div className="[&_h2]:mt-4 [&>header]:mb-3 xl:[&_h2]:mt-5 xl:[&>header]:mb-4">
       <PageTitle
         title="Production batch"
         subtitle={
@@ -199,12 +201,12 @@ export default async function BatchPage(props: {
         </div>
       ) : null}
 
-      <div className="lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-8">
+      <div className="lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-4 xl:gap-x-5 2xl:gap-x-6">
       <div className="lg:col-span-7 xl:col-span-8 lg:order-2">
       {pending.length ? (
         <>
           <SectionLabel>Waiting on actual yield</SectionLabel>
-          <div className="space-y-2.5">
+          <div className="grid gap-2 2xl:grid-cols-2">
             {pending.map((b) => (
               <Card key={b.id} className="space-y-3">
                 <div className="flex items-start justify-between gap-3">

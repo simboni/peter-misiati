@@ -228,7 +228,7 @@ export default async function ItemsPage(props: {
   const chemicals = listChemicals();
 
   return (
-    <div className="lg:max-w-4xl">
+    <div>
       <PageTitle
         title="Products &amp; prices"
         subtitle="Add what the shop sells and change prices yourself — no developer needed"
@@ -240,13 +240,16 @@ export default async function ItemsPage(props: {
         </div>
       ) : null}
 
-      <Alert tone="brand">
-        A chemical&rsquo;s cost is never typed here — it comes from what you actually paid on the
-        Purchases screen. You set only the selling prices.
-      </Alert>
+      {/* Prose keeps a reading-width cap; the catalogue grids below do not. */}
+      <div className="max-w-4xl">
+        <Alert tone="brand">
+          A chemical&rsquo;s cost is never typed here — it comes from what you actually paid on the
+          Purchases screen. You set only the selling prices.
+        </Alert>
+      </div>
 
       <SectionLabel>Finished products</SectionLabel>
-      <div className="space-y-2.5">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 3xl:grid-cols-5">
         {finished.length === 0 ? (
           <p className="text-sm text-muted">Nothing yet. Add your first bottled product below.</p>
         ) : (
@@ -261,7 +264,7 @@ export default async function ItemsPage(props: {
       </div>
 
       <SectionLabel>Add a finished product</SectionLabel>
-      <Card>
+      <Card className="max-w-2xl">
         <form action={addFinished} className="space-y-3">
           <Field label="Name">
             <input className={inputClass} name="name" required placeholder="e.g. Thick Bleach" />
@@ -304,7 +307,7 @@ export default async function ItemsPage(props: {
       </Card>
 
       <SectionLabel>Chemicals &amp; repack sizes</SectionLabel>
-      <div className="space-y-2.5">
+      <div className="grid items-start gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 3xl:grid-cols-5">
         {chemicals.map((chem) => {
           const packs = chem.items.filter((i) => i.kind === "pack");
           return (

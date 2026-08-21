@@ -12,12 +12,15 @@ import { useState } from "react";
  *     so every destination is one click on a big screen.
  * Owner-only destinations are filtered by the server before this renders.
  *
- * The desktop rail collapses, because 240px of navigation is 240px the counter
- * screen cannot use for products. It collapses to icons rather than to nothing:
- * a rail that disappears takes every destination with it, and an attendant
- * hunting for Stock behind a hidden menu is slower than one who never had the
- * space back. Collapsed, the five tabs and More stay one click away and the
- * screen gains 168px — a whole extra column of products at most laptop sizes.
+ * The desktop rail collapses, because navigation is space the counter screen
+ * cannot use for products. It collapses to icons rather than to nothing: a rail
+ * that disappears takes every destination with it, and an attendant hunting for
+ * Stock behind a hidden menu is slower than one who never had the space back.
+ * Collapsed, the five tabs and More stay one click away.
+ *
+ * Its width is not fixed either — `--rail-w` in globals.css steps 12rem / 13rem
+ * / 15rem with the screen, because on a 13" laptop a 15rem rail was 18% of the
+ * width. Collapsing it saves a further 7.5rem on top of that.
  *
  * The choice is remembered in a cookie the server reads, so the rail is already
  * the right width on the first paint.
@@ -50,7 +53,13 @@ const TABS: Tab[] = [
 // owner-only, alongside the rest of raw-chemical handling.
 const MORE_GROUPS: Array<{
   label: string;
-  links: Array<{ href: string; label: string; owner: boolean }>;
+  /**
+   * `short` is the rail's version of the name. The rail is 12rem on a small
+   * laptop and one label — "Suppliers & purchases" — overruns that by a single
+   * pixel and wraps to two lines, which makes the whole column look ragged. The
+   * More grid has the room, so it keeps the full name; only the rail shortens.
+   */
+  links: Array<{ href: string; label: string; short?: string; owner: boolean }>;
 }> = [
   {
     label: "Every day",
@@ -58,7 +67,7 @@ const MORE_GROUPS: Array<{
       { href: "/sales", label: "Sales history", owner: false },
       { href: "/day-close", label: "Day close", owner: false },
       { href: "/expenses", label: "Expenses", owner: false },
-      { href: "/purchases", label: "Suppliers & purchases", owner: false },
+      { href: "/purchases", label: "Suppliers & purchases", short: "Purchases", owner: false },
     ],
   },
   {
@@ -222,7 +231,7 @@ export function BottomNav({ isOwner, rail = "wide" }: { isOwner: boolean; rail?:
                           active ? "bg-brand-soft text-brand-dark" : "text-muted hover:bg-wash hover:text-ink"
                         }`}
                       >
-                        {l.label}
+                        {l.short ?? l.label}
                       </Link>
                     );
                   })}

@@ -20,7 +20,7 @@ export function Card({
   className?: string;
 }) {
   return (
-    <div className={`rounded-3xl bg-white p-5 shadow-card ring-1 ring-ink/5 ${className}`}>
+    <div className={`rounded-3xl bg-white p-4 shadow-card ring-1 ring-ink/5 xl:p-4 2xl:p-5 ${className}`}>
       {children}
     </div>
   );
@@ -28,8 +28,8 @@ export function Card({
 
 export function PageTitle({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
-    <header className="mb-5">
-      <h1 className="text-[22px] font-bold tracking-tight text-brand-deep lg:text-[26px]">{title}</h1>
+    <header className="mb-4 xl:mb-5">
+      <h1 className="text-[22px] font-bold tracking-tight text-brand-deep xl:text-[24px] 2xl:text-[26px]">{title}</h1>
       {subtitle ? <p className="mt-1 text-sm text-muted">{subtitle}</p> : null}
     </header>
   );
@@ -38,7 +38,7 @@ export function PageTitle({ title, subtitle }: { title: string; subtitle?: strin
 /** The "ruled label": a light tracked heading with a trailing hairline. */
 export function SectionLabel({ children }: { children: ReactNode }) {
   return (
-    <h2 className="mt-7 mb-2.5 flex items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted after:h-px after:flex-1 after:bg-line after:content-['']">
+    <h2 className="mt-5 mb-2 flex items-center gap-3 xl:mt-6 xl:mb-2.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted after:h-px after:flex-1 after:bg-line after:content-['']">
       {children}
     </h2>
   );
@@ -172,7 +172,7 @@ export function Th({
 }) {
   return (
     <th
-      className={`border-b border-line bg-wash px-3.5 py-2.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted ${
+      className={`border-b border-line bg-wash px-3 py-2 text-[10px] xl:px-3.5 font-semibold uppercase tracking-[0.12em] text-muted ${
         align === "right" ? "text-right" : "text-left"
       }`}
     >
@@ -192,7 +192,7 @@ export function Td({
 }) {
   return (
     <td
-      className={`border-t border-line px-3.5 py-3 ${align === "right" ? "text-right tnum" : ""} ${className}`}
+      className={`border-t border-line px-3 py-2 xl:px-3.5 xl:py-2.5 ${align === "right" ? "text-right tnum" : ""} ${className}`}
     >
       {children}
     </td>
@@ -268,7 +268,7 @@ export function Stat({
   detail?: ReactNode;
 }) {
   return (
-    <div className="relative overflow-hidden rounded-3xl bg-white p-4 pt-5 shadow-card ring-1 ring-ink/5 xl:p-5 xl:pt-6">
+    <div className="relative overflow-hidden rounded-3xl bg-white p-3.5 pt-4 shadow-card ring-1 ring-ink/5 xl:p-4 xl:pt-5 2xl:p-5 2xl:pt-6">
       <span aria-hidden className="brand-thread absolute inset-x-0 top-0 h-[3px]" />
       <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">{label}</div>
       <div className="mt-1.5 text-[26px] font-extrabold leading-none tracking-tight text-brand-deep tnum xl:text-[30px]">

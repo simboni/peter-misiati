@@ -1485,7 +1485,7 @@ export default function SellClient({
           the bill and the Complete button on screen at all times — a sticky
           panel still hung below the fold on load, which is the one thing this
           panel must never do. Phones and tablets keep the ordinary page scroll. */}
-      <div className="lg:grid lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-stretch lg:gap-6 2xl:grid-cols-[minmax(0,1fr)_24rem]">
+      <div className="lg:grid lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_17rem] lg:items-stretch lg:gap-3 xl:grid-cols-[minmax(0,1fr)_19rem] xl:gap-4 2xl:grid-cols-[minmax(0,1fr)_22rem] 2xl:gap-6 3xl:grid-cols-[minmax(0,1fr)_24rem]">
       {/* A container, so the tile grid counts columns from the space it actually
           has rather than from the window. Collapsing the left rail hands this
           column 168px, and it turns that into another column of products by
@@ -1951,7 +1951,7 @@ function Grid({
         // A fixed height on every tile is what turns forty of these from a
         // ragged pile into something scannable: price sits at the same eye
         // level in every column, so the grid can be read down as well as across.
-        className={`relative flex h-[6.5rem] flex-col rounded-2xl px-3 py-2.5 text-left shadow-card ring-1 transition-colors md:h-[5.75rem] ${
+        className={`relative flex h-[6.5rem] flex-col rounded-2xl px-3 py-2.5 text-left shadow-card ring-1 transition-colors md:h-[5.75rem] xl:h-[5rem] xl:px-2.5 xl:py-2 ${
           inCart ? "bg-brand-soft ring-brand/40" : "bg-white ring-ink/5 hover:ring-brand/30"
         } ${out ? "opacity-70" : ""}`}
       >
@@ -2000,7 +2000,7 @@ function Grid({
   // chosen so a tile is never narrower than about 180px — the width at which
   // product names start being eaten by the ellipsis again.
   const cols =
-    "grid grid-cols-2 gap-2 @[28rem]:grid-cols-3 @[28rem]:gap-3 @[46.5rem]:grid-cols-4 @[64rem]:grid-cols-5";
+    "grid grid-cols-2 gap-2 @[22rem]:grid-cols-3 @[30rem]:grid-cols-4 @[30rem]:gap-2.5 @[40rem]:grid-cols-5 @[52rem]:grid-cols-6 @[64rem]:grid-cols-7 @[76rem]:grid-cols-8";
 
   /*
    * Nothing in stock is not the same as nothing here — everything priced is

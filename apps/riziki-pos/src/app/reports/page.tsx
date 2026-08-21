@@ -74,13 +74,17 @@ export default async function ReportsPage() {
   const deadValue = dead.reduce((sum, d) => sum + d.value_cents, 0);
 
   return (
-    <div>
+    // Eight ruled labels and a title stack up to a screenful of nothing on a
+    // 768px-tall laptop. The shared SectionLabel/PageTitle spacing is tuned for
+    // a phone; tightening it here from one selector keeps the component shared
+    // and still gives this screen — the densest in the app — its rows back.
+    <div className="[&_h2]:mt-4 [&>header]:mb-3 xl:[&_h2]:mt-5 xl:[&>header]:mb-4">
       <PageTitle title="Reports" subtitle="Owner only · costs and profit are never shown to staff" />
 
-      <div className="lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-8">
+      <div className="lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-4 xl:gap-x-5 2xl:gap-x-6">
       <div className="lg:col-span-5">
       <SectionLabel>Today</SectionLabel>
-      <div className="grid grid-cols-2 gap-2.5">
+      <div className="grid grid-cols-2 gap-2 xl:gap-2.5">
         <Stat
           label="Sales"
           value={formatKes(todaySummary.salesCents)}
@@ -106,7 +110,7 @@ export default async function ReportsPage() {
           <div className="mt-1 flex items-baseline justify-between gap-3 border-t border-line pt-2.5">
             <dt className="text-sm font-bold">Net profit</dt>
             <dd
-              className={`text-2xl font-extrabold tracking-tight tnum ${
+              className={`text-xl font-extrabold tracking-tight tnum xl:text-2xl ${
                 monthSummary.netProfitCents < 0 ? "text-bad" : "text-good"
               }`}
             >
@@ -132,11 +136,11 @@ export default async function ReportsPage() {
       </div>
       </div>
 
-      <div className="lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-8">
+      <div className="lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-4 xl:gap-x-5 2xl:gap-x-6">
       <div className="lg:col-span-7">
       <SectionLabel>Profit per product · {monthName}</SectionLabel>
       {losers.length ? (
-        <div className="mb-2.5">
+        <div className="mb-2">
           <Alert tone="bad">
             <strong>Losing money:</strong>{" "}
             {losers.map((p) => `${p.name} (${formatKes(p.profit_cents)})`).join(", ")}. Check the
@@ -188,7 +192,9 @@ export default async function ReportsPage() {
       <div className="lg:col-span-5">
       <SectionLabel>Which line earns · {monthName}</SectionLabel>
       {lines.length ? (
-        <div className="space-y-2.5">
+        // Two or three lines of business, each a short card: side by side once
+        // there is width for it rather than a single tall stack.
+        <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-1 2xl:grid-cols-2">
           {lines.map((l) => (
             <Card key={l.line}>
               <div className="flex items-baseline justify-between gap-3">
@@ -197,7 +203,7 @@ export default async function ReportsPage() {
                   {l.margin_pct.toFixed(1)}% margin
                 </Chip>
               </div>
-              <div className="mt-2 grid grid-cols-3 gap-2 text-sm">
+              <div className="mt-1.5 grid grid-cols-3 gap-2 text-sm">
                 <Figure label="Sales" value={formatKes(l.revenue_cents)} />
                 <Figure label="Cost" value={formatKes(l.cost_cents)} />
                 <Figure label="Profit" value={formatKes(l.profit_cents)} strong />
@@ -214,16 +220,18 @@ export default async function ReportsPage() {
       </div>
       </div>
 
-      <div className="lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-8">
+      <div className="lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-4 xl:gap-x-5 2xl:gap-x-6">
       <div className="lg:col-span-7">
       <SectionLabel>Dead stock · nothing sold in 60 days</SectionLabel>
       {dead.length ? (
         <>
-          <p className="mb-2 text-xs text-muted">
+          <p className="mb-1.5 text-xs text-muted">
             <span className="font-bold tnum">{formatKes(deadValue)}</span> of cash is sitting on
             these shelves, valued at what it cost.
           </p>
-          <TableWrap>
+          {/* Row height set from the wrapper: the shared Td is tuned for a
+              thumb, and this table is only ever read with a mouse. */}
+          <TableWrap className="[&_td]:py-2 [&_th]:py-2 xl:[&_td]:py-2.5">
             <thead>
               <tr>
                 <Th>Item</Th>
@@ -293,7 +301,7 @@ export default async function ReportsPage() {
         <Link
           href="/backup"
           prefetch={false}
-          className="inline-flex min-h-12 items-center rounded-full bg-brand px-5 text-sm font-bold text-white shadow-sm hover:bg-brand-dark"
+          className="inline-flex min-h-11 items-center rounded-full bg-brand px-5 text-sm font-bold text-white shadow-sm hover:bg-brand-dark xl:min-h-10"
         >
           Download full backup
         </Link>
@@ -304,13 +312,13 @@ export default async function ReportsPage() {
           <summary className="cursor-pointer text-sm font-bold text-brand-dark">
             Spreadsheet exports (CSV) ▾
           </summary>
-          <div className="mt-2.5 flex flex-wrap gap-2">
+          <div className="mt-2 flex flex-wrap gap-1.5">
             {EXPORT_TABLES.map((t) => (
               <Link
                 key={t}
                 href={`/export?table=${t}`}
                 prefetch={false}
-                className="rounded-full px-3.5 py-2.5 text-sm font-semibold capitalize ring-1 ring-inset ring-line hover:bg-wash"
+                className="inline-flex min-h-11 items-center rounded-full px-3.5 text-sm font-semibold capitalize ring-1 ring-inset ring-line hover:bg-wash xl:min-h-9"
               >
                 {t.replace("_", " ")} CSV
               </Link>

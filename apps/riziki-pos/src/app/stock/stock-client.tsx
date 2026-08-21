@@ -32,7 +32,7 @@ function StatusChip({ status }: { status: StockStatus }) {
 
 function Row({ line, owner }: { line: StockLine; owner: boolean }) {
   return (
-    <div className="flex items-start justify-between gap-3 border-t border-line py-2.5 first:border-t-0 break-inside-avoid">
+    <div className="flex items-start justify-between gap-3 border-t border-line py-2 first:border-t-0 break-inside-avoid">
       <div className="min-w-0 flex-1">
         <div className="text-sm font-semibold leading-snug">{line.name}</div>
         <div className="mt-1 flex flex-wrap items-center gap-2">
@@ -55,7 +55,7 @@ function Row({ line, owner }: { line: StockLine; owner: boolean }) {
 
 function Group({ group, owner }: { group: ReagentGroup; owner: boolean }) {
   return (
-    <Card className="mb-2.5 break-inside-avoid lg:mb-6">
+    <Card className="mb-3 break-inside-avoid xl:mb-4">
       <div className="mb-1 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="text-sm font-extrabold tracking-tight">{group.name}</h3>
@@ -126,8 +126,8 @@ export function StockClient({
     <div>
       <PageTitle title="Stock" subtitle={`${view.itemCount} items across the shop`} />
 
-      <div className="lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-8">
-      <div className="lg:col-span-5 xl:col-span-4">
+      <div className="lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-4 xl:gap-x-5">
+      <div className="lg:col-span-4 xl:col-span-3 2xl:col-span-2">
       {owner ? (
         <div className="mb-3">
           <Stat
@@ -139,24 +139,26 @@ export function StockClient({
       ) : null}
 
       </div>
-      <div className="lg:col-span-7 xl:col-span-8">
-      <div className="mb-3 grid grid-cols-2 gap-2">
+      {/* From lg the two shortcuts and the search box share one line: on a
+          laptop this block is chrome, and it was costing two rows of stock. */}
+      <div className="lg:col-span-8 lg:flex lg:items-start lg:gap-2 xl:col-span-9 2xl:col-span-10">
+      <div className="mb-3 grid grid-cols-2 gap-2 lg:mb-0 lg:shrink-0">
         <Link
           href="/repack"
-          className="rounded-xl border border-line bg-white px-3 py-2.5 text-center text-sm font-bold hover:bg-wash"
+          className="flex min-h-11 items-center justify-center rounded-xl border border-line bg-white px-4 text-center text-sm font-bold hover:bg-wash xl:min-h-9"
         >
           Repack
         </Link>
         <Link
           href="/stocktake"
-          className="rounded-xl border border-line bg-white px-3 py-2.5 text-center text-sm font-bold hover:bg-wash"
+          className="flex min-h-11 items-center justify-center rounded-xl border border-line bg-white px-4 text-center text-sm font-bold hover:bg-wash xl:min-h-9"
         >
           Stock take
         </Link>
       </div>
 
       <input
-        className={inputClass}
+        className={`${inputClass} lg:min-w-0 lg:flex-1`}
         type="search"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
@@ -173,7 +175,7 @@ export function StockClient({
       {reagents.length ? (
         <>
           <SectionLabel>Reagents</SectionLabel>
-          <div className="lg:columns-2 lg:gap-6 xl:columns-3">
+          <div className="gap-3 md:columns-2 xl:columns-3 xl:gap-4 2xl:columns-4 3xl:columns-5">
             {reagents.map((g) => (
               <Group key={g.chemicalId} group={g} owner={owner} />
             ))}
@@ -184,7 +186,7 @@ export function StockClient({
       {finished.length ? (
         <>
           <SectionLabel>Finished goods</SectionLabel>
-          <Card className="mb-2.5 lg:columns-2 lg:gap-x-10">
+          <Card className="mb-3 gap-x-6 md:columns-2 xl:columns-3 2xl:columns-4 3xl:columns-5">
             {finished.map((l) => (
               <Row key={l.id} line={l} owner={owner} />
             ))}
@@ -195,7 +197,7 @@ export function StockClient({
       {packaging.length ? (
         <>
           <SectionLabel>Packaging</SectionLabel>
-          <Card className="mb-2.5 lg:columns-2 lg:gap-x-10">
+          <Card className="mb-3 gap-x-6 md:columns-2 xl:columns-3 2xl:columns-4 3xl:columns-5">
             {packaging.map((l) => (
               <Row key={l.id} line={l} owner={owner} />
             ))}

@@ -7,6 +7,10 @@
 */
 
 @theme {
+  /* The office monitor. Above this the app spreads rather than sitting in a
+     column with grey either side. */
+  --breakpoint-3xl: 1920px;
+
   /* Neutrals — all teal-cast, no plain grey */
   --color-ink: #0d2b30;
   --color-muted: #47646a;
@@ -77,10 +81,30 @@ body {
   snapping shut, which on a counter screen looks like a fault.
 */
 :root {
-  --rail-w: 15rem;
+  /*
+    The rail is overhead, and on a 13" laptop 15rem of it was 18% of the screen
+    the counter could not use for products. It now scales with the room
+    available: lean where space is scarce, comfortable where it is not. The five
+    tab labels (Sell, Stock, Batch, Debts, Reports) still fit at 12rem — checked,
+    not assumed — so nothing is lost at the narrow end.
+  */
+  --rail-w: 12rem;
 }
 
-[data-rail="mini"] {
+@media (min-width: 1280px) {
+  :root {
+    --rail-w: 13rem;
+  }
+}
+
+@media (min-width: 1536px) {
+  :root {
+    --rail-w: 15rem;
+  }
+}
+
+/* Wins at every width: an attribute selector outranks the bare :root above. */
+html[data-rail="mini"] {
   --rail-w: 4.5rem;
 }
 

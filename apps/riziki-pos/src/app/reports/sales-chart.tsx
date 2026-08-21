@@ -53,7 +53,7 @@ export function SalesChart({ data }: { data: MonthPoint[] }) {
 
       {asTable ? (
         <div id={tableId}>
-          <TableWrap>
+          <TableWrap className="[&_td]:py-2 [&_th]:py-2 xl:[&_td]:py-2.5">
             <thead>
               <tr>
                 <Th>Month</Th>
@@ -78,7 +78,9 @@ export function SalesChart({ data }: { data: MonthPoint[] }) {
       ) : (
         <div id={tableId}>
           <div
-            className="relative h-44 pt-6"
+            // Six bars read fine at 144px; the taller plot is a luxury kept for
+            // screens that are not fighting for a 768px-tall laptop's rows.
+            className="relative h-36 pt-6 2xl:h-44"
             role="img"
             aria-label={`Sales for the last ${data.length} months: ${summary}.`}
           >
