@@ -401,6 +401,7 @@ export default function SellClient({
   action,
   isOwner,
   kits,
+  makeable,
   onLastOrder,
   onKit,
   printer,
@@ -414,6 +415,8 @@ export default function SellClient({
   isOwner: boolean;
   /** Empty for staff: recipe quantities stay owner-only. */
   kits: KitChoice[];
+  /** Finished item id -> the recipe that makes it. Empty for staff. */
+  makeable: Record<number, { versionId: number; refSizeMilli: number; formulaName: string }>;
   onLastOrder: (customerId: number) => Promise<RepeatOrder | null>;
   onKit: (versionId: number, targetMilli: number) => Promise<KitOffer | null>;
   /** The shop's letterhead — nothing owner-sensitive — so a queued sale can
@@ -631,13 +634,13 @@ export default function SellClient({
   }
 
   /** Work the recipe out into packs, then show what it comes to before adding. */
-  async function previewKit() {
-    if (kitVersion === null) return;
-    const litres = Number(kitSize);
+  async function previewKit(versionId: number | null = kitVersion, size: string = kitSize) {
+    if (versionId === null) return;
+    const litres = Number(size);
     if (!Number.isFinite(litres) || litres <= 0) return;
     setKitBusy(true);
     try {
-      setKitOffer(await onKit(kitVersion, Math.round(litres * 1000)));
+      setKitOffer(await onKit(versionId, Math.round(litres * 1000)));
     } catch {
       setKitOffer(null);
     } finally {
@@ -646,6 +649,26 @@ export default function SellClient({
   }
 
   /** Drop the worked-out packs into the cart as ordinary lines. */
+  /**
+   * Open the ingredient list for a product the shop makes.
+   *
+   * This is the whole merge: the counter picks a product it sells — Shampoo —
+   * and the recipe behind it is what gets priced up, at whatever batch size the
+   * customer wants. There is no separate list of recipes to choose from any
+   * more, because a recipe the shop does not sell as a product is not something
+   * to be selling the parts of.
+   */
+  function openMake(item: SellItem) {
+    const recipe = makeable[item.id];
+    if (!recipe) return;
+    const litres = String(recipe.refSizeMilli / 1000);
+    setKitOffer(null);
+    setKitVersion(recipe.versionId);
+    setKitSize(litres);
+    setKitOpen(true);
+    void previewKit(recipe.versionId, litres);
+  }
+
   function addKitToCart() {
     if (!kitOffer) return;
     for (const ing of kitOffer.ingredients) {
@@ -1561,45 +1584,21 @@ export default function SellClient({
             </button>
           ) : null}
 
-          {kits.length > 0 ? (
-            <button
-              type="button"
-              onClick={() => setKitOpen((v) => !v)}
-              aria-expanded={kitOpen}
-              className="rounded-full border border-line bg-white py-2 pl-3.5 pr-4 text-[13px] font-bold text-brand-dark transition-colors hover:border-brand/40"
-            >
-              Mix kit…
-            </button>
-          ) : null}
+
         </div>
       ) : null}
 
       {kitOpen && kits.length > 0 ? (
         <div className="mt-3 rounded-2xl bg-white p-3.5 shadow-card ring-1 ring-ink/5">
           <div className="flex flex-wrap items-end gap-2">
-            <label className="min-w-0 flex-1">
+            <div className="min-w-0 flex-1">
               <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
-                Recipe
+                Making
               </span>
-              <select
-                className={inputClass}
-                value={kitVersion ?? ""}
-                onChange={(e) => {
-                  const id = e.target.value ? Number(e.target.value) : null;
-                  setKitVersion(id);
-                  setKitOffer(null);
-                  const chosen = kits.find((k) => k.versionId === id);
-                  if (chosen) setKitSize(String(chosen.refSizeMilli / 1000));
-                }}
-              >
-                <option value="">Choose…</option>
-                {kits.map((k) => (
-                  <option key={k.versionId} value={k.versionId}>
-                    {k.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+              <p className="truncate text-sm font-bold text-brand-deep">
+                {kits.find((k) => k.versionId === kitVersion)?.name ?? "—"}
+              </p>
+            </div>
             <label className="w-28">
               <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
                 Batch (L)
@@ -1619,10 +1618,23 @@ export default function SellClient({
               variant="ghost"
               className="px-4 py-2.5 text-sm"
               disabled={kitBusy || kitVersion === null || !kitSize.trim()}
-              onClick={previewKit}
+              onClick={() => previewKit()}
             >
-              {kitBusy ? "Working…" : "Work it out"}
+              {kitBusy ? "Working…" : "Update"}
             </Button>
+            <button
+              type="button"
+              onClick={() => {
+                setKitOpen(false);
+                setKitOffer(null);
+              }}
+              aria-label="Close"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-muted transition-colors hover:bg-wash hover:text-ink"
+            >
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
+                <path d="M6 6l12 12 M18 6l-12 12" />
+              </svg>
+            </button>
           </div>
 
           {kitOffer ? (
@@ -1761,7 +1773,14 @@ export default function SellClient({
           >
             {board === "products" ? (
               finished.length ? (
-                <Grid items={finished} tier={tier} onAdd={addItem} cart={cart} />
+                <Grid
+                  items={finished}
+                  tier={tier}
+                  onAdd={addItem}
+                  onMake={openMake}
+                  makeable={makeable}
+                  cart={cart}
+                />
               ) : (
                 <p className="py-8 text-center text-sm text-muted">
                   Nothing mixed and bottled is on the price list yet.
@@ -1915,12 +1934,16 @@ function Grid({
   items,
   tier,
   onAdd,
+  onMake,
+  makeable,
   cart,
   searching = false,
 }: {
   items: SellItem[];
   tier: Tier;
   onAdd: (item: SellItem) => void;
+  onMake?: (item: SellItem) => void;
+  makeable?: Record<number, unknown>;
   cart: CartLine[];
   searching?: boolean;
 }) {
@@ -1940,18 +1963,28 @@ function Grid({
     const out = item.qtyMilli <= 0;
     const unpriced = listPrice(item, tier) === 0;
     const { base, size } = splitName(item.name);
-    return (
+    // A product the shop mixes itself can be sold two ways: the bottle, or what
+    // goes into it. The tile carries both, because they are the same product —
+    // asking the counter to remember a separate screen for the second one is
+    // how the second one stops being offered.
+    const canMake = Boolean(onMake && makeable && makeable[item.id]);
+    const body = (
       <button
-        key={item.id}
         type="button"
         onClick={() => onAdd(item)}
         title={item.name}
         // A fixed height on every tile is what turns forty of these from a
         // ragged pile into something scannable: price sits at the same eye
         // level in every column, so the grid can be read down as well as across.
-        className={`relative flex h-[6.5rem] flex-col rounded-2xl px-3 py-2.5 text-left shadow-card ring-1 transition-colors md:h-[5.75rem] xl:h-[5rem] xl:px-2.5 xl:py-2 ${
-          inCart ? "bg-brand-soft ring-brand/40" : "bg-white ring-ink/5 hover:ring-brand/30"
-        } ${out ? "opacity-70" : ""}`}
+        // The made-here tiles are taller by exactly their footer, and they can
+        // afford it: there are thirteen products against forty-six chemicals.
+        className={`relative flex w-full flex-col rounded-2xl px-3 py-2.5 text-left shadow-card ring-1 transition-colors xl:px-2.5 xl:py-2 ${
+          canMake
+            ? "h-[8.25rem] rounded-b-none md:h-[7.5rem] xl:h-[6.75rem]"
+            : "h-[6.5rem] md:h-[5.75rem] xl:h-[5rem]"
+        } ${inCart ? "bg-brand-soft ring-brand/40" : "bg-white ring-ink/5 hover:ring-brand/30"} ${
+          out ? "opacity-70" : ""
+        }`}
       >
         {inCart ? (
           <span className="absolute right-2 top-2 flex h-6 min-w-6 items-center justify-center rounded-full bg-brand px-1.5 text-xs font-extrabold text-white tnum">
@@ -1991,6 +2024,23 @@ function Grid({
           </span>
         </div>
       </button>
+    );
+
+    if (!canMake) return <div key={item.id}>{body}</div>;
+
+    return (
+      <div key={item.id} className="flex flex-col">
+        {body}
+        <button
+          type="button"
+          onClick={() => onMake!(item)}
+          className="flex items-center justify-center gap-1.5 rounded-b-2xl bg-brand-soft py-1.5 text-[10.5px] font-bold text-brand-dark shadow-card ring-1 ring-ink/5 transition-colors hover:bg-brand hover:text-white"
+          aria-label={`Show the chemicals that make ${base}`}
+        >
+          Make it — chemicals
+          <span aria-hidden>▾</span>
+        </button>
+      </div>
     );
   };
 

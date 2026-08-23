@@ -11,7 +11,7 @@ import {
   topSellerItemIds,
   SaleError,
 } from "@/lib/sales";
-import { buildKit, listFormulas } from "@/lib/production";
+import { buildKit, listFormulas, outputItemsFor } from "@/lib/production";
 import { getPrintSettings } from "@/lib/print-settings";
 import { formatKes } from "@/lib/units";
 import SellClient, {
@@ -210,6 +210,31 @@ export default async function SellPage() {
     search: r.search,
   }));
 
+  /**
+   * Which finished products the shop can also sell as their ingredients.
+   *
+   * Keyed by the finished item, because that is what the counter taps. A
+   * product and its recipe share a name once the pack size is stripped —
+   * "Shampoo — 500 ml" is made by the "Shampoo" formula — which is the same
+   * join `outputItemsFor` uses when a batch is bottled.
+   *
+   * Owner only, and empty for staff, which is what keeps the recipe off their
+   * screen: with no entry here a tile renders as an ordinary product.
+   */
+  const makeable: Record<number, { versionId: number; refSizeMilli: number; formulaName: string }> =
+    user.role === "owner"
+      ? Object.fromEntries(
+          listFormulas().flatMap((f) =>
+            outputItemsFor(f.name)
+              .filter((o) => o.suggested)
+              .map((o) => [
+                o.id,
+                { versionId: f.version_id, refSizeMilli: f.ref_size_milli, formulaName: f.name },
+              ]),
+          ),
+        )
+      : {};
+
   const kits: KitChoice[] =
     user.role === "owner"
       ? listFormulas().map((f) => ({
@@ -254,6 +279,7 @@ export default async function SellPage() {
       // The recipe list itself is owner-only, so staff are handed an empty one
       // rather than a picker that would refuse them after the click.
       kits={kits}
+      makeable={makeable}
       onLastOrder={lastOrderAction}
       onKit={kitAction}
       // The counter may still be looking at this page hours later, served from
