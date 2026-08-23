@@ -39,6 +39,10 @@ const TABS: Tab[] = [
   { href: "/stock", label: "Stock", icon: I("M3 9l9-5 9 5v10l-9 5-9-5z M3 9l9 5 9-5 M12 14v10") },
   // Production runs the secret recipe; owner-only, so the tab is too.
   { href: "/batch", label: "Batch", icon: I("M10 3v6l-5.5 9a2 2 0 0 0 1.8 3h11.4a2 2 0 0 0 1.8-3L14 9V3 M8 3h8 M7 15h10"), ownerOnly: true },
+  // Quotes and wholesale invoices. A tab rather than a menu entry because it is
+  // a place the shop works from, not something it configures — and because the
+  // owner asked for it to be one tap from the till.
+  { href: "/wholesale", label: "Wholesale", icon: I("M4 7h16v13H4z M4 7l2-3h12l2 3 M9 12h6") },
   { href: "/customers", label: "Debts", icon: I("M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M22 21v-2a4 4 0 0 0-3-3.87") },
   // Reports is owner-only; previously it rendered for staff then bounced them
   // home — a dead tab. Now it simply isn't shown to them.

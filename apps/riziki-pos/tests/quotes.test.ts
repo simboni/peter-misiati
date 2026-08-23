@@ -26,6 +26,7 @@ const {
   listQuotes,
   setQuoteStatus,
   invoiceQuote,
+  invoiceDirect,
   newQuoteNo,
 } = await import("../src/lib/quotes.ts");
 
@@ -293,4 +294,77 @@ test("a quote haggled below the floor still invoices, and says who allowed it", 
   );
   assert.match(logged[0].detail, new RegExp(`authorised by user ${OWNER}`),
     "and must name who allowed it");
+});
+
+test("prices can be corrected as the quote becomes an invoice", () => {
+  const item = sellableItem();
+  stockUp(item.id, 20, item.size_milli);
+  const buyerId = customer("Late Collector");
+
+  const { quoteId } = saveQuote({
+    customerId: buyerId,
+    customerName: "Late Collector",
+    note: "",
+    validUntil: "",
+    lines: [{ itemId: item.id, units: 2, unitPriceCents: item.retail_cents }],
+    userId: OWNER,
+  });
+  setQuoteStatus(quoteId, "approved", OWNER);
+
+  // The drum went up between approval and collection.
+  const agreed = item.retail_cents + 5_000;
+  const res = invoiceQuote({
+    quoteId,
+    userId: OWNER,
+    clientUuid: "uuid-reprice",
+    lines: [{ itemId: item.id, units: 2, unitPriceCents: agreed }],
+  });
+
+  assert.equal(res.totalCents, 2 * agreed, "the invoice bills the agreed price");
+  assert.equal(
+    quoteLines(quoteId)[0].unit_price_cents,
+    agreed,
+    "and the quote is left saying the same thing, so the two cannot disagree",
+  );
+});
+
+test("a wholesale customer can be invoiced with no quote at all", () => {
+  const item = sellableItem();
+  stockUp(item.id, 20, item.size_milli);
+  const buyerId = customer("Known Terms Ltd");
+  const before = get<{ n: number }>(`SELECT COUNT(*) AS n FROM quotes`)!.n;
+
+  const res = invoiceDirect({
+    customerId: buyerId,
+    customerName: "Known Terms Ltd",
+    note: "Standing order",
+    lines: [{ itemId: item.id, units: 3, unitPriceCents: item.retail_cents }],
+    userId: OWNER,
+    clientUuid: "uuid-direct-1",
+  });
+
+  assert.equal(res.totalCents, 3 * item.retail_cents);
+  assert.equal(res.outstandingCents, 3 * item.retail_cents, "on account by default");
+  assert.equal(get<{ n: number }>(`SELECT COUNT(*) AS n FROM quotes`)!.n, before,
+    "billing directly must not invent a quote to hang it on");
+  assert.equal(
+    get<{ tier: string }>(`SELECT tier FROM sales WHERE id = ?`, res.saleId)!.tier,
+    "wholesale",
+  );
+});
+
+test("a direct invoice is replay-safe, like every other sale", () => {
+  const item = sellableItem();
+  stockUp(item.id, 20, item.size_milli);
+  const args = {
+    customerId: customer("Double Tap"),
+    customerName: "Double Tap",
+    note: "",
+    lines: [{ itemId: item.id, units: 1, unitPriceCents: item.retail_cents }],
+    userId: OWNER,
+    clientUuid: "uuid-double-tap",
+  };
+  const first = invoiceDirect(args);
+  const second = invoiceDirect(args);
+  assert.equal(second.saleId, first.saleId, "the same device reference bills once");
 });

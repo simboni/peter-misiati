@@ -225,6 +225,22 @@ export interface InvoiceQuoteInput {
   clientUuid: string;
   /** What was handed over now. Nothing here means the whole bill is on credit. */
   tenders?: Array<{ method: "cash" | "mpesa" | "credit"; amountCents: number; ref?: string | null }>;
+  /**
+   * Prices as finally agreed, if they moved between approval and billing.
+   *
+   * They do move: a customer approves on Monday, collects on Thursday, and the
+   * drum has gone up. Rather than force a new quote for a sale both sides
+   * consider settled, the corrected lines are written back onto the quote and
+   * then billed — so the quote and the invoice never disagree about what was
+   * charged, which is the thing a customer will ring up about.
+   */
+  lines?: QuoteLineInput[];
+  /**
+   * The customer to bill, when the quote was raised for a name that was not on
+   * the books at the time. Credit has to sit against a record, and the record
+   * often only gets written at the moment terms are actually given.
+   */
+  customerId?: number | null;
 }
 
 /**
@@ -242,6 +258,29 @@ export function invoiceQuote(input: InvoiceQuoteInput): RecordSaleResult & { quo
   // Approval is the whole point of the document: invoicing an unapproved quote
   // would make the approval step decorative.
   if (q.status !== "approved") throw new Error("The customer has not approved this quote yet.");
+
+  // Written before the sale rather than inside it, because tx() is not
+  // re-entrant and recordSale opens its own. If the sale then fails, the quote
+  // is left holding the agreed prices and no invoice — which is the harmless
+  // way round, and exactly the state the counter would retry from.
+  if (input.lines?.length) {
+    saveQuote({
+      quoteId: input.quoteId,
+      customerId: q.customer_id,
+      customerName: q.customer_name,
+      note: q.note,
+      validUntil: q.valid_until,
+      lines: input.lines,
+      userId: input.userId,
+    });
+  }
+
+  // Attaching the customer here also mends the quote, so the document and the
+  // invoice name the same buyer afterwards.
+  const billTo = input.customerId ?? q.customer_id;
+  if (input.customerId && input.customerId !== q.customer_id) {
+    run(`UPDATE quotes SET customer_id = ? WHERE id = ?`, input.customerId, input.quoteId);
+  }
 
   const lines = quoteLines(input.quoteId);
   if (!lines.length) throw new Error("This quote has no lines.");
@@ -264,7 +303,7 @@ export function invoiceQuote(input: InvoiceQuoteInput): RecordSaleResult & { quo
     // that can never be billed. The override is recorded against the owner who
     // invoiced it, so the discount stays traceable in the activity log.
     floorOverrideBy: input.userId,
-    customerId: q.customer_id,
+    customerId: billTo,
     note: `Quote ${q.quote_no}${q.note ? ` · ${q.note}` : ""}`,
     lines: lines.map((l) => ({
       itemId: l.item_id,
@@ -287,4 +326,58 @@ export function invoiceQuote(input: InvoiceQuoteInput): RecordSaleResult & { quo
   audit(input.userId, "quote_invoiced", "quote", input.quoteId, `${q.quote_no} → sale ${result.saleId}`);
 
   return { ...result, quoteNo: q.quote_no };
+}
+
+export interface DirectInvoiceInput {
+  customerId: number | null;
+  customerName: string;
+  note: string;
+  lines: QuoteLineInput[];
+  tenders?: Array<{ method: "cash" | "mpesa" | "credit"; amountCents: number; ref?: string | null }>;
+  userId: number;
+  clientUuid: string;
+}
+
+/**
+ * Bill a wholesale customer with no quote in between.
+ *
+ * For the case the owner described as prices already being in agreement: a
+ * regular buyer on known terms does not need a document proposing what both
+ * sides already know. It is the same sale the quote route ends at, minus the
+ * proposal — which is why it is thirty lines and not a second subsystem.
+ */
+export function invoiceDirect(input: DirectInvoiceInput): RecordSaleResult {
+  const lines = input.lines.filter((l) => l.itemId > 0 && l.units > 0);
+  if (!lines.length) throw new Error("Add a line before invoicing.");
+
+  const total = lines.reduce((s, l) => s + l.units * l.unitPriceCents, 0);
+  const tenders =
+    input.tenders && input.tenders.length
+      ? input.tenders
+      : [{ method: "credit" as const, amountCents: total }];
+
+  const result = recordSale({
+    clientUuid: input.clientUuid,
+    userId: input.userId,
+    tier: "wholesale",
+    customerId: input.customerId,
+    note: input.note.trim(),
+    // Same reasoning as invoicing a quote: a wholesale price is negotiated, and
+    // the person raising the invoice is the person agreeing it.
+    floorOverrideBy: input.userId,
+    lines: lines.map((l) => ({
+      itemId: l.itemId,
+      units: l.units,
+      unitPriceCents: l.unitPriceCents,
+    })),
+    tenders: tenders.map((t) => ({
+      method: t.method,
+      amountCents: t.amountCents,
+      mpesaCode: t.ref ?? null,
+    })),
+  });
+
+  audit(input.userId, "invoice_direct", "sale", result.saleId,
+    `${input.customerName || "Wholesale"} · ${lines.length} line${lines.length === 1 ? "" : "s"}`);
+  return result;
 }
