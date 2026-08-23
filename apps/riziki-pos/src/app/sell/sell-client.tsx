@@ -1421,32 +1421,30 @@ export default function SellClient({
         </div>
       ) : null}
 
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <h1 className="text-xl font-bold tracking-tight">Sell</h1>
-        <Link href="/sales" className="text-xs font-bold text-brand">
+      <div className="mb-2.5 flex items-center gap-2">
+        <h1 className="shrink-0 text-lg font-bold tracking-tight xl:text-xl">Sell</h1>
+
+        <div className="min-w-0 flex-1">
+          <input
+            ref={searchRef}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter" || !matches.length) return;
+              e.preventDefault();
+              addUnits(matches.find((i) => i.qtyMilli > 0) ?? matches[0], queryCount);
+              setQuery("");
+            }}
+            className={inputClass}
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search — name, or chemical (sles, labsa…)"
+            aria-label="Search items"
+          />
+        </div>
+
+        <Link href="/sales" className="shrink-0 text-xs font-bold text-brand">
           History
         </Link>
-
-        {/* Who is buying, before what they are buying.
-            The tier toggle used to be set by hand and the mismatch only noticed
-            at payment — after every line had been priced retail. Naming the
-            customer first prices the cart right from the first tap, which is
-            also what makes "same as last time" possible. */}
-        <select
-          className="ml-auto max-w-[13rem] truncate rounded-xl border border-line bg-white px-2.5 py-2 text-xs font-bold text-brand-dark"
-          value={customerId ?? ""}
-          onChange={(e) => pickCustomer(e.target.value ? Number(e.target.value) : null)}
-          aria-label="Customer for this sale"
-        >
-          <option value="">Walk-in — no name</option>
-          {allCustomers.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-              {c.kind === "wholesale" ? " (wholesale)" : ""}
-            </option>
-          ))}
-        </select>
-
       </div>
 
       {receipt ? <div className="mb-3 lg:hidden">{renderReceipt()}</div> : null}
@@ -1515,21 +1513,6 @@ export default function SellClient({
       {/* Pinned to the top of the scrolling column: on a keyboard till, search
           is how the counter works, and it must never be somewhere up the page. */}
       <div className="lg:sticky lg:top-0 lg:z-10 lg:-mt-1 lg:bg-wash lg:pb-2.5 lg:pt-1">
-        <input
-          ref={searchRef}
-          onKeyDown={(e) => {
-            if (e.key !== "Enter" || !matches.length) return;
-            e.preventDefault();
-            addUnits(matches.find((i) => i.qtyMilli > 0) ?? matches[0], queryCount);
-            setQuery("");
-          }}
-          className={inputClass}
-          type="search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search — name, or chemical (sles, labsa…)"
-          aria-label="Search items"
-        />
 
         {/* Sticky with the search, so changing board never means scrolling
             back up for it. Hidden while searching: a search already looks
@@ -1980,8 +1963,8 @@ function Grid({
         // afford it: there are thirteen products against forty-six chemicals.
         className={`relative flex w-full flex-col rounded-2xl px-3 py-2.5 text-left shadow-card ring-1 transition-colors xl:px-2.5 xl:py-2 ${
           canMake
-            ? "h-[8.25rem] rounded-b-none md:h-[7.5rem] xl:h-[6.75rem]"
-            : "h-[6.5rem] md:h-[5.75rem] xl:h-[5rem]"
+            ? "h-[8.25rem] rounded-b-none md:h-[7.5rem] xl:h-[6.75rem] 2xl:h-[7.75rem] 3xl:h-[9rem]"
+            : "h-[6.5rem] md:h-[5.75rem] xl:h-[5rem] 2xl:h-[6.25rem] 3xl:h-[7.5rem]"
         } ${inCart ? "bg-brand-soft ring-brand/40" : "bg-white ring-ink/5 hover:ring-brand/30"} ${
           out ? "opacity-70" : ""
         }`}
@@ -2048,7 +2031,7 @@ function Grid({
   // chosen so a tile is never narrower than about 180px — the width at which
   // product names start being eaten by the ellipsis again.
   const cols =
-    "grid grid-cols-2 gap-2 @[22rem]:grid-cols-3 @[30rem]:grid-cols-4 @[30rem]:gap-2.5 @[40rem]:grid-cols-5 @[52rem]:grid-cols-6 @[64rem]:grid-cols-7 @[76rem]:grid-cols-8";
+    "grid grid-cols-2 gap-2 @[22rem]:grid-cols-3 @[30rem]:grid-cols-4 @[30rem]:gap-2.5 @[44rem]:grid-cols-5 @[62rem]:grid-cols-6";
 
   /*
    * Nothing in stock is not the same as nothing here — everything priced is

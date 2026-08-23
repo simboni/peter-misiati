@@ -4,6 +4,7 @@ import "./globals.css";
 import { currentUser } from "@/lib/auth";
 import { BottomNav, MenuDrawer } from "@/components/nav";
 import OfflineStatus from "@/components/offline-status";
+import AppHeader from "@/components/app-header";
 import OfflineNotice from "@/components/offline-notice";
 import RegisterSW from "@/components/register-sw";
 import { signOut } from "@/app/actions/session";
@@ -33,8 +34,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             over the page, so every screen gets the full width. */}
         <div className="min-h-dvh">
           {user ? (
-            <header className="no-print header-deep relative flex items-center gap-3 px-4 py-3 text-white md:px-6 lg:px-10">
-              <MenuDrawer isOwner={user.role === "owner"} />
+            <AppHeader
+              menu={<MenuDrawer isOwner={user.role === "owner"} />}
+              status={<OfflineStatus />}
+            >
               <Link
                 href="/"
                 className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/10 text-sm font-extrabold tracking-wide text-white ring-1 ring-inset ring-white/25"
@@ -47,7 +50,6 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                   {user.name} · {user.role === "owner" ? "Owner" : "Attendant"}
                 </div>
               </div>
-              <OfflineStatus />
               <form action={signOut}>
                 <button
                   type="submit"
@@ -56,8 +58,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                   Sign out
                 </button>
               </form>
-              <span aria-hidden className="brand-thread absolute inset-x-0 bottom-0 h-[3px]" />
-            </header>
+            </AppHeader>
           ) : null}
 
           <main

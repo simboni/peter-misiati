@@ -54,6 +54,16 @@ export default async function SalesPage(props: {
 
   return (
     <div>
+      {/* The counter arrives here from the till and has to get back to it.
+          There was no way but the menu, which on the till screen is now behind
+          a hamburger — two taps to undo one. */}
+      <Link
+        href="/sell"
+        className="mb-2 inline-flex min-h-11 items-center gap-1.5 text-sm font-bold text-brand hover:underline xl:min-h-9"
+      >
+        <span aria-hidden>←</span> Back to selling
+      </Link>
+
       <PageTitle
         title="Sales"
         subtitle={`${total} sale${total === 1 ? "" : "s"} · newest first`}
