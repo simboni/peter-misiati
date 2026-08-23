@@ -3,6 +3,7 @@ import { authenticate, createSession, setSessionCookie, currentUser } from "@/li
 import { all } from "@/lib/db";
 import { seed } from "@/lib/seed";
 import { Card, Field, inputClass, Button, Alert } from "@/components/ui";
+import { logoSrc } from "@/lib/brand";
 
 export const dynamic = "force-dynamic";
 
@@ -37,12 +38,22 @@ export default async function LoginPage(props: {
     `SELECT id, name, role FROM users WHERE active = 1 ORDER BY id`,
   );
 
+  const logo = logoSrc();
+
   return (
     <div className="mx-auto max-w-sm py-8">
       <div className="mb-6 text-center">
-        <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-brand text-lg font-extrabold text-white">
-          RZ
-        </div>
+        {logo ? (
+          <img
+            src={logo}
+            alt="Riziki Industrial Chemicals"
+            className="mx-auto mb-3 h-20 w-auto max-w-[15rem] object-contain"
+          />
+        ) : (
+          <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-brand text-lg font-extrabold text-white">
+            RZ
+          </div>
+        )}
         <h1 className="text-xl font-bold">Riziki Industrial Chemicals</h1>
         <p className="mt-0.5 text-sm text-muted">Sign in to the shop system</p>
       </div>

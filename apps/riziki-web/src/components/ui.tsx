@@ -161,3 +161,79 @@ export function PhoneIcon({ className = "h-4 w-4" }: { className?: string }) {
     </svg>
   );
 }
+
+/**
+ * A page header with a photograph behind it.
+ *
+ * The owner asked for the site to lean on real pictures, and the interior
+ * pages were the thinnest part of it: three headings on three flat backgrounds,
+ * each the first thing a visitor saw after the homepage's photographs. This
+ * band puts the store behind the words.
+ *
+ * The photograph is decorative — the heading already says where you are — so it
+ * carries an empty alt and is hidden from readers rather than described twice.
+ * It is `eager` because it is above the fold on the page it heads, and it sits
+ * under a heavy scrim: a header whose text is hard to read is a worse header
+ * than a plain one, and the picture's job here is atmosphere, not detail.
+ */
+export function PhotoHeader({
+  src,
+  srcSm,
+  eyebrow,
+  title,
+  lead,
+  children,
+}: {
+  src: string;
+  srcSm?: string;
+  eyebrow?: string;
+  title: string;
+  lead?: ReactNode;
+  children?: ReactNode;
+}) {
+  return (
+    <div className="relative isolate overflow-hidden border-b border-line bg-ink">
+      <picture>
+        {srcSm ? <source media="(max-width: 640px)" srcSet={srcSm} type="image/webp" /> : null}
+        <img
+          src={src}
+          alt=""
+          aria-hidden="true"
+          loading="eager"
+          fetchPriority="high"
+          decoding="async"
+          className="absolute inset-0 -z-10 h-full w-full object-cover"
+        />
+      </picture>
+      {/* Enough scrim to read white text on, and no more. At ink/78 the
+          photograph had effectively been switched off, which defeats the point
+          of putting one there; the left-hand gradient does the contrast work
+          where the words actually are. */}
+      <div aria-hidden="true" className="absolute inset-0 -z-10 bg-ink/45" />
+      <div
+        aria-hidden="true"
+        className="absolute inset-0 -z-10 bg-gradient-to-r from-ink/90 via-ink/65 to-ink/25"
+      />
+
+      <Container className="py-12 sm:py-16">
+        {/* The same green pill the hero slides use, so the two read as one
+            system. A bare coloured word would also have needed a token that
+            does not exist, and an unknown Tailwind class fails silently. */}
+        {eyebrow ? (
+          <p className="mb-3 inline-block rounded-full bg-leaf px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-white">
+            {eyebrow}
+          </p>
+        ) : null}
+        <h1 className="max-w-3xl text-3xl font-extrabold tracking-tight text-white sm:text-4xl">
+          {title}
+        </h1>
+        {lead ? (
+          <div className="mt-5 max-w-2xl text-base leading-relaxed text-white/85 sm:text-lg">
+            {lead}
+          </div>
+        ) : null}
+        {children}
+      </Container>
+    </div>
+  );
+}

@@ -115,6 +115,24 @@ export function updatePricing(input: PricingInput): void {
 
   if (floor > retail) throw new CatalogError("The floor price can't be above the retail price.");
 
+  // The owner's screen writes the same history the morning price check does.
+  // Two ways in, one record — otherwise "when did this last change?" would
+  // depend on which screen happened to be used, and the answer would be wrong
+  // exactly when the owner had been the one to change it.
+  if (retail !== item.retail_cents || wholesale !== item.wholesale_cents) {
+    run(
+      `INSERT INTO price_changes
+         (item_id, old_retail, new_retail, old_wholesale, new_wholesale, user_id, source)
+       VALUES (?, ?, ?, ?, ?, ?, 'admin')`,
+      input.itemId,
+      item.retail_cents,
+      retail,
+      item.wholesale_cents,
+      wholesale,
+      input.byUserId,
+    );
+  }
+
   run(
     `UPDATE items SET retail_cents = ?, wholesale_cents = ?, floor_cents = ?, reorder_level_milli = ?
       WHERE id = ?`,

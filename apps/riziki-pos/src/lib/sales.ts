@@ -326,15 +326,24 @@ function normaliseTenders(tenders: readonly TenderInput[]): NormalTender[] {
 
     let mpesaCode: string | null = null;
     if (t.method === "mpesa") {
-      // Upper-cased so "qr12abc" and "QR12ABC" cannot both spend the same SMS.
-      mpesaCode = (t.mpesaCode ?? "").trim().toUpperCase();
-      if (!mpesaCode) {
-        throw new SaleError("mpesa_code_required", "Type the M-Pesa transaction code.");
-      }
-      if (seen.has(mpesaCode)) {
+      /*
+        The code is wanted, not demanded.
+
+        Insisting on it stopped sales: the SMS arrives late, or on the customer's
+        phone, or the attendant is looking at a Till confirmation on a screen
+        across the counter — and none of that is a reason the shop should be
+        unable to record money it has been paid. An unreferenced M-Pesa payment
+        is a reconciliation chore; a sale that could not be entered is a hole in
+        the day's takings and in the stock count both.
+
+        When a code is given it is still upper-cased and still unique, so the
+        protection that matters — one SMS cannot pay two bills — is unchanged.
+      */
+      mpesaCode = (t.mpesaCode ?? "").trim().toUpperCase() || null;
+      if (mpesaCode && seen.has(mpesaCode)) {
         throw new SaleError("mpesa_code_reused", "That M-Pesa code has already been used.");
       }
-      seen.add(mpesaCode);
+      if (mpesaCode) seen.add(mpesaCode);
     }
 
     return { method: t.method, amountCents: t.amountCents, mpesaCode };

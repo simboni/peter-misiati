@@ -1,0 +1,294 @@
+"use client";
+
+/**
+ * The hero slider.
+ *
+ * A carousel is easy to build badly, and a badly built one is worse than a
+ * still image: it moves while you are reading, it cannot be paused, it traps a
+ * keyboard, it lies to a screen reader, and on a phone it either swipes when
+ * you meant to scroll or refuses to swipe at all. So the rules it follows are
+ * written down here rather than left to be rediscovered.
+ *
+ *   Timing.      Seven seconds a slide. Long enough to read two lines of
+ *                Kenyan-English marketing copy without hurrying, short enough
+ *                that a visitor sees a second photograph before deciding to
+ *                leave. Transitions are 700ms — under a second, so it reads as
+ *                one thing changing rather than two things fighting.
+ *
+ *   Pausing.     It stops on hover, on focus anywhere inside it, while the tab
+ *                is in the background, and permanently the moment a person
+ *                touches any control. Someone who has taken charge of a
+ *                carousel does not want it wandering off again.
+ *
+ *   Motion.      `prefers-reduced-motion` turns autoplay off entirely and
+ *                cross-fades instead of sliding. This is not decoration: for
+ *                some people a moving background is a headache.
+ *
+ *   Keyboard.    Left and right arrows move it when focus is inside. Every dot
+ *                is a real button with a real label. Nothing here is a div
+ *                pretending.
+ *
+ *   Reader.      The whole thing is a labelled group with `aria-roledescription
+ *                ="carousel"`; slides are marked `aria-hidden` when off-screen
+ *                so a reader is not offered three headings at once, and a
+ *                polite live region names the slide when it changes.
+ *
+ *   Touch.       Horizontal drags over about 40px change slide; anything more
+ *                vertical than horizontal is left alone so the page still
+ *                scrolls under the thumb.
+ *
+ *   Weight.      The first photograph is eager with `fetchPriority="high"` and
+ *                the rest are lazy, so the largest contentful paint is one
+ *                image, not four. Each has a `-sm` variant and the browser is
+ *                told the display width, so a phone downloads about 40 KB.
+ *
+ *   No layout    The frame has a fixed aspect ratio at every breakpoint, so
+ *   shift.       nothing below it jumps as the photographs arrive.
+ */
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
+
+export interface Slide {
+  /** The 1600px-wide file. */
+  src: string;
+  /** The 800px-wide file, served to phones. */
+  srcSm: string;
+  /** Describes the photograph, not the marketing. Empty for purely decorative. */
+  alt: string;
+  eyebrow: string;
+  title: string;
+  body: string;
+  cta: { href: string; label: string };
+}
+
+const INTERVAL_MS = 7000;
+
+export function HeroSlider({ slides }: { slides: Slide[] }) {
+  const [index, setIndex] = useState(0);
+  const [paused, setPaused] = useState(false);
+  /** Set once a person uses a control; autoplay never resumes after that. */
+  const [taken, setTaken] = useState(false);
+  const [reduced, setReduced] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  const touch = useRef<{ x: number; y: number } | null>(null);
+
+  const count = slides.length;
+  const go = useCallback((n: number) => setIndex(((n % count) + count) % count), [count]);
+
+  // Respect the operating system's motion setting, and keep respecting it if it
+  // changes while the page is open.
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const sync = () => setReduced(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+
+  // A background tab should not be animating; it burns battery on a phone and
+  // means somebody returns to a slide they never saw start.
+  useEffect(() => {
+    const onVisibility = () => setPaused(document.hidden);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, []);
+
+  useEffect(() => {
+    if (reduced || paused || taken || count < 2) return;
+    const t = window.setTimeout(() => go(index + 1), INTERVAL_MS);
+    return () => window.clearTimeout(t);
+  }, [index, reduced, paused, taken, count, go]);
+
+  const take = (n: number) => {
+    setTaken(true);
+    go(n);
+  };
+
+  if (!count) return null;
+
+  return (
+    <div
+      ref={root}
+      role="group"
+      aria-roledescription="carousel"
+      aria-label="Riziki Industrial Chemicals — our store"
+      className="relative overflow-hidden rounded-3xl bg-ink shadow-lg"
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+      onFocus={() => setPaused(true)}
+      onBlur={(e) => {
+        if (!root.current?.contains(e.relatedTarget as Node)) setPaused(false);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "ArrowRight") {
+          e.preventDefault();
+          take(index + 1);
+        } else if (e.key === "ArrowLeft") {
+          e.preventDefault();
+          take(index - 1);
+        }
+      }}
+      onTouchStart={(e) => {
+        const t = e.touches[0];
+        touch.current = { x: t.clientX, y: t.clientY };
+      }}
+      onTouchEnd={(e) => {
+        const start = touch.current;
+        touch.current = null;
+        if (!start) return;
+        const t = e.changedTouches[0];
+        const dx = t.clientX - start.x;
+        const dy = t.clientY - start.y;
+        // More sideways than up-and-down, or the page scroll wins. A carousel
+        // that eats vertical drags makes a phone feel broken.
+        if (Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(dy)) return;
+        take(index + (dx < 0 ? 1 : -1));
+      }}
+    >
+      {/* Fixed shape at every width, so nothing below shifts as images land. */}
+      <div className="relative aspect-[4/3] w-full sm:aspect-[16/9] lg:aspect-[21/9]">
+        {slides.map((s, i) => {
+          const on = i === index;
+          return (
+            <div
+              key={s.src}
+              aria-hidden={!on}
+              // Inert when off-screen: without this a keyboard tabs into the
+              // buttons of slides nobody can see.
+              {...(!on ? { inert: "" as unknown as boolean } : {})}
+              className={`absolute inset-0 transition-opacity duration-700 ease-out ${
+                on ? "opacity-100" : "pointer-events-none opacity-0"
+              }`}
+            >
+              <picture>
+                <source media="(max-width: 640px)" srcSet={s.srcSm} type="image/webp" />
+                <img
+                  src={s.src}
+                  alt={s.alt}
+                  width={1600}
+                  height={1200}
+                  loading={i === 0 ? "eager" : "lazy"}
+                  fetchPriority={i === 0 ? "high" : "low"}
+                  decoding="async"
+                  sizes="(max-width: 640px) 100vw, (max-width: 1024px) 100vw, 1024px"
+                  className={`h-full w-full object-cover ${
+                    reduced ? "" : on ? "scale-100" : "scale-105"
+                  } transition-transform duration-[7000ms] ease-linear`}
+                />
+              </picture>
+
+              {/* Two washes rather than one. A single diagonal left the body
+                  line sitting over a bright drum at some widths; the vertical
+                  one guarantees the bottom strip is dark enough to read on
+                  whatever photograph is behind it. */}
+              <div
+                aria-hidden="true"
+                className="absolute inset-0 bg-gradient-to-r from-ink/90 via-ink/55 to-ink/15"
+              />
+              <div
+                aria-hidden="true"
+                className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-ink/85 to-transparent"
+              />
+
+              <div className="absolute inset-0 flex items-end">
+                {/* Extra left padding from sm up, where the arrow buttons
+                    appear — without it the eyebrow chip sits under one. */}
+                <div className="w-full p-5 sm:py-8 sm:pl-20 sm:pr-20 lg:py-10 lg:pl-24">
+                  <p className="mb-2 inline-block rounded-full bg-leaf px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-white">
+                    {s.eyebrow}
+                  </p>
+                  <h2 className="max-w-2xl text-xl font-extrabold leading-tight tracking-tight text-white sm:text-3xl lg:text-4xl">
+                    {s.title}
+                  </h2>
+                  <p className="mt-2 max-w-xl text-[13px] leading-relaxed text-white/85 sm:text-base">
+                    {s.body}
+                  </p>
+                  <Link
+                    href={s.cta.href}
+                    tabIndex={on ? 0 : -1}
+                    className="mt-4 inline-flex items-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-bold text-ink transition hover:bg-white/90"
+                  >
+                    {s.cta.label}
+                    <span aria-hidden="true">→</span>
+                  </Link>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Arrows: pointer-only. On a phone the swipe is the control and two
+          floating buttons would just cover the photograph. */}
+      {count > 1 ? (
+        <>
+          <button
+            type="button"
+            onClick={() => take(index - 1)}
+            aria-label="Previous slide"
+            className="absolute left-3 top-1/2 hidden -translate-y-1/2 items-center justify-center rounded-full bg-white/85 p-3 text-ink shadow-md transition hover:bg-white sm:flex"
+          >
+            <Chevron className="rotate-180" />
+          </button>
+          <button
+            type="button"
+            onClick={() => take(index + 1)}
+            aria-label="Next slide"
+            className="absolute right-3 top-1/2 hidden -translate-y-1/2 items-center justify-center rounded-full bg-white/85 p-3 text-ink shadow-md transition hover:bg-white sm:flex"
+          >
+            <Chevron />
+          </button>
+        </>
+      ) : null}
+
+      {/* Pagination. Real buttons, 44px of tappable area each even though the
+          dot itself is small, and the current one is named for a reader. */}
+      {count > 1 ? (
+        <div className="absolute bottom-3 right-4 flex items-center gap-0.5 sm:bottom-4 sm:right-6">
+          {slides.map((s, i) => (
+            <button
+              key={s.src}
+              type="button"
+              onClick={() => take(i)}
+              aria-label={`Go to slide ${i + 1} of ${count}: ${s.title}`}
+              aria-current={i === index ? "true" : undefined}
+              className="group flex h-11 w-7 items-center justify-center"
+            >
+              <span
+                className={`block rounded-full transition-all duration-300 ${
+                  i === index
+                    ? "h-2 w-6 bg-white"
+                    : "h-2 w-2 bg-white/50 group-hover:bg-white/80"
+                }`}
+              />
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {/* Announced politely, so a reader is told the slide changed without
+          being interrupted mid-sentence. */}
+      <p aria-live="polite" aria-atomic="true" className="sr-only">
+        Slide {index + 1} of {count}: {slides[index].title}
+      </p>
+    </div>
+  );
+}
+
+function Chevron({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      className={`h-5 w-5 ${className}`}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M9 6l6 6-6 6" />
+    </svg>
+  );
+}

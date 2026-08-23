@@ -296,18 +296,37 @@ test("(d) reusing an M-Pesa code is refused, and the second sale is not recorded
     (err: unknown) => err instanceof SaleError && err.code === "mpesa_code_reused",
   );
 
-  // And an M-Pesa tender with no code at all.
-  assert.throws(
-    () =>
-      recordSale({
-        clientUuid: uuid(),
-        userId: STAFF,
-        tier: "retail",
-        lines: [{ itemId: SOAP, units: 1, unitPriceCents: 10000 }],
-        tenders: [{ method: "mpesa", amountCents: 10000 }],
-      }),
-    (err: unknown) => err instanceof SaleError && err.code === "mpesa_code_required",
+  // But an M-Pesa tender with no code at all goes through. The SMS is often
+  // slower than the customer, and a sale the counter cannot enter costs the
+  // shop more than a payment without a reference costs the bookkeeping.
+  const noCode = recordSale({
+    clientUuid: uuid(),
+    userId: STAFF,
+    tier: "retail",
+    lines: [{ itemId: SOAP, units: 1, unitPriceCents: 10000 }],
+    tenders: [{ method: "mpesa", amountCents: 10000 }],
+  });
+  assert.equal(noCode.paidCents, 10000, "the money is recorded");
+  assert.equal(
+    get<{ mpesa_code: string | null }>(
+      `SELECT mpesa_code FROM payments WHERE sale_id = ?`,
+      noCode.saleId,
+    )?.mpesa_code,
+    null,
+    "and the missing reference is stored as absent, not as an empty string",
   );
+
+  // Two uncoded M-Pesa payments must not collide: the unique index is on the
+  // code, and NULLs do not collide in SQLite. Worth pinning — an empty string
+  // here instead of NULL would make the second sale of the day impossible.
+  const alsoNoCode = recordSale({
+    clientUuid: uuid(),
+    userId: STAFF,
+    tier: "retail",
+    lines: [{ itemId: SOAP, units: 1, unitPriceCents: 10000 }],
+    tenders: [{ method: "mpesa", amountCents: 10000 }],
+  });
+  assert.ok(alsoNoCode.saleId > noCode.saleId, "a second uncoded M-Pesa sale is fine");
 });
 
 // -------------------------------------------------------------------- (e)

@@ -8,6 +8,7 @@ import AppHeader from "@/components/app-header";
 import OfflineNotice from "@/components/offline-notice";
 import RegisterSW from "@/components/register-sw";
 import { signOut } from "@/app/actions/session";
+import { logoSrc } from "@/lib/brand";
 
 export const metadata: Metadata = {
   title: "Riziki POS",
@@ -24,6 +25,7 @@ export const viewport: Viewport = {
 export const dynamic = "force-dynamic";
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const logo = logoSrc();
   const user = await currentUser();
 
   return (
@@ -38,11 +40,22 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               menu={<MenuDrawer isOwner={user.role === "owner"} />}
               status={<OfflineStatus />}
             >
-              <Link
-                href="/"
-                className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/10 text-sm font-extrabold tracking-wide text-white ring-1 ring-inset ring-white/25"
-              >
-                RZ
+              <Link href="/" className="flex shrink-0 items-center" aria-label="Home">
+                {logo ? (
+                  /* The mark is dark-on-transparent artwork and this header is
+                     dark, so it gets a light plate to sit on rather than being
+                     inverted into something that is not the client's logo. */
+                  <img
+                    src={logo}
+                    alt=""
+                    aria-hidden="true"
+                    className="h-10 w-auto max-w-[7rem] rounded-xl bg-white/95 object-contain px-1.5 py-1"
+                  />
+                ) : (
+                  <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/10 text-sm font-extrabold tracking-wide text-white ring-1 ring-inset ring-white/25">
+                    RZ
+                  </span>
+                )}
               </Link>
               <div className="flex-1 leading-tight">
                 <div className="text-sm font-bold">Riziki Industrial Chemicals</div>

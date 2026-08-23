@@ -68,6 +68,10 @@ const MORE_GROUPS: Array<{
   {
     label: "Every day",
     links: [
+      // Open to attendants on purpose: the person who opens the shop is the
+      // person who gets asked the price, and the floor price is what makes
+      // letting them change it safe.
+      { href: "/prices", label: "Prices for today", short: "Prices", owner: false },
       { href: "/sales", label: "Sales history", owner: false },
       { href: "/day-close", label: "Day close", owner: false },
       { href: "/expenses", label: "Expenses", owner: false },

@@ -4,6 +4,7 @@ import {
   Card,
   Container,
   PhoneIcon,
+  PhotoHeader,
   Section,
   WhatsAppIcon,
 } from "@/components/ui";
@@ -26,20 +27,38 @@ export const metadata: Metadata = {
 export default function ContactPage() {
   return (
     <>
-      <div className="border-b border-line bg-surface">
-        <Container className="py-12 sm:py-16">
-          <p className="mb-2 text-xs font-bold uppercase tracking-[0.16em] text-accent">
-            Contact
-          </p>
-          <h1 className="max-w-3xl text-3xl font-extrabold tracking-tight sm:text-4xl">
-            One number for orders, prices and advice
-          </h1>
-          <p className="mt-5 max-w-2xl text-base leading-relaxed text-muted sm:text-lg">
-            Call it or message it on WhatsApp — it is the same line. Send your list and we will
-            come back to you with prices and what is in stock.
-          </p>
-        </Container>
-      </div>
+      <PhotoHeader
+        src="/photos/store-peroxide-wide.webp"
+        srcSm="/photos/store-peroxide-wide-sm.webp"
+        eyebrow="Contact"
+        title="One number for orders, prices and advice"
+        lead="Call it or message it on WhatsApp — it is the same line. Send your list and we will come back to you with prices and what is in stock."
+      />
+
+      {/* Two photographs of the place itself. A contact page is where somebody
+          decides whether to make the trip, and "what does it look like when I
+          get there" is a fair question to answer with a picture. */}
+      <Section className="pb-0">
+        <div className="grid gap-3 sm:grid-cols-2">
+          {[
+            { src: "/photos/shop-counter.jpeg", alt: "The counter at Riziki Industrial Chemicals", cap: "The counter — ask for anything on the list" },
+            { src: "/photos/store-peroxide-tall-sm.webp", alt: "Sealed jerricans stacked in the Riziki store room", cap: "The store behind it" },
+          ].map((ph) => (
+            <figure key={ph.src} className="overflow-hidden rounded-2xl bg-surface ring-1 ring-line">
+              <img
+                src={ph.src}
+                alt={ph.alt}
+                loading="lazy"
+                decoding="async"
+                className="aspect-[4/3] w-full object-cover"
+              />
+              <figcaption className="px-4 py-3 text-sm font-semibold text-muted">
+                {ph.cap}
+              </figcaption>
+            </figure>
+          ))}
+        </div>
+      </Section>
 
       <Section>
         <div className="grid gap-6 lg:grid-cols-[1fr_1.1fr]">

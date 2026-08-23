@@ -5,6 +5,7 @@ import {
   Container,
   CtaLink,
   PhoneIcon,
+  PhotoHeader,
   Section,
   SectionHeading,
   WhatsAppIcon,
@@ -46,21 +47,19 @@ const WHY_SPECIALIST = [
 export default function AboutPage() {
   return (
     <>
-      <div className="border-b border-line bg-surface">
-        <Container className="py-12 sm:py-16">
-          <p className="mb-2 text-xs font-bold uppercase tracking-[0.16em] text-accent">
-            About us
-          </p>
-          <h1 className="max-w-3xl text-3xl font-extrabold tracking-tight sm:text-4xl">
-            A chemicals shop, not a general store
-          </h1>
-          <p className="mt-5 max-w-2xl text-base leading-relaxed text-muted sm:text-lg">
-            {BUSINESS.name} trades in {BUSINESS.city} under one plain promise, the one painted
-            on our own signboard: <strong className="text-ink">{BUSINESS.tagline}</strong>.
+      <PhotoHeader
+        src="/photos/store-chlorine-tubs.webp"
+        srcSm="/photos/store-chlorine-tubs-sm.webp"
+        eyebrow="About us"
+        title="A chemicals shop, not a general store"
+        lead={
+          <>
+            {BUSINESS.name} trades in {BUSINESS.city} under one plain promise, the one painted on
+            our own signboard: <strong className="text-white">{BUSINESS.tagline}</strong>.
             Chemicals are what we know and all we sell.
-          </p>
-        </Container>
-      </div>
+          </>
+        }
+      />
 
       <Section>
         <div className="grid gap-8 md:grid-cols-[1.4fr_1fr]">
@@ -201,6 +200,7 @@ export default function AboutPage() {
             { src: "/photos/raw-drum-open.webp", alt: "An open drum of SLES, lined, ready to be weighed out", cap: "Opened and weighed to order" },
             { src: "/photos/labsa-pouring.webp", alt: "LABSA being decanted into a lined drum", cap: "Decanted from bulk" },
             { src: "/photos/salt-sacks.webp", alt: "Fifty-kilo sacks of industrial salt in a delivery van", cap: "Deliveries as they arrive" },
+            { src: "/photos/store-labsa-drums-sm.webp", alt: "Rows of 250 kg drums of LABSA stacked in the store", cap: "LABSA held by the drum" },
           ].map((photo) => (
             <li key={photo.src} className="overflow-hidden rounded-2xl border border-line bg-surface">
               <img

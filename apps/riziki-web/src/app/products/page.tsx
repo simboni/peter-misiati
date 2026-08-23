@@ -6,6 +6,7 @@ import {
   Container,
   CtaLink,
   PhoneIcon,
+  PhotoHeader,
   Section,
   SectionHeading,
   WhatsAppIcon,
@@ -83,31 +84,29 @@ export default function ProductsPage() {
     <>
       <CatalogueJsonLd />
 
-      <div className="border-b border-line bg-surface">
-        <Container className="py-12 sm:py-16">
-          <p className="mb-2 text-xs font-bold uppercase tracking-[0.16em] text-accent">
-            Catalogue
-          </p>
-          <h1 className="max-w-3xl text-3xl font-extrabold tracking-tight sm:text-4xl">
-            Everything we sell, and what it is for
-          </h1>
-          <p className="mt-5 max-w-2xl text-base leading-relaxed text-muted sm:text-lg">
-            {ITEMS.length} products across chemicals, finished cleaners and mix kits. Search by
-            the name you know it by — we have listed the local names alongside the chemical
-            ones — or by the product you are trying to make.
-          </p>
-          <div className="mt-6 flex flex-wrap gap-3">
-            <CtaLink href={WA_PRICE_LIST} tone="whatsapp">
-              <WhatsAppIcon />
-              Ask for today&rsquo;s prices
-            </CtaLink>
-            <CtaLink href={telHref} tone="outline">
-              <PhoneIcon />
-              {BUSINESS.phoneDisplay}
-            </CtaLink>
-          </div>
-        </Container>
-      </div>
+      <PhotoHeader
+        src="/photos/store-labsa-drums.webp"
+        srcSm="/photos/store-labsa-drums-sm.webp"
+        eyebrow="Catalogue"
+        title="Everything we sell, and what it is for"
+        lead={`${ITEMS.length} products across chemicals, finished cleaners and mix kits. Search by the name you know it by — we have listed the local names alongside the chemical ones — or by the product you are trying to make.`}
+      >
+        <div className="mt-6 flex flex-wrap gap-3">
+          <CtaLink href={WA_PRICE_LIST} tone="whatsapp">
+            <WhatsAppIcon />
+            Ask for today&rsquo;s prices
+          </CtaLink>
+          {/* On a dark header the outline button would be an invisible box, so
+              this one is solid. */}
+          <a
+            href={telHref}
+            className="inline-flex items-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-bold text-ink transition hover:bg-white/90"
+          >
+            <PhoneIcon />
+            {BUSINESS.phoneDisplay}
+          </a>
+        </div>
+      </PhotoHeader>
 
       {/* How to read the list */}
       <Section>
@@ -153,6 +152,8 @@ export default function ProductsPage() {
             { src: "/photos/salt-sacks.webp", alt: "Fifty-kilo sacks of industrial salt stacked in a delivery van", cap: "Industrial salt, by the sack" },
             { src: "/photos/jerricans.webp", alt: "Rows of twenty-litre jerricans of liquid chemical on a delivery truck", cap: "Liquids in 20 L jerricans" },
             { src: "/photos/biodigester.webp", alt: "A tub of Biodigester, a finished product for pit latrines and septic tanks", cap: "Finished products" },
+            { src: "/photos/store-chlorine-tubs-sm.webp", alt: "45 kg tubs of NSF-certified chlorine granules stacked in the store", cap: "Chlorine by the 45 kg tub" },
+            { src: "/photos/store-peroxide-tall-sm.webp", alt: "Pallets of 30 litre jerricans of technical grade hydrogen peroxide", cap: "Peroxide, 30 L sealed" },
           ].map((photo) => (
             <li key={photo.src} className="overflow-hidden rounded-2xl border border-line bg-surface">
               <img

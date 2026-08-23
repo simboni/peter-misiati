@@ -33,16 +33,15 @@ export async function payInvoiceAction(_prev: PayState, formData: FormData): Pro
     }
 
     const method = String(formData.get("method") ?? "cash") as PaymentMethod;
+    // Optional. The code helps reconcile later, but the money has already
+    // changed hands — refusing to record it does not un-receive it.
     const code = String(formData.get("mpesa_code") ?? "").trim().toUpperCase();
-    if (method === "mpesa" && !code) {
-      return { error: "An M-Pesa payment needs its code, so it can be reconciled later." };
-    }
 
     const res = payInvoice({
       saleId,
       amountCents: toCents(value),
       method,
-      mpesaCode: method === "mpesa" ? code : null,
+      mpesaCode: method === "mpesa" && code ? code : null,
       userId: user.id,
     });
 

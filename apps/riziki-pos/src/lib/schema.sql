@@ -457,3 +457,49 @@ CREATE TABLE IF NOT EXISTS quote_lines (
 
 CREATE INDEX IF NOT EXISTS idx_quotes_status ON quotes(status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_quote_lines_quote ON quote_lines(quote_id);
+
+-- ------------------------------------------------------------- price changes
+
+/*
+  Every price the shop has ever charged, and who set it.
+
+  Chemical prices move with the supplier — sometimes weekly — and the shop needs
+  three things from that which a single `items.retail_cents` column cannot give:
+
+    - what it used to be, when a customer says "last week it was 900";
+    - when it last moved, so the attendant opening the shop knows which prices
+      are stale and which were set this morning;
+    - who moved it, because an attendant may now change prices and the owner
+      must be able to see what they did.
+
+  Append-only. A correction is another row, never an edit — the same rule the
+  stock ledger follows, and for the same reason.
+*/
+CREATE TABLE IF NOT EXISTS price_changes (
+  id             INTEGER PRIMARY KEY,
+  at             TEXT    NOT NULL DEFAULT (datetime('now')),
+  item_id        INTEGER NOT NULL REFERENCES items(id),
+  old_retail     INTEGER NOT NULL,
+  new_retail     INTEGER NOT NULL,
+  old_wholesale  INTEGER NOT NULL,
+  new_wholesale  INTEGER NOT NULL,
+  user_id        INTEGER REFERENCES users(id),
+  -- 'check' = the start-of-day sweep, 'admin' = the owner's catalogue screen.
+  source         TEXT    NOT NULL DEFAULT 'check' CHECK (source IN ('check', 'admin')),
+  note           TEXT    NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_price_changes_item ON price_changes(item_id, at DESC);
+CREATE INDEX IF NOT EXISTS idx_price_changes_at ON price_changes(at DESC);
+
+CREATE TRIGGER IF NOT EXISTS price_changes_no_update
+BEFORE UPDATE ON price_changes
+BEGIN
+  SELECT RAISE(ABORT, 'price history is append-only: record a new change instead');
+END;
+
+CREATE TRIGGER IF NOT EXISTS price_changes_no_delete
+BEFORE DELETE ON price_changes
+BEGIN
+  SELECT RAISE(ABORT, 'price history is append-only: record a new change instead');
+END;

@@ -396,6 +396,7 @@ interface CartLine {
 export default function SellClient({
   items,
   topSellerIds,
+  pricesCheckedToday,
   customers,
   stockAsOf,
   action,
@@ -408,6 +409,8 @@ export default function SellClient({
 }: {
   items: SellItem[];
   topSellerIds: number[];
+  /** False until somebody has changed a price today. Drives one banner. */
+  pricesCheckedToday: boolean;
   customers: SellCustomer[];
   /** When the server read these stock counts. Shown whenever they may be stale. */
   stockAsOf: string;
@@ -450,6 +453,9 @@ export default function SellClient({
    * the cart changes without an effect to re-sync it.
    */
   const [payNow, setPayNow] = useState<string | null>(null);
+  // Dismissed for this visit only. A reminder that cannot be silenced becomes
+  // furniture, and furniture is not read.
+  const [priceNoteHidden, setPriceNoteHidden] = useState(false);
   const [payMethod, setPayMethod] = useState<"cash" | "mpesa">("cash");
   const [payCode, setPayCode] = useState("");
   /** The rare real case: part cash, part M-Pesa, on the same bill. */
@@ -720,7 +726,17 @@ export default function SellClient({
   const oversold = lines.filter(
     (x) => x.item.kind !== "other" && x.item.sizeMilli > 0 && x.line.units * x.item.sizeMilli > x.item.qtyMilli,
   );
-  const mpesaIncomplete =
+  /*
+    The M-Pesa code is optional.
+
+    It used to block the Complete button, and that turned a slow SMS into a
+    sale the shop could not enter — the money is already in the till account,
+    the goods are already going out of the door, and the only thing being
+    protected was a reference number. The code is still asked for, still
+    upper-cased, and still unique when given; it simply no longer stands
+    between the counter and a recorded sale.
+  */
+  const mpesaMissingCode =
     (payMethod === "mpesa" && firstCents > 0 && !payCode.trim()) ||
     (second !== null && second.method === "mpesa" && secondCents > 0 && !second.code.trim());
   const needsCustomer = onAccountCents > 0;
@@ -1133,11 +1149,10 @@ export default function SellClient({
                 className={`${inputClass} mt-2 uppercase`}
                 value={payCode}
                 onChange={(e) => setPayCode(e.target.value)}
-                placeholder="M-Pesa code, e.g. QGH7X1TEST"
-                aria-label="M-Pesa transaction code"
+                placeholder="M-Pesa code (optional)"
+                aria-label="M-Pesa transaction code, optional"
                 autoCapitalize="characters"
                 autoComplete="off"
-                required
               />
             ) : null}
 
@@ -1186,7 +1201,7 @@ export default function SellClient({
                     className={`${inputClass} mt-2 uppercase`}
                     value={second.code}
                     onChange={(e) => setSecond({ ...second, code: e.target.value })}
-                    placeholder="M-Pesa code"
+                    placeholder="M-Pesa code (optional)"
                     aria-label="Second M-Pesa transaction code"
                     autoCapitalize="characters"
                     autoComplete="off"
@@ -1370,7 +1385,6 @@ export default function SellClient({
           pending ||
           !cart.length ||
           overpaidCents > 0 ||
-          mpesaIncomplete ||
           (needsCustomer && !customerId) ||
           (state.status === "pin" && !ownerPin.trim())
         }
@@ -1391,9 +1405,9 @@ export default function SellClient({
                   : `Take ${formatKes(totalCents)} — done`}
       </Button>
 
-      {mpesaIncomplete ? (
-        <p className="mt-2 text-xs font-semibold text-bad">
-          Type the M-Pesa code before completing.
+      {mpesaMissingCode ? (
+        <p className="mt-2 text-xs font-semibold text-muted">
+          No M-Pesa code — the sale still records. Add it later from the sale if the SMS turns up.
         </p>
       ) : null}
       {needsCustomer && !customerId ? (
@@ -1489,6 +1503,33 @@ export default function SellClient({
           History
         </Link>
       </div>
+
+      {/*
+        One line, once, and only when it is true and nothing is being sold.
+
+        Chemical prices move with the supplier and the shop can spend a whole
+        morning selling at last week's. This is the nudge to the screen that
+        fixes it — but it is a strip, not a banner, because the items are what
+        this screen is for and a reminder must not push them down the page.
+      */}
+      {!pricesCheckedToday && !cart.length && !priceNoteHidden ? (
+        <div className="mb-2.5 flex items-center gap-2 rounded-xl bg-warn-soft px-3 py-1.5 text-[12px] font-semibold text-warn ring-1 ring-inset ring-warn/25">
+          <span className="min-w-0 flex-1 truncate">
+            Prices have not been checked today.
+          </span>
+          <Link href="/prices" className="shrink-0 font-bold underline">
+            Check prices
+          </Link>
+          <button
+            type="button"
+            onClick={() => setPriceNoteHidden(true)}
+            aria-label="Hide this reminder"
+            className="shrink-0 rounded px-1 text-warn/70 hover:text-warn"
+          >
+            ✕
+          </button>
+        </div>
+      ) : null}
 
       {receipt ? <div className="mb-3 lg:hidden">{renderReceipt()}</div> : null}
 

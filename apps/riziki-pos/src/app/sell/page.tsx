@@ -14,6 +14,7 @@ import {
 import { buildKit, listFormulas, outputItemsFor } from "@/lib/production";
 import { getPrintSettings } from "@/lib/print-settings";
 import { formatKes } from "@/lib/units";
+import { checkState } from "@/lib/pricing";
 import SellClient, {
   type KitChoice,
   type KitOffer,
@@ -286,6 +287,11 @@ export default async function SellPage() {
       // the service worker cache with no network. Stamping the read means a
       // stale stock count can be labelled as stale instead of read as gospel.
       stockAsOf={new Date().toISOString()}
+      // Whether anyone has looked at prices today. Chemical prices move with
+      // the supplier, and selling all morning on last week's is how the shop
+      // loses money quietly — so the till says so once, at the top, and links
+      // to the one screen that fixes it.
+      pricesCheckedToday={checkState().doneToday}
       action={sellAction}
     />
   );
