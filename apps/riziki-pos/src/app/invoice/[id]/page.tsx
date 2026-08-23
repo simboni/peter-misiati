@@ -7,6 +7,7 @@ import { formatKes, formatAmount, formatQty, formatDateTime } from "@/lib/units"
 import { ThermalPrint } from "@/components/thermal-print";
 import { PdfShareButton } from "@/components/pdf-share-button";
 import { PrintButton } from "./print-button";
+import { PayInvoiceForm } from "./pay-form";
 
 export const dynamic = "force-dynamic";
 
@@ -40,7 +41,7 @@ const PRINT_CSS = `
  */
 export default async function InvoicePage(props: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ new?: string }>;
+  searchParams: Promise<{ new?: string; paid?: string }>;
 }) {
   const user = await currentUser();
   if (!user) redirect("/login");
@@ -48,7 +49,7 @@ export default async function InvoicePage(props: {
   // `params` and `searchParams` are Promises in Next.js 16 — synchronous access
   // was removed.
   const { id } = await props.params;
-  const { new: justSold } = await props.searchParams;
+  const { new: justSold, paid: justPaid } = await props.searchParams;
   const saleId = Number(id);
   if (!Number.isInteger(saleId)) notFound();
 
@@ -71,9 +72,51 @@ export default async function InvoicePage(props: {
   const printer = getPrintSettings();
   const receipt = receiptFromInvoice(invoice, printer);
 
+  // Somebody reaching an unpaid bill from the Owing list has come to take money
+  // off it. A receipt fresh from the till (`?new=1`) is the other errand
+  // entirely — the customer is still standing there — so that one is left alone.
+  const collecting = balanceCents > 0 && sale.status === "completed" && justSold !== "1";
+
+  // Set by the redirect after a payment. Read defensively — it arrives in a URL,
+  // and a URL is whatever somebody types into it.
+  const paidCents = Math.max(0, Math.trunc(Number(justPaid ?? 0)) || 0);
+
   return (
     <div>
       <style>{PRINT_CSS}</style>
+
+      {sale.tier === "wholesale" ? (
+        <Link
+          href="/wholesale/invoices"
+          className="no-print mb-2 inline-flex min-h-11 items-center gap-1.5 text-sm font-bold text-brand hover:underline xl:min-h-9"
+        >
+          <span aria-hidden>←</span> Invoices
+        </Link>
+      ) : null}
+
+      {/* Rendered by the server, so it is still here after a payment that
+          settled the bill and took the form away with it. */}
+      {paidCents > 0 ? (
+        <div className="no-print mx-auto mb-4 max-w-[148mm] rounded-2xl bg-good-soft px-4 py-3 text-sm font-bold text-good">
+          {formatKes(paidCents)} received.{" "}
+          {balanceCents > 0
+            ? `${formatKes(balanceCents)} still due on this invoice.`
+            : "This invoice is settled in full."}
+        </div>
+      ) : null}
+
+      {collecting ? (
+        <div className="no-print mx-auto mb-4 max-w-[148mm] rounded-2xl bg-white p-4 shadow-card ring-1 ring-ink/5">
+          <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.14em] text-brand-dark">
+            Record a payment
+          </div>
+          <PayInvoiceForm
+            saleId={sale.id}
+            balanceCents={balanceCents}
+            customerName={sale.customer_name ?? "this customer"}
+          />
+        </div>
+      ) : null}
 
       <div className="sheet mx-auto rounded-2xl border border-line bg-white p-5 text-[13px] leading-relaxed">
         {/* ---------------------------------------------------------- header */}
@@ -224,6 +267,12 @@ export default async function InvoicePage(props: {
           auto={printer.autoPrint && justSold === "1" && sale.status === "completed"}
         />
 
+        {collecting ? (
+          <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted">
+            Or send it on
+          </div>
+        ) : null}
+
         <div className="flex gap-2">
           <PrintButton />
           <PdfShareButton
@@ -258,11 +307,16 @@ export default async function InvoicePage(props: {
       {/* Where you came from, most likely. A wholesale bill is reached from the
           wholesale section and billing redirects straight here, so without this
           the only way back into that section is the main menu — which is now
-          behind a hamburger, making it two taps to undo one. */}
+          behind a hamburger, making it two taps to undo one. The wholesale link
+          is already at the top of the page for those bills, so it is not
+          repeated here. */}
       <div className="no-print mt-4 flex flex-wrap gap-4 text-sm font-bold text-brand">
-        {sale.tier === "wholesale" ? <Link href="/wholesale/invoices">← Wholesale invoices</Link> : null}
-        {sale.customer_id ? <Link href={`/customers/${sale.customer_id}`}>← {sale.customer_name}</Link> : null}
-        <Link href="/customers">All debtors</Link>
+        {sale.tier !== "wholesale" ? <Link href="/customers">All debtors</Link> : null}
+        {sale.customer_id ? (
+          <Link href={`/customers/${sale.customer_id}`}>
+            {sale.customer_name} — full account
+          </Link>
+        ) : null}
       </div>
     </div>
   );

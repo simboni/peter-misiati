@@ -530,6 +530,75 @@ export function recordPayment(input: PaymentInput): Allocation[] {
   });
 }
 
+/**
+ * Record a payment against one named invoice.
+ *
+ * `recordPayment` above answers "here is 3,000 off my account" and spreads it
+ * oldest-first, which is how somebody settles at the counter. This answers a
+ * different sentence — "here is the money for that invoice" — which is how a
+ * wholesale buyer pays, because their accounts department is working from a
+ * document with a number on it. Forcing that onto the oldest bill would credit
+ * the wrong invoice and make the two records disagree with the customer's own.
+ *
+ * Both write the same two rows (a payment, and the sale's `paid_cents`), so
+ * every balance in the app stays derived from the same arithmetic no matter
+ * which sentence was said.
+ */
+export function payInvoice(input: {
+  saleId: number;
+  amountCents: number;
+  method: PaymentMethod;
+  mpesaCode?: string | null;
+  userId?: number | null;
+}): { appliedCents: number; balanceCents: number; settled: boolean } {
+  const { saleId, amountCents, method } = input;
+  if (!Number.isInteger(amountCents) || amountCents <= 0) {
+    throw new Error("A payment must be a whole number of cents, greater than zero.");
+  }
+
+  return tx(() => {
+    const sale = get<{ id: number; status: string; total_cents: number; paid_cents: number }>(
+      `SELECT id, status, total_cents, paid_cents FROM sales WHERE id = ?`,
+      saleId,
+    );
+    if (!sale) throw new Error("That invoice no longer exists.");
+    if (sale.status !== "completed") {
+      throw new Error("This invoice was voided. A cancelled bill cannot take a payment.");
+    }
+
+    const due = sale.total_cents - sale.paid_cents;
+    if (due <= 0) throw new Error("This invoice is already settled in full.");
+    if (amountCents > due) {
+      // Same rule as an account payment: nothing is parked, so every balance
+      // stays derivable from `sales` alone.
+      throw new Error(
+        `That is ${formatKes(amountCents - due)} more than this invoice still owes (${formatKes(due)}).`,
+      );
+    }
+
+    run(
+      `INSERT INTO payments (sale_id, method, amount_cents, mpesa_code, user_id) VALUES (?, ?, ?, ?, ?)`,
+      saleId,
+      method,
+      amountCents,
+      input.mpesaCode || null,
+      input.userId ?? null,
+    );
+    run(`UPDATE sales SET paid_cents = paid_cents + ? WHERE id = ?`, amountCents, saleId);
+
+    audit(
+      input.userId ?? null,
+      "payment_record",
+      "sale",
+      saleId,
+      `${formatKes(amountCents)} by ${method} against this invoice`,
+    );
+
+    const balanceCents = due - amountCents;
+    return { appliedCents: amountCents, balanceCents, settled: balanceCents === 0 };
+  });
+}
+
 // ---------------------------------------------------------------- invoices
 
 export const INVOICE_PREFIX = "INV-";

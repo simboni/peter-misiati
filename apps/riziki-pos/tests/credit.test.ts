@@ -162,6 +162,74 @@ test("a payment larger than the debt is refused, and nothing is written", () => 
   );
 });
 
+test("paying one invoice credits that invoice, not the oldest one", () => {
+  const id = newCustomer("Ruaraka Depot");
+  const older = newSale(id, toCents(2000), 0, 10);
+  const newer = newSale(id, toCents(3000), 0, 2);
+
+  // The buyer's accounts office paid against the newer document by number.
+  // An account payment would have swallowed the older bill first; this must not.
+  const res = credit.payInvoice({
+    saleId: newer,
+    amountCents: toCents(3000),
+    method: "mpesa",
+    mpesaCode: "PAYONE01",
+    userId: OWNER,
+  });
+
+  assert.equal(res.settled, true);
+  assert.equal(res.balanceCents, 0);
+
+  const open = credit.openSales(id);
+  assert.equal(open.length, 1, "only the older bill should still be open");
+  assert.equal(open[0].id, older);
+  assert.equal(credit.balanceOf(id), toCents(2000), "the account total still adds up");
+});
+
+test("a part payment on an invoice leaves the rest due on that same invoice", () => {
+  const id = newCustomer("Kayole Stockists");
+  const saleId = newSale(id, toCents(5000), 0);
+
+  const first = credit.payInvoice({ saleId, amountCents: toCents(1500), method: "cash", userId: OWNER });
+  assert.equal(first.settled, false);
+  assert.equal(first.balanceCents, toCents(3500));
+
+  const second = credit.payInvoice({ saleId, amountCents: toCents(3500), method: "cash", userId: OWNER });
+  assert.equal(second.settled, true);
+
+  assert.equal(credit.balanceOf(id), 0);
+  assert.equal(
+    dbm.all(`SELECT id FROM payments WHERE sale_id = ?`, saleId).length,
+    2,
+    "two payment rows, because two payments happened",
+  );
+});
+
+test("an invoice refuses more than it owes, and a voided one refuses anything", () => {
+  const id = newCustomer("Buruburu Bulk");
+  const saleId = newSale(id, toCents(1000), 0);
+
+  assert.throws(
+    () => credit.payInvoice({ saleId, amountCents: toCents(1400), method: "cash", userId: OWNER }),
+    /more than this invoice still owes/,
+  );
+  assert.equal(credit.balanceOf(id), toCents(1000), "the rollback must leave the balance alone");
+
+  credit.payInvoice({ saleId, amountCents: toCents(1000), method: "cash", userId: OWNER });
+  assert.throws(
+    () => credit.payInvoice({ saleId, amountCents: toCents(100), method: "cash", userId: OWNER }),
+    /already settled/,
+  );
+
+  const dead = newSale(id, toCents(800), 0);
+  dbm.run(`UPDATE sales SET status = 'voided' WHERE id = ?`, dead);
+  assert.throws(
+    () => credit.payInvoice({ saleId: dead, amountCents: toCents(800), method: "cash", userId: OWNER }),
+    /voided/,
+    "a cancelled bill is not a debt and cannot take money",
+  );
+});
+
 test("ageing buckets put a 40-day-old unpaid sale in 30+", () => {
   const id = newCustomer("Slow Payer");
   newSale(id, toCents(4000), 0, 40);
