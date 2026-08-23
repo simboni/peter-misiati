@@ -46,8 +46,7 @@
  *   shift.       nothing below it jumps as the photographs arrive.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 export interface Slide {
   /** The 1600px-wide file. */
@@ -56,15 +55,25 @@ export interface Slide {
   srcSm: string;
   /** Describes the photograph, not the marketing. Empty for purely decorative. */
   alt: string;
+  /** The chip that names this picture. Changes with the slide. */
   eyebrow: string;
-  title: string;
+  /** One line under the headline. Changes with the slide. */
   body: string;
-  cta: { href: string; label: string };
 }
 
 const INTERVAL_MS = 7000;
 
-export function HeroSlider({ slides }: { slides: Slide[] }) {
+export function HeroSlider({
+  slides,
+  headline,
+  actions,
+}: {
+  slides: Slide[];
+  /** Stays put while the pictures change — this is the page's only h1. */
+  headline: ReactNode;
+  /** The order buttons, rendered by the page so it keeps its own links. */
+  actions: ReactNode;
+}) {
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
   /** Set once a person uses a control; autoplay never resumes after that. */
@@ -113,7 +122,7 @@ export function HeroSlider({ slides }: { slides: Slide[] }) {
       role="group"
       aria-roledescription="carousel"
       aria-label="Riziki Industrial Chemicals — our store"
-      className="relative overflow-hidden rounded-3xl bg-ink shadow-lg"
+      className="relative overflow-hidden bg-ink"
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
       onFocus={() => setPaused(true)}
@@ -146,8 +155,16 @@ export function HeroSlider({ slides }: { slides: Slide[] }) {
         take(index + (dx < 0 ? 1 : -1));
       }}
     >
-      {/* Fixed shape at every width, so nothing below shifts as images land. */}
-      <div className="relative aspect-[4/3] w-full sm:aspect-[16/9] lg:aspect-[21/9]">
+      {/*
+        Sized by its content on a phone and by the viewport on a laptop.
+
+        A fixed aspect ratio was right when the slider was a picture beside the
+        copy. Now the copy is inside it, and an aspect ratio would either crop
+        the words on a narrow phone or leave a field of empty photograph on a
+        wide desktop. A min-height does both jobs: never shorter than the words
+        need, never taller than most of the first screen.
+      */}
+      <div className="relative min-h-[30rem] w-full sm:min-h-[32rem] lg:min-h-[min(38rem,78vh)]">
         {slides.map((s, i) => {
           const on = i === index;
           return (
@@ -182,41 +199,52 @@ export function HeroSlider({ slides }: { slides: Slide[] }) {
                   line sitting over a bright drum at some widths; the vertical
                   one guarantees the bottom strip is dark enough to read on
                   whatever photograph is behind it. */}
+              {/*
+                Heavier on a phone than on a laptop, because the text spans the
+                whole picture there instead of sitting in the darkened left
+                third. Measured against the rendered pixels rather than guessed:
+                white and the light green both clear 4.5:1 over every slide.
+              */}
+              <div aria-hidden="true" className="absolute inset-0 bg-ink/60 sm:bg-ink/48" />
               <div
                 aria-hidden="true"
-                className="absolute inset-0 bg-gradient-to-r from-ink/90 via-ink/55 to-ink/15"
-              />
-              <div
-                aria-hidden="true"
-                className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-ink/85 to-transparent"
+                className="absolute inset-0 bg-gradient-to-r from-ink/90 via-ink/70 to-ink/40 sm:via-ink/72 sm:to-ink/15"
               />
 
-              <div className="absolute inset-0 flex items-end">
-                {/* Extra left padding from sm up, where the arrow buttons
-                    appear — without it the eyebrow chip sits under one. */}
-                <div className="w-full p-5 sm:py-8 sm:pl-20 sm:pr-20 lg:py-10 lg:pl-24">
-                  <p className="mb-2 inline-block rounded-full bg-leaf px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-white">
-                    {s.eyebrow}
-                  </p>
-                  <h2 className="max-w-2xl text-xl font-extrabold leading-tight tracking-tight text-white sm:text-3xl lg:text-4xl">
-                    {s.title}
-                  </h2>
-                  <p className="mt-2 max-w-xl text-[13px] leading-relaxed text-white/85 sm:text-base">
-                    {s.body}
-                  </p>
-                  <Link
-                    href={s.cta.href}
-                    tabIndex={on ? 0 : -1}
-                    className="mt-4 inline-flex items-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-bold text-ink transition hover:bg-white/90"
-                  >
-                    {s.cta.label}
-                    <span aria-hidden="true">→</span>
-                  </Link>
-                </div>
-              </div>
             </div>
           );
         })}
+      </div>
+
+      {/*
+        The hero copy, inside the slider and the same on every slide.
+
+        The owner asked for the slider to be the first thing on the page and for
+        anything that needed highlighting to live inside it. That rules out the
+        old arrangement — a headline above and a second headline on each slide,
+        two things competing to be the first thing read. So the h1, the promise
+        and the two ways to order sit here, over the photographs, and each slide
+        contributes only its picture and the chip that names it.
+
+        One h1, present on every slide: a heading that vanishes when the picture
+        changes is no use to a reader or to a search engine.
+      */}
+      <div className="pointer-events-none absolute inset-0 flex items-center">
+        <div className="mx-auto w-full max-w-5xl px-5 pb-16 pt-10 sm:px-10 sm:pb-20 lg:px-12">
+          <p
+            key={slides[index].eyebrow}
+            className="mb-3 inline-block rounded-full bg-leaf px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-white"
+          >
+            {slides[index].eyebrow}
+          </p>
+          <h1 className="max-w-3xl text-[1.75rem] font-extrabold leading-[1.1] tracking-tight text-white sm:text-5xl lg:text-6xl">
+            {headline}
+          </h1>
+          <p className="mt-4 max-w-xl text-sm leading-relaxed text-white/90 sm:text-lg">
+            {slides[index].body}
+          </p>
+          <div className="pointer-events-auto mt-6 flex flex-wrap gap-2.5 sm:gap-3">{actions}</div>
+        </div>
       </div>
 
       {/* Arrows: pointer-only. On a phone the swipe is the control and two
@@ -251,7 +279,7 @@ export function HeroSlider({ slides }: { slides: Slide[] }) {
               key={s.src}
               type="button"
               onClick={() => take(i)}
-              aria-label={`Go to slide ${i + 1} of ${count}: ${s.title}`}
+              aria-label={`Go to slide ${i + 1} of ${count}: ${s.eyebrow}`}
               aria-current={i === index ? "true" : undefined}
               className="group flex h-11 w-7 items-center justify-center"
             >
@@ -270,7 +298,7 @@ export function HeroSlider({ slides }: { slides: Slide[] }) {
       {/* Announced politely, so a reader is told the slide changed without
           being interrupted mid-sentence. */}
       <p aria-live="polite" aria-atomic="true" className="sr-only">
-        Slide {index + 1} of {count}: {slides[index].title}
+        Slide {index + 1} of {count}: {slides[index].eyebrow}. {slides[index].body}
       </p>
     </div>
   );

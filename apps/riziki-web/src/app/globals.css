@@ -40,6 +40,16 @@
   --accent-strong: #084f56;
   --accent-soft: #e2f0f1;
   --leaf-ink: #3f7320;
+  /*
+    The signboard green, lightened for use ON a photograph.
+
+    --leaf is #5a9c2f, a mid-dark green chosen to carry dark text on pale chips.
+    Over the hero's darkened photographs it is barely brighter than the scrim
+    behind it, which is exactly how the headline's second line went invisible on
+    a phone. This one clears 4.5:1 against the scrimmed picture and 9:1 against
+    solid ink, so the highlight reads at any size.
+  */
+  --leaf-light: #b3e07f;
   --leaf-soft: #e9f3e0;
   --on-brand: #ffffff;
 }
@@ -80,6 +90,7 @@
   --color-leaf-strong: var(--leaf-strong);
   --color-leaf-ink: var(--leaf-ink);
   --color-leaf-soft: var(--leaf-soft);
+  --color-leaf-light: var(--leaf-light);
   --color-brand: var(--brand);
   --color-on-brand: var(--on-brand);
 

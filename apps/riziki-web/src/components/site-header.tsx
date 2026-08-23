@@ -2,14 +2,14 @@ import Link from "next/link";
 import { BUSINESS, telHref, WA_GENERAL } from "@/lib/business";
 import { SiteNav } from "@/components/site-nav";
 import { PhoneIcon, WhatsAppIcon } from "@/components/ui";
-import { logoSrc } from "@/lib/brand";
+import { markSrc } from "@/lib/brand";
 
 /**
  * The phone number is the point of the whole site, so it sits in the header on
  * every page and stays reachable in one tap on a phone.
  */
 export function SiteHeader() {
-  const logo = logoSrc();
+  const logo = markSrc();
 
   return (
     <header className="sticky top-0 z-50 border-b border-line bg-surface/95 backdrop-blur supports-[backdrop-filter]:bg-surface/80">
@@ -23,9 +23,9 @@ export function SiteHeader() {
               src={logo}
               alt=""
               aria-hidden="true"
-              width={160}
-              height={96}
-              className="h-11 w-auto shrink-0 object-contain"
+              width={320}
+              height={301}
+              className="h-11 w-11 shrink-0 object-contain"
             />
           ) : (
             <span

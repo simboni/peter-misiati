@@ -27,29 +27,24 @@ const HERO_SLIDES: Slide[] = [
     srcSm: "/photos/store-labsa-drums-sm.webp",
     alt: "Rows of 250 kg drums of LABSA stacked in the Riziki store",
     eyebrow: "In stock now",
-    title: "Drums, not promises",
-    body: "LABSA, SLES, caustic, hypo and the rest — held here in Nairobi, in the quantities a working business actually orders.",
-    cta: { href: "/products/", label: "See the chemical list" },
+    body: "LABSA, SLES, caustic, hypo and the rest — held here in Nairobi, in bulk or weighed out from 125 g.",
   },
   {
     src: "/photos/store-peroxide-wide.webp",
     srcSm: "/photos/store-peroxide-wide-sm.webp",
     alt: "Pallets of 30 litre jerricans of technical grade hydrogen peroxide",
     eyebrow: "Sealed and traceable",
-    title: "Straight from the importer",
-    body: "Sealed containers with their batch numbers and safety labels intact, so you know what you are buying and where it came from.",
-    cta: { href: "/about/", label: "How we buy" },
+    body: "Straight from the importer, batch numbers and safety labels intact. You know what you are buying.",
   },
   {
     src: "/photos/store-chlorine-tubs.webp",
     srcSm: "/photos/store-chlorine-tubs-sm.webp",
     alt: "45 kg tubs of NSF-certified chlorine granules stacked in the store",
     eyebrow: "Bulk or broken down",
-    title: "Buy the tub, or 125 grams of it",
-    body: "Take the whole 45 kg, or we weigh out exactly what your batch calls for and seal it while you wait.",
-    cta: { href: "/products/", label: "See pack sizes" },
+    body: "Take the whole 45 kg tub, or we weigh out exactly what your batch calls for and seal it while you wait.",
   },
 ];
+
 
 const WHAT_WE_DO = [
   {
@@ -101,51 +96,47 @@ export default function HomePage() {
 
   return (
     <>
-      {/* Hero */}
+      {/*
+        The slider is the page — first element, full bleed, nothing above it but
+        the header. The owner was clear: it should be the very first thing you
+        see, and anything worth highlighting belongs inside it. So the headline,
+        the promise and the two ways to order are handed to it as children.
+      */}
+      <HeroSlider
+        slides={HERO_SLIDES}
+        headline={
+          <>
+            Your home of <span className="text-leaf-light">Industrial Chemicals</span>
+          </>
+        }
+        actions={
+          <>
+            <CtaLink href={WA_GENERAL} tone="whatsapp">
+              <WhatsAppIcon />
+              Order on WhatsApp
+            </CtaLink>
+            {/* Solid white, not the outline tone: an outlined button on a
+                photograph is a rectangle of nothing. */}
+            <a
+              href={telHref}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-bold text-ink transition hover:bg-white/90"
+            >
+              <PhoneIcon />
+              {BUSINESS.phoneDisplay}
+            </a>
+            <Link
+              href="/products/"
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-white/15 px-5 py-3 text-sm font-bold text-white ring-1 ring-inset ring-white/40 backdrop-blur transition hover:bg-white/25"
+            >
+              Browse the catalogue
+            </Link>
+          </>
+        }
+      />
+
       <div className="border-b border-line bg-surface">
-        <Container className="py-10 sm:py-14">
-          <div className="max-w-3xl">
-            <p className="mb-3 inline-block rounded-full bg-leaf-soft px-3 py-1 text-xs font-bold uppercase tracking-[0.16em] text-leaf-ink">
-              {BUSINESS.city}, {BUSINESS.country}
-            </p>
-            <h1 className="text-3xl font-extrabold leading-tight tracking-tight sm:text-5xl">
-              Your home of <span className="text-accent">Industrial Chemicals</span>
-            </h1>
-            <p className="mt-4 text-base leading-relaxed text-muted sm:text-lg">
-              Chemicals in bulk or repacked from 125 g. Finished cleaners mixed on our own bench.
-              Mix kits weighed to your recipe.
-            </p>
-
-            <div className="mt-6 flex flex-wrap gap-3">
-              <CtaLink href={WA_GENERAL} tone="whatsapp">
-                <WhatsAppIcon />
-                Order on WhatsApp
-              </CtaLink>
-              <CtaLink href={telHref} tone="brand">
-                <PhoneIcon />
-                {BUSINESS.phoneDisplay}
-              </CtaLink>
-              <CtaLink href="/products/" tone="outline">
-                Browse the catalogue
-              </CtaLink>
-            </div>
-          </div>
-
-          {/*
-            Photographs of the actual store, full width, under the headline
-            rather than beside it.
-
-            Beside it the slider was 505px of a 1280px screen and its captions
-            fought the h1 for the same job. Underneath and full width it does
-            what the owner asked of it: a buyer deciding whether a Nairobi
-            supplier can really fill their order is asking "do they have it?",
-            and a stack of sealed drums answers that before any copy does.
-          */}
-          <div className="mt-8">
-            <HeroSlider slides={HERO_SLIDES} />
-          </div>
-
-          <dl className="mt-10 grid gap-4 sm:grid-cols-3">
+        <Container className="py-10 sm:py-12">
+          <dl className="grid gap-4 sm:grid-cols-3">
             {[
               { t: "Bulk or broken down", d: "170 kg drums and 50 kg bags, or repacks from 125 g." },
               { t: "Weighed to order", d: "Buy the quantity your recipe actually calls for." },

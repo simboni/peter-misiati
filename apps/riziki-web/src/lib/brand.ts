@@ -20,15 +20,27 @@ import { join } from "node:path";
  * To switch it on: drop the file at `public/brand/riziki-logo.png` (or .webp /
  * .svg — all three are looked for) and rebuild. Nothing else changes.
  */
-const CANDIDATES = [
-  "brand/riziki-logo.svg",
-  "brand/riziki-logo.webp",
-  "brand/riziki-logo.png",
-] as const;
-
-export function logoSrc(): string | null {
-  for (const rel of CANDIDATES) {
+function find(base: string): string | null {
+  for (const ext of ["svg", "webp", "png"]) {
+    const rel = `brand/${base}.${ext}`;
     if (existsSync(join(process.cwd(), "public", rel))) return `/${rel}`;
   }
   return null;
+}
+
+/** The full lockup — emblem, RIZIKI CHEMICALS, and the script line. */
+export function logoSrc(): string | null {
+  return find("riziki-logo");
+}
+
+/**
+ * The emblem alone: the ring, the flask and the bubbles.
+ *
+ * Wherever the shop's name is already set in text — the site header, the till's
+ * top bar — the full lockup would be about 90px wide and its own wordmark four
+ * pixels tall, which is not a logo, it is a smudge. The emblem stays legible at
+ * icon size and the name is read from the type beside it.
+ */
+export function markSrc(): string | null {
+  return find("riziki-mark") ?? find("riziki-logo");
 }
