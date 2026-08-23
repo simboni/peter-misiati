@@ -81,18 +81,45 @@ export default async function InvoicePage(props: {
   // and a URL is whatever somebody types into it.
   const paidCents = Math.max(0, Math.trunc(Number(justPaid ?? 0)) || 0);
 
+  // Where "back" goes depends on where this bill came from. A wholesale bill is
+  // reached from the wholesale section; everything else is a till sale, and the
+  // till is where the person wants to be.
+  const backHref = sale.tier === "wholesale" ? "/wholesale/invoices" : "/sell";
+  const backLabel = sale.tier === "wholesale" ? "Invoices" : "Back to selling";
+
   return (
     <div>
       <style>{PRINT_CSS}</style>
 
-      {sale.tier === "wholesale" ? (
+      {/*
+        The way out, at the top, on every invoice.
+
+        This page is a dead end otherwise, and worse on a big screen than a
+        small one: the bottom tab bar is `lg:hidden`, so on the shop's tablet or
+        a laptop the only route back to the till is the hamburger. The invoice
+        itself is a full A5 sheet, so anything placed under it is below the fold
+        — which is exactly where somebody lands after printing.
+
+        A till sale gets the counter's own words: the till is where they were,
+        and "Next sale" is what they are about to do.
+      */}
+      <div className="no-print mb-2 flex items-center gap-3">
         <Link
-          href="/wholesale/invoices"
-          className="no-print mb-2 inline-flex min-h-11 items-center gap-1.5 text-sm font-bold text-brand hover:underline xl:min-h-9"
+          href={backHref}
+          className="inline-flex min-h-11 items-center gap-1.5 text-sm font-bold text-brand hover:underline xl:min-h-9"
         >
-          <span aria-hidden>←</span> Invoices
+          <span aria-hidden>←</span> {backLabel}
         </Link>
-      ) : null}
+
+        {justSold === "1" ? (
+          <Link
+            href="/sell"
+            className="ml-auto flex min-h-11 items-center rounded-full bg-brand px-5 text-sm font-bold text-white shadow-sm hover:bg-brand-dark xl:min-h-10"
+          >
+            Next sale →
+          </Link>
+        ) : null}
+      </div>
 
       {/* Rendered by the server, so it is still here after a payment that
           settled the bill and took the form away with it. */}
@@ -293,15 +320,20 @@ export default async function InvoicePage(props: {
           </Link>
         </p>
 
-        {/* Fresh from the counter: the way back to the queue is one big button. */}
-        {justSold === "1" ? (
-          <Link
-            href="/sell"
-            className="flex min-h-12 w-full items-center justify-center rounded-full bg-brand text-sm font-bold text-white shadow-sm hover:bg-brand-dark"
-          >
-            Next sale →
-          </Link>
-        ) : null}
+        {/*
+          A big way out, right under the print button.
+
+          Printing leaves you at the bottom of the page, so this is where the
+          hand already is. It is not conditional on the sale being fresh: the
+          same dead end catches somebody who opened an old receipt from the
+          sales history to reprint it.
+        */}
+        <Link
+          href={justSold === "1" ? "/sell" : backHref}
+          className="flex min-h-12 w-full items-center justify-center rounded-full bg-brand text-sm font-bold text-white shadow-sm hover:bg-brand-dark"
+        >
+          {justSold === "1" ? "Next sale →" : `← ${backLabel}`}
+        </Link>
       </div>
 
       {/* Where you came from, most likely. A wholesale bill is reached from the
