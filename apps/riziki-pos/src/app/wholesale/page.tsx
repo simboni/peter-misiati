@@ -4,7 +4,7 @@ import { currentUser } from "@/lib/auth";
 import { all } from "@/lib/db";
 import { listQuotes } from "@/lib/quotes";
 import { debtors } from "@/lib/credit";
-import { formatKes } from "@/lib/units";
+import { formatKes, formatKesRounded } from "@/lib/units";
 import { PageTitle, SectionLabel, Stat } from "@/components/ui";
 import { WholesaleNav, NewBanner, BackLink } from "@/components/wholesale-nav";
 
@@ -37,7 +37,7 @@ export default async function WholesaleOverview() {
 
   const billed = all<{ n: number; total: number }>(
     `SELECT COUNT(*) AS n, COALESCE(SUM(total_cents), 0) AS total
-       FROM sales WHERE tier = 'wholesale' AND status = 'complete'`,
+       FROM sales WHERE tier = 'wholesale' AND status = 'completed'`,
   )[0];
 
   const waiting = approved.reduce((s, q) => s + q.total_cents, 0);
@@ -45,7 +45,7 @@ export default async function WholesaleOverview() {
   return (
     <div>
       <BackLink href="/sell" label="Back to selling" />
-      <PageTitle title="Wholesale" subtitle="Quotes, invoices, debts and the buyers behind them" />
+      <PageTitle title="Wholesale" subtitle="Quotes, invoices, and the buyers behind them" />
       <WholesaleNav current="/wholesale" />
 
       <div className="grid gap-2.5 md:grid-cols-2">
@@ -79,15 +79,18 @@ export default async function WholesaleOverview() {
             detail={sent.length ? "worth a phone call" : "nobody to chase"}
           />
         </Link>
-        <Link href="/wholesale/debts" className="block">
+        {/* Both of these used to open a debts screen of their own. They now open
+            the two halves of the same money: the customers who owe it, and the
+            bills it is owed on. */}
+        <Link href="/wholesale/customers?state=owing" className="block">
           <Stat
             label="Owed over 30 days"
-            value={formatKes(stale.reduce((s, r) => s + r.balance_cents, 0))}
-            detail={`${stale.length} customer${stale.length === 1 ? "" : "s"}`}
+            value={formatKesRounded(stale.reduce((s, r) => s + r.balance_cents, 0))}
+            detail={`${stale.length} customer${stale.length === 1 ? "" : "s"} to chase`}
           />
         </Link>
-        <Link href="/wholesale/debts" className="block">
-          <Stat label="Owed in total" value={formatKes(owed)} detail={`${owing.length} on account`} />
+        <Link href="/wholesale/invoices?state=owing" className="block">
+          <Stat label="Owed in total" value={formatKesRounded(owed)} detail={`${owing.length} on account`} />
         </Link>
       </div>
 
@@ -97,12 +100,12 @@ export default async function WholesaleOverview() {
           <Stat label="Invoices raised" value={String(billed?.n ?? 0)} detail="all time" />
         </Link>
         <Link href="/wholesale/invoices" className="block">
-          <Stat label="Billed" value={formatKes(billed?.total ?? 0)} detail="all time" />
+          <Stat label="Billed" value={formatKesRounded(billed?.total ?? 0)} detail="all time" />
         </Link>
         <Link href="/wholesale/quotes" className="block">
           <Stat label="Quotes open" value={String(approved.length + sent.length + drafts.length)} detail={`${drafts.length} still draft`} />
         </Link>
-        <Link href="/wholesale/customers" className="block">
+        <Link href="/wholesale/customers?state=owing" className="block">
           <Stat label="On account" value={String(owing.length)} detail="with a balance" />
         </Link>
       </div>

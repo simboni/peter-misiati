@@ -54,6 +54,17 @@ export function formatKes(cents: number): string {
   );
 }
 
+/**
+ * The same money, to the nearest shilling.
+ *
+ * For headline figures only. "KES 1,008,641.01" on a summary tile is two
+ * characters of precision nobody reads and a line wrap everybody does; the exact
+ * cents still appear on the rows the figure is a total of.
+ */
+export function formatKesRounded(cents: number): string {
+  return "KES " + Math.round(cents / CENTS).toLocaleString("en-KE");
+}
+
 /** Bare number, no currency word — for table columns that already say KES. */
 export function formatAmount(cents: number): string {
   const shillings = cents / CENTS;

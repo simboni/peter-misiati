@@ -1,41 +1,50 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { currentUser } from "@/lib/auth";
-import { all } from "@/lib/db";
-import { formatKes, formatDate } from "@/lib/units";
-import { Card, Empty, PageTitle, SectionLabel, Stat } from "@/components/ui";
-import { WholesaleNav, NewBanner, BackLink } from "@/components/wholesale-nav";
+import {
+  wholesaleInvoices,
+  wholesaleInvoiceTotals,
+  type InvoiceState,
+} from "@/lib/wholesale-lists";
+import { ageDays } from "@/lib/credit";
+import { formatKes, formatKesRounded, formatDate } from "@/lib/units";
+import { Card, Empty, PageTitle, Stat } from "@/components/ui";
+import { WholesaleNav, NewBanner, BackLink, ListToolbar, Pager } from "@/components/wholesale-nav";
 
 export const dynamic = "force-dynamic";
 
-interface Row {
-  id: number;
-  at: string;
-  total_cents: number;
-  paid_cents: number;
-  status: string;
-  customer_name: string | null;
-  note: string;
-}
+const STATES: Array<{ key: InvoiceState; label: string }> = [
+  { key: "all", label: "All" },
+  { key: "owing", label: "Owing" },
+  { key: "paid", label: "Paid" },
+  { key: "voided", label: "Voided" },
+];
 
-export default async function InvoicesPage() {
+/**
+ * Every wholesale bill, as a list rather than a wall of cards.
+ *
+ * A card grid reads well at a dozen rows and becomes unusable at a thousand,
+ * which this shop will reach. So: one line per invoice, the money right-aligned
+ * so a column of figures can be scanned down, and the filtering done by the
+ * database rather than the browser.
+ *
+ * "Owing" is the important filter and the reason the separate debts screen
+ * could go: a partly paid invoice and a debt are the same fact seen from two
+ * sides, and keeping two screens for it meant two places that could disagree.
+ */
+export default async function InvoicesPage(props: {
+  searchParams: Promise<{ q?: string; state?: string; page?: number | string }>;
+}) {
   const user = await currentUser();
   if (!user) redirect("/login");
 
-  // A wholesale invoice is a wholesale sale — there is no second table, which is
-  // why this list and the debtors list can never disagree about what is owed.
-  const rows = all<Row>(
-    `SELECT s.id, s.at, s.total_cents, s.paid_cents, s.status, s.note, c.name AS customer_name
-       FROM sales s
-       LEFT JOIN customers c ON c.id = s.customer_id
-      WHERE s.tier = 'wholesale'
-      ORDER BY s.at DESC
-      LIMIT 120`,
-  );
+  const sp = await props.searchParams;
+  const q = (sp.q ?? "").trim();
+  const state = (STATES.find((s) => s.key === sp.state)?.key ?? "all") as InvoiceState;
+  const page = Number(sp.page ?? 1) || 1;
 
-  const live = rows.filter((r) => r.status === "complete");
-  const owed = live.reduce((s, r) => s + Math.max(0, r.total_cents - r.paid_cents), 0);
-  const billed = live.reduce((s, r) => s + r.total_cents, 0);
+  const { rows, total, pages, page: current } = wholesaleInvoices({ q, state, page });
+  const sums = wholesaleInvoiceTotals();
 
   return (
     <div>
@@ -50,54 +59,114 @@ export default async function InvoicesPage() {
         cta="Start"
       />
 
+      {/* Totals for the whole book, not for the page on screen. */}
       <div className="mb-4 grid grid-cols-2 gap-2.5 xl:grid-cols-4">
-        <Stat label="Invoices" value={String(live.length)} />
-        <Stat label="Billed" value={formatKes(billed)} />
-        <Stat label="Still owed" value={formatKes(owed)} detail={owed > 0 ? "chase these" : "all settled"} />
+        <Stat label="Invoices" value={String(sums.count)} detail="all time" />
+        <Stat label="Billed" value={formatKesRounded(sums.billed)} detail="all time" />
+        <Stat
+          label="Still owed"
+          value={formatKesRounded(sums.owed)}
+          detail={sums.owingCount ? `across ${sums.owingCount} invoice${sums.owingCount === 1 ? "" : "s"}` : "all settled"}
+        />
+        <Stat
+          label="Late over 30 days"
+          value={formatKesRounded(sums.overdue)}
+          detail={
+            sums.overdueCount
+              ? `${sums.overdueCount} to chase`
+              : "nothing has gone stale"
+          }
+        />
       </div>
 
-      <SectionLabel>Newest first</SectionLabel>
+      <ListToolbar
+        action="/wholesale/invoices"
+        q={q}
+        placeholder="Customer, invoice number, or a word from the note…"
+        filters={STATES}
+        current={state}
+      />
+
       {rows.length ? (
-        <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 3xl:grid-cols-5">
-          {rows.map((r) => {
-            const owing = r.total_cents - r.paid_cents;
-            const voided = r.status !== "complete";
-            return (
-              <Link
-                key={r.id}
-                href={`/invoice/${r.id}`}
-                className="block rounded-2xl bg-white p-3.5 shadow-card ring-1 ring-ink/5 transition-shadow hover:shadow-lift"
-              >
-                <div className="flex items-baseline gap-2">
-                  <span className="min-w-0 flex-1 truncate text-sm font-bold">
-                    {r.customer_name ?? "Walk-in"}
-                  </span>
-                  <span className="shrink-0 text-[11px] text-muted">{formatDate(r.at)}</span>
-                </div>
-                <div className="mt-1 flex items-baseline gap-2">
-                  <span className={`text-lg font-extrabold tnum ${voided ? "text-muted line-through" : "text-brand-deep"}`}>
-                    {formatKes(r.total_cents)}
-                  </span>
-                  {voided ? (
-                    <span className="text-[11px] font-bold text-bad">voided</span>
-                  ) : owing > 0 ? (
-                    <span className="text-[11px] font-bold text-warn tnum">{formatKes(owing)} owing</span>
-                  ) : (
-                    <span className="text-[11px] font-bold text-good">paid</span>
-                  )}
-                </div>
-                {r.note ? (
-                  <div className="mt-0.5 truncate text-[11px] text-muted">{r.note}</div>
-                ) : null}
-              </Link>
-            );
-          })}
+        <div className="overflow-hidden rounded-2xl bg-white shadow-card ring-1 ring-ink/5">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-line bg-wash text-left text-[10px] uppercase tracking-[0.12em] text-muted">
+                <th className="px-3 py-2">Customer</th>
+                <th className="hidden px-3 py-2 sm:table-cell">Date</th>
+                <th className="hidden px-3 py-2 lg:table-cell">Reference</th>
+                <th className="px-3 py-2 text-right">Total</th>
+                <th className="px-3 py-2 text-right">Owing</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => {
+                const owing = Math.max(0, r.total_cents - r.paid_cents);
+                const voided = r.status !== "completed";
+                const days = ageDays(r.at);
+                return (
+                  <tr key={r.id} className="border-t border-line hover:bg-wash/60">
+                    <td className="px-3 py-2">
+                      <Link href={`/invoice/${r.id}`} className="block font-bold text-ink hover:text-brand">
+                        {r.customer_name ?? "Walk-in"}
+                      </Link>
+                      <span className="text-[11px] text-muted sm:hidden">{formatDate(r.at)}</span>
+                    </td>
+                    <td className="hidden px-3 py-2 text-muted sm:table-cell">{formatDate(r.at)}</td>
+                    <td className="hidden px-3 py-2 text-[12px] text-muted lg:table-cell">
+                      {r.quote_no ?? r.invoice_no ?? `#${r.id}`}
+                    </td>
+                    <td className={`px-3 py-2 text-right font-bold tnum ${voided ? "text-muted line-through" : ""}`}>
+                      {formatKes(r.total_cents)}
+                    </td>
+                    <td className="px-3 py-2 text-right tnum">
+                      {voided ? (
+                        <span className="text-[11px] font-bold uppercase text-bad">voided</span>
+                      ) : owing > 0 ? (
+                        <>
+                          <span className="font-bold text-warn">{formatKes(owing)}</span>
+                          {/* How long it has been owed — the one thing the debts
+                              screen showed that a bare invoice list did not.
+                              Nothing is said about a bill raised today, because
+                              "0d" is not information. */}
+                          {days >= 1 ? (
+                            <span
+                              className={`ml-1.5 text-[10px] font-bold uppercase ${
+                                days > 30 ? "text-bad" : "text-muted"
+                              }`}
+                            >
+                              {days}d
+                            </span>
+                          ) : null}
+                        </>
+                      ) : (
+                        <span className="text-[11px] font-bold uppercase text-good">paid</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       ) : (
         <Card>
-          <Empty>No wholesale invoices yet.</Empty>
+          <Empty>
+            {q || state !== "all"
+              ? "Nothing matches that. Try a different search, or clear the filter."
+              : "No wholesale invoices yet."}
+          </Empty>
         </Card>
       )}
+
+      <Pager
+        action="/wholesale/invoices"
+        page={current}
+        pages={pages}
+        total={total}
+        noun="invoices"
+        params={{ ...(q ? { q } : {}), ...(state !== "all" ? { state } : {}) }}
+      />
     </div>
   );
 }

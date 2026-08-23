@@ -1,61 +1,44 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { currentUser } from "@/lib/auth";
-import { listQuotes, type QuoteRow } from "@/lib/quotes";
+import { wholesaleQuotes, quoteStateCounts, type QuoteState } from "@/lib/wholesale-lists";
 import { formatKes, formatDate } from "@/lib/units";
-import { Card, Empty, PageTitle, SectionLabel } from "@/components/ui";
-import { WholesaleNav, NewBanner, BackLink } from "@/components/wholesale-nav";
+import { Card, Empty, PageTitle } from "@/components/ui";
+import { WholesaleNav, NewBanner, BackLink, ListToolbar, Pager } from "@/components/wholesale-nav";
 
 export const dynamic = "force-dynamic";
 
-const STATUS: Record<string, { label: string; tone: string; who: string }> = {
-  approved: { label: "Approved", tone: "bg-good-soft text-good", who: "ready to invoice" },
-  sent: { label: "Sent", tone: "bg-warn-soft text-warn", who: "waiting on the customer" },
-  draft: { label: "Draft", tone: "bg-wash text-muted", who: "not sent yet" },
-  declined: { label: "Declined", tone: "bg-bad-soft text-bad", who: "" },
-  invoiced: { label: "Invoiced", tone: "bg-brand-soft text-brand-dark", who: "" },
+const STATE_TONE: Record<string, string> = {
+  approved: "bg-good-soft text-good",
+  sent: "bg-warn-soft text-warn",
+  draft: "bg-wash text-muted",
+  declined: "bg-bad-soft text-bad",
+  invoiced: "bg-brand-soft text-brand-dark",
 };
 
-function QuoteCard({ q }: { q: QuoteRow }) {
-  const s = STATUS[q.status] ?? STATUS.draft;
-  return (
-    <Link
-      href={`/wholesale/quotes/${q.id}`}
-      className="block rounded-2xl bg-white p-3.5 shadow-card ring-1 ring-ink/5 transition-shadow hover:shadow-lift"
-    >
-      <div className="flex items-baseline gap-2">
-        <span className="min-w-0 flex-1 truncate text-sm font-bold text-ink">
-          {q.customer_name || "Unnamed customer"}
-        </span>
-        <span className={`shrink-0 rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${s.tone}`}>
-          {s.label}
-        </span>
-      </div>
-      <div className="mt-1 flex items-baseline gap-2">
-        <span className="text-lg font-extrabold text-brand-deep tnum">{formatKes(q.total_cents)}</span>
-        <span className="text-[11px] text-muted tnum">
-          {q.line_count} line{q.line_count === 1 ? "" : "s"} · {q.quote_no}
-        </span>
-      </div>
-      <div className="mt-0.5 text-[11px] font-semibold text-muted">
-        {s.who || formatDate(q.created_at)}
-      </div>
-    </Link>
-  );
-}
+const ORDER: Array<{ key: QuoteState; label: string }> = [
+  { key: "all", label: "All" },
+  { key: "approved", label: "Approved" },
+  { key: "sent", label: "Sent" },
+  { key: "draft", label: "Draft" },
+  { key: "invoiced", label: "Invoiced" },
+  { key: "declined", label: "Declined" },
+];
 
-const GRID = "grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 3xl:grid-cols-5";
-
-export default async function QuotesPage() {
+export default async function QuotesPage(props: {
+  searchParams: Promise<{ q?: string; state?: string; page?: number | string }>;
+}) {
   const user = await currentUser();
   if (!user) redirect("/login");
 
-  const all = listQuotes(undefined, 120);
-  const group = (s: string) => all.filter((q) => q.status === s);
-  const approved = group("approved");
-  const sent = group("sent");
-  const drafts = group("draft");
-  const done = all.filter((q) => q.status === "invoiced" || q.status === "declined");
+  const sp = await props.searchParams;
+  const q = (sp.q ?? "").trim();
+  const state = (ORDER.find((s) => s.key === sp.state)?.key ?? "all") as QuoteState;
+  const page = Number(sp.page ?? 1) || 1;
+
+  const { rows, total, pages, page: current } = wholesaleQuotes({ q, state, page });
+  const counts = quoteStateCounts();
+  const today = new Date().toISOString().slice(0, 10);
 
   return (
     <div>
@@ -70,39 +53,95 @@ export default async function QuotesPage() {
         cta="Start"
       />
 
-      {approved.length ? (
-        <>
-          <SectionLabel>Approved · ready to invoice</SectionLabel>
-          <div className={GRID}>{approved.map((q) => <QuoteCard key={q.id} q={q} />)}</div>
-        </>
-      ) : null}
+      <ListToolbar
+        action="/wholesale/quotes"
+        q={q}
+        placeholder="Customer, quote number, or a word from the note…"
+        filters={ORDER.map((s) => ({ ...s, count: counts[s.key] ?? 0 }))}
+        current={state}
+      />
 
-      {sent.length ? (
-        <>
-          <SectionLabel>Sent · waiting on the customer</SectionLabel>
-          <div className={GRID}>{sent.map((q) => <QuoteCard key={q.id} q={q} />)}</div>
-        </>
-      ) : null}
-
-      {drafts.length ? (
-        <>
-          <SectionLabel>Drafts</SectionLabel>
-          <div className={GRID}>{drafts.map((q) => <QuoteCard key={q.id} q={q} />)}</div>
-        </>
-      ) : null}
-
-      {done.length ? (
-        <>
-          <SectionLabel>Settled</SectionLabel>
-          <div className={GRID}>{done.map((q) => <QuoteCard key={q.id} q={q} />)}</div>
-        </>
-      ) : null}
-
-      {!all.length ? (
+      {rows.length ? (
+        <div className="overflow-hidden rounded-2xl bg-white shadow-card ring-1 ring-ink/5">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-line bg-wash text-left text-[10px] uppercase tracking-[0.12em] text-muted">
+                <th className="px-3 py-2">Customer</th>
+                <th className="hidden px-3 py-2 sm:table-cell">Number</th>
+                <th className="hidden px-3 py-2 lg:table-cell">Raised</th>
+                <th className="px-3 py-2">Status</th>
+                <th className="px-3 py-2 text-right">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => {
+                // A price that has run out is still a price somebody may quote
+                // back at you, so it is flagged rather than hidden.
+                const lapsed =
+                  r.valid_until &&
+                  r.valid_until < today &&
+                  (r.status === "sent" || r.status === "draft");
+                return (
+                  <tr key={r.id} className="border-t border-line hover:bg-wash/60">
+                    <td className="px-3 py-2">
+                      <Link
+                        href={`/wholesale/quotes/${r.id}`}
+                        className="block font-bold text-ink hover:text-brand"
+                      >
+                        {r.customer_name || "Unnamed customer"}
+                      </Link>
+                      <span className="text-[11px] text-muted sm:hidden">{r.quote_no}</span>
+                    </td>
+                    <td className="hidden px-3 py-2 text-[12px] text-muted tnum sm:table-cell">
+                      {r.quote_no}
+                    </td>
+                    <td className="hidden px-3 py-2 text-muted lg:table-cell">
+                      {formatDate(r.created_at)}
+                    </td>
+                    <td className="px-3 py-2">
+                      <span
+                        className={`inline-block rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                          STATE_TONE[r.status] ?? "bg-wash text-muted"
+                        }`}
+                      >
+                        {r.status}
+                      </span>
+                      {lapsed ? (
+                        <span className="ml-1.5 text-[10px] font-bold uppercase text-bad">lapsed</span>
+                      ) : null}
+                    </td>
+                    <td className="px-3 py-2 text-right tnum">
+                      <span className="block font-bold">{formatKes(r.total_cents)}</span>
+                      {/* Under the figure, not beside it: "KES 5,103" and "1L"
+                          on one line read as a single wrong number. */}
+                      <span className="block text-[10px] font-semibold text-muted">
+                        {r.line_count} item{r.line_count === 1 ? "" : "s"}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : (
         <Card>
-          <Empty>No quotes yet. Raise one when a customer asks what something would cost.</Empty>
+          <Empty>
+            {q || state !== "all"
+              ? "Nothing matches that. Try a different search, or clear the filter."
+              : "No quotes yet. Raise one when a customer asks what something would cost."}
+          </Empty>
         </Card>
-      ) : null}
+      )}
+
+      <Pager
+        action="/wholesale/quotes"
+        page={current}
+        pages={pages}
+        total={total}
+        noun="quotes"
+        params={{ ...(q ? { q } : {}), ...(state !== "all" ? { state } : {}) }}
+      />
     </div>
   );
 }

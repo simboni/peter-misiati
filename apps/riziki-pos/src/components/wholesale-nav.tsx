@@ -5,18 +5,26 @@ import Link from "next/link";
  *
  * Wholesale is not one screen with a few buttons on it — it is the side of the
  * business that runs on documents, and the owner asked for it to be somewhere
- * you can stand and do all of it. So it has a spine: the same five destinations
- * on every page inside it, in the same order, so nobody has to go back to a hub
- * to get from a quote to the debtors list.
+ * you can stand and do all of it. So it has a spine: the same destinations on
+ * every page inside it, in the same order, so nobody has to go back to a hub to
+ * get from a quote to the money still outstanding on it.
  *
  * The destinations mirror the life of one order — you quote it, you invoice it,
- * you chase it, and the customer is the thread through all three.
+ * and the customer is the thread through both.
+ *
+ * There used to be a fourth, "Debts", and it is gone on purpose. A debt is not a
+ * separate thing from an invoice; it is an invoice whose paid amount is short of
+ * its total, seen from the other side. Two screens for one fact meant two places
+ * that could disagree — a voided bill still showing as owed, a part payment
+ * counted once here and differently there — and it made the counter ask which
+ * number was the true one. Now there is one list of invoices with an "Owing"
+ * filter, and the per-customer view of the same money lives on Customers, where
+ * the phone number to call is already sitting.
  */
 export const WHOLESALE_SECTIONS: Array<{ href: string; label: string; exact?: boolean }> = [
   { href: "/wholesale", label: "Overview", exact: true },
   { href: "/wholesale/quotes", label: "Quotes" },
   { href: "/wholesale/invoices", label: "Invoices" },
-  { href: "/wholesale/debts", label: "Debts" },
   { href: "/wholesale/customers", label: "Customers" },
 ];
 
@@ -100,5 +108,137 @@ export function BackLink({ href, label }: { href: string; label: string }) {
     >
       <span aria-hidden>←</span> {label}
     </Link>
+  );
+}
+
+/**
+ * Search, filter and paging for a list that will one day hold thousands.
+ *
+ * A plain form with a GET, and links for the filters and the pages. No client
+ * state, which means the browser's back button works, a filtered list can be
+ * bookmarked or sent to somebody, and the whole thing still functions on a
+ * counter phone that has decided not to run JavaScript today.
+ */
+export function ListToolbar({
+  action,
+  q,
+  placeholder,
+  filters,
+  current,
+  extra,
+}: {
+  action: string;
+  q: string;
+  placeholder: string;
+  filters: Array<{ key: string; label: string; count?: number }>;
+  current: string;
+  extra?: Record<string, string>;
+}) {
+  const href = (key: string) => {
+    const p = new URLSearchParams({ ...(extra ?? {}) });
+    if (q) p.set("q", q);
+    if (key !== "all") p.set("state", key);
+    const s = p.toString();
+    return s ? `${action}?${s}` : action;
+  };
+
+  return (
+    <div className="no-print mb-3 space-y-2">
+      <form action={action} className="flex gap-2">
+        {current !== "all" ? <input type="hidden" name="state" value={current} /> : null}
+        <input
+          type="search"
+          name="q"
+          defaultValue={q}
+          placeholder={placeholder}
+          aria-label="Search"
+          className="min-h-11 min-w-0 flex-1 rounded-xl border border-line bg-white px-3 text-sm xl:min-h-10"
+        />
+        <button
+          type="submit"
+          className="flex min-h-11 shrink-0 items-center rounded-xl bg-brand px-4 text-sm font-bold text-white xl:min-h-10"
+        >
+          Search
+        </button>
+        {q ? (
+          <Link
+            href={action}
+            className="flex min-h-11 shrink-0 items-center rounded-xl px-3 text-sm font-bold text-muted hover:bg-wash xl:min-h-10"
+          >
+            Clear
+          </Link>
+        ) : null}
+      </form>
+
+      <div className="flex flex-wrap gap-1.5">
+        {filters.map((f) => (
+          <Link
+            key={f.key}
+            href={href(f.key)}
+            aria-current={current === f.key ? "true" : undefined}
+            className={`flex min-h-9 items-center gap-1.5 rounded-full px-3 text-[13px] font-bold transition-colors ${
+              current === f.key
+                ? "bg-brand text-white"
+                : "bg-white text-muted ring-1 ring-inset ring-line hover:text-ink"
+            }`}
+          >
+            {f.label}
+            {typeof f.count === "number" ? (
+              <span className={current === f.key ? "text-white/70 tnum" : "text-muted tnum"}>
+                {f.count}
+              </span>
+            ) : null}
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function Pager({
+  action,
+  page,
+  pages,
+  total,
+  noun,
+  params,
+}: {
+  action: string;
+  page: number;
+  pages: number;
+  total: number;
+  noun: string;
+  params: Record<string, string>;
+}) {
+  const to = (n: number) => {
+    const p = new URLSearchParams(params);
+    if (n > 1) p.set("page", String(n));
+    else p.delete("page");
+    const s = p.toString();
+    return s ? `${action}?${s}` : action;
+  };
+
+  const step =
+    "flex min-h-11 items-center rounded-xl px-4 text-sm font-bold xl:min-h-10";
+
+  return (
+    <div className="no-print mt-4 flex items-center gap-2">
+      <span className="text-[12px] font-semibold text-muted tnum">
+        {total} {noun}
+        {pages > 1 ? ` · page ${page} of ${pages}` : ""}
+      </span>
+      <div className="ml-auto flex gap-2">
+        {page > 1 ? (
+          <Link href={to(page - 1)} className={`${step} bg-white text-brand-dark ring-1 ring-inset ring-line`}>
+            ← Newer
+          </Link>
+        ) : null}
+        {page < pages ? (
+          <Link href={to(page + 1)} className={`${step} bg-white text-brand-dark ring-1 ring-inset ring-line`}>
+            Older →
+          </Link>
+        ) : null}
+      </div>
+    </div>
   );
 }
