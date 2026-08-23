@@ -2074,12 +2074,16 @@ function Grid({
           not enough for "1 L" and "181 jerricans" side by side, so there the
           count drops back under the price where it has the full width.
         */}
-        <div className="mt-0.5 flex h-4 items-baseline gap-1.5 text-[11px] font-semibold">
-          <span className="shrink-0" style={{ color: sw.bar }}>
+        {/* The size is set larger than the shelf count beside it. When one
+            chemical has three packs — H.C.L at 250 g, 500 g and 1 kg — the size
+            is the whole difference between them, and it was the smallest thing
+            on the tile. */}
+        <div className="mt-0.5 flex h-[1.05rem] items-baseline gap-1.5">
+          <span className="shrink-0 text-[12.5px] font-bold" style={{ color: sw.bar }}>
             {size ?? ""}
           </span>
           <span
-            className={`ml-auto hidden min-w-0 truncate text-right tnum md:block ${
+            className={`ml-auto hidden min-w-0 truncate text-right text-[11px] font-semibold tnum md:block ${
               out ? "font-bold text-bad" : "text-muted/80"
             }`}
           >

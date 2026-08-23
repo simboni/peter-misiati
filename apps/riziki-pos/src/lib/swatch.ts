@@ -28,6 +28,12 @@
  * The colour is derived from the name, so it is stable without a database
  * column: the same chemical is the same colour on every device, after any
  * restore, for ever, and nobody has to maintain it.
+ *
+ * NOTE for anyone adding a dark theme to this app later: these tints are fixed
+ * light values carrying --color-ink text, and the till has no dark scheme
+ * today. Introducing one that inverts --color-ink would leave near-white text
+ * on a near-white tile. The public site had exactly that bug in its hero and it
+ * shipped, because the contrast was only ever checked in light mode.
  */
 
 export interface Swatch {
