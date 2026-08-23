@@ -53,7 +53,7 @@ export default async function QuotePage(props: { params: Promise<{ id: string }>
   return (
     <div>
       <Link
-        href="/wholesale"
+        href="/wholesale/quotes"
         className="mb-2 inline-flex min-h-11 items-center gap-1.5 text-sm font-bold text-brand hover:underline xl:min-h-9"
       >
         <span aria-hidden>←</span> Wholesale
@@ -118,7 +118,7 @@ export default async function QuotePage(props: { params: Promise<{ id: string }>
         phone={phone}
         message={message}
         subject={`Quotation ${quote.quote_no} — ${shopName}`}
-        printHref={`/wholesale/${quote.id}/print`}
+        printHref={`/wholesale/quotes/${quote.id}/print`}
       />
 
       {quote.status !== "invoiced" ? (
@@ -144,7 +144,7 @@ export default async function QuotePage(props: { params: Promise<{ id: string }>
 
               {quote.status === "approved" ? (
                 <Link
-                  href={`/wholesale/new?mode=invoice&from=${quote.id}`}
+                  href={`/wholesale/invoices/new?from=${quote.id}`}
                   className="flex min-h-11 items-center rounded-xl bg-brand px-4 text-sm font-bold text-white shadow-sm xl:min-h-10"
                 >
                   Convert to invoice →
@@ -152,7 +152,7 @@ export default async function QuotePage(props: { params: Promise<{ id: string }>
               ) : null}
 
               <Link
-                href={`/wholesale/new?mode=quote&from=${quote.id}`}
+                href={`/wholesale/quotes/new?from=${quote.id}`}
                 className="flex min-h-11 items-center rounded-xl px-4 text-sm font-bold text-muted hover:bg-wash xl:min-h-10"
               >
                 Edit lines

@@ -4,13 +4,9 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Alert, Button, Card, SectionLabel, inputClass } from "@/components/ui";
 import { formatKes } from "@/lib/units";
+import ItemPicker, { type PickItem } from "./item-picker";
 
-export interface PickItem {
-  id: number;
-  name: string;
-  wholesaleCents: number;
-  retailCents: number;
-}
+export type { PickItem };
 export interface PickCustomer {
   id: number;
   name: string;
@@ -147,7 +143,7 @@ export default function Builder({
       });
       if (res.error) setError(res.error);
       else if (res.saleId) router.push(`/invoice/${res.saleId}`);
-      else if (res.quoteId) router.push(`/wholesale/${res.quoteId}`);
+      else if (res.quoteId) router.push(`/wholesale/quotes/${res.quoteId}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save.");
     } finally {
@@ -257,24 +253,17 @@ export default function Builder({
             const cut = item && l.unitPriceCents < list;
             return (
               <div key={i} className="grid grid-cols-12 items-end gap-2">
-                <label className="col-span-12 md:col-span-6">
+                <div className="col-span-12 md:col-span-6">
                   <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.12em] text-muted md:hidden">
                     Item
                   </span>
-                  <select
-                    className={inputClass}
-                    value={l.itemId || ""}
-                    onChange={(e) => chooseItem(i, Number(e.target.value))}
-                    aria-label={`Item on line ${i + 1}`}
-                  >
-                    <option value="">Choose an item…</option>
-                    {items.map((it) => (
-                      <option key={it.id} value={it.id}>
-                        {it.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                  <ItemPicker
+                    items={items}
+                    value={l.itemId}
+                    onChange={(id) => chooseItem(i, id)}
+                    label={`Item on line ${i + 1}`}
+                  />
+                </div>
 
                 <label className="col-span-3 md:col-span-2">
                   <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">

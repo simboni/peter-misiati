@@ -32,14 +32,18 @@ export default async function NewWholesalePage(props: {
   const mode = modeParam === "invoice" ? "invoice" : "quote";
   const fromQuoteId = from ? Number(from) : null;
 
-  const items = all<{ id: number; name: string; wholesale_cents: number; retail_cents: number }>(
-    `SELECT id, name, wholesale_cents, retail_cents
+  // Products and chemicals in one list: on a document the person already knows
+  // what they want, so making them choose a board first is a question with no
+  // purpose. The kind rides along as a label.
+  const items = all<{ id: number; name: string; kind: string; wholesale_cents: number; retail_cents: number }>(
+    `SELECT id, name, kind, wholesale_cents, retail_cents
        FROM items
       WHERE active = 1 AND sellable = 1 AND (retail_cents > 0 OR wholesale_cents > 0)
-      ORDER BY name`,
+      ORDER BY CASE kind WHEN 'finished' THEN 0 ELSE 1 END, name`,
   ).map((r) => ({
     id: r.id,
     name: r.name,
+    kind: r.kind,
     wholesaleCents: r.wholesale_cents,
     retailCents: r.retail_cents,
   }));

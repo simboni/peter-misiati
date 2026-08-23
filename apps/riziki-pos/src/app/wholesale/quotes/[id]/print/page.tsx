@@ -42,7 +42,7 @@ export default async function QuotePrintPage(props: { params: Promise<{ id: stri
       <div className="no-print mb-3 flex gap-2">
         <PrintButton />
         <a
-          href={`/wholesale/${quote.id}`}
+          href={`/wholesale/quotes/${quote.id}`}
           className="flex min-h-11 items-center rounded-xl px-4 text-sm font-bold text-muted hover:bg-wash xl:min-h-10"
         >
           Back
