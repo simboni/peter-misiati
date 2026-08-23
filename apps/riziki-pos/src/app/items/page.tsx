@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { currentUser, requireOwner } from "@/lib/auth";
@@ -13,7 +14,7 @@ import {
   CatalogError,
   type AdminItem,
 } from "@/lib/catalog";
-import { fromCents, formatQty } from "@/lib/units";
+import { fromCents, formatQty, SIZE_UNITS, type SizeUnit } from "@/lib/units";
 import {
   Alert,
   Button,
@@ -80,7 +81,7 @@ async function addFinished(formData: FormData): Promise<void> {
   try {
     createFinished({
       name: String(formData.get("name") ?? ""),
-      unit: (formData.get("unit") as "kg" | "L" | "pcs") ?? "L",
+      unit: (formData.get("unit") as SizeUnit) ?? "L",
       sizeValue: Number(formData.get("size") ?? 0),
       unitLabel: String(formData.get("label") ?? "bottle"),
       retail: Number(formData.get("retail") ?? 0),
@@ -96,14 +97,28 @@ async function addFinished(formData: FormData): Promise<void> {
 async function addChemical(formData: FormData): Promise<void> {
   "use server";
   const by = await guard();
+
+  // Pack sizes are typed as a list — "500 ml, 1 L, 5 L" — because that is how
+  // the shop says them. Each entry carries its own unit; a number with no unit
+  // takes the chemical's own.
+  const unit = (formData.get("unit") as SizeUnit) ?? "kg";
   const packSizes = String(formData.get("packs") ?? "")
     .split(",")
-    .map((s) => Number(s.trim()))
-    .filter((n) => Number.isFinite(n) && n > 0);
+    .map((raw) => {
+      const m = /^\s*([\d.]+)\s*(g|kg|ml|l|pcs)?\s*$/i.exec(raw);
+      if (!m) return null;
+      const value = Number(m[1]);
+      if (!Number.isFinite(value) || value <= 0) return null;
+      const typed = (m[2] ?? unit).toLowerCase();
+      const key = (typed === "l" ? "L" : typed) as SizeUnit;
+      return { value, unit: key };
+    })
+    .filter((x): x is { value: number; unit: SizeUnit } => x !== null);
+
   try {
     createChemical({
       name: String(formData.get("name") ?? ""),
-      unit: (formData.get("unit") as "kg" | "L" | "pcs") ?? "kg",
+      unit,
       aliases: String(formData.get("aliases") ?? ""),
       bulkSizeValue: Number(formData.get("bulk") ?? 0),
       bulkLabel: String(formData.get("bulkLabel") ?? "unit"),
@@ -120,7 +135,12 @@ async function addPack(formData: FormData): Promise<void> {
   "use server";
   const by = await guard();
   try {
-    addPackSize(Number(formData.get("chemicalId")), Number(formData.get("size") ?? 0), by);
+    addPackSize(
+      Number(formData.get("chemicalId")),
+      Number(formData.get("size") ?? 0),
+      (formData.get("sizeUnit") as SizeUnit) ?? "kg",
+      by,
+    );
   } catch (e) {
     redirectWith(e);
   }
@@ -129,6 +149,27 @@ async function addPack(formData: FormData): Promise<void> {
 
 // -------------------------------------------------------------------- views
 
+/**
+ * The unit a size is typed in.
+ *
+ * Offered everywhere a size is asked for, because "500 ml" is what the label
+ * says and "0.5 litres" is what the database wanted. `only` narrows the list
+ * when the answer is already fixed — a pack of a chemical measured in litres
+ * can be ml or L, and nothing else.
+ */
+function UnitSelect({ name, value, only }: { name: string; value?: string; only?: "kg" | "L" | "pcs" }) {
+  const options = only ? SIZE_UNITS.filter((u) => u.canonical === only) : SIZE_UNITS;
+  return (
+    <select className={inputClass} name={name} defaultValue={value ?? options[0]?.key}>
+      {options.map((u) => (
+        <option key={u.key} value={u.key}>
+          {u.label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 /** A price-and-reorder editor, shared by finished products and packs. */
 function PriceForm({ item }: { item: AdminItem }) {
   const reorderUnits = item.size_milli > 0 ? item.reorder_level_milli / item.size_milli : 0;
@@ -136,7 +177,7 @@ function PriceForm({ item }: { item: AdminItem }) {
     <form action={savePricing} className="mt-2.5 space-y-2.5">
       <input type="hidden" name="itemId" value={item.id} />
       <div className="grid grid-cols-2 gap-2.5">
-        <Field label="Retail price">
+        <Field label="Retail price" hint="What a walk-in pays.">
           <input
             className={inputClass}
             type="number"
@@ -146,7 +187,7 @@ function PriceForm({ item }: { item: AdminItem }) {
             defaultValue={fromCents(item.retail_cents)}
           />
         </Field>
-        <Field label="Wholesale price">
+        <Field label="Wholesale price" hint="What a trade buyer pays.">
           <input
             className={inputClass}
             type="number"
@@ -156,7 +197,7 @@ function PriceForm({ item }: { item: AdminItem }) {
             defaultValue={fromCents(item.wholesale_cents)}
           />
         </Field>
-        <Field label="Floor price" hint="Lowest an attendant may go without an owner PIN.">
+        <Field label="Never below" hint="An attendant cannot go under this without your PIN.">
           <input
             className={inputClass}
             type="number"
@@ -166,7 +207,7 @@ function PriceForm({ item }: { item: AdminItem }) {
             defaultValue={fromCents(item.floor_cents)}
           />
         </Field>
-        <Field label="Reorder level" hint={`In ${item.unit_label}s.`}>
+        <Field label="Warn me at" hint={`When stock drops to this many ${item.unit_label}s.`}>
           <input
             className={inputClass}
             type="number"
@@ -198,7 +239,9 @@ function ItemCard({ item, sizeText }: { item: AdminItem; sizeText: string }) {
       </div>
 
       <details className="mt-2.5">
-        <summary className="cursor-pointer text-sm font-bold text-brand-dark">Edit prices</summary>
+        <summary className="cursor-pointer text-sm font-bold text-brand-dark">
+          Prices and limits
+        </summary>
         <PriceForm item={item} />
         {/* Hiding is a twice-a-year act; it lives inside the editor, in quiet
             ghost dress — red is for the moment of destruction, not the menu. */}
@@ -230,8 +273,8 @@ export default async function ItemsPage(props: {
   return (
     <div>
       <PageTitle
-        title="Products &amp; prices"
-        subtitle="Add what the shop sells and change prices yourself — no developer needed"
+        title="What the shop sells"
+        subtitle="Add products and pack sizes here. For a price that has just moved, use Prices for today."
       />
 
       {err ? (
@@ -240,37 +283,68 @@ export default async function ItemsPage(props: {
         </div>
       ) : null}
 
-      {/* Prose keeps a reading-width cap; the catalogue grids below do not. */}
-      <div className="max-w-4xl">
-        <Alert tone="brand">
-          A chemical&rsquo;s cost is never typed here — it comes from what you actually paid on the
-          Purchases screen. You set only the selling prices.
-        </Alert>
+      {/*
+        Three sentences saying what this screen is and is not.
+
+        The client got lost here, and the reason was that the screen did four
+        jobs without saying so: it listed products, added products, set prices
+        and set floors, with "finished", "canonical unit" and "reorder level"
+        for labels. The words are plainer now, and the job that happens daily —
+        changing a price — has its own screen, which this one points at rather
+        than competing with.
+      */}
+      <div className="max-w-4xl space-y-2.5">
+        <div className="rounded-2xl bg-white p-4 shadow-card ring-1 ring-ink/5">
+          <p className="text-sm leading-relaxed">
+            <strong>This screen is for the list itself</strong> — adding something new, adding
+            another pack size, or hiding something you no longer sell.
+          </p>
+          <p className="mt-2 text-sm leading-relaxed text-muted">
+            To change a price that has moved, use{" "}
+            <Link href="/prices" className="font-bold text-brand">
+              Prices for today
+            </Link>
+            . It is one list, one box per price, and an attendant can do it. The prices here are
+            for setting up something new.
+          </p>
+          <p className="mt-2 text-sm leading-relaxed text-muted">
+            You never type what a chemical <em>cost</em> you. That comes from what you actually
+            paid on the{" "}
+            <Link href="/purchases" className="font-bold text-brand">
+              Purchases
+            </Link>{" "}
+            screen, so the profit figures stay honest.
+          </p>
+        </div>
       </div>
 
-      <SectionLabel>Finished products</SectionLabel>
+      <SectionLabel>Products we mix and bottle</SectionLabel>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 3xl:grid-cols-5">
         {finished.length === 0 ? (
-          <p className="text-sm text-muted">Nothing yet. Add your first bottled product below.</p>
+          <p className="text-sm text-muted">Nothing yet. Add your first one below — handwash, bleach, shampoo and so on.</p>
         ) : (
           finished.map((i) => (
             <ItemCard
               key={i.id}
               item={i}
-              sizeText={`${Number((i.size_milli / 1000).toFixed(3))} ${i.canonical_unit} ${i.unit_label}`}
+              // formatQty, not raw division: a 500 ml bottle was labelled
+              // "0.5 L bottle" here while its own name said 500 ml, which is
+              // exactly the kind of small disagreement that makes a screen feel
+              // untrustworthy.
+              sizeText={`${formatQty(i.size_milli, i.canonical_unit)} ${i.unit_label}`}
             />
           ))
         )}
       </div>
 
-      <SectionLabel>Add a finished product</SectionLabel>
+      <SectionLabel>Add a product we mix</SectionLabel>
       <Card className="max-w-2xl">
         <form action={addFinished} className="space-y-3">
           <Field label="Name">
             <input className={inputClass} name="name" required placeholder="e.g. Thick Bleach" />
           </Field>
           <div className="grid grid-cols-2 gap-2.5">
-            <Field label="Size">
+            <Field label="How much is in one" hint="e.g. 500, then choose ml.">
               <input
                 className={inputClass}
                 type="number"
@@ -278,25 +352,21 @@ export default async function ItemsPage(props: {
                 min="0"
                 step="any"
                 required
-                placeholder="1"
+                placeholder="500"
               />
             </Field>
-            <Field label="Unit">
-              <select className={inputClass} name="unit" defaultValue="L">
-                <option value="L">Litres</option>
-                <option value="kg">Kilograms</option>
-                <option value="pcs">Pieces</option>
-              </select>
+            <Field label="Measured in">
+              <UnitSelect name="unit" value="ml" />
             </Field>
           </div>
-          <Field label="Container" hint="What one unit comes in.">
+          <Field label="What it comes in" hint="The word the counter will see: bottle, jerrican, tub.">
             <input className={inputClass} name="label" defaultValue="bottle" />
           </Field>
           <div className="grid grid-cols-2 gap-2.5">
-            <Field label="Retail price">
+            <Field label="Retail price" hint="What a walk-in pays.">
               <input className={inputClass} type="number" name="retail" min="0" step="any" required />
             </Field>
-            <Field label="Wholesale price">
+            <Field label="Wholesale price" hint="What a trade buyer pays.">
               <input className={inputClass} type="number" name="wholesale" min="0" step="any" required />
             </Field>
           </div>
@@ -306,7 +376,7 @@ export default async function ItemsPage(props: {
         </form>
       </Card>
 
-      <SectionLabel>Chemicals &amp; repack sizes</SectionLabel>
+      <SectionLabel>Chemicals, and the sizes we sell them in</SectionLabel>
       <div className="grid items-start gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 3xl:grid-cols-5">
         {chemicals.map((chem) => {
           const packs = chem.items.filter((i) => i.kind === "pack");
@@ -339,17 +409,17 @@ export default async function ItemsPage(props: {
                   ))}
                 </div>
               ) : (
-                <p className="mt-2 text-xs text-muted">No resale pack sizes yet.</p>
+                <p className="mt-2 text-xs text-muted">Sold only by the whole drum so far. Add a smaller size below.</p>
               )}
 
               <details className="mt-2.5">
                 <summary className="cursor-pointer text-sm font-bold text-brand">
-                  Add a pack size
+                  Add a size we sell it in
                 </summary>
-                <form action={addPack} className="mt-2.5 flex items-end gap-2.5">
+                <form action={addPack} className="mt-2.5 space-y-2.5">
                   <input type="hidden" name="chemicalId" value={chem.id} />
-                  <div className="flex-1">
-                    <Field label={`Size in ${chem.canonical_unit}`}>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <Field label="How much">
                       <input
                         className={inputClass}
                         type="number"
@@ -357,11 +427,18 @@ export default async function ItemsPage(props: {
                         min="0"
                         step="any"
                         required
-                        placeholder="0.5"
+                        placeholder={chem.canonical_unit === "kg" ? "500" : "500"}
+                      />
+                    </Field>
+                    <Field label="In">
+                      <UnitSelect
+                        name="sizeUnit"
+                        only={chem.canonical_unit}
+                        value={chem.canonical_unit === "kg" ? "g" : chem.canonical_unit === "L" ? "ml" : "pcs"}
                       />
                     </Field>
                   </div>
-                  <Button type="submit">Add</Button>
+                  <Button type="submit" className="w-full">Add this size</Button>
                 </form>
               </details>
             </Card>
@@ -369,7 +446,7 @@ export default async function ItemsPage(props: {
         })}
       </div>
 
-      <SectionLabel>Add a chemical</SectionLabel>
+      <SectionLabel>Add a chemical we buy in</SectionLabel>
       <Card className="max-w-2xl">
         <form action={addChemical} className="space-y-3">
           <Field label="Name">
@@ -379,7 +456,7 @@ export default async function ItemsPage(props: {
             <input className={inputClass} name="aliases" placeholder="fragrance, scent" />
           </Field>
           <div className="grid grid-cols-2 gap-2.5">
-            <Field label="Bulk size">
+            <Field label="How big is the drum or bag" hint="What one container holds when it arrives.">
               <input
                 className={inputClass}
                 type="number"
@@ -390,12 +467,8 @@ export default async function ItemsPage(props: {
                 placeholder="25"
               />
             </Field>
-            <Field label="Unit">
-              <select className={inputClass} name="unit" defaultValue="kg">
-                <option value="kg">Kilograms</option>
-                <option value="L">Litres</option>
-                <option value="pcs">Pieces</option>
-              </select>
+            <Field label="Measured in">
+              <UnitSelect name="unit" value="kg" />
             </Field>
           </div>
           <Field label="Bulk container" hint="drum, bag, jerrican…">

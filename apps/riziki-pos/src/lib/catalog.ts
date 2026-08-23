@@ -14,7 +14,7 @@
  */
 
 import { all, get, run, tx, audit } from "./db.ts";
-import { toMilli } from "./units.ts";
+import { formatQty, sizeToMilli, sizeUnit, type SizeUnit } from "./units.ts";
 
 export class CatalogError extends Error {}
 
@@ -78,11 +78,6 @@ export function getItem(id: number): AdminItem | undefined {
 function cents(value: number, label: string): number {
   if (!Number.isFinite(value) || value < 0) throw new CatalogError(`${label} must be zero or more.`);
   return Math.round(value * 100);
-}
-
-function positiveMilli(value: number, label: string): number {
-  if (!Number.isFinite(value) || value <= 0) throw new CatalogError(`${label} must be more than zero.`);
-  return toMilli(value);
 }
 
 // -------------------------------------------------------------------- prices
@@ -156,7 +151,11 @@ export function setItemActive(itemId: number, active: boolean, byUserId: number)
 
 export interface FinishedInput {
   name: string;
-  unit: Unit;
+  /**
+   * What the size was typed in — g, kg, ml, L or pcs. The database still holds
+   * kg / L / pcs; this is only how the shop said it.
+   */
+  unit: SizeUnit;
   sizeValue: number;
   unitLabel: string;
   retail: number;
@@ -171,7 +170,8 @@ export function createFinished(input: FinishedInput): number {
   if (get(`SELECT 1 FROM items WHERE name = ? AND active = 1`, name)) {
     throw new CatalogError(`There is already something called "${name}".`);
   }
-  const sizeMilli = positiveMilli(input.sizeValue, "Size");
+  const u = sizeUnit(input.unit);
+  const sizeMilli = sizeToMilli(input.sizeValue, input.unit);
   const retail = cents(input.retail, "Retail price");
   const wholesale = cents(input.wholesale, "Wholesale price");
 
@@ -180,7 +180,7 @@ export function createFinished(input: FinishedInput): number {
                         sellable, retail_cents, wholesale_cents, floor_cents, cost_cents, reorder_level_milli)
      VALUES (?, 'finished', ?, ?, ?, 1, ?, ?, ?, 0, ?)`,
     name,
-    input.unit,
+    u.canonical,
     sizeMilli,
     input.unitLabel.trim() || "bottle",
     retail,
@@ -194,11 +194,13 @@ export function createFinished(input: FinishedInput): number {
 
 export interface ChemicalInput {
   name: string;
-  unit: Unit;
+  /** As typed: g, kg, ml, L or pcs. */
+  unit: SizeUnit;
   aliases: string;
   bulkSizeValue: number;
   bulkLabel: string;
-  packSizes: number[];
+  /** Each pack size, as typed, with the unit it was typed in. */
+  packSizes: Array<{ value: number; unit: SizeUnit }>;
   byUserId: number;
 }
 
@@ -212,13 +214,14 @@ export function createChemical(input: ChemicalInput): number {
   if (get(`SELECT 1 FROM chemicals WHERE name = ?`, name)) {
     throw new CatalogError(`"${name}" is already in the list.`);
   }
-  const bulkMilli = positiveMilli(input.bulkSizeValue, "Bulk size");
+  const cu = sizeUnit(input.unit);
+  const bulkMilli = sizeToMilli(input.bulkSizeValue, input.unit);
 
   return tx(() => {
     const { lastInsertRowid: chemId } = run(
       `INSERT INTO chemicals (name, canonical_unit, aliases) VALUES (?, ?, ?)`,
       name,
-      input.unit,
+      cu.canonical,
       input.aliases.trim(),
     );
     run(
@@ -227,39 +230,66 @@ export function createChemical(input: ChemicalInput): number {
        VALUES (?, ?, 'bulk', ?, ?, ?, 0, 0, ?)`,
       chemId,
       `${name} — ${input.bulkSizeValue} ${input.unit} ${input.bulkLabel.trim() || "unit"}`,
-      input.unit,
+      cu.canonical,
       bulkMilli,
       input.bulkLabel.trim() || "unit",
       bulkMilli * 2,
     );
-    for (const size of input.packSizes) {
-      if (size <= 0) continue;
-      addPackRow(chemId, name, input.unit, size);
+    for (const p of input.packSizes) {
+      if (!Number.isFinite(p.value) || p.value <= 0) continue;
+      addPackRow(chemId, name, cu.canonical, sizeToMilli(p.value, p.unit));
     }
     audit(input.byUserId, "chemical_created", "chemical", chemId, name);
     return chemId;
   });
 }
 
-export function addPackSize(chemicalId: number, sizeValue: number, byUserId: number): number {
+/**
+ * A new resale size for a chemical — "500 ml", "250 g", "20 kg".
+ *
+ * The size is typed in whatever unit the label on the shelf uses, and converted
+ * here. Asking somebody to enter a 500 ml pack as "0.5" was the single most
+ * confusing thing on this screen.
+ */
+export function addPackSize(
+  chemicalId: number,
+  sizeValue: number,
+  unit: SizeUnit,
+  byUserId: number,
+): number {
   const chem = get<{ name: string; canonical_unit: Unit }>(
     `SELECT name, canonical_unit FROM chemicals WHERE id = ?`,
     chemicalId,
   );
   if (!chem) throw new CatalogError("That chemical no longer exists.");
-  const sizeMilli = positiveMilli(sizeValue, "Pack size");
-  if (get(`SELECT 1 FROM items WHERE chemical_id = ? AND kind = 'pack' AND size_milli = ?`, chemicalId, sizeMilli)) {
-    throw new CatalogError("That pack size already exists for this chemical.");
+
+  const typed = sizeUnit(unit);
+  if (typed.canonical !== chem.canonical_unit) {
+    throw new CatalogError(
+      `${chem.name} is measured in ${chem.canonical_unit}, so a pack of it cannot be in ${unit}.`,
+    );
   }
-  const id = addPackRow(chemicalId, chem.name, chem.canonical_unit, sizeValue);
-  audit(byUserId, "pack_size_added", "item", id, `${chem.name} ${sizeValue}${chem.canonical_unit}`);
+
+  let sizeMilli: number;
+  try {
+    sizeMilli = sizeToMilli(sizeValue, unit);
+  } catch {
+    throw new CatalogError("Pack size must be more than zero.");
+  }
+
+  if (get(`SELECT 1 FROM items WHERE chemical_id = ? AND kind = 'pack' AND size_milli = ?`, chemicalId, sizeMilli)) {
+    throw new CatalogError(
+      `${chem.name} already has a ${formatQty(sizeMilli, chem.canonical_unit)} pack.`,
+    );
+  }
+  const id = addPackRow(chemicalId, chem.name, chem.canonical_unit, sizeMilli);
+  audit(byUserId, "pack_size_added", "item", id, `${chem.name} ${sizeValue} ${unit}`);
   return id;
 }
 
-/** Shared pack-row insert. Label mirrors the seed: "500 g" / "1 kg". */
-function addPackRow(chemId: number, chemName: string, unit: Unit, size: number): number {
-  const label =
-    size >= 1 ? `${size} ${unit}` : `${size * 1000} ${unit === "kg" ? "g" : unit === "L" ? "ml" : unit}`;
+/** Shared pack-row insert. The label is what the shelf says: "500 g", "1 kg". */
+function addPackRow(chemId: number, chemName: string, unit: Unit, sizeMilli: number): number {
+  const label = formatQty(sizeMilli, unit);
   const { lastInsertRowid } = run(
     `INSERT INTO items (chemical_id, name, kind, canonical_unit, size_milli, unit_label,
                         sellable, cost_cents, reorder_level_milli)
@@ -267,8 +297,8 @@ function addPackRow(chemId: number, chemName: string, unit: Unit, size: number):
     chemId,
     `${chemName} — ${label}`,
     unit,
-    toMilli(size),
-    toMilli(size * 5),
+    sizeMilli,
+    sizeMilli * 5,
   );
   return lastInsertRowid;
 }

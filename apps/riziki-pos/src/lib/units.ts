@@ -65,6 +65,56 @@ export function formatKesRounded(cents: number): string {
   return "KES " + Math.round(cents / CENTS).toLocaleString("en-KE");
 }
 
+/**
+ * The units a person may type a size in, and what each is in the database.
+ *
+ * Storage only knows three canonical units — kg, L and pcs — with quantities
+ * held in thousandths of one. That is a good model: it makes 250 g and 0.25 kg
+ * the same number and removes a whole class of rounding bug.
+ *
+ * It is a terrible thing to make somebody type. A 500 ml bottle had to be
+ * entered as "0.5" with "Litres" chosen beside it, and a 250 g sachet as
+ * "0.25 kg" — so the shop either got it wrong or gave up and rang us. Grams and
+ * millilitres are what the labels on the shelf say, so they are what the form
+ * offers; the conversion belongs here, not in the owner's head.
+ *
+ * Both are exact: one gram is one thousandth of a kilogram, which is precisely
+ * one milli-unit, so nothing is rounded away on the way in or out.
+ */
+/** What the database stores. Declared here too so this module stands alone. */
+export type CanonicalUnit = "kg" | "L" | "pcs";
+
+export type SizeUnit = "g" | "kg" | "ml" | "L" | "pcs";
+
+export const SIZE_UNITS: Array<{
+  key: SizeUnit;
+  label: string;
+  canonical: CanonicalUnit;
+  /** What one of this unit is worth in milli of the canonical unit. */
+  milli: number;
+}> = [
+  { key: "g", label: "grams (g)", canonical: "kg", milli: 1 },
+  { key: "kg", label: "kilograms (kg)", canonical: "kg", milli: MILLI },
+  { key: "ml", label: "millilitres (ml)", canonical: "L", milli: 1 },
+  { key: "L", label: "litres (L)", canonical: "L", milli: MILLI },
+  { key: "pcs", label: "pieces", canonical: "pcs", milli: MILLI },
+];
+
+export function sizeUnit(key: string): (typeof SIZE_UNITS)[number] {
+  const found = SIZE_UNITS.find((u) => u.key === key);
+  if (!found) throw new Error(`Unknown unit of measurement: ${key}`);
+  return found;
+}
+
+/** "500" + "ml" -> 500 milli-litres. "20" + "kg" -> 20000 milli-kilograms. */
+export function sizeToMilli(value: number, key: string): number {
+  const u = sizeUnit(key);
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error("A size must be a number greater than zero.");
+  }
+  return Math.round(value * u.milli);
+}
+
 /** Bare number, no currency word — for table columns that already say KES. */
 export function formatAmount(cents: number): string {
   const shillings = cents / CENTS;

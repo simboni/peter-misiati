@@ -116,7 +116,7 @@ test("createChemical: creates the chemical plus a non-sellable bulk row and sell
     aliases: "tsf,test",
     bulkSizeValue: 200,
     bulkLabel: "drum",
-    packSizes: [20, 1, 0.5],
+    packSizes: [{ value: 20, unit: "kg" }, { value: 1, unit: "kg" }, { value: 500, unit: "g" }],
     byUserId: OWNER,
   });
 
@@ -155,18 +155,39 @@ test("addPackSize: adds a new size and refuses a duplicate", () => {
     aliases: "",
     bulkSizeValue: 25,
     bulkLabel: "bag",
-    packSizes: [1],
+    packSizes: [{ value: 1, unit: "kg" }],
     byUserId: OWNER,
   });
 
-  const id = cat.addPackSize(chemId, 0.5, OWNER);
+  // Typed the way the label reads — "500 g", not "0.5 kg".
+  const id = cat.addPackSize(chemId, 500, "g", OWNER);
   const item = cat.getItem(id)!;
   assert.equal(item.kind, "pack");
   assert.equal(item.size_milli, 500);
   assert.equal(item.name, "Test Thickener — 500 g");
 
-  assert.throws(() => cat.addPackSize(chemId, 0.5, OWNER), /already exists/i);
-  assert.throws(() => cat.addPackSize(chemId, 1, OWNER), /already exists/i);
+  assert.throws(() => cat.addPackSize(chemId, 500, "g", OWNER), /already has a 500 g pack/i);
+  // The same size said a different way is still the same size.
+  assert.throws(() => cat.addPackSize(chemId, 0.5, "kg", OWNER), /already has a 500 g pack/i);
+  assert.throws(() => cat.addPackSize(chemId, 1, "kg", OWNER), /already has a 1 kg pack/i);
+});
+
+test("addPackSize: a size cannot be given in a unit the chemical is not measured in", () => {
+  const chemId = cat.createChemical({
+    name: "Test Liquid Base",
+    unit: "L",
+    aliases: "",
+    bulkSizeValue: 200,
+    bulkLabel: "drum",
+    packSizes: [],
+    byUserId: OWNER,
+  });
+
+  // Litres and millilitres are fine; kilograms are not the same substance measure.
+  assert.equal(cat.getItem(cat.addPackSize(chemId, 500, "ml", OWNER))!.size_milli, 500);
+  assert.equal(cat.getItem(cat.addPackSize(chemId, 5, "L", OWNER))!.size_milli, 5000);
+  assert.throws(() => cat.addPackSize(chemId, 1, "kg", OWNER), /measured in L/i);
+  assert.throws(() => cat.addPackSize(chemId, 0, "ml", OWNER), /more than zero/i);
 });
 
 test("addPackSize: labels a whole-unit pack in the canonical unit", () => {
@@ -179,7 +200,7 @@ test("addPackSize: labels a whole-unit pack in the canonical unit", () => {
     packSizes: [],
     byUserId: OWNER,
   });
-  const id = cat.addPackSize(chemId, 2, OWNER);
+  const id = cat.addPackSize(chemId, 2, "kg", OWNER);
   assert.equal(cat.getItem(id)!.name, "Test Builder — 2 kg");
 });
 
@@ -212,4 +233,47 @@ test("every catalog change is written to the audit log", () => {
   });
   const after = get<{ n: number }>(`SELECT COUNT(*) AS n FROM audit_log`)!.n;
   assert.ok(after > before, "product creation left an audit trail");
+});
+
+test("sizes are typed the way the shelf label reads", () => {
+  // The whole point of the unit picker: a 500 ml bottle is entered as "500" and
+  // "ml", not as "0.5" and "litres", which is what the shop got wrong.
+  const bottle = cat.createFinished({
+    name: "Test Shower Gel",
+    unit: "ml",
+    sizeValue: 500,
+    unitLabel: "bottle",
+    retail: 250,
+    wholesale: 220,
+    byUserId: OWNER,
+  });
+  const b = cat.getItem(bottle)!;
+  assert.equal(b.size_milli, 500, "500 ml is 500 milli-litres");
+  assert.equal(b.canonical_unit, "L", "and it is stored against litres");
+
+  const sachet = cat.createFinished({
+    name: "Test Sachet",
+    unit: "g",
+    sizeValue: 250,
+    unitLabel: "sachet",
+    retail: 60,
+    wholesale: 50,
+    byUserId: OWNER,
+  });
+  const g = cat.getItem(sachet)!;
+  assert.equal(g.size_milli, 250);
+  assert.equal(g.canonical_unit, "kg");
+
+  // Typing it the old way must land in exactly the same place, or the two
+  // routes would create duplicate items that look identical on the till.
+  const same = cat.createFinished({
+    name: "Test Shower Gel Large",
+    unit: "L",
+    sizeValue: 0.5,
+    unitLabel: "bottle",
+    retail: 250,
+    wholesale: 220,
+    byUserId: OWNER,
+  });
+  assert.equal(cat.getItem(same)!.size_milli, b.size_milli, "0.5 L and 500 ml are one size");
 });
