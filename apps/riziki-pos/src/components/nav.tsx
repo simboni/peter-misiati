@@ -93,6 +93,9 @@ const MORE_GROUPS: Array<{
       { href: "/activity", label: "Activity log", owner: true },
       { href: "/settings", label: "Users & settings", owner: true },
       { href: "/settings/printer", label: "Receipt printer", owner: true },
+      // Owner-only, and the clear behind it needs a typed confirmation and the
+      // PIN: it is the most destructive button in the app.
+      { href: "/settings/demo", label: "Demo data", owner: true },
       { href: "/pin", label: "Change my PIN", owner: false },
     ],
   },
