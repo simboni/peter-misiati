@@ -1421,8 +1421,51 @@ export default function SellClient({
         </div>
       ) : null}
 
+      {/*
+        Everything that is not an item, on one line.
+
+        This used to be three separate things fighting over the top-left: a
+        heading that said "Sell" on the selling screen, and a pair of board
+        buttons stacked vertically in a 4.5rem gutter of their own, aligned with
+        nothing and empty for five hundred pixels below them. The heading is
+        gone — the screen announces itself — and the boards have come inside,
+        where they cost no height at all because the search row was already
+        there and half empty.
+      */}
       <div className="mb-2.5 flex items-center gap-2">
-        <h1 className="shrink-0 text-lg font-bold tracking-tight xl:text-xl">Sell</h1>
+        <div
+          role="tablist"
+          aria-label="What to sell"
+          className="hidden shrink-0 gap-1 rounded-2xl bg-wash p-1 ring-1 ring-inset ring-line lg:flex"
+        >
+          {BOARDS.map((b) => {
+            const on = board === b.key && !q;
+            const count = (b.key === "products" ? finished : chemicals).length;
+            return (
+              <button
+                key={b.key}
+                type="button"
+                role="tab"
+                aria-selected={on}
+                onClick={() => {
+                  // A board and a search are two different questions. Picking a
+                  // board answers the first, so it drops the second rather than
+                  // leaving results on screen that the board no longer explains.
+                  setQuery("");
+                  setBoard(b.key);
+                }}
+                className={`flex min-h-9 items-center gap-1.5 rounded-xl px-3.5 text-sm font-bold transition-colors ${
+                  on ? "bg-white text-brand-deep shadow-card" : "text-muted hover:text-ink"
+                }`}
+              >
+                {b.label}
+                <span className={`text-[11px] font-semibold tnum ${on ? "text-muted" : "text-muted/70"}`}>
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
 
         <div className="min-w-0 flex-1">
           <input
@@ -1469,46 +1512,13 @@ export default function SellClient({
           the bill and the Complete button on screen at all times — a sticky
           panel still hung below the fold on load, which is the one thing this
           panel must never do. Phones and tablets keep the ordinary page scroll. */}
-      <div className="lg:grid lg:min-h-0 lg:flex-1 lg:grid-cols-[4.5rem_minmax(0,1fr)_17rem] lg:items-stretch lg:gap-3 xl:grid-cols-[4.5rem_minmax(0,1fr)_19rem] xl:gap-4 2xl:grid-cols-[5rem_minmax(0,1fr)_22rem] 2xl:gap-5 3xl:grid-cols-[5rem_minmax(0,1fr)_24rem]">
-
-      {/* The board strip. Two targets, stacked, off to the side — where the rail
-          used to be and at a third of its width. Vertical because the space
-          going spare is a column, and because it costs the grid no height:
-          the horizontal pair used to eat a row of products on every screen. */}
-      <div
-        role="tablist"
-        aria-label="What to sell"
-        className="hidden lg:flex lg:flex-col lg:gap-1.5"
-      >
-        {BOARDS.map((b) => {
-          const on = board === b.key;
-          const count = (b.key === "products" ? finished : chemicals).length;
-          return (
-            <button
-              key={b.key}
-              type="button"
-              role="tab"
-              aria-selected={on}
-              onClick={() => setBoard(b.key)}
-              className={`flex flex-col items-center justify-center gap-0.5 rounded-2xl px-1 py-3 text-[11px] font-bold leading-tight transition-colors ${
-                on
-                  ? "bg-brand text-white shadow-card"
-                  : "bg-white text-muted ring-1 ring-ink/5 hover:text-ink"
-              }`}
-            >
-              <span className="text-center">{b.label}</span>
-              <span className={`text-[10px] font-semibold tnum ${on ? "text-white/75" : "text-muted"}`}>
-                {count}
-              </span>
-            </button>
-          );
-        })}
-      </div>
+      {/* Two columns now, not three: the board gutter has gone up into the
+          search row, and its 72px went to the items. */}
+      <div className="lg:grid lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_17rem] lg:items-stretch lg:gap-3 xl:grid-cols-[minmax(0,1fr)_19rem] xl:gap-4 2xl:grid-cols-[minmax(0,1fr)_22rem] 2xl:gap-5 3xl:grid-cols-[minmax(0,1fr)_24rem]">
 
       {/* A container, so the tile grid counts columns from the space it actually
-          has rather than from the window. Collapsing the left rail hands this
-          column 168px, and it turns that into another column of products by
-          itself — no breakpoint anywhere has to know the rail exists. */}
+          has rather than from the window. No breakpoint has to know what else
+          is on the row. */}
       <div className="@container min-w-0 lg:h-full lg:overflow-y-auto lg:pr-1">
       {/* Pinned to the top of the scrolling column: on a keyboard till, search
           is how the counter works, and it must never be somewhere up the page. */}
@@ -1701,17 +1711,26 @@ export default function SellClient({
         <>
           {top.length ? (
             <>
-              <SectionLabel>Top sellers today</SectionLabel>
-              {/* Shortcuts, not products: one line each, sized to the words, so
-                  six of them cost a strip of screen instead of a whole band. */}
-              <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 md:mx-0 md:flex-wrap md:overflow-visible md:px-0">
+              {/*
+                One line, and it scrolls sideways rather than wrapping.
+
+                As a heading plus a wrapping band this cost about 130px before
+                the first product tile — on a 13" laptop that is a whole row of
+                items, spent on shortcuts to items that are also further down
+                the same screen. The label has come inline and the chips no
+                longer wrap, so the same six shortcuts cost one strip.
+              */}
+              <div className="-mx-4 mb-2 flex items-center gap-2 overflow-x-auto px-4 pb-0.5 md:mx-0 md:px-0">
+                <span className="shrink-0 text-[10px] font-bold uppercase tracking-[0.12em] text-muted">
+                  Top today
+                </span>
                 {top.map((item) => (
                   <button
                     key={item.id}
                     type="button"
                     onClick={() => addItem(item)}
                     title={item.name}
-                    className={`flex shrink-0 items-baseline gap-2 rounded-full border py-2 pl-3.5 pr-3 text-left transition-colors ${
+                    className={`flex shrink-0 items-baseline gap-2 rounded-full border py-2 pl-3.5 pr-3 text-left transition-colors lg:py-1.5 ${
                       wholesale
                         ? "border-warn/40 bg-warn-soft hover:border-warn"
                         : "border-brand/30 bg-brand-soft hover:border-brand/60"
@@ -1752,7 +1771,7 @@ export default function SellClient({
             role="tabpanel"
             onTouchStart={onBoardTouchStart}
             onTouchEnd={onBoardTouchEnd}
-            className="@container mt-3"
+            className="@container mt-3 lg:mt-0"
           >
             {board === "products" ? (
               finished.length ? (
@@ -1951,6 +1970,7 @@ function Grid({
     // asking the counter to remember a separate screen for the second one is
     // how the second one stops being offered.
     const canMake = Boolean(onMake && makeable && makeable[item.id]);
+    const stock = out ? "none left" : formatUnits(item.qtyMilli, item.sizeMilli, item.unitLabel);
     const body = (
       <button
         type="button"
@@ -1959,12 +1979,18 @@ function Grid({
         // A fixed height on every tile is what turns forty of these from a
         // ragged pile into something scannable: price sits at the same eye
         // level in every column, so the grid can be read down as well as across.
-        // The made-here tiles are taller by exactly their footer, and they can
-        // afford it: there are thirteen products against forty-six chemicals.
-        className={`relative flex w-full flex-col rounded-2xl px-3 py-2.5 text-left shadow-card ring-1 transition-colors xl:px-2.5 xl:py-2 ${
-          canMake
-            ? "h-[8.25rem] rounded-b-none md:h-[7.5rem] xl:h-[6.75rem] 2xl:h-[7.75rem] 3xl:h-[9rem]"
-            : "h-[6.5rem] md:h-[5.75rem] xl:h-[5rem] 2xl:h-[6.25rem] 3xl:h-[7.5rem]"
+        //
+        // One height for every tile, made-here or not. They used to differ by
+        // the height of the footer as well as carrying it, so a product cost two
+        // footers of screen — on a 13" laptop that was a row of items per board.
+        // The footer now simply adds itself underneath.
+        //
+        // Laptop sizes are their own step rather than inheriting the tablet's.
+        // 1280×800 is the screen this shop actually uses and the one with the
+        // least room to spare: everything above the grid competes with it, so
+        // the tile is sized to its content there and nothing more.
+        className={`relative flex h-[6.5rem] w-full flex-col rounded-2xl px-3 py-2.5 text-left shadow-card ring-1 transition-colors md:h-[5.75rem] lg:h-[4.75rem] xl:h-[4.5rem] xl:px-2.5 xl:py-2 2xl:h-[5.25rem] 3xl:h-[6.5rem] ${
+          canMake ? "rounded-b-none" : ""
         } ${inCart ? "bg-brand-soft ring-brand/40" : "bg-white ring-ink/5 hover:ring-brand/30"} ${
           out ? "opacity-70" : ""
         }`}
@@ -1979,20 +2005,34 @@ function Grid({
         <div className={`truncate text-[13px] font-bold leading-tight ${inCart ? "pr-7" : ""}`}>
           {base}
         </div>
-        <div className="mt-0.5 h-4 text-[11px] font-semibold text-muted">{size ?? ""}</div>
-        {/* Price and shelf count share the last line: the tile is as wide as
-            three columns make it, and a price alone left two thirds of it
-            empty. Side by side they answer both counter questions at a glance. */}
-        {/* Side by side from tablet up, where there is room for both. Two to a
-            row on a phone there is not — "KES 500" beside "181 jerricans" wraps
-            the price onto two lines — so there they stack. */}
-        <div className="mt-auto flex flex-col gap-0.5 md:flex-row md:items-baseline md:justify-between md:gap-2">
-          {/* Price never gives ground — it is the one figure a tile cannot be
-              wrong about. The status beside it truncates instead, so a narrow
-              column shortens "Out of stock" rather than spilling it over the
-              next tile, which is what a hard, unclipped overflow used to do. */}
+
+        {/*
+          Size on the left, what is on the shelf on the right — but only from
+          tablet up, where a tile is wide enough for both.
+
+          The shelf count used to sit beside the price. On a five-column laptop
+          grid it lost that fight and rendered as "99,952…", an ellipsis shoving
+          the one figure a tile cannot be wrong about. Pairing it with the size
+          instead gives the price its own line and the count room to be read.
+
+          On a phone the tile is three to a row and about 110px wide, which is
+          not enough for "1 L" and "181 jerricans" side by side, so there the
+          count drops back under the price where it has the full width.
+        */}
+        <div className="mt-0.5 flex h-4 items-baseline gap-1.5 text-[11px] font-semibold">
+          <span className="shrink-0 text-muted">{size ?? ""}</span>
           <span
-            className={`shrink-0 whitespace-nowrap font-extrabold leading-none tnum ${
+            className={`ml-auto hidden min-w-0 truncate text-right tnum md:block ${
+              out ? "font-bold text-bad" : "text-muted/80"
+            }`}
+          >
+            {stock}
+          </span>
+        </div>
+
+        <div className="mt-auto flex flex-col gap-0.5">
+          <span
+            className={`whitespace-nowrap font-extrabold leading-none tnum ${
               unpriced
                 ? "text-[13px] font-bold text-muted"
                 : `text-[17px] ${tier === "wholesale" ? "text-warn" : "text-brand-deep"}`
@@ -2001,9 +2041,11 @@ function Grid({
             {unpriced ? "No price set" : formatKes(listPrice(item, tier))}
           </span>
           <span
-            className={`min-w-0 truncate text-[11px] leading-none tnum ${out ? "font-bold text-bad" : "text-muted"}`}
+            className={`truncate text-[11px] leading-none tnum md:hidden ${
+              out ? "font-bold text-bad" : "text-muted"
+            }`}
           >
-            {out ? "Out of stock" : formatUnits(item.qtyMilli, item.sizeMilli, item.unitLabel)}
+            {stock}
           </span>
         </div>
       </button>
@@ -2017,7 +2059,7 @@ function Grid({
         <button
           type="button"
           onClick={() => onMake!(item)}
-          className="flex items-center justify-center gap-1.5 rounded-b-2xl bg-brand-soft py-1.5 text-[10.5px] font-bold text-brand-dark shadow-card ring-1 ring-ink/5 transition-colors hover:bg-brand hover:text-white"
+          className="flex items-center justify-center gap-1.5 rounded-b-2xl bg-brand-soft py-1.5 text-[10.5px] font-bold text-brand-dark shadow-card ring-1 ring-ink/5 transition-colors hover:bg-brand hover:text-white lg:py-1"
           aria-label={`Show the chemicals that make ${base}`}
         >
           Make it — chemicals
