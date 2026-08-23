@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 /**
  * Navigation, one client component, three renderings by breakpoint:
@@ -99,24 +99,9 @@ const MORE_GROUPS: Array<{
   },
 ];
 
-/** How long the rail remembers: a year, i.e. until somebody changes it back. */
-const RAIL_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
-
-export function BottomNav({ isOwner, rail = "wide" }: { isOwner: boolean; rail?: "wide" | "mini" }) {
+export function BottomNav({ isOwner }: { isOwner: boolean }) {
   const path = usePathname();
   const tabs = TABS.filter((t) => !t.ownerOnly || isOwner);
-
-  // Seeded from the server's cookie read, so this matches what was painted.
-  const [mini, setMini] = useState(rail === "mini");
-
-  function toggleRail() {
-    const next = mini ? "wide" : "mini";
-    setMini(!mini);
-    // The CSS variable lives on <html>; moving it here rather than re-rendering
-    // through the server keeps the rail instant and the layout in step with it.
-    document.documentElement.dataset.rail = next;
-    document.cookie = `riziki_rail=${next}; path=/; max-age=${RAIL_COOKIE_MAX_AGE}; samesite=lax`;
-  }
 
   return (
     <>
@@ -149,97 +134,135 @@ export function BottomNav({ isOwner, rail = "wide" }: { isOwner: boolean; rail?:
         })}
       </nav>
 
-      {/* Desktop rail. Same tabs, then the More groups laid out flat — or, when
-          collapsed, the tabs alone as icons with More at the end of them. */}
+    </>
+  );
+}
+
+
+/**
+ * The menu, on demand.
+ *
+ * Three lines in the header, and the whole thing slides over the page when
+ * asked. It replaces the permanent rail: the same destinations, none of the
+ * rent. Rendered from `lg` up only — below that the bottom tab bar is already
+ * within thumb reach and a second way in would just be clutter.
+ *
+ * It closes on Escape, on the scrim, and on navigating: a drawer still standing
+ * over the till after the attendant has arrived somewhere is worse than no
+ * drawer, because it hides the screen they asked for.
+ */
+export function MenuDrawer({ isOwner }: { isOwner: boolean }) {
+  const path = usePathname();
+  const [open, setOpen] = useState(false);
+  const tabs = TABS.filter((t) => !t.ownerOnly || isOwner);
+
+  // Arriving somewhere is the signal that the menu has done its job.
+  useEffect(() => setOpen(false), [path]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  return (
+    <div className="no-print hidden lg:block">
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        aria-expanded={open}
+        aria-label="Open the menu"
+        className="flex h-10 w-10 items-center justify-center rounded-2xl text-white ring-1 ring-inset ring-white/25 transition-colors hover:bg-white/10"
+      >
+        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
+          <path d="M4 7h16 M4 12h16 M4 17h16" />
+        </svg>
+      </button>
+
+      {/* Kept mounted so the panel slides rather than appearing; pointer-events
+          are what stop the closed one from swallowing clicks on the till. */}
+      <div
+        aria-hidden={!open}
+        className={`fixed inset-0 z-40 bg-brand-deep/45 transition-opacity duration-200 ${
+          open ? "opacity-100" : "pointer-events-none opacity-0"
+        }`}
+        onClick={() => setOpen(false)}
+      />
       <nav
         aria-label="Main"
-        className="no-print fixed inset-y-0 left-0 z-30 hidden w-[var(--rail-w)] flex-col overflow-y-auto overflow-x-hidden bg-white pb-6 pt-5 shadow-[6px_0_24px_-8px_rgb(13_43_48/0.18)] transition-[width] duration-200 lg:flex"
+        aria-hidden={!open}
+        className={`fixed inset-y-0 left-0 z-50 flex w-[17rem] flex-col overflow-y-auto bg-white pb-6 pt-4 shadow-lift transition-transform duration-200 ${
+          open ? "translate-x-0" : "-translate-x-full"
+        }`}
       >
-        <div className={`mb-4 flex px-3 ${mini ? "flex-col items-center gap-2" : "items-center gap-2.5"}`}>
-          <Link href="/" className="flex min-w-0 items-center gap-2.5" title="Riziki POS">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-deep text-xs font-extrabold text-white">
-              RZ
-            </span>
-            {mini ? null : (
-              <span className="truncate text-sm font-bold text-brand-deep">Riziki POS</span>
-            )}
-          </Link>
+        <div className="mb-3 flex items-center gap-2.5 px-4">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-deep text-xs font-extrabold text-white">
+            RZ
+          </span>
+          <span className="text-sm font-bold text-brand-deep">Riziki POS</span>
           <button
             type="button"
-            onClick={toggleRail}
-            aria-expanded={!mini}
-            aria-label={mini ? "Show the menu labels" : "Collapse the menu to icons"}
-            title={mini ? "Show labels" : "Collapse menu"}
-            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-wash hover:text-ink ${
-              mini ? "" : "ml-auto"
-            }`}
+            onClick={() => setOpen(false)}
+            aria-label="Close the menu"
+            className="ml-auto flex h-9 w-9 items-center justify-center rounded-lg text-muted transition-colors hover:bg-wash hover:text-ink"
           >
-            <svg
-              viewBox="0 0 24 24"
-              className={`h-4 w-4 transition-transform duration-200 ${mini ? "rotate-180" : ""}`}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M15 5l-7 7 7 7" />
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
+              <path d="M6 6l12 12 M18 6l-12 12" />
             </svg>
           </button>
         </div>
 
-        <div className={mini ? "px-2" : "px-3"}>
-          {(mini ? tabs : tabs.filter((t) => t.href !== "/more")).map((t) => {
-            const active = path === t.href || path.startsWith(t.href + "/");
-            return (
-              <Link
-                key={t.href}
-                href={t.href}
-                aria-current={active ? "page" : undefined}
-                title={mini ? t.label : undefined}
-                className={`mb-0.5 flex items-center rounded-2xl text-sm font-semibold transition-colors ${
-                  mini ? "h-11 w-11 justify-center" : "gap-3 px-3.5 py-2.5"
-                } ${active ? "bg-brand text-white shadow-sm" : "text-muted hover:bg-wash hover:text-ink"}`}
-              >
-                {t.icon}
-                {mini ? <span className="sr-only">{t.label}</span> : t.label}
-              </Link>
-            );
-          })}
-        </div>
-
-        {/* The twelve secondary destinations have no sensible icons, so
-            collapsed they fold behind the More tab above rather than becoming a
-            column of guesses. */}
-        {mini
-          ? null
-          : MORE_GROUPS.map((g) => {
-              const links = g.links.filter((l) => !l.owner || isOwner);
-              if (!links.length) return null;
+        <div className="px-3">
+          {tabs
+            .filter((t) => t.href !== "/more")
+            .map((t) => {
+              const active = path === t.href || path.startsWith(t.href + "/");
               return (
-                <div key={g.label} className="px-3">
-                  <div className="mt-5 mb-1 px-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted">
-                    {g.label}
-                  </div>
-                  {links.map((l) => {
-                    const active = path === l.href;
-                    return (
-                      <Link
-                        key={l.href}
-                        href={l.href}
-                        className={`flex items-center rounded-xl px-3.5 py-2 text-[13px] font-semibold ${
-                          active ? "bg-brand-soft text-brand-dark" : "text-muted hover:bg-wash hover:text-ink"
-                        }`}
-                      >
-                        {l.short ?? l.label}
-                      </Link>
-                    );
-                  })}
-                </div>
+                <Link
+                  key={t.href}
+                  href={t.href}
+                  aria-current={active ? "page" : undefined}
+                  tabIndex={open ? undefined : -1}
+                  className={`mb-0.5 flex items-center gap-3 rounded-2xl px-3.5 py-2.5 text-sm font-semibold transition-colors ${
+                    active ? "bg-brand text-white shadow-sm" : "text-muted hover:bg-wash hover:text-ink"
+                  }`}
+                >
+                  {t.icon}
+                  {t.label}
+                </Link>
               );
             })}
+        </div>
+
+        {MORE_GROUPS.map((g) => {
+          const links = g.links.filter((l) => !l.owner || isOwner);
+          if (!links.length) return null;
+          return (
+            <div key={g.label} className="px-3">
+              <div className="mt-4 mb-1 px-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted">
+                {g.label}
+              </div>
+              {links.map((l) => {
+                const active = path === l.href;
+                return (
+                  <Link
+                    key={l.href}
+                    href={l.href}
+                    tabIndex={open ? undefined : -1}
+                    className={`flex items-center rounded-xl px-3.5 py-2 text-[13px] font-semibold ${
+                      active ? "bg-brand-soft text-brand-dark" : "text-muted hover:bg-wash hover:text-ink"
+                    }`}
+                  >
+                    {l.label}
+                  </Link>
+                );
+              })}
+            </div>
+          );
+        })}
       </nav>
-    </>
+    </div>
   );
 }
 

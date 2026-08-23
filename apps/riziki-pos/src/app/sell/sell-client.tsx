@@ -571,7 +571,6 @@ export default function SellClient({
     setCustomerId(id);
     setRepeat(null);
     const c = id === null ? null : allCustomers.find((x) => x.id === id);
-    if (c?.kind === "wholesale" && tier === "retail") switchTier("wholesale");
   }
 
   // Look up what a named customer bought last time, once, when they are named.
@@ -1297,23 +1296,6 @@ export default function SellClient({
               </select>
             )}
 
-            {/* A wholesale buyer on a retail-priced cart is a bill nobody
-                wants to argue about at the counter. Prompt, don't switch
-                silently — the attendant may have priced it retail on purpose. */}
-            {customer && customer.kind === "wholesale" && tier === "retail" ? (
-              <div className="mt-2 flex items-center justify-between gap-2 rounded-xl bg-warn-soft px-3 py-2">
-                <span className="text-xs font-semibold text-warn">
-                  {customer.name} usually buys at wholesale.
-                </span>
-                <button
-                  type="button"
-                  onClick={() => switchTier("wholesale")}
-                  className="shrink-0 rounded-lg bg-warn px-2.5 py-1 text-xs font-bold text-white"
-                >
-                  Use wholesale prices
-                </button>
-              </div>
-            ) : null}
           </div>
         ) : null}
 
@@ -1442,25 +1424,6 @@ export default function SellClient({
           ))}
         </select>
 
-        <div className="grid grid-cols-2 overflow-hidden rounded-xl border border-line">
-          {(["retail", "wholesale"] as const).map((t) => (
-            <button
-              key={t}
-              type="button"
-              aria-pressed={tier === t}
-              onClick={() => switchTier(t)}
-              className={`px-3.5 py-2 text-xs font-bold capitalize transition-colors ${
-                tier === t
-                  ? t === "wholesale"
-                    ? "bg-warn text-white"
-                    : "bg-brand text-white"
-                  : "bg-white text-muted"
-              }`}
-            >
-              {t}
-            </button>
-          ))}
-        </div>
       </div>
 
       {receipt ? <div className="mb-3 lg:hidden">{renderReceipt()}</div> : null}
@@ -1485,7 +1448,42 @@ export default function SellClient({
           the bill and the Complete button on screen at all times — a sticky
           panel still hung below the fold on load, which is the one thing this
           panel must never do. Phones and tablets keep the ordinary page scroll. */}
-      <div className="lg:grid lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_17rem] lg:items-stretch lg:gap-3 xl:grid-cols-[minmax(0,1fr)_19rem] xl:gap-4 2xl:grid-cols-[minmax(0,1fr)_22rem] 2xl:gap-6 3xl:grid-cols-[minmax(0,1fr)_24rem]">
+      <div className="lg:grid lg:min-h-0 lg:flex-1 lg:grid-cols-[4.5rem_minmax(0,1fr)_17rem] lg:items-stretch lg:gap-3 xl:grid-cols-[4.5rem_minmax(0,1fr)_19rem] xl:gap-4 2xl:grid-cols-[5rem_minmax(0,1fr)_22rem] 2xl:gap-5 3xl:grid-cols-[5rem_minmax(0,1fr)_24rem]">
+
+      {/* The board strip. Two targets, stacked, off to the side — where the rail
+          used to be and at a third of its width. Vertical because the space
+          going spare is a column, and because it costs the grid no height:
+          the horizontal pair used to eat a row of products on every screen. */}
+      <div
+        role="tablist"
+        aria-label="What to sell"
+        className="hidden lg:flex lg:flex-col lg:gap-1.5"
+      >
+        {BOARDS.map((b) => {
+          const on = board === b.key;
+          const count = (b.key === "products" ? finished : chemicals).length;
+          return (
+            <button
+              key={b.key}
+              type="button"
+              role="tab"
+              aria-selected={on}
+              onClick={() => setBoard(b.key)}
+              className={`flex flex-col items-center justify-center gap-0.5 rounded-2xl px-1 py-3 text-[11px] font-bold leading-tight transition-colors ${
+                on
+                  ? "bg-brand text-white shadow-card"
+                  : "bg-white text-muted ring-1 ring-ink/5 hover:text-ink"
+              }`}
+            >
+              <span className="text-center">{b.label}</span>
+              <span className={`text-[10px] font-semibold tnum ${on ? "text-white/75" : "text-muted"}`}>
+                {count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
       {/* A container, so the tile grid counts columns from the space it actually
           has rather than from the window. Collapsing the left rail hands this
           column 168px, and it turns that into another column of products by
@@ -1518,7 +1516,7 @@ export default function SellClient({
           <div
             role="tablist"
             aria-label="What to sell"
-            className="mt-2 grid grid-cols-2 gap-1 rounded-2xl bg-wash p-1 ring-1 ring-inset ring-line"
+            className="mt-2 grid grid-cols-2 gap-1 rounded-2xl bg-wash p-1 ring-1 ring-inset ring-line lg:hidden"
           >
             {BOARDS.map((b) => {
               const on = board === b.key;
@@ -1759,7 +1757,7 @@ export default function SellClient({
             role="tabpanel"
             onTouchStart={onBoardTouchStart}
             onTouchEnd={onBoardTouchEnd}
-            className="mt-3"
+            className="@container mt-3"
           >
             {board === "products" ? (
               finished.length ? (

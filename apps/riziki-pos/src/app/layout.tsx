@@ -1,9 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import Link from "next/link";
-import { cookies } from "next/headers";
 import "./globals.css";
 import { currentUser } from "@/lib/auth";
-import { BottomNav } from "@/components/nav";
+import { BottomNav, MenuDrawer } from "@/components/nav";
 import OfflineStatus from "@/components/offline-status";
 import OfflineNotice from "@/components/offline-notice";
 import RegisterSW from "@/components/register-sw";
@@ -26,21 +25,16 @@ export const dynamic = "force-dynamic";
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const user = await currentUser();
 
-  // Read here rather than in the browser so the rail is already the right width
-  // on the first paint. A rail that renders wide and then snaps shut reads as a
-  // fault, and on a counter screen that is the last impression to give.
-  const rail = (await cookies()).get("riziki_rail")?.value === "mini" ? "mini" : "wide";
-
   return (
-    <html lang="en" data-rail={rail}>
+    <html lang="en">
       <body className="min-h-dvh">
         <RegisterSW />
-        {/* Phone: centered column under the band. Desktop (lg+): a fixed left
-            rail takes over navigation and the content anchors beside it. The
-            rail's width is one CSS variable, so collapsing it moves both. */}
-        <div className="min-h-dvh lg:pl-[var(--rail-w)] lg:transition-[padding] lg:duration-200">
+        {/* Nothing is reserved down the side any more: the menu is a drawer
+            over the page, so every screen gets the full width. */}
+        <div className="min-h-dvh">
           {user ? (
             <header className="no-print header-deep relative flex items-center gap-3 px-4 py-3 text-white md:px-6 lg:px-10">
+              <MenuDrawer isOwner={user.role === "owner"} />
               <Link
                 href="/"
                 className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/10 text-sm font-extrabold tracking-wide text-white ring-1 ring-inset ring-white/25"
@@ -77,7 +71,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             {children}
           </main>
 
-          {user ? <BottomNav isOwner={user.role === "owner"} rail={rail} /> : null}
+          {user ? <BottomNav isOwner={user.role === "owner"} /> : null}
         </div>
       </body>
     </html>
