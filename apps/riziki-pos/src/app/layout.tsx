@@ -77,7 +77,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <main
             className={
               user
-                ? "mx-auto w-full max-w-lg px-4 pb-32 pt-5 md:max-w-3xl md:px-6 md:pt-6 lg:mx-0 lg:max-w-none lg:px-5 lg:pb-10 lg:pt-6 xl:px-6 2xl:px-8"
+                ? "mx-auto w-full max-w-lg px-4 pb-32 pt-5 md:max-w-3xl md:px-6 md:pt-6 lg:mx-0 lg:max-w-none lg:px-5 lg:pb-[var(--pos-pad)] lg:pt-[var(--pos-pad)] xl:px-6 2xl:px-8"
                 : "mx-auto w-full max-w-lg px-4 py-6"
             }
           >

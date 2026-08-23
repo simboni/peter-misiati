@@ -1420,7 +1420,7 @@ export default function SellClient({
   );
 
   return (
-    <div className="pb-24 lg:flex lg:h-[calc(100dvh-10.25rem)] lg:flex-col lg:pb-0">
+    <div className="pb-24 lg:flex lg:h-[calc(100dvh-var(--pos-header)-(var(--pos-pad)*2))] lg:flex-col lg:pb-0">
       {/* Wholesale has to be impossible to miss — a toggle left in the wrong
           position mis-prices every sale until somebody notices at day close. */}
       {wholesale ? (
@@ -1447,7 +1447,7 @@ export default function SellClient({
         where they cost no height at all because the search row was already
         there and half empty.
       */}
-      <div className="mb-2.5 flex items-center gap-2">
+      <div className="mb-2.5 flex items-center gap-2 lg:mb-1.5">
         <div
           role="tablist"
           aria-label="What to sell"
@@ -1491,7 +1491,9 @@ export default function SellClient({
               addUnits(matches.find((i) => i.qtyMilli > 0) ?? matches[0], queryCount);
               setQuery("");
             }}
-            className={inputClass}
+            // 44px is a thumb on a phone and wasted height on a laptop with a
+            // keyboard. The counter's 13" screen is the one with none to spare.
+            className={`${inputClass} lg:min-h-9 lg:py-1.5`}
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -1564,7 +1566,7 @@ export default function SellClient({
       <div className="@container min-w-0 lg:h-full lg:overflow-y-auto lg:pr-1">
       {/* Pinned to the top of the scrolling column: on a keyboard till, search
           is how the counter works, and it must never be somewhere up the page. */}
-      <div className="lg:sticky lg:top-0 lg:z-10 lg:-mt-1 lg:bg-wash lg:pb-2.5 lg:pt-1">
+      <div className="lg:sticky lg:top-0 lg:z-10 lg:-mt-1 lg:bg-wash lg:pb-1 lg:pt-0">
 
         {/* Sticky with the search, so changing board never means scrolling
             back up for it. Hidden while searching: a search already looks
@@ -1762,7 +1764,16 @@ export default function SellClient({
                 the same screen. The label has come inline and the chips no
                 longer wrap, so the same six shortcuts cost one strip.
               */}
-              <div className="-mx-4 mb-2 flex items-center gap-2 overflow-x-auto px-4 pb-0.5 md:mx-0 md:px-0">
+              {/*
+                Gone on a short screen.
+
+                This is a shortcut to items that are also in the grid below it,
+                and it costs about 43px — on the shop's 13" laptop that is a
+                whole row of stock, traded for a convenience. The rule is the
+                viewport's HEIGHT, not its width: a 1280x800 desktop keeps it, a
+                1280x610 laptop does not, and those are the same width.
+              */}
+              <div className="-mx-4 mb-2 flex items-center gap-2 overflow-x-auto px-4 pb-0.5 md:mx-0 md:px-0 [@media(max-height:760px)]:lg:hidden">
                 <span className="shrink-0 text-[10px] font-bold uppercase tracking-[0.12em] text-muted">
                   Top today
                 </span>

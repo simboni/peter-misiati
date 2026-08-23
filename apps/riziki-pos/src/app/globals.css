@@ -6,6 +6,23 @@
   phone-first: the counter device is an Android phone, not a desktop.
 */
 
+/*
+  The two measurements the till's column height is derived from.
+
+  The selling screen sizes itself to the viewport minus the app header and
+  minus main's own vertical padding, so that the item grid and the bill panel
+  each scroll on their own and the Complete button never leaves the screen.
+  That subtraction used to be a hard-coded 10.25rem, which was a guess: it was
+  60-odd pixels wrong, and on a 13" laptop those pixels are a row of stock.
+
+  Both are declared here so the padding and the calculation cannot drift apart.
+  Change one and the other follows.
+*/
+:root {
+  --pos-header: 3rem;
+  --pos-pad: 0.875rem;
+}
+
 @theme {
   /* The office monitor. Above this the app spreads rather than sitting in a
      column with grey either side. */
