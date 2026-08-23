@@ -1,0 +1,290 @@
+/**
+ * Quotations — the wholesale front door.
+ *
+ * A wholesale sale starts with a price argument, not with a till. The customer
+ * asks what four drums would cost, the owner puts a number in writing, and
+ * days later that number is either accepted or it is not. Nothing about that
+ * exchange should touch stock, debt or the day's takings, and nothing here
+ * does: a quote is a document, and the only thing it can do to the business is
+ * turn into a sale.
+ *
+ * That turn is the important design decision. There is no invoice table here,
+ * because this app already has one — a sale, with `/invoice/[id]` printing it,
+ * `payments` settling it and `customers` carrying what is still owed. So an
+ * approved quote is handed to the same `recordSale()` that every counter sale
+ * goes through. From that instant a wholesale bill and a walk-in bill are the
+ * same kind of object, which is why credit, part-payment, voiding, day close
+ * and the debtors report all work on it without knowing quotes exist.
+ *
+ * Two ways in, because the shop has two situations:
+ *   - price not settled  → quote → share → approve → invoice
+ *   - price already agreed → invoice directly, no quote at all
+ *
+ * The second is not a shortcut bolted on; it is the same `recordSale()` call
+ * the first one ends with.
+ */
+
+import { all, get, run, tx, audit } from "./db.ts";
+import { recordSale, type RecordSaleResult } from "./sales.ts";
+import { businessDate } from "./units.ts";
+
+export type QuoteStatus = "draft" | "sent" | "approved" | "declined" | "invoiced";
+
+export interface QuoteLineInput {
+  itemId: number;
+  units: number;
+  unitPriceCents: number;
+}
+
+export interface QuoteRow {
+  id: number;
+  quote_no: string;
+  customer_id: number | null;
+  customer_name: string;
+  status: QuoteStatus;
+  note: string;
+  valid_until: string;
+  sale_id: number | null;
+  created_at: string;
+  decided_at: string;
+  /** Derived, never stored: a total that disagreed with its lines would be a lie. */
+  total_cents: number;
+  line_count: number;
+}
+
+export interface QuoteLineRow {
+  id: number;
+  item_id: number;
+  item_name: string;
+  units: number;
+  unit_price_cents: number;
+  /** What the item is normally worth, so a discount is visible as a discount. */
+  wholesale_cents: number;
+  retail_cents: number;
+}
+
+/**
+ * QT-20260821-3 — the day it was raised and how many came before it.
+ *
+ * Human-readable on purpose: this number is read down a phone line and written
+ * on a delivery note, so it has to survive being spoken.
+ */
+export function newQuoteNo(at: Date = new Date()): string {
+  const day = businessDate(at);
+  const compact = day.replace(/-/g, "");
+  const used = get<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM quotes WHERE quote_no LIKE ?`,
+    `QT-${compact}-%`,
+  );
+  return `QT-${compact}-${(used?.n ?? 0) + 1}`;
+}
+
+const TOTAL_SQL = `
+  COALESCE((SELECT SUM(l.units * l.unit_price_cents) FROM quote_lines l WHERE l.quote_id = q.id), 0) AS total_cents,
+  COALESCE((SELECT COUNT(*) FROM quote_lines l WHERE l.quote_id = q.id), 0) AS line_count`;
+
+export function listQuotes(status?: QuoteStatus | "open", limit = 50): QuoteRow[] {
+  // "open" is the working set: everything still awaiting a decision or an
+  // invoice. It is what the wholesale screen opens on, because a quote nobody
+  // has answered is the only kind that needs a person.
+  const where =
+    status === "open"
+      ? `WHERE q.status IN ('draft', 'sent', 'approved')`
+      : status
+        ? `WHERE q.status = '${status}'`
+        : "";
+  return all<QuoteRow>(
+    `SELECT q.*, ${TOTAL_SQL} FROM quotes q ${where} ORDER BY q.created_at DESC, q.id DESC LIMIT ?`,
+    limit,
+  );
+}
+
+export function getQuote(id: number): QuoteRow | undefined {
+  return get<QuoteRow>(`SELECT q.*, ${TOTAL_SQL} FROM quotes q WHERE q.id = ?`, id);
+}
+
+export function quoteLines(quoteId: number): QuoteLineRow[] {
+  return all<QuoteLineRow>(
+    `SELECT l.id, l.item_id, i.name AS item_name, l.units, l.unit_price_cents,
+            i.wholesale_cents, i.retail_cents
+       FROM quote_lines l
+       JOIN items i ON i.id = l.item_id
+      WHERE l.quote_id = ?
+      ORDER BY l.sort_order, l.id`,
+    quoteId,
+  );
+}
+
+export interface SaveQuoteInput {
+  quoteId?: number;
+  customerId: number | null;
+  customerName: string;
+  note: string;
+  validUntil: string;
+  lines: QuoteLineInput[];
+  userId: number;
+}
+
+/**
+ * Write a quote, new or edited.
+ *
+ * Lines are replaced wholesale rather than diffed, for the same reason a
+ * corrected recipe replaces its ingredient list: a quote is the whole offer,
+ * and a partial update is how a line the customer talked you out of survives
+ * into the version they accept.
+ */
+export function saveQuote(input: SaveQuoteInput): { quoteId: number; quoteNo: string } {
+  const lines = input.lines.filter((l) => l.itemId > 0 && l.units > 0);
+  if (!lines.length) throw new Error("A quote needs at least one line.");
+  if (!input.customerName.trim() && input.customerId === null) {
+    throw new Error("Say who the quote is for.");
+  }
+
+  return tx(() => {
+    let quoteId = input.quoteId ?? 0;
+    let quoteNo: string;
+
+    if (quoteId) {
+      const existing = get<{ status: QuoteStatus; quote_no: string }>(
+        `SELECT status, quote_no FROM quotes WHERE id = ?`,
+        quoteId,
+      );
+      if (!existing) throw new Error("That quote no longer exists.");
+      // Once it is a sale the numbers are history, and history is not edited
+      // here — the sale has its own rules for that.
+      if (existing.status === "invoiced") {
+        throw new Error("This quote has already become an invoice. Raise a new one.");
+      }
+      quoteNo = existing.quote_no;
+      run(
+        `UPDATE quotes SET customer_id = ?, customer_name = ?, note = ?, valid_until = ? WHERE id = ?`,
+        input.customerId,
+        input.customerName.trim(),
+        input.note.trim(),
+        input.validUntil.trim(),
+        quoteId,
+      );
+      run(`DELETE FROM quote_lines WHERE quote_id = ?`, quoteId);
+    } else {
+      quoteNo = newQuoteNo();
+      const res = run(
+        `INSERT INTO quotes (quote_no, customer_id, customer_name, note, valid_until, created_by)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        quoteNo,
+        input.customerId,
+        input.customerName.trim(),
+        input.note.trim(),
+        input.validUntil.trim(),
+        input.userId,
+      );
+      quoteId = Number(res.lastInsertRowid);
+    }
+
+    let order = 0;
+    for (const line of lines) {
+      run(
+        `INSERT INTO quote_lines (quote_id, item_id, units, unit_price_cents, sort_order)
+         VALUES (?, ?, ?, ?, ?)`,
+        quoteId,
+        line.itemId,
+        Math.trunc(line.units),
+        Math.max(0, Math.trunc(line.unitPriceCents)),
+        order++,
+      );
+    }
+
+    audit(input.userId, input.quoteId ? "quote_edit" : "quote_new", "quote", quoteId,
+      `${quoteNo} · ${lines.length} line${lines.length === 1 ? "" : "s"}`);
+    return { quoteId, quoteNo };
+  });
+}
+
+/** Move a quote along: sent, approved, declined. Never to 'invoiced' — only
+ *  `invoiceQuote` may do that, because that is the step that writes a sale. */
+export function setQuoteStatus(
+  quoteId: number,
+  status: Exclude<QuoteStatus, "invoiced">,
+  userId: number,
+): void {
+  const q = getQuote(quoteId);
+  if (!q) throw new Error("That quote no longer exists.");
+  if (q.status === "invoiced") throw new Error("This quote is already an invoice.");
+  run(
+    `UPDATE quotes SET status = ?, decided_at = ? WHERE id = ?`,
+    status,
+    status === "draft" || status === "sent" ? "" : new Date().toISOString(),
+    quoteId,
+  );
+  audit(userId, "quote_status", "quote", quoteId, `${q.quote_no} · ${status}`);
+}
+
+export interface InvoiceQuoteInput {
+  quoteId: number;
+  userId: number;
+  /** Minted on the device, so a double-tap cannot bill the customer twice. */
+  clientUuid: string;
+  /** What was handed over now. Nothing here means the whole bill is on credit. */
+  tenders?: Array<{ method: "cash" | "mpesa" | "credit"; amountCents: number; ref?: string | null }>;
+}
+
+/**
+ * Turn an approved quote into an invoice — which is to say, into a sale.
+ *
+ * Everything money-shaped that follows (part payment, the debtors list, day
+ * close, voiding) is inherited rather than reimplemented, because what comes
+ * out the far end of this function is an ordinary sale.
+ */
+export function invoiceQuote(input: InvoiceQuoteInput): RecordSaleResult & { quoteNo: string } {
+  const q = getQuote(input.quoteId);
+  if (!q) throw new Error("That quote no longer exists.");
+  if (q.status === "invoiced") throw new Error("This quote has already been invoiced.");
+  if (q.status === "declined") throw new Error("This quote was declined. Raise a new one.");
+  // Approval is the whole point of the document: invoicing an unapproved quote
+  // would make the approval step decorative.
+  if (q.status !== "approved") throw new Error("The customer has not approved this quote yet.");
+
+  const lines = quoteLines(input.quoteId);
+  if (!lines.length) throw new Error("This quote has no lines.");
+
+  const total = lines.reduce((s, l) => s + l.units * l.unit_price_cents, 0);
+  const tenders =
+    input.tenders && input.tenders.length
+      ? input.tenders
+      : // No money named means the customer is taking it on account, which is
+        // the ordinary wholesale case.
+        [{ method: "credit" as const, amountCents: total }];
+
+  const result = recordSale({
+    clientUuid: input.clientUuid,
+    userId: input.userId,
+    tier: "wholesale",
+    // A quote is where the price is argued, so by the time it is approved the
+    // owner has already agreed to whatever was written — including a figure
+    // under the item's floor. Refusing it here would strand an accepted quote
+    // that can never be billed. The override is recorded against the owner who
+    // invoiced it, so the discount stays traceable in the activity log.
+    floorOverrideBy: input.userId,
+    customerId: q.customer_id,
+    note: `Quote ${q.quote_no}${q.note ? ` · ${q.note}` : ""}`,
+    lines: lines.map((l) => ({
+      itemId: l.item_id,
+      units: l.units,
+      unitPriceCents: l.unit_price_cents,
+    })),
+    tenders: tenders.map((t) => ({
+      method: t.method,
+      amountCents: t.amountCents,
+      mpesaCode: t.ref ?? null,
+    })),
+  });
+
+  run(
+    `UPDATE quotes SET status = 'invoiced', sale_id = ?, decided_at = ? WHERE id = ?`,
+    result.saleId,
+    new Date().toISOString(),
+    input.quoteId,
+  );
+  audit(input.userId, "quote_invoiced", "quote", input.quoteId, `${q.quote_no} → sale ${result.saleId}`);
+
+  return { ...result, quoteNo: q.quote_no };
+}

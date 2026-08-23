@@ -409,3 +409,51 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   expires_at TEXT NOT NULL
 );
+
+-- ---------------------------------------------------------------- quotations
+--
+-- A quote is the document that exists before there is a sale: prices offered,
+-- nothing committed. It moves no stock, touches no ledger and creates no debt,
+-- which is precisely what distinguishes it from everything else in this file.
+--
+-- It is deliberately NOT an invoice table. An invoice here is a sale — the
+-- sales/sale_lines/payments trio already carries totals, credit, part-payments
+-- and the printed document at /invoice/[id]. Quoting is the only genuinely new
+-- idea, so it is the only new table; approving a quote writes a sale through
+-- the same recordSale() every counter sale goes through, and from that moment
+-- the money behaves identically whether it started as a quote or a walk-in.
+--
+-- Lines are mutable, unlike sale_lines: haggling is the point of a quote, and
+-- until it is accepted nothing downstream depends on the numbers.
+CREATE TABLE IF NOT EXISTS quotes (
+  id            INTEGER PRIMARY KEY,
+  quote_no      TEXT    NOT NULL UNIQUE,
+  customer_id   INTEGER REFERENCES customers(id),
+  -- Kept alongside customer_id so a quote for someone not yet on the books
+  -- still prints with a name on it.
+  customer_name TEXT    NOT NULL DEFAULT '',
+  status        TEXT    NOT NULL DEFAULT 'draft'
+                CHECK (status IN ('draft', 'sent', 'approved', 'declined', 'invoiced')),
+  note          TEXT    NOT NULL DEFAULT '',
+  valid_until   TEXT    NOT NULL DEFAULT '',
+  -- Set once the quote becomes a sale; the link is what stops a quote being
+  -- invoiced twice.
+  sale_id       INTEGER REFERENCES sales(id),
+  created_by    INTEGER REFERENCES users(id),
+  created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+  decided_at    TEXT    NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS quote_lines (
+  id               INTEGER PRIMARY KEY,
+  quote_id         INTEGER NOT NULL REFERENCES quotes(id) ON DELETE CASCADE,
+  item_id          INTEGER NOT NULL REFERENCES items(id),
+  -- Whole packs, as sold. Milli quantities are the ledger's business, not the
+  -- customer's: a quote says "3 drums", not "510000".
+  units            INTEGER NOT NULL CHECK (units > 0),
+  unit_price_cents INTEGER NOT NULL CHECK (unit_price_cents >= 0),
+  sort_order       INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_quotes_status ON quotes(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_quote_lines_quote ON quote_lines(quote_id);
