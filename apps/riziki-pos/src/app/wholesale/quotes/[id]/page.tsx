@@ -27,7 +27,7 @@ export default async function QuotePage(props: { params: Promise<{ id: string }>
     "use server";
     const me = await requireUser();
     setQuoteStatus(Number(id), status, me.id);
-    redirect(`/wholesale/${id}`);
+    redirect(`/wholesale/quotes/${id}`);
   }
 
   const sent = move.bind(null, "sent");

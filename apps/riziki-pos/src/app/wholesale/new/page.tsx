@@ -62,6 +62,16 @@ export default async function NewWholesalePage(props: {
     lineCount: q.line_count,
   }));
 
+  /*
+   * A fortnight, unless somebody says otherwise.
+   *
+   * An empty expiry means the price holds for ever, which in a trade where the
+   * drum moves with the shilling is the expensive field to leave blank. Two
+   * weeks is long enough for a customer to think and short enough to protect
+   * the margin; it is a starting point, and it is editable.
+   */
+  const twoWeeks = new Date(Date.now() + 14 * 86_400_000).toISOString().slice(0, 10);
+
   const source = fromQuoteId ? getQuote(fromQuoteId) : undefined;
   const sourceLines = source ? quoteLines(source.id) : [];
 
@@ -195,7 +205,7 @@ export default async function NewWholesalePage(props: {
           customerId: source?.customer_id ?? null,
           customerName: source?.customer_name ?? "",
           note: source?.note ?? "",
-          validUntil: source?.valid_until ?? "",
+          validUntil: source?.valid_until || (mode === "quote" ? twoWeeks : ""),
           lines: sourceLines.map((l) => ({
             itemId: l.item_id,
             units: l.units,

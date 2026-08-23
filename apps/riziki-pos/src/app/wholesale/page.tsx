@@ -6,7 +6,7 @@ import { listQuotes } from "@/lib/quotes";
 import { debtors } from "@/lib/credit";
 import { formatKes } from "@/lib/units";
 import { PageTitle, SectionLabel, Stat } from "@/components/ui";
-import { WholesaleNav, NewBanner } from "@/components/wholesale-nav";
+import { WholesaleNav, NewBanner, BackLink } from "@/components/wholesale-nav";
 
 export const dynamic = "force-dynamic";
 
@@ -44,6 +44,7 @@ export default async function WholesaleOverview() {
 
   return (
     <div>
+      <BackLink href="/sell" label="Back to selling" />
       <PageTitle title="Wholesale" subtitle="Quotes, invoices, debts and the buyers behind them" />
       <WholesaleNav current="/wholesale" />
 

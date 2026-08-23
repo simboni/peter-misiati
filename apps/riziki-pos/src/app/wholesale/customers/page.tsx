@@ -4,7 +4,7 @@ import { currentUser } from "@/lib/auth";
 import { listCustomers, debtors } from "@/lib/credit";
 import { formatKes } from "@/lib/units";
 import { Card, Empty, PageTitle, SectionLabel } from "@/components/ui";
-import { WholesaleNav, NewBanner } from "@/components/wholesale-nav";
+import { WholesaleNav, NewBanner, BackLink } from "@/components/wholesale-nav";
 
 export const dynamic = "force-dynamic";
 
@@ -55,6 +55,7 @@ export default async function WholesaleCustomersPage() {
 
   return (
     <div>
+      <BackLink href="/wholesale" label="Wholesale" />
       <PageTitle title="Customers" subtitle="Who buys on account, and where each of them stands" />
       <WholesaleNav current="/wholesale/customers" />
 

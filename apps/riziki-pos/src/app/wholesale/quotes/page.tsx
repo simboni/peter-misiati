@@ -4,7 +4,7 @@ import { currentUser } from "@/lib/auth";
 import { listQuotes, type QuoteRow } from "@/lib/quotes";
 import { formatKes, formatDate } from "@/lib/units";
 import { Card, Empty, PageTitle, SectionLabel } from "@/components/ui";
-import { WholesaleNav, NewBanner } from "@/components/wholesale-nav";
+import { WholesaleNav, NewBanner, BackLink } from "@/components/wholesale-nav";
 
 export const dynamic = "force-dynamic";
 
@@ -59,6 +59,7 @@ export default async function QuotesPage() {
 
   return (
     <div>
+      <BackLink href="/wholesale" label="Wholesale" />
       <PageTitle title="Quotes" subtitle="Prices offered, and what became of them" />
       <WholesaleNav current="/wholesale/quotes" />
 

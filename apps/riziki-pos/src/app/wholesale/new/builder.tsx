@@ -5,14 +5,10 @@ import { useRouter } from "next/navigation";
 import { Alert, Button, Card, SectionLabel, inputClass } from "@/components/ui";
 import { formatKes } from "@/lib/units";
 import ItemPicker, { type PickItem } from "./item-picker";
+import CustomerPicker, { type PickCustomer } from "./customer-picker";
 
 export type { PickItem };
-export interface PickCustomer {
-  id: number;
-  name: string;
-  phone: string;
-  kind: string;
-}
+export type { PickCustomer };
 export interface QuoteChoice {
   id: number;
   quoteNo: string;
@@ -178,56 +174,22 @@ export default function Builder({
       ) : null}
 
       <Card>
-        <div className="grid gap-3 md:grid-cols-2">
-          <label className="block">
+        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_13rem]">
+          <div>
             <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
-              Customer on the books
+              Who is this for
             </span>
-            <select
-              className={inputClass}
-              value={customerId ?? ""}
-              onChange={(e) => {
-                const id = e.target.value ? Number(e.target.value) : null;
+            <CustomerPicker
+              customers={customers}
+              customerId={customerId}
+              customerName={customerName}
+              onPick={(id, name) => {
                 setCustomerId(id);
-                const c = customers.find((x) => x.id === id);
-                if (c) setCustomerName(c.name);
+                setCustomerName(name);
               }}
-            >
-              <option value="">Not on the books yet</option>
-              {customers.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                  {c.kind === "wholesale" ? " (wholesale)" : ""}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="block">
-            <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
-              Name on the document
-            </span>
-            <input
-              className={inputClass}
-              value={customerName}
-              onChange={(e) => setCustomerName(e.target.value)}
-              placeholder="Mama Njeri Hardware"
             />
-          </label>
-        </div>
+          </div>
 
-        <div className="mt-3 grid gap-3 md:grid-cols-2">
-          <label className="block">
-            <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
-              Note (prints on the document)
-            </span>
-            <input
-              className={inputClass}
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="Collecting Friday"
-            />
-          </label>
           {mode === "quote" ? (
             <label className="block">
               <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
@@ -242,6 +204,27 @@ export default function Builder({
             </label>
           ) : null}
         </div>
+
+        {/* A note and an expiry date are worth having and are almost never
+            needed, which is exactly what a disclosure is for. Naming the
+            customer and listing the goods is the whole job; everything else
+            waits to be asked for. */}
+        <details className="mt-2.5">
+          <summary className="cursor-pointer py-1 text-[12px] font-bold text-muted">
+            Add a note
+          </summary>
+          <label className="mt-2 block">
+            <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
+              Note (prints on the document)
+            </span>
+            <input
+              className={inputClass}
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="Collecting Friday"
+            />
+          </label>
+        </details>
       </Card>
 
       <SectionLabel>Lines</SectionLabel>

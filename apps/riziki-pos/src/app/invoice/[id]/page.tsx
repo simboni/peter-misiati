@@ -255,7 +255,12 @@ export default async function InvoicePage(props: {
         ) : null}
       </div>
 
-      <div className="no-print mt-4 flex gap-4 text-sm font-bold text-brand">
+      {/* Where you came from, most likely. A wholesale bill is reached from the
+          wholesale section and billing redirects straight here, so without this
+          the only way back into that section is the main menu — which is now
+          behind a hamburger, making it two taps to undo one. */}
+      <div className="no-print mt-4 flex flex-wrap gap-4 text-sm font-bold text-brand">
+        {sale.tier === "wholesale" ? <Link href="/wholesale/invoices">← Wholesale invoices</Link> : null}
         {sale.customer_id ? <Link href={`/customers/${sale.customer_id}`}>← {sale.customer_name}</Link> : null}
         <Link href="/customers">All debtors</Link>
       </div>

@@ -78,3 +78,27 @@ export function NewBanner({
     </Link>
   );
 }
+
+/**
+ * The way back.
+ *
+ * A real link to a named destination rather than a history-back button, and
+ * deliberately so: `router.back()` is only meaningful if you know how somebody
+ * arrived, and at a counter they arrive by every route there is — a tab, the
+ * menu, a redirect after billing, or a phone left open since yesterday. A
+ * button that sometimes leaves the app entirely is worse than one that always
+ * goes somewhere predictable.
+ *
+ * It also survives being middle-clicked, and works with no JavaScript, which a
+ * button does not.
+ */
+export function BackLink({ href, label }: { href: string; label: string }) {
+  return (
+    <Link
+      href={href}
+      className="no-print mb-2 inline-flex min-h-11 items-center gap-1.5 text-sm font-bold text-brand hover:underline xl:min-h-9"
+    >
+      <span aria-hidden>←</span> {label}
+    </Link>
+  );
+}
