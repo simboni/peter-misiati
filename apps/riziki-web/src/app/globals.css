@@ -52,6 +52,24 @@
   --leaf-light: #b3e07f;
   --leaf-soft: #e9f3e0;
   --on-brand: #ffffff;
+
+  /*
+    Always dark, in both colour schemes, on purpose.
+
+    --ink is the page's text colour and it INVERTS in dark mode: #14262b becomes
+    #e8f0f1. Anything drawn with it flips with the theme, which is right for
+    text and catastrophic for a scrim. The hero's overlays were built from
+    ink/60 and ink/90, so on a phone set to dark mode they turned into a white
+    wash over the photograph and took the white text on top with them — the
+    picture bleached, the words gone.
+
+    A scrim is not text. It always sits over a photograph and always carries
+    white type, so its colour is fixed here and deliberately absent from the
+    dark-mode block below. --on-photo is its partner: the colour of anything
+    placed ON a light button that is itself on a photograph.
+  */
+  --scrim: #0b1518;
+  --on-photo: #101d21;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -91,6 +109,8 @@
   --color-leaf-ink: var(--leaf-ink);
   --color-leaf-soft: var(--leaf-soft);
   --color-leaf-light: var(--leaf-light);
+  --color-scrim: var(--scrim);
+  --color-on-photo: var(--on-photo);
   --color-brand: var(--brand);
   --color-on-brand: var(--on-brand);
 

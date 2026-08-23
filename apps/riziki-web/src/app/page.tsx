@@ -119,7 +119,7 @@ export default function HomePage() {
                 photograph is a rectangle of nothing. */}
             <a
               href={telHref}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-bold text-ink transition hover:bg-white/90"
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-bold text-on-photo transition hover:bg-white/90"
             >
               <PhoneIcon />
               {BUSINESS.phoneDisplay}

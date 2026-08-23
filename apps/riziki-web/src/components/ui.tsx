@@ -192,7 +192,7 @@ export function PhotoHeader({
   children?: ReactNode;
 }) {
   return (
-    <div className="relative isolate overflow-hidden border-b border-line bg-ink">
+    <div className="relative isolate overflow-hidden border-b border-line bg-scrim">
       <picture>
         {srcSm ? <source media="(max-width: 640px)" srcSet={srcSm} type="image/webp" /> : null}
         <img
@@ -209,10 +209,10 @@ export function PhotoHeader({
           photograph had effectively been switched off, which defeats the point
           of putting one there; the left-hand gradient does the contrast work
           where the words actually are. */}
-      <div aria-hidden="true" className="absolute inset-0 -z-10 bg-ink/45" />
+      <div aria-hidden="true" className="absolute inset-0 -z-10 bg-scrim/45" />
       <div
         aria-hidden="true"
-        className="absolute inset-0 -z-10 bg-gradient-to-r from-ink/90 via-ink/65 to-ink/25"
+        className="absolute inset-0 -z-10 bg-gradient-to-r from-scrim/90 via-scrim/65 to-scrim/25"
       />
 
       <Container className="py-12 sm:py-16">

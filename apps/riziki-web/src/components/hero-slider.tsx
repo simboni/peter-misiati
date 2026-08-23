@@ -122,7 +122,7 @@ export function HeroSlider({
       role="group"
       aria-roledescription="carousel"
       aria-label="Riziki Industrial Chemicals — our store"
-      className="relative overflow-hidden bg-ink"
+      className="relative overflow-hidden bg-scrim"
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
       onFocus={() => setPaused(true)}
@@ -205,10 +205,10 @@ export function HeroSlider({
                 third. Measured against the rendered pixels rather than guessed:
                 white and the light green both clear 4.5:1 over every slide.
               */}
-              <div aria-hidden="true" className="absolute inset-0 bg-ink/60 sm:bg-ink/48" />
+              <div aria-hidden="true" className="absolute inset-0 bg-scrim/60 sm:bg-scrim/48" />
               <div
                 aria-hidden="true"
-                className="absolute inset-0 bg-gradient-to-r from-ink/90 via-ink/70 to-ink/40 sm:via-ink/72 sm:to-ink/15"
+                className="absolute inset-0 bg-gradient-to-r from-scrim/90 via-scrim/70 to-scrim/40 sm:via-scrim/72 sm:to-scrim/15"
               />
 
             </div>
@@ -255,7 +255,7 @@ export function HeroSlider({
             type="button"
             onClick={() => take(index - 1)}
             aria-label="Previous slide"
-            className="absolute left-3 top-1/2 hidden -translate-y-1/2 items-center justify-center rounded-full bg-white/85 p-3 text-ink shadow-md transition hover:bg-white sm:flex"
+            className="absolute left-3 top-1/2 hidden -translate-y-1/2 items-center justify-center rounded-full bg-white/85 p-3 text-on-photo shadow-md transition hover:bg-white sm:flex"
           >
             <Chevron className="rotate-180" />
           </button>
@@ -263,7 +263,7 @@ export function HeroSlider({
             type="button"
             onClick={() => take(index + 1)}
             aria-label="Next slide"
-            className="absolute right-3 top-1/2 hidden -translate-y-1/2 items-center justify-center rounded-full bg-white/85 p-3 text-ink shadow-md transition hover:bg-white sm:flex"
+            className="absolute right-3 top-1/2 hidden -translate-y-1/2 items-center justify-center rounded-full bg-white/85 p-3 text-on-photo shadow-md transition hover:bg-white sm:flex"
           >
             <Chevron />
           </button>

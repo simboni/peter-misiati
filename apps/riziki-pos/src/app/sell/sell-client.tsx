@@ -20,6 +20,7 @@
  */
 
 import Link from "next/link";
+import { swatchFor, nameSize } from "@/lib/swatch";
 import {
   useActionState,
   useCallback,
@@ -2012,6 +2013,8 @@ function Grid({
     // how the second one stops being offered.
     const canMake = Boolean(onMake && makeable && makeable[item.id]);
     const stock = out ? "none left" : formatUnits(item.qtyMilli, item.sizeMilli, item.unitLabel);
+    // The item's own colour, and how large its name can be set. See lib/swatch.
+    const sw = swatchFor(item.name);
     const body = (
       <button
         type="button"
@@ -2030,20 +2033,31 @@ function Grid({
         // 1280×800 is the screen this shop actually uses and the one with the
         // least room to spare: everything above the grid competes with it, so
         // the tile is sized to its content there and nothing more.
-        className={`relative flex h-[6.5rem] w-full flex-col rounded-2xl px-3 py-2.5 text-left shadow-card ring-1 transition-colors md:h-[5.75rem] lg:h-[4.75rem] xl:h-[4.5rem] xl:px-2.5 xl:py-2 2xl:h-[5.25rem] 3xl:h-[6.5rem] ${
+        className={`relative flex h-[6.75rem] w-full flex-col overflow-hidden rounded-2xl py-2.5 pl-3.5 pr-3 text-left shadow-card ring-1 transition-colors md:h-[6rem] lg:h-[5rem] xl:h-[4.75rem] xl:py-2 xl:pl-3 xl:pr-2.5 2xl:h-[5.5rem] 3xl:h-[6.75rem] ${
           canMake ? "rounded-b-none" : ""
-        } ${inCart ? "bg-brand-soft ring-brand/40" : "bg-white ring-ink/5 hover:ring-brand/30"} ${
+        } ${inCart ? "bg-brand-soft ring-brand/40" : "ring-ink/5 hover:ring-brand/30"} ${
           out ? "opacity-70" : ""
         }`}
+        // The tint only when the tile is not already carrying the in-cart
+        // highlight: two backgrounds fighting would lose the one that matters.
+        style={inCart ? undefined : { backgroundColor: sw.tint }}
       >
         {inCart ? (
           <span className="absolute right-2 top-2 flex h-6 min-w-6 items-center justify-center rounded-full bg-brand px-1.5 text-xs font-extrabold text-white tnum">
             {inCart.units}
           </span>
         ) : null}
-        {/* One line, never clipped mid-word: the size below carries what an
-            ellipsis used to eat. */}
-        <div className={`truncate text-[13px] font-bold leading-tight ${inCart ? "pr-7" : ""}`}>
+        {/* The chemical's own colour, down the leading edge. Four pixels is
+            enough to group a grid by at a glance and costs no room at all. */}
+        <span
+          aria-hidden
+          className="absolute inset-y-0 left-0 w-[4px]"
+          style={{ backgroundColor: sw.bar }}
+        />
+
+        {/* The name IS the picture here, so a short one is set large. Most of
+            this shelf is four-letter abbreviations — see lib/swatch. */}
+        <div className={`truncate font-extrabold ${nameSize(item.name)} ${inCart ? "pr-7" : ""}`}>
           {base}
         </div>
 
@@ -2061,7 +2075,9 @@ function Grid({
           count drops back under the price where it has the full width.
         */}
         <div className="mt-0.5 flex h-4 items-baseline gap-1.5 text-[11px] font-semibold">
-          <span className="shrink-0 text-muted">{size ?? ""}</span>
+          <span className="shrink-0" style={{ color: sw.bar }}>
+            {size ?? ""}
+          </span>
           <span
             className={`ml-auto hidden min-w-0 truncate text-right tnum md:block ${
               out ? "font-bold text-bad" : "text-muted/80"
