@@ -174,7 +174,7 @@ export default function Builder({
       ) : null}
 
       <Card>
-        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_13rem]">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_13rem]">
           <div>
             <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
               Who is this for
@@ -309,7 +309,7 @@ export default function Builder({
         <>
           <SectionLabel>Payment</SectionLabel>
           <Card>
-            <div className="grid gap-3 md:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
               <label className="block">
                 <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
                   Paid now (KES)

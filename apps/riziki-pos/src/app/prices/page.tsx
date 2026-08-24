@@ -121,7 +121,7 @@ export default async function PricesPage(props: {
         </Card>
       )}
 
-      <div className="no-print mt-4 flex flex-wrap gap-4 text-sm font-bold text-brand">
+      <div className="no-print mt-4 flex flex-wrap items-center gap-x-4 text-sm font-bold text-brand [&>a]:inline-flex [&>a]:min-h-11 [&>a]:items-center sm:[&>a]:min-h-9">
         <Link href="/prices/history">Price history</Link>
         {user.role === "owner" ? <Link href="/items">Products &amp; prices</Link> : null}
       </div>

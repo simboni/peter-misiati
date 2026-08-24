@@ -116,18 +116,26 @@ export default async function ActivityPage(props: {
         // Newest first still reads correctly across columns — left to right,
         // then down — and answering "who did what" means scanning many entries,
         // so a wide screen should show more of them rather than a longer margin.
-        <div className="grid gap-1.5 xl:grid-cols-2 2xl:grid-cols-3 3xl:grid-cols-4">
+        <div className="grid grid-cols-1 gap-1.5 xl:grid-cols-2 2xl:grid-cols-3 3xl:grid-cols-4">
           {rows.map((r) => {
             const a = ACTIONS[r.action] ?? { label: r.action.replaceAll("_", " "), tone: "neutral" as const };
             return (
-              <Card key={r.id} className="!p-2.5 xl:!p-3">
+              <Card key={r.id} className="min-w-0 !p-2.5 xl:!p-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <Chip tone={a.tone}>{a.label}</Chip>
                   <span className="text-sm font-bold">{r.user_name ?? "System"}</span>
                   <span className="ml-auto text-[11px] text-muted">{formatDateTime(r.at)}</span>
                 </div>
+                {/*
+                  `break-words` alone was not enough. A grid item defaults to
+                  min-width:auto, so the card grew to fit an unbroken string
+                  rather than the string wrapping inside it — and a detail can be
+                  a JSON blob with no spaces in it, which stretched this page
+                  565px past the edge of a phone. `min-w-0` on the card lets it
+                  shrink; `overflow-wrap: anywhere` breaks the string.
+                */}
                 {r.detail ? (
-                  <p className="mt-1.5 break-words text-sm text-muted">{r.detail}</p>
+                  <p className="mt-1.5 text-sm text-muted [overflow-wrap:anywhere]">{r.detail}</p>
                 ) : null}
               </Card>
             );

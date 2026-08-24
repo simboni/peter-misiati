@@ -142,9 +142,13 @@ export default async function PurchasesPage(props: { searchParams: Promise<{ ite
 
       <SectionLabel>Recent deliveries</SectionLabel>
       {purchases.length ? (
-        <div className="grid items-start gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 3xl:grid-cols-5">
+        <div className="grid grid-cols-1 items-start gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 3xl:grid-cols-5">
+          {/* `min-w-0` on each card: a grid item defaults to min-width:auto, so
+              the card grew to fit its widest delivery line instead of that line
+              truncating inside it, and on a 360px phone the whole page went 70px
+              past its own edge. */}
           {purchases.map((p) => (
-            <Card key={p.id} className="space-y-2">
+            <Card key={p.id} className="min-w-0 space-y-2">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="truncate font-bold">{p.supplier_name ?? "Supplier not recorded"}</div>
@@ -154,10 +158,15 @@ export default async function PurchasesPage(props: { searchParams: Promise<{ ite
                     {p.user_name ? ` · ${p.user_name}` : ""}
                   </div>
                 </div>
-                <div className="shrink-0 text-right">
-                  <div className="font-extrabold tnum">{formatKes(p.total_cents)}</div>
+                {/* Not `shrink-0`: "incl. KES 1,234 transport" is long, and a
+                    column that can neither shrink nor wrap pushed a 360px phone
+                    29px past its own edge. The total still never wraps. */}
+                <div className="min-w-0 text-right">
+                  <div className="whitespace-nowrap font-extrabold tnum">{formatKes(p.total_cents)}</div>
                   {p.transport_cents ? (
-                    <div className="text-[11px] text-muted">incl. {formatKes(p.transport_cents)} transport</div>
+                    <div className="text-[11px] leading-tight text-muted">
+                      incl. {formatKes(p.transport_cents)} transport
+                    </div>
                   ) : null}
                 </div>
               </div>
@@ -237,16 +246,22 @@ function SupplierList({
     );
   }
   return (
-    <div className="grid items-start gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 3xl:grid-cols-5">
+    <div className="grid grid-cols-1 items-start gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 3xl:grid-cols-5">
+      {/* `min-w-0` for the same reason as the deliveries above: a grid item
+          grows to fit its widest child unless told it may shrink, and a long
+          supplier name plus a phone number overran a 320px phone. */}
       {suppliers.map((s) => (
-        <Card key={s.id}>
+        <Card key={s.id} className="min-w-0">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="truncate font-bold">{s.name}</div>
               {s.note ? <div className="text-xs text-muted">{s.note}</div> : null}
             </div>
             {s.phone ? (
-              <a href={`tel:${s.phone.replace(/\s/g, "")}`} className="shrink-0 text-xs font-bold text-brand">
+              <a
+                href={`tel:${s.phone.replace(/\s/g, "")}`}
+                className="-my-2 inline-flex min-h-11 shrink-0 items-center whitespace-nowrap py-2 text-xs font-bold text-brand sm:min-h-0 sm:py-0"
+              >
                 {s.phone}
               </a>
             ) : null}

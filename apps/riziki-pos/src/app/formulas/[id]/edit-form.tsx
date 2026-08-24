@@ -158,7 +158,7 @@ export function EditFormulaForm({
         </Button>
       </Card>
 
-      <Card className="grid gap-3 xl:grid-cols-2">
+      <Card className="grid grid-cols-1 gap-3 xl:grid-cols-2">
         <Field label="Mixing steps" hint="One step per line.">
           <textarea className={inputClass} name="steps" defaultValue={steps} rows={6} />
         </Field>

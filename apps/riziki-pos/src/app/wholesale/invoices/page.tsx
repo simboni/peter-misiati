@@ -89,14 +89,14 @@ export default async function InvoicesPage(props: {
 
       {rows.length ? (
         <div className="overflow-hidden rounded-2xl bg-white shadow-card ring-1 ring-ink/5">
-          <table className="w-full text-sm">
+          <table className="w-full table-fixed text-sm sm:table-auto">
             <thead>
               <tr className="border-b border-line bg-wash text-left text-[10px] uppercase tracking-[0.12em] text-muted">
-                <th className="px-3 py-2">Customer</th>
+                <th className="px-2 py-2 sm:px-3">Customer</th>
                 <th className="hidden px-3 py-2 sm:table-cell">Date</th>
                 <th className="hidden px-3 py-2 lg:table-cell">Reference</th>
                 <th className="px-3 py-2 text-right">Total</th>
-                <th className="px-3 py-2 text-right">Owing</th>
+                <th className="px-2 py-2 text-right sm:px-3">Owing</th>
               </tr>
             </thead>
             <tbody>
@@ -106,8 +106,13 @@ export default async function InvoicesPage(props: {
                 const days = ageDays(r.at);
                 return (
                   <tr key={r.id} className="border-t border-line hover:bg-wash/60">
-                    <td className="px-3 py-2">
-                      <Link href={`/invoice/${r.id}`} className="block font-bold text-ink hover:text-brand">
+                    <td className="px-2 py-2 sm:px-3">
+                      <Link
+                        href={`/invoice/${r.id}`}
+                        // Stretched over the cell padding: bare text is a 20px
+                        // target on a phone.
+                        className="-my-2 block py-2 font-bold text-ink hover:text-brand"
+                      >
                         {r.customer_name ?? "Walk-in"}
                       </Link>
                       <span className="text-[11px] text-muted sm:hidden">{formatDate(r.at)}</span>
@@ -119,7 +124,7 @@ export default async function InvoicesPage(props: {
                     <td className={`px-3 py-2 text-right font-bold tnum ${voided ? "text-muted line-through" : ""}`}>
                       {formatKes(r.total_cents)}
                     </td>
-                    <td className="px-3 py-2 text-right tnum">
+                    <td className="px-2 py-2 text-right tnum sm:px-3">
                       {voided ? (
                         <span className="text-[11px] font-bold uppercase text-bad">voided</span>
                       ) : owing > 0 ? (

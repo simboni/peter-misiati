@@ -86,7 +86,11 @@ export default async function QuotesPage(props: {
                     <td className="px-3 py-2">
                       <Link
                         href={`/wholesale/quotes/${r.id}`}
-                        className="block font-bold text-ink hover:text-brand"
+                        // The row's tap target. `-my-2 py-2` stretches the
+                        // link over the cell's own padding: as bare text it was
+                        // a 20px-tall target on a phone, which is a miss waiting
+                        // to happen at a counter.
+                        className="-my-2 block py-2 font-bold text-ink hover:text-brand"
                       >
                         {r.customer_name || "Unnamed customer"}
                       </Link>

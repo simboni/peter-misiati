@@ -204,7 +204,7 @@ export default async function BatchPage(props: {
       {pending.length ? (
         <>
           <SectionLabel>Waiting on actual yield</SectionLabel>
-          <div className="grid gap-2 2xl:grid-cols-2">
+          <div className="grid grid-cols-1 gap-2 2xl:grid-cols-2">
             {pending.map((b) => (
               <Card key={b.id} className="space-y-2.5">
                 <div className="flex items-start justify-between gap-3">

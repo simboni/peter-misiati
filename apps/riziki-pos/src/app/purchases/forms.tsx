@@ -121,7 +121,9 @@ export function PurchaseForm({
                 <button
                   type="button"
                   onClick={() => setRows(rows.filter((r) => r !== row))}
-                  className="text-[11px] font-bold text-bad"
+                  // A real button, and it was 17px tall. Padded to a thumb on a
+                  // phone; the negative margin keeps the row's own height.
+                  className="-my-2 inline-flex min-h-11 items-center px-2 py-2 text-[11px] font-bold text-bad sm:min-h-0 sm:py-0"
                 >
                   Remove
                 </button>

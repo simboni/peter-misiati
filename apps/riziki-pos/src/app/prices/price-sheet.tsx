@@ -123,74 +123,108 @@ export function PriceSheet({ rows, staleDays }: { rows: SheetRow[]; staleDays: n
         </div>
       ) : null}
 
+      {/*
+        A list that reflows, not a table.
+
+        As a table this needed four columns and two number boxes, and on a 360px
+        Android the wholesale column simply fell off the right-hand edge — the
+        card clipped it, so there was not even a scrollbar to reach it with. The
+        shop's own screenshot showed "WHOLESAL" cut in half.
+
+        So each row is a flex line instead. On a phone the name takes the whole
+        first line and the two prices share the second, each labelled because
+        there is no header row up there to label them. From `sm` up it is one
+        line again with the header doing that job.
+      */}
       <div className="overflow-hidden rounded-2xl bg-white shadow-card ring-1 ring-ink/5">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-line bg-wash text-left text-[10px] uppercase tracking-[0.12em] text-muted">
-              <th className="px-3 py-2">Item</th>
-              <th className="hidden px-3 py-2 sm:table-cell">Last changed</th>
-              <th className="px-3 py-2 text-right">Retail</th>
-              <th className="px-3 py-2 text-right">Wholesale</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => {
-              const on = touched.has(r.id);
-              return (
-                <tr
-                  key={r.id}
-                  className={`border-t border-line ${on ? "bg-brand-soft/60" : "hover:bg-wash/50"}`}
-                >
-                  <td className="px-3 py-1.5">
-                    <span className="block font-bold leading-tight">{r.name}</span>
-                    <span className="text-[11px] text-muted">
-                      {r.floor_cents > 0 ? `floor ${formatKes(r.floor_cents)}` : "no floor set"}
-                      <span className="sm:hidden">
-                        {" · "}
-                        {r.days === null ? "never changed" : `${r.days}d ago`}
-                      </span>
+        <div className="hidden border-b border-line bg-wash px-3 py-2 text-[10px] uppercase tracking-[0.12em] text-muted sm:flex">
+          <span className="flex-1">Item</span>
+          <span className="w-40 lg:w-52">Last changed</span>
+          <span className="w-24 text-right xl:w-28">Retail</span>
+          <span className="ml-3 w-24 text-right xl:w-28">Wholesale</span>
+        </div>
+
+        <div className="divide-y divide-line">
+          {rows.map((r) => {
+            const on = touched.has(r.id);
+            return (
+              <div
+                key={r.id}
+                className={`flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2.5 sm:flex-nowrap sm:py-1.5 ${
+                  on ? "bg-brand-soft/60" : "hover:bg-wash/50"
+                }`}
+              >
+                <div className="min-w-0 basis-full sm:flex-1 sm:basis-auto">
+                  <span className="block font-bold leading-tight">{r.name}</span>
+                  <span className="text-[11px] text-muted">
+                    {r.floor_cents > 0 ? `floor ${formatKes(r.floor_cents)}` : "no floor set"}
+                    <span className="sm:hidden">
+                      {" · "}
+                      {r.days === null ? "never changed" : `${r.days}d ago`}
                     </span>
-                  </td>
-                  <td className="hidden px-3 py-1.5 text-[12px] sm:table-cell">
-                    {r.days === null ? (
-                      <span className="text-muted">never changed</span>
-                    ) : (
-                      <span className={r.stale ? "font-bold text-warn" : "text-muted"}>
-                        {r.days === 0 ? "today" : `${r.days} day${r.days === 1 ? "" : "s"} ago`}
-                        {r.changed_by ? <span className="text-muted"> · {r.changed_by}</span> : null}
+                  </span>
+                </div>
+
+                <div className="hidden w-40 text-[12px] sm:block lg:w-52">
+                  {r.days === null ? (
+                    <span className="text-muted">never changed</span>
+                  ) : (
+                    <span className={r.stale ? "font-bold text-warn" : "text-muted"}>
+                      {r.days === 0 ? "today" : `${r.days} day${r.days === 1 ? "" : "s"} ago`}
+                      {r.changed_by ? <span className="text-muted"> · {r.changed_by}</span> : null}
+                    </span>
+                  )}
+                </div>
+
+                {(["retail", "wholesale"] as const).map((field) => {
+                  const key = `${field}_${r.id}`;
+                  return (
+                    <label
+                      key={field}
+                      className="min-w-0 flex-1 sm:w-24 sm:flex-none xl:w-28"
+                    >
+                      <span className="mb-0.5 block text-[10px] font-bold uppercase tracking-[0.1em] text-muted sm:hidden">
+                        {field}
                       </span>
-                    )}
-                  </td>
-                  {(["retail", "wholesale"] as const).map((field) => {
-                    const key = `${field}_${r.id}`;
-                    return (
-                      <td key={field} className="px-2 py-1.5 text-right">
-                        <input
-                          name={key}
-                          value={valueOf(key)}
-                          onChange={(e) => setDraft((d) => ({ ...d, [key]: e.target.value }))}
-                          inputMode="decimal"
-                          autoComplete="off"
-                          aria-label={`${r.name} ${field} price`}
-                          className={`w-24 rounded-lg border px-2 py-1.5 text-right text-sm font-bold tnum xl:w-28 ${
-                            valueOf(key) !== original[key]
-                              ? "border-brand bg-white text-brand-deep"
-                              : "border-line bg-white"
-                          }`}
-                        />
-                      </td>
-                    );
-                  })}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                      <input
+                        name={key}
+                        value={valueOf(key)}
+                        onChange={(e) => setDraft((d) => ({ ...d, [key]: e.target.value }))}
+                        inputMode="decimal"
+                        autoComplete="off"
+                        aria-label={`${r.name} ${field} price`}
+                        // 44px on a phone, where this is typed with a thumb.
+                        className={`min-h-11 w-full rounded-lg border px-2 text-right text-sm font-bold tnum sm:min-h-9 ${
+                          valueOf(key) !== original[key]
+                            ? "border-brand bg-white text-brand-deep"
+                            : "border-line bg-white"
+                        }`}
+                      />
+                    </label>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
       </div>
 
-      {/* Sticky, because the list is long and the count is the thing you check
-          before committing. */}
-      <div className="sticky bottom-20 z-10 rounded-full bg-wash/80 p-1 shadow-lift backdrop-blur lg:bottom-4">
+      {/*
+        Sticky only once there is something to save.
+
+        The count is what you check before committing, so it has to follow you
+        down a long list — but while it reads "No prices changed yet" it is
+        floating over a row of the form saying nothing, and on a phone that row
+        is the one you were about to type in. Idle it sits at the end like any
+        other button; the moment a price is touched it lifts and follows.
+      */}
+      <div
+        className={
+          touched.size > 0
+            ? "sticky bottom-20 z-10 rounded-full bg-wash/80 p-1 shadow-lift backdrop-blur lg:bottom-4"
+            : "p-1"
+        }
+      >
         <Button type="submit" className="w-full text-base" disabled={pending || touched.size === 0}>
           {pending
             ? "Saving…"

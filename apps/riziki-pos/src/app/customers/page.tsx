@@ -111,7 +111,7 @@ export default async function CustomersPage(props: {
               <Card key={r.id} className="space-y-2">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <Link href={`/customers/${r.id}`} className="block truncate font-bold text-ink">
+                    <Link href={`/customers/${r.id}`} className="-my-1 block truncate py-1 font-bold text-ink">
                       {r.name}
                     </Link>
                     <div className="mt-0.5 text-xs text-muted">

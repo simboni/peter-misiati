@@ -48,7 +48,7 @@ export default async function WholesaleOverview() {
       <PageTitle title="Wholesale" subtitle="Quotes, invoices, and the buyers behind them" />
       <WholesaleNav current="/wholesale" />
 
-      <div className="grid gap-2.5 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2">
         <NewBanner
           href="/wholesale/quotes/new"
           title="New quote"

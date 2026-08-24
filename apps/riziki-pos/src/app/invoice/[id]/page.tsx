@@ -342,7 +342,7 @@ export default async function InvoicePage(props: {
           behind a hamburger, making it two taps to undo one. The wholesale link
           is already at the top of the page for those bills, so it is not
           repeated here. */}
-      <div className="no-print mt-4 flex flex-wrap gap-4 text-sm font-bold text-brand">
+      <div className="no-print mt-4 flex flex-wrap items-center gap-x-4 text-sm font-bold text-brand [&>a]:inline-flex [&>a]:min-h-11 [&>a]:items-center sm:[&>a]:min-h-9">
         {sale.tier !== "wholesale" ? <Link href="/customers">All debtors</Link> : null}
         {sale.customer_id ? (
           <Link href={`/customers/${sale.customer_id}`}>
