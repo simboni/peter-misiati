@@ -100,6 +100,17 @@ export interface KitChoice {
 export interface KitOffer {
   formulaName: string;
   targetMilli: number;
+  /**
+   * The smallest batch at which every ingredient's smallest pack is within
+   * reach of what the recipe asks for. A kit is whole packs off the shelf, so a
+   * recipe wanting a pinch of something sold only in 5 kg tubs cannot be sold
+   * small — and saying so without saying what would work is the confusing part.
+   */
+  floorMilli: number;
+  /** The ingredient that sets that floor. */
+  floorBecause: string | null;
+  /** Chemicals with no sellable pack at all — no batch size fixes these. */
+  unpackable: string[];
   ingredients: Array<{
     chemicalName: string;
     unit: string;
@@ -1713,13 +1724,61 @@ export default function SellClient({
               ) : null}
               {/* The kit must not quietly bill someone for 5 kg of a chemical
                   their recipe needs 25 g of. Those are left out and named. */}
+              {/*
+                A refusal with an answer attached.
+
+                "smallest is 1 kg" is true but leaves the counter stuck. A kit is
+                whole packs off the price list, so an ingredient the recipe wants
+                a pinch of has to be bought in whatever the smallest pack of it
+                is — and the way out is either a bigger batch or a smaller pack,
+                so both are named, with the numbers.
+              */}
               {kitLeftOut.length ? (
-                <div className="mt-2">
+                <div className="mt-2 space-y-2">
                   <Alert tone="warn">
-                    Not in this kit: {kitLeftOut.join(", ")}. Either the shop has no pack that
-                    size, or the smallest one is far more than the recipe needs — weigh those out
-                    separately, or add a smaller pack in Products &amp; prices.
+                    <span className="font-bold">Left out of this kit: {kitLeftOut.join(", ")}.</span>{" "}
+                    A kit is made of packs the shop already sells, so an ingredient needed by the
+                    gram has to be bought as a whole pack. At {formatQty(kitOffer.targetMilli, "L")}{" "}
+                    those packs come to far more than the recipe calls for.
                   </Alert>
+
+                  {kitOffer.unpackable.length ? (
+                    <p className="text-[12px] leading-relaxed text-muted">
+                      <span className="font-bold text-ink">
+                        {kitOffer.unpackable.join(", ")}
+                      </span>{" "}
+                      {kitOffer.unpackable.length === 1 ? "has" : "have"} no pack on the price list
+                      at any size, so no batch size will include{" "}
+                      {kitOffer.unpackable.length === 1 ? "it" : "them"}. Add a pack size under
+                      Products &amp; prices, or weigh{" "}
+                      {kitOffer.unpackable.length === 1 ? "it" : "them"} out separately.
+                    </p>
+                  ) : null}
+
+                  {kitOffer.floorMilli > kitOffer.targetMilli ? (
+                    <div className="flex flex-wrap items-center gap-2 text-[12px] text-muted">
+                      <span>
+                        Everything fits from{" "}
+                        <span className="font-bold text-ink">
+                          {formatQty(kitOffer.floorMilli, "L")}
+                        </span>{" "}
+                        up
+                        {kitOffer.floorBecause ? ` — ${kitOffer.floorBecause} sets that` : ""}.
+                      </span>
+                      {/* One tap rather than working the number out and typing it. */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const litres = String(kitOffer.floorMilli / 1000);
+                          setKitSize(litres);
+                          previewKit(kitVersion, litres);
+                        }}
+                        className="rounded-full bg-brand-soft px-3 py-1.5 text-[12px] font-bold text-brand-dark"
+                      >
+                        Try {formatQty(kitOffer.floorMilli, "L")}
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
 

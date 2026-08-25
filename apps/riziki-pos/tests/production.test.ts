@@ -37,6 +37,7 @@ const {
   voidBatch,
   allocate,
   buildKit,
+  smallestKitBatch,
   StockShortError,
 } = await import("../src/lib/production.ts");
 
@@ -725,4 +726,61 @@ test("once a batch is mixed, editing forks a new version and the old one is unto
   const kept = formulaItems(version.id);
   assert.ok(kept.length > 0, "the mixed version kept its ingredients");
   assert.notEqual(kept[0].qty_milli, toMilli(9), "the mixed version was not rewritten");
+});
+
+test("the smallest workable kit is derived, not guessed", () => {
+  // A kit is whole packs off the price list. If a recipe wants a pinch of
+  // something the shop only sells in big tubs, the kit cannot be sold small —
+  // and the counter needs to be told what size WOULD work, not just refused.
+  const chemId = Number(
+    run(`INSERT INTO chemicals (name, canonical_unit) VALUES ('Test Trace', 'kg')`)
+      .lastInsertRowid,
+  );
+  const bulkId = Number(
+    run(
+      `INSERT INTO items (chemical_id, name, kind, canonical_unit, size_milli, unit_label, sellable)
+       VALUES (?, 'Test Trace — 25 kg', 'bulk', 'kg', 25000, 'bag', 0)`,
+      chemId,
+    ).lastInsertRowid,
+  );
+  // The only pack on sale is 5 kg.
+  run(
+    `INSERT INTO items (chemical_id, name, kind, canonical_unit, size_milli, unit_label, sellable, retail_cents)
+     VALUES (?, 'Test Trace — 5 kg', 'pack', 'kg', 5000, 'pack', 1, 90000)`,
+    chemId,
+  );
+
+  const fId = Number(
+    run(`INSERT INTO formulas (name) VALUES ('Test Trace Recipe')`).lastInsertRowid,
+  );
+  const vId = Number(
+    run(
+      `INSERT INTO formula_versions (formula_id, version, ref_size_milli) VALUES (?, 1, 20000)`,
+      fId,
+    ).lastInsertRowid,
+  );
+  // 20 g in a 20 L batch — one gram per litre, like the shop's real C.D.E line.
+  run(
+    `INSERT INTO formula_items (formula_version_id, chemical_id, qty_milli) VALUES (?, ?, 20)`,
+    vId,
+    chemId,
+  );
+
+  const floor = smallestKitBatch(vId);
+  // 5 kg pack must be within 2x of what the batch needs, so the batch must need
+  // at least 2.5 kg: 2.5 kg at 1 g/L is 2,500 litres.
+  assert.equal(floor.targetMilli, 2_500_000, "the floor is arithmetic, not a guess");
+  assert.equal(floor.binding?.name, "Test Trace");
+  assert.deepEqual(floor.unpackable, []);
+
+  // And at that size the kit stops complaining.
+  assert.equal(buildKit(vId, 2_500_000).ingredients[0].oversized, false);
+  assert.equal(buildKit(vId, 1000).ingredients[0].oversized, true, "one litre is absurd");
+
+  // A chemical with no sellable pack can never be kitted, at any size.
+  run(`UPDATE items SET retail_cents = 0 WHERE chemical_id = ? AND kind = 'pack'`, chemId);
+  const none = smallestKitBatch(vId);
+  assert.deepEqual(none.unpackable, ["Test Trace"]);
+  assert.equal(none.targetMilli, 0, "no batch size fixes a chemical that is not sold in packs");
+  assert.ok(bulkId > 0);
 });

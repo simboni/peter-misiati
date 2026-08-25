@@ -1032,6 +1032,74 @@ export function buildKit(versionId: number, targetMilli: number): Kit {
   };
 }
 
+/**
+ * The smallest batch at which a kit stops being absurd.
+ *
+ * A kit is whole packs off the shelf, so an ingredient the recipe wants a
+ * pinch of has to be bought in whatever the smallest pack of it is. Carwash
+ * Shampoo needs 1 g of C.D.E per litre and the smallest C.D.E on the price
+ * list is 5 kg — so a one-litre kit means selling somebody a 5 kg tub, four
+ * thousand times what they asked for. The screen refuses, which is right, but
+ * refusing without saying what WOULD work is the confusing part.
+ *
+ * For each ingredient the pack is acceptable once it is within `OVERSHOOT_LIMIT`
+ * of what the recipe needs:
+ *
+ *     smallestPack <= LIMIT * qty * target / referenceBatch
+ *
+ * Rearranged, that is the smallest target this ingredient allows; the answer is
+ * the largest of those across the recipe. Ingredients with no pack on the price
+ * list at all can never be supplied, so they are named separately rather than
+ * pushing the number to infinity.
+ */
+export interface KitFloor {
+  /** Smallest batch, in milli, where every packable ingredient is in range. */
+  targetMilli: number;
+  /** Chemicals with no sellable pack at any size — no batch fixes these. */
+  unpackable: string[];
+  /** The ingredient that sets the floor, for explaining the number. */
+  binding: { name: string; neededMilli: number; packMilli: number; unit: string } | null;
+}
+
+export function smallestKitBatch(versionId: number): KitFloor {
+  const version = versionById(versionId);
+  if (!version) return { targetMilli: 0, unpackable: [], binding: null };
+
+  let targetMilli = 0;
+  const unpackable: string[] = [];
+  let binding: KitFloor["binding"] = null;
+
+  for (const line of formulaItems(versionId)) {
+    const smallest = get<{ size_milli: number }>(
+      `SELECT size_milli FROM items
+        WHERE chemical_id = ? AND kind = 'pack' AND sellable = 1 AND active = 1
+          AND retail_cents > 0
+        ORDER BY size_milli ASC LIMIT 1`,
+      line.chemical_id,
+    );
+    if (!smallest) {
+      unpackable.push(line.chemical_name);
+      continue;
+    }
+    if (line.qty_milli <= 0) continue;
+
+    const needs = Math.ceil(
+      (smallest.size_milli * version.ref_size_milli) / (OVERSHOOT_LIMIT * line.qty_milli),
+    );
+    if (needs > targetMilli) {
+      targetMilli = needs;
+      binding = {
+        name: line.chemical_name,
+        neededMilli: (line.qty_milli * needs) / version.ref_size_milli,
+        packMilli: smallest.size_milli,
+        unit: line.canonical_unit,
+      };
+    }
+  }
+
+  return { targetMilli, unpackable, binding };
+}
+
 function toIngredient(line: ScaledLine) {
   return {
     chemicalId: line.chemicalId,

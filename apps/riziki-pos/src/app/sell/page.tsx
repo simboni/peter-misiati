@@ -11,7 +11,7 @@ import {
   topSellerItemIds,
   SaleError,
 } from "@/lib/sales";
-import { buildKit, listFormulas, outputItemsFor } from "@/lib/production";
+import { buildKit, smallestKitBatch, listFormulas, outputItemsFor } from "@/lib/production";
 import { getPrintSettings } from "@/lib/print-settings";
 import { formatKes } from "@/lib/units";
 import { checkState } from "@/lib/pricing";
@@ -153,9 +153,14 @@ async function kitAction(versionId: number, targetMilli: number): Promise<KitOff
   if (user.role !== "owner") return null;
 
   const kit = buildKit(versionId, targetMilli);
+  // What batch size WOULD work, so a refusal comes with an answer attached.
+  const floor = smallestKitBatch(versionId);
   return {
     formulaName: kit.formulaName,
     targetMilli: kit.targetMilli,
+    floorMilli: floor.targetMilli,
+    floorBecause: floor.binding?.name ?? null,
+    unpackable: floor.unpackable,
     ingredients: kit.ingredients.map((i) => ({
       chemicalName: i.chemicalName,
       unit: i.unit,
