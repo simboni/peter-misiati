@@ -4,7 +4,8 @@ import { currentUser, requireOwner } from "@/lib/auth";
 import { listFormulas } from "@/lib/production";
 import { formatQty } from "@/lib/units";
 import { PageTitle, Card, Chip, Empty, inputClass, Button, Alert } from "@/components/ui";
-import { NewBanner } from "@/components/wholesale-nav";
+import { NewBanner } from "@/components/section-nav";
+import { SectionNav, STOCK_SECTIONS } from "@/components/section-nav";
 
 export const dynamic = "force-dynamic";
 
@@ -43,9 +44,10 @@ export default async function FormulasPage(props: {
     // a wider screen should mean more formulas at once rather than more margin.
     <div>
       <PageTitle
-        title="Formulas"
+        title="Recipes"
         subtitle="Owner only. Every edit is saved as a new version, never over the old one."
       />
+      <SectionNav sections={STOCK_SECTIONS} current="/formulas" label="Stock" />
 
       {/* The way in to a recipe the shop does not have yet. Large and first,
           because the book was read-only until now and nobody will go looking

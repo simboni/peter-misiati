@@ -16,6 +16,7 @@ import { fromCents, formatKes, formatQty, SIZE_UNITS, type SizeUnit } from "@/li
 import { Alert, Button, Card, Chip, Field, PageTitle, inputClass } from "@/components/ui";
 import PriceForm from "./price-form";
 import DeleteProduct from "./delete-product";
+import { SectionNav, STOCK_SECTIONS } from "@/components/section-nav";
 
 // Prices and the catalogue change here; never serve a cached copy.
 export const dynamic = "force-dynamic";
@@ -243,6 +244,7 @@ export default async function ItemsPage(props: {
         title="Products & prices"
         subtitle="One price for each thing, and how far it may be argued. Changed here or at the till."
       />
+      <SectionNav sections={STOCK_SECTIONS} current="/items" label="Stock" />
 
       {err ? (
         <div className="mb-3 max-w-4xl">

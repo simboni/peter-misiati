@@ -4,6 +4,7 @@ import { currentUser } from "@/lib/auth";
 import { priceHistory } from "@/lib/pricing";
 import { formatKes, formatDateTime } from "@/lib/units";
 import { PageTitle, Card, Empty } from "@/components/ui";
+import { SectionNav, REPORT_SECTIONS } from "@/components/section-nav";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +32,7 @@ export default async function PriceHistoryPage() {
         <span aria-hidden>←</span> Back to selling
       </Link>
       <PageTitle title="Price history" subtitle="Every change, who made it, and what it was before" />
+      <SectionNav sections={REPORT_SECTIONS} current="/prices/history" label="Reports" />
 
       {rows.length ? (
         <div className="overflow-hidden rounded-2xl bg-white shadow-card ring-1 ring-ink/5">

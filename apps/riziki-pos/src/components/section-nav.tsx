@@ -1,40 +1,111 @@
 import Link from "next/link";
 
 /**
- * The wholesale section's own menu.
+ * A section's own menu — the spine that holds one part of the app together.
  *
- * Wholesale is not one screen with a few buttons on it — it is the side of the
- * business that runs on documents, and the owner asked for it to be somewhere
- * you can stand and do all of it. So it has a spine: the same destinations on
- * every page inside it, in the same order, so nobody has to go back to a hub to
- * get from a quote to the money still outstanding on it.
+ * Wholesale had this first and it was the right shape, so it is the shape all
+ * of them use now. A section is not one screen with a few buttons on it; it is
+ * a place you stand and do a whole job, and it needs the same destinations on
+ * every page inside it, in the same order, so nobody has to go back out to a
+ * hub to get from one to the next.
  *
- * The destinations mirror the life of one order — you quote it, you invoice it,
- * and the customer is the thread through both.
- *
- * There used to be a fourth, "Debts", and it is gone on purpose. A debt is not a
- * separate thing from an invoice; it is an invoice whose paid amount is short of
- * its total, seen from the other side. Two screens for one fact meant two places
- * that could disagree — a voided bill still showing as owed, a part payment
- * counted once here and differently there — and it made the counter ask which
- * number was the true one. Now there is one list of invoices with an "Owing"
- * filter, and the per-customer view of the same money lives on Customers, where
- * the phone number to call is already sitting.
+ * The main navigation names the sections. This names what is inside one. Before
+ * it was shared, "stock" meant a tab AND three entries under More, which is two
+ * menus disagreeing about where a thing lives.
  */
-export const WHOLESALE_SECTIONS: Array<{ href: string; label: string; exact?: boolean }> = [
+export interface Section {
+  href: string;
+  label: string;
+  /** Match only this exact path — for a section's own overview page. */
+  exact?: boolean;
+  /**
+   * Hidden from an attendant. Filtered here rather than left to render and
+   * bounce: a tab that takes you to "ask the owner" is a dead end you learn to
+   * stop pressing, and it teaches the counter that the app is unreliable.
+   */
+  owner?: boolean;
+}
+
+export const WHOLESALE_SECTIONS: Section[] = [
   { href: "/wholesale", label: "Overview", exact: true },
   { href: "/wholesale/quotes", label: "Quotes" },
   { href: "/wholesale/invoices", label: "Invoices" },
-  { href: "/wholesale/customers", label: "Customers" },
+  // Points out of the section on purpose. A wholesale buyer and a walk-in who
+  // owes money are the same person to this shop, so there is one Customers
+  // section and wholesale links into it rather than keeping a second copy.
+  { href: "/customers", label: "Customers" },
 ];
 
-export function WholesaleNav({ current }: { current: string }) {
+/**
+ * Everything the shop holds, and everything it sells.
+ *
+ * "Stock" used to be a tab and, separately, three entries under More — Stock
+ * take, Recipes, Products & prices — so the answer to "where do I change a
+ * price" depended on which menu you happened to be looking at. They are one
+ * section now, in the order the work actually happens: see what is there, count
+ * it, price it, record what it makes, record what was bought in.
+ */
+export const STOCK_SECTIONS: Section[] = [
+  { href: "/stock", label: "On the shelf", exact: true },
+  // A stock take reads raw-chemical quantities off the shelf, and those numbers
+  // are how a recipe could be worked out by subtraction — so it stays owner
+  // only, along with the rest of raw-chemical handling.
+  { href: "/stocktake", label: "Stock take", owner: true },
+  { href: "/items", label: "Products & prices", owner: true },
+  { href: "/formulas", label: "Recipes", owner: true },
+  { href: "/purchases", label: "Purchases" },
+];
+
+/**
+ * The people who buy, and the money they owe.
+ *
+ * This was "Debts", which named a number rather than a person — and there were
+ * two screens behind it, one listing debtors and one listing customers, showing
+ * the same money from two angles. A debt is a fact about a customer, not a
+ * separate thing, so the customer is the thing and the debt is a column on it.
+ */
+export const CUSTOMER_SECTIONS: Section[] = [
+  { href: "/customers", label: "Everyone", exact: true },
+  { href: "/customers/owing", label: "Owing" },
+];
+
+/**
+ * The books.
+ *
+ * Reports is the owner's reading of the shop, so the spine holds the analysis
+ * and the three records it is read against — what was sold, what prices moved,
+ * and who did what.
+ *
+ * Day close and Expenses are deliberately not here. They are daily jobs an
+ * attendant does, not readings an owner takes, and Reports is owner-only — a
+ * spine entry an attendant can never reach is a spine entry that should not
+ * exist. They stay under More, where the person who needs them will find them.
+ */
+export const REPORT_SECTIONS: Section[] = [
+  { href: "/reports", label: "Summary", exact: true },
+  { href: "/sales", label: "Sales history" },
+  { href: "/prices/history", label: "Price history" },
+  { href: "/activity", label: "Activity log" },
+];
+
+export function SectionNav({
+  sections,
+  current,
+  label,
+  isOwner = true,
+}: {
+  sections: Section[];
+  current: string;
+  label: string;
+  isOwner?: boolean;
+}) {
+  const shown = sections.filter((s) => !s.owner || isOwner);
   return (
     <nav
-      aria-label="Wholesale"
+      aria-label={label}
       className="no-print mb-4 flex gap-1 overflow-x-auto rounded-2xl bg-wash p-1 ring-1 ring-inset ring-line"
     >
-      {WHOLESALE_SECTIONS.map((s) => {
+      {shown.map((s) => {
         const on = s.exact ? current === s.href : current.startsWith(s.href);
         return (
           <Link
@@ -100,6 +171,11 @@ export function NewBanner({
  * It also survives being middle-clicked, and works with no JavaScript, which a
  * button does not.
  */
+/** The wholesale section's nav, kept as a name the existing pages already use. */
+export function WholesaleNav({ current }: { current: string }) {
+  return <SectionNav sections={WHOLESALE_SECTIONS} current={current} label="Wholesale" />;
+}
+
 export function BackLink({ href, label }: { href: string; label: string }) {
   return (
     <Link

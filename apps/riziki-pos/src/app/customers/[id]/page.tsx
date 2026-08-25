@@ -13,10 +13,12 @@ import {
   reminderMessage,
   AGE_LABEL,
   AGE_TONE,
+  customerDeletableReason,
 } from "@/lib/credit";
 import { formatKes, formatDateTime, pct } from "@/lib/units";
 import { Card, PageTitle, SectionLabel, Chip, Stat, Alert, Empty, TableWrap, Th, Td } from "@/components/ui";
 import { CustomerForm, PaymentForm } from "../forms";
+import RemoveCustomer from "../remove-customer";
 
 export const dynamic = "force-dynamic";
 
@@ -212,6 +214,11 @@ export default async function CustomerPage(props: { params: Promise<{ id: string
           <summary className="cursor-pointer text-sm font-bold text-brand">Edit customer</summary>
           <div className="mt-4">
             <CustomerForm customer={customer} />
+            <RemoveCustomer
+              customerId={customer.id}
+              name={customer.name}
+              held={customerDeletableReason(customer.id)}
+            />
           </div>
         </details>
       </Card>

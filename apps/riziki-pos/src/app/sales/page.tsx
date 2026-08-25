@@ -5,6 +5,7 @@ import { currentUser, requireOwner } from "@/lib/auth";
 import { listSales, saleLinesFor, voidSale, SaleError, SALES_PAGE_SIZE } from "@/lib/sales";
 import { formatKes, formatDateTime } from "@/lib/units";
 import { Alert, Card, Chip, Empty, PageTitle, SectionLabel, inputClass } from "@/components/ui";
+import { SectionNav, REPORT_SECTIONS } from "@/components/section-nav";
 
 export const dynamic = "force-dynamic";
 
@@ -68,6 +69,7 @@ export default async function SalesPage(props: {
         title="Sales"
         subtitle={`${total} sale${total === 1 ? "" : "s"} · newest first`}
       />
+      <SectionNav sections={REPORT_SECTIONS} current="/sales" label="Reports" />
 
       {err ? (
         <div className="mb-3">

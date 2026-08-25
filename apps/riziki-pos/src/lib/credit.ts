@@ -157,6 +157,76 @@ export function updateCustomer(id: number, input: CustomerInput, userId?: number
   audit(userId ?? null, "customer_update", "customer", id, c.name);
 }
 
+/**
+ * What is keeping a customer on the books.
+ *
+ * The same rule products follow: a record nothing points at is a mistake and
+ * can go, and a record with one sale against it is part of the history. A
+ * customer's name is snapshotted onto the sale at the time, so deleting the row
+ * would not corrupt an old invoice — but it would break the thread from the
+ * invoice back to the person, and "who was this bill for" is the question the
+ * thread exists to answer.
+ */
+export function customerHistory(id: number): string[] {
+  ensureCreditSchema();
+  const held: string[] = [];
+  const sales = get<{ n: number }>(`SELECT COUNT(*) AS n FROM sales WHERE customer_id = ?`, id)?.n ?? 0;
+  if (sales > 0) held.push(`${sales} ${sales === 1 ? "sale" : "sales"}`);
+
+  const quotes = get<{ n: number }>(`SELECT COUNT(*) AS n FROM quotes WHERE customer_id = ?`, id)?.n ?? 0;
+  if (quotes > 0) held.push(`${quotes} ${quotes === 1 ? "quotation" : "quotations"}`);
+
+  return held;
+}
+
+/** Whether this customer may be deleted, and what stands in the way if not. */
+export function customerDeletableReason(id: number): string | null {
+  const held = customerHistory(id);
+  return held.length ? held.join(" and ") : null;
+}
+
+/**
+ * Take a customer off the books.
+ *
+ * Deletes outright when nothing points at the row — a name typed twice, or
+ * spelled wrong, which is most of what wants removing. Anything that has bought
+ * or been quoted is hidden instead: the row stays so every invoice still leads
+ * back to a person, and the counter stops offering the name.
+ *
+ * Returns which of the two happened, because the screen has to say so. "Removed"
+ * and "hidden" are different promises and the owner is entitled to know which
+ * one was made.
+ */
+export function removeCustomer(id: number, userId?: number | null): { name: string; deleted: boolean } {
+  ensureCreditSchema();
+  return tx(() => {
+    const customer = get<{ name: string }>(`SELECT name FROM customers WHERE id = ?`, id);
+    if (!customer) throw new Error("That customer is no longer on file.");
+
+    const held = customerDeletableReason(id);
+    if (held) {
+      run(`UPDATE customers SET active = 0 WHERE id = ?`, id);
+      audit(userId ?? null, "customer_hidden", "customer", id, `${customer.name} · has ${held}`);
+      return { name: customer.name, deleted: false };
+    }
+
+    run(`DELETE FROM customers WHERE id = ?`, id);
+    // The name goes in the detail: once the row is gone this id points at
+    // nothing, and the name is all that will still say who was removed.
+    audit(userId ?? null, "customer_deleted", "customer", id, customer.name);
+    return { name: customer.name, deleted: true };
+  });
+}
+
+/** Put a hidden customer back in front of the counter. */
+export function restoreCustomer(id: number, userId?: number | null): void {
+  ensureCreditSchema();
+  const customer = get<{ name: string }>(`SELECT name FROM customers WHERE id = ?`, id);
+  if (!customer) throw new Error("That customer is no longer on file.");
+  run(`UPDATE customers SET active = 1 WHERE id = ?`, id);
+  audit(userId ?? null, "customer_restored", "customer", id, customer.name);
+}
+
 // ----------------------------------------------------------------- ageing
 
 /**

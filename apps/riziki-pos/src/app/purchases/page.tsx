@@ -12,6 +12,7 @@ import {
 import { formatKes, formatDate, formatDateTime, formatUnits, pct } from "@/lib/units";
 import { Card, PageTitle, SectionLabel, Chip, Stat, Empty, TableWrap, Th, Td, Alert } from "@/components/ui";
 import { SupplierForm, PurchaseForm, ItemPicker } from "./forms";
+import { SectionNav, STOCK_SECTIONS } from "@/components/section-nav";
 
 export const dynamic = "force-dynamic";
 
@@ -74,6 +75,7 @@ export default async function PurchasesPage(props: { searchParams: Promise<{ ite
   return (
     <div>
       <PageTitle title="Suppliers & purchases" subtitle="Deliveries in, landed cost out" />
+      <SectionNav sections={STOCK_SECTIONS} current="/purchases" label="Stock" />
 
       {/* Two tiles only — capped so they stay tile-sized instead of stretching
           into two half-empty billboards on an office monitor. */}

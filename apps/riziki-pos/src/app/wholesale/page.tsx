@@ -6,7 +6,7 @@ import { listQuotes } from "@/lib/quotes";
 import { debtors } from "@/lib/credit";
 import { formatKes, formatKesRounded } from "@/lib/units";
 import { PageTitle, SectionLabel, Stat } from "@/components/ui";
-import { WholesaleNav, NewBanner, BackLink } from "@/components/wholesale-nav";
+import { WholesaleNav, NewBanner, BackLink } from "@/components/section-nav";
 
 export const dynamic = "force-dynamic";
 

@@ -15,13 +15,16 @@
  */
 
 import { redirect } from "next/navigation";
-import Link from "next/link";
 import { currentUser, requireOwner } from "@/lib/auth";
 import { formatKes, formatQty, formatDate, businessDate, pct } from "@/lib/units";
 import {
   monthKey,
   monthRange,
   dayRange,
+  periodRange,
+  describeRange,
+  isPeriod,
+  type Period,
   profitSummary,
   monthlySales,
   profitPerProduct,
@@ -32,7 +35,6 @@ import {
   discountedSales,
   deadStock,
   shrinkageByMonth,
-  EXPORT_TABLES,
 } from "@/lib/reports";
 import {
   PageTitle,
@@ -48,10 +50,16 @@ import {
   ListRow,
 } from "@/components/ui";
 import { SalesChart } from "./sales-chart";
+import { SectionNav, REPORT_SECTIONS } from "@/components/section-nav";
+import { PeriodPicker } from "./period-picker";
+import { ExportBar } from "./export-bar";
 
 export const dynamic = "force-dynamic";
 
-export default async function ReportsPage() {
+export default async function ReportsPage(props: {
+  searchParams: Promise<{ period?: string; from?: string; to?: string }>;
+}) {
+  const { period: periodParam, from = "", to = "" } = await props.searchParams;
   const user = await currentUser();
   if (!user) redirect("/login");
   // Bounce staff before any cost or profit query runs.
@@ -61,29 +69,41 @@ export default async function ReportsPage() {
   const today = businessDate();
   const ym = monthKey(today);
 
+  /*
+    One period, read by everything below it.
+
+    Every figure on this screen was the current month, chosen here and stated
+    nowhere. The owner could not ask "how did last week go" without waiting for
+    a month to end, and could not tell, looking at a printed copy, what span of
+    days it covered.
+  */
+  const period: Period = isPeriod(periodParam) ? periodParam : "month";
+  const range = periodRange(period, today, from, to);
+  const periodName = describeRange(range);
+
+  // Today keeps its own tile whatever the period is: it is the one number the
+  // owner opens the app for, and burying it inside "this year" would be a
+  // strange thing to do to it.
   const todaySummary = profitSummary(dayRange(today));
-  const monthSummary = profitSummary(monthRange(ym));
+  const summary = profitSummary(range);
   const months = monthlySales(6, today);
-  const products = profitPerProduct(monthRange(ym));
+  const products = profitPerProduct(range);
   const losers = products.filter((p) => p.profit_cents < 0);
-  const lines = businessLineSplit(monthRange(ym));
-  const discounts = discountSummary(monthRange(ym));
-  const byPerson = discountsByPerson(monthRange(ym));
-  const byItem = discountsByItem(monthRange(ym));
-  const discountedBills = discountedSales(monthRange(ym), 12);
+  const lines = businessLineSplit(range);
+  const discounts = discountSummary(range);
+  const byPerson = discountsByPerson(range);
+  const byItem = discountsByItem(range);
+  const discountedBills = discountedSales(range, 12);
   const dead = deadStock(60);
   const shrink = shrinkageByMonth(6, today);
 
-  const monthName = new Date(`${ym}-01T00:00:00Z`).toLocaleDateString("en-GB", {
-    month: "long",
-    year: "numeric",
-    timeZone: "UTC",
-  });
   const deadValue = dead.reduce((sum, d) => sum + d.value_cents, 0);
 
   return (
     <div>
       <PageTitle title="Reports" subtitle="Owner only · costs and profit are never shown to staff" />
+      <SectionNav sections={REPORT_SECTIONS} current="/reports" label="Reports" />
+      <PeriodPicker current={period} range={range} from={from} to={to} />
 
       <div className="lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-4 xl:gap-x-5 2xl:gap-x-6">
       <div className="lg:col-span-5">
@@ -101,31 +121,31 @@ export default async function ReportsPage() {
         />
       </div>
 
-      <SectionLabel>{monthName}</SectionLabel>
+      <SectionLabel>{periodName}</SectionLabel>
       <Card>
         <dl className="space-y-1.5 text-sm">
-          <Line label="Sales" value={formatKes(monthSummary.salesCents)} />
-          <Line label="Cost of goods sold" value={`− ${formatKes(monthSummary.cogsCents)}`} />
+          <Line label="Sales" value={formatKes(summary.salesCents)} />
+          <Line label="Cost of goods sold" value={`− ${formatKes(summary.cogsCents)}`} />
           <div className="flex items-baseline justify-between gap-3 border-t border-line pt-1.5">
             <dt className="font-semibold">Gross profit</dt>
-            <dd className="font-bold tnum">{formatKes(monthSummary.grossProfitCents)}</dd>
+            <dd className="font-bold tnum">{formatKes(summary.grossProfitCents)}</dd>
           </div>
-          <Line label="Expenses" value={`− ${formatKes(monthSummary.expensesCents)}`} />
+          <Line label="Expenses" value={`− ${formatKes(summary.expensesCents)}`} />
           <div className="mt-1 flex items-baseline justify-between gap-3 border-t border-line pt-2.5">
             <dt className="text-sm font-bold">Net profit</dt>
             <dd
               className={`text-xl font-extrabold tracking-tight tnum xl:text-2xl ${
-                monthSummary.netProfitCents < 0 ? "text-bad" : "text-good"
+                summary.netProfitCents < 0 ? "text-bad" : "text-good"
               }`}
             >
-              {formatKes(monthSummary.netProfitCents)}
+              {formatKes(summary.netProfitCents)}
             </dd>
           </div>
         </dl>
         <p className="mt-2 text-xs text-muted">
           Net profit = sales − cost of goods − expenses.{" "}
-          {monthSummary.salesCents > 0
-            ? `That is ${pct(monthSummary.netProfitCents, monthSummary.salesCents).toFixed(1)}% of sales.`
+          {summary.salesCents > 0
+            ? `That is ${pct(summary.netProfitCents, summary.salesCents).toFixed(1)}% of sales.`
             : "No sales recorded this month yet."}
         </p>
       </Card>
@@ -142,7 +162,7 @@ export default async function ReportsPage() {
 
       <div className="lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-4 xl:gap-x-5 2xl:gap-x-6">
       <div className="lg:col-span-7">
-      <SectionLabel>Profit per product · {monthName}</SectionLabel>
+      <SectionLabel>Profit per product · {periodName}</SectionLabel>
       {losers.length ? (
         <div className="mb-2">
           <Alert tone="bad">
@@ -194,7 +214,7 @@ export default async function ReportsPage() {
 
       </div>
       <div className="lg:col-span-5">
-      <SectionLabel>Which line earns · {monthName}</SectionLabel>
+      <SectionLabel>Which line earns · {periodName}</SectionLabel>
       {lines.length ? (
         // Two or three lines of business, each a short card: side by side once
         // there is width for it rather than a single tall stack.
@@ -240,7 +260,7 @@ export default async function ReportsPage() {
       */}
       <div className="lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-4 xl:gap-x-5 2xl:gap-x-6">
       <div className="lg:col-span-7">
-      <SectionLabel>Discounts given · {monthName}</SectionLabel>
+      <SectionLabel>Discounts given · {periodName}</SectionLabel>
       {discounts.discountCents > 0 ? (
         <>
           <div className="grid grid-cols-2 gap-2.5 xl:grid-cols-4">
@@ -426,36 +446,8 @@ export default async function ReportsPage() {
       </div>
       </div>
 
-      <SectionLabel>Backup &amp; exports</SectionLabel>
-      <Card className="lg:max-w-2xl">
-        <Link
-          href="/backup"
-          prefetch={false}
-          className="inline-flex min-h-11 items-center rounded-full bg-brand px-5 text-sm font-bold text-white shadow-sm hover:bg-brand-dark xl:min-h-10"
-        >
-          Download full backup
-        </Link>
-        <p className="mt-2 text-xs text-muted">
-          One file holding everything. Keep a copy off this phone at least once a week.
-        </p>
-        <details className="mt-3 border-t border-line pt-3">
-          <summary className="cursor-pointer text-sm font-bold text-brand-dark">
-            Spreadsheet exports (CSV) ▾
-          </summary>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {EXPORT_TABLES.map((t) => (
-              <Link
-                key={t}
-                href={`/export?table=${t}`}
-                prefetch={false}
-                className="inline-flex min-h-11 items-center rounded-full px-3.5 text-sm font-semibold capitalize ring-1 ring-inset ring-line hover:bg-wash xl:min-h-9"
-              >
-                {t.replace("_", " ")} CSV
-              </Link>
-            ))}
-          </div>
-        </details>
-      </Card>
+      <SectionLabel>Take it out</SectionLabel>
+      <ExportBar range={range} />
     </div>
   );
 }

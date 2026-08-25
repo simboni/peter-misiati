@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { currentUser } from "@/lib/auth";
 import { stockView } from "@/lib/stock-service";
 import { StockClient } from "./stock-client";
+import { SectionNav, STOCK_SECTIONS } from "@/components/section-nav";
 
 export const dynamic = "force-dynamic";
 
@@ -34,5 +35,10 @@ export default async function StockPage(props: {
         packaging: view.packaging.map((l) => ({ ...l, costCents: 0, valueCents: 0 })),
       };
 
-  return <StockClient view={safe} owner={owner} initialQuery={q} />;
+  return (
+    <>
+      <SectionNav sections={STOCK_SECTIONS} current="/stock" label="Stock" isOwner={owner} />
+      <StockClient view={safe} owner={owner} initialQuery={q} />
+    </>
+  );
 }

@@ -85,6 +85,89 @@ export function dayRange(date: string): DateRange {
   return { from: date, to: date };
 }
 
+// ------------------------------------------------------------- the period
+
+/**
+ * The periods a report is read over.
+ *
+ * Named rather than free-form because the owner asks the same six questions —
+ * how did today go, this week, this month, last month, the year — and typing
+ * two dates to answer one of them is work the screen should have done. "Custom"
+ * is there for the seventh question, which is usually an auditor's.
+ */
+export const PERIODS = ["today", "week", "month", "last-month", "year", "custom"] as const;
+export type Period = (typeof PERIODS)[number];
+
+export const PERIOD_LABEL: Record<Period, string> = {
+  today: "Today",
+  week: "This week",
+  month: "This month",
+  "last-month": "Last month",
+  year: "This year",
+  custom: "Pick dates",
+};
+
+export function isPeriod(v: string | undefined): v is Period {
+  return !!v && (PERIODS as readonly string[]).includes(v);
+}
+
+/** Shift a business date by whole days, staying in "YYYY-MM-DD". */
+function shiftDays(date: string, days: number): string {
+  const d = new Date(`${date}T12:00:00Z`); // midday, so a DST step cannot roll the date
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * What a named period means, ending today.
+ *
+ * The week runs Monday to today rather than the last seven days: the shop
+ * closes its books by the calendar week, and "this week" meaning "since
+ * Monday" is what the owner means when he says it.
+ */
+export function periodRange(period: Period, today: string, from?: string, to?: string): DateRange {
+  if (period === "custom") {
+    const a = from || today;
+    const b = to || today;
+    // Typed backwards is a typo, not an empty report.
+    return a <= b ? { from: a, to: b } : { from: b, to: a };
+  }
+  if (period === "today") return dayRange(today);
+
+  if (period === "week") {
+    const dow = new Date(`${today}T12:00:00Z`).getUTCDay(); // 0 = Sunday
+    const backToMonday = dow === 0 ? 6 : dow - 1;
+    return { from: shiftDays(today, -backToMonday), to: today };
+  }
+
+  if (period === "month") return { from: `${today.slice(0, 7)}-01`, to: today };
+
+  if (period === "last-month") {
+    const first = new Date(`${today.slice(0, 7)}-01T12:00:00Z`);
+    first.setUTCMonth(first.getUTCMonth() - 1);
+    return monthRange(first.toISOString().slice(0, 7));
+  }
+
+  return { from: `${today.slice(0, 4)}-01-01`, to: today };
+}
+
+/** "1–25 Aug 2026", or one date when the period is a single day. */
+export function describeRange(range: DateRange): string {
+  const fmt = (d: string, opts: Intl.DateTimeFormatOptions) =>
+    new Date(`${d}T12:00:00Z`).toLocaleDateString("en-GB", { ...opts, timeZone: "UTC" });
+
+  if (range.from === range.to) return fmt(range.from, { day: "numeric", month: "short", year: "numeric" });
+
+  const sameYear = range.from.slice(0, 4) === range.to.slice(0, 4);
+  const sameMonth = sameYear && range.from.slice(0, 7) === range.to.slice(0, 7);
+
+  const left = sameMonth
+    ? fmt(range.from, { day: "numeric" })
+    : fmt(range.from, { day: "numeric", month: "short", ...(sameYear ? {} : { year: "numeric" }) });
+
+  return `${left} – ${fmt(range.to, { day: "numeric", month: "short", year: "numeric" })}`;
+}
+
 // ------------------------------------------------------------------ day close
 
 export interface DayTotals {

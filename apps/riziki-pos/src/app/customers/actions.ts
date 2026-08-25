@@ -1,7 +1,7 @@
 "use server";
 
 /**
- * Server actions for the debtors screens.
+ * Server actions for the customers screens.
  *
  * Every one of these starts with `requireUser()`. Server Actions are reachable
  * by a direct POST, not only through our own buttons, so the guard has to live
@@ -9,10 +9,12 @@
  */
 
 import { revalidatePath } from "next/cache";
-import { requireUser } from "@/lib/auth";
+import { redirect } from "next/navigation";
+import { requireUser, requireOwner } from "@/lib/auth";
 import {
   createCustomer,
   updateCustomer,
+  removeCustomer,
   recordPayment,
   balanceOf,
   type CustomerKind,
@@ -130,4 +132,31 @@ export async function quickAddCustomerAction(
   } catch (err) {
     return { ok: false, error: message(err) };
   }
+}
+
+/**
+ * Take a customer off the books.
+ *
+ * Deletes outright when nothing points at the row, and hides it when something
+ * does — `removeCustomer` decides which, and says which happened so the screen
+ * can tell the truth about it rather than saying "removed" either way.
+ */
+export async function removeCustomerAction(formData: FormData): Promise<void> {
+  const owner = await requireOwner();
+  const id = Number(formData.get("customerId"));
+
+  let result: { name: string; deleted: boolean };
+  try {
+    result = removeCustomer(id, owner.id);
+  } catch (err) {
+    redirect(`/customers?err=${encodeURIComponent(message(err))}`);
+  }
+
+  revalidatePath("/customers");
+  revalidatePath("/sell");
+  // A deleted customer has no page left to go back to; a hidden one does, but
+  // the list is where somebody who has just removed one is heading anyway.
+  redirect(
+    `/customers?removed=${encodeURIComponent(result.name)}&kind=${result.deleted ? "deleted" : "hidden"}`,
+  );
 }

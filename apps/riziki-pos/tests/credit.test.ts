@@ -490,3 +490,60 @@ test("a statement excludes credit-tender markers and voided sales", () => {
   assert.equal(rows.length, 0);
   assert.equal(credit.balanceOf(id), 0);
 });
+
+// ------------------------------------------------------- taking one off
+
+/*
+  Removing a customer.
+
+  The rule is the one products follow, for the same reason: a name typed twice
+  is rubbish and should go, and a name with a sale behind it is the other end of
+  a thread an invoice depends on. What is worth testing is that the two are told
+  apart, and that the caller is told which happened — "removed" and "hidden" are
+  different promises.
+*/
+
+test("a customer nothing points at is deleted outright", () => {
+  const id = newCustomer("Test Typed Twice", 0);
+  assert.equal(credit.customerDeletableReason(id), null);
+
+  const result = credit.removeCustomer(id, OWNER);
+  assert.equal(result.deleted, true);
+  assert.equal(result.name, "Test Typed Twice");
+  assert.equal(credit.getCustomer(id), undefined, "gone, not hidden");
+});
+
+test("a customer with a sale behind them is hidden, and says why", () => {
+  const id = newCustomer("Test Has Bought", 100000);
+  newSale(id, 50000, 0);
+
+  const held = credit.customerDeletableReason(id);
+  assert.ok(held, "the row is held");
+  assert.match(held!, /1 sale/);
+
+  const result = credit.removeCustomer(id, OWNER);
+  assert.equal(result.deleted, false, "hidden rather than deleted");
+
+  const row = credit.getCustomer(id);
+  assert.ok(row, "the record is still there for the invoice to point at");
+  assert.equal(row!.active, 0, "but the counter stops offering it");
+  assert.ok(
+    !credit.listCustomers().some((c) => c.id === id),
+    "and it is off the list",
+  );
+});
+
+test("a hidden customer can be put back", () => {
+  const id = newCustomer("Test Comes Back", 0);
+  newSale(id, 10000, 10000);
+  credit.removeCustomer(id, OWNER);
+  assert.equal(credit.getCustomer(id)!.active, 0);
+
+  credit.restoreCustomer(id, OWNER);
+  assert.equal(credit.getCustomer(id)!.active, 1);
+  assert.ok(credit.listCustomers().some((c) => c.id === id));
+});
+
+test("removing somebody who is not there is refused, not ignored", () => {
+  assert.throws(() => credit.removeCustomer(999_999, OWNER), /no longer on file/i);
+});

@@ -26,7 +26,12 @@ import { useEffect, useState } from "react";
  * the right width on the first paint.
  */
 
-type Tab = { href: string; label: string; icon: React.ReactNode; ownerOnly?: boolean };
+type Tab = {
+  href: string;
+  label: string;
+  icon: React.ReactNode;
+  ownerOnly?: boolean;
+};
 
 const I = (d: string) => (
   <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
@@ -51,7 +56,7 @@ const TABS: Tab[] = [
   // a place the shop works from, not something it configures — and because the
   // owner asked for it to be one tap from the till.
   { href: "/wholesale", label: "Wholesale", icon: I("M4 7h16v13H4z M4 7l2-3h12l2 3 M9 12h6") },
-  { href: "/customers", label: "Debts", icon: I("M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M22 21v-2a4 4 0 0 0-3-3.87") },
+  { href: "/customers", label: "Customers", icon: I("M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M22 21v-2a4 4 0 0 0-3-3.87") },
   // Reports is owner-only; previously it rendered for staff then bounced them
   // home — a dead tab. Now it simply isn't shown to them.
   { href: "/reports", label: "Reports", icon: I("M4 20V10 M10 20V4 M16 20v-8 M22 20H2"), ownerOnly: true },
@@ -60,9 +65,18 @@ const TABS: Tab[] = [
   { href: "/more", label: "More", icon: I("M4 6h16 M4 12h16 M4 18h16") },
 ];
 
-// A stock take reads raw-reagent quantities off the shelf. Those numbers are
-// how a formula could be reverse-engineered, so it is owner-only, alongside the
-// rest of raw-chemical handling.
+/*
+  What is left over once every tab is a section.
+
+  Stock swallowed its own group — Stock take, Recipes, Products & prices and
+  Purchases live on the Stock spine now, because "where do I change a price"
+  should not depend on which of two menus you happened to be looking at.
+  Reports swallowed the day-to-day records for the same reason.
+
+  What remains is genuinely other: the things you set up once and the handbook
+  you reach for when stuck. A More menu that holds a section's worth of work is
+  a sign the sections are wrong.
+*/
 const MORE_GROUPS: Array<{
   label: string;
   /**
@@ -74,35 +88,22 @@ const MORE_GROUPS: Array<{
   links: Array<{ href: string; label: string; short?: string; owner: boolean }>;
 }> = [
   {
+    // Named for what these are rather than where they sit: an attendant looking
+    // for the day close is looking for a job, not for a category.
     label: "Every day",
     links: [
-      // Open to attendants on purpose: the person who opens the shop is the
-      // person who gets asked the price, and the floor price is what makes
-      // letting them change it safe.
-      //
-      // "Prices for today" used to sit here — a sheet of every price, swept
-      // once each morning. A price is now changed where it is argued about,
-      // on the line at the till, so what is left worth opening is the record
-      // of what has been changed.
-      { href: "/prices/history", label: "Price history", short: "Prices", owner: false },
-      { href: "/sales", label: "Sales history", owner: false },
       { href: "/day-close", label: "Day close", owner: false },
       { href: "/expenses", label: "Expenses", owner: false },
-      { href: "/purchases", label: "Suppliers & purchases", short: "Purchases", owner: false },
+      // Open to attendants on purpose: the person who opens the shop is the
+      // person who gets asked the price, and the band is what makes letting
+      // them change it safe.
+      { href: "/prices/history", label: "Price history", short: "Prices", owner: false },
+      { href: "/sales", label: "Sales history", owner: false },
     ],
   },
   {
-    label: "Stock & recipes",
+    label: "Setup",
     links: [
-      { href: "/stocktake", label: "Stock take", owner: true },
-      { href: "/formulas", label: "Recipes", owner: true },
-      { href: "/items", label: "Products & prices", owner: true },
-    ],
-  },
-  {
-    label: "Setup & records",
-    links: [
-      { href: "/activity", label: "Activity log", owner: true },
       { href: "/settings", label: "Users & settings", owner: true },
       { href: "/settings/printer", label: "Receipt printer", owner: true },
       // Owner-only, and the clear behind it needs a typed confirmation and the
@@ -130,7 +131,14 @@ export function BottomNav({ isOwner }: { isOwner: boolean }) {
     <>
       {/* Phone bottom bar; floating island at md; gone at lg. */}
       <nav
-        className="no-print fixed inset-x-0 bottom-0 z-30 mx-auto grid max-w-lg rounded-t-3xl bg-white pt-1.5 pb-[env(safe-area-inset-bottom)] shadow-nav md:bottom-3 md:max-w-xl md:rounded-3xl md:shadow-lift md:ring-1 md:ring-ink/5 lg:hidden"
+        /* `gap-x-1` and a slightly smaller label. Six tabs across 390px is
+           about sixty pixels each, and "Wholesale" beside "Customers" used
+           every one of them — the two words touched, and a bar whose labels
+           run together reads as one long word rather than two places to go.
+           The words themselves are not shortened: a tab that says something
+           different from the screen it opens is the thing this consolidation
+           was meant to get rid of. */
+        className="no-print fixed inset-x-0 bottom-0 z-30 mx-auto grid max-w-lg gap-x-1 rounded-t-3xl bg-white pt-1.5 pb-[env(safe-area-inset-bottom)] shadow-nav md:bottom-3 md:max-w-xl md:rounded-3xl md:shadow-lift md:ring-1 md:ring-ink/5 lg:hidden"
         style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }}
       >
         {tabs.map((t) => {
@@ -140,18 +148,18 @@ export function BottomNav({ isOwner }: { isOwner: boolean }) {
               key={t.href}
               href={t.href}
               aria-current={active ? "page" : undefined}
-              className={`flex min-h-[52px] flex-col items-center gap-0.5 pt-2 pb-2 text-[10.5px] font-semibold transition-colors ${
+              className={`flex min-h-[52px] min-w-0 flex-col items-center gap-0.5 pt-2 pb-2 text-[10px] font-semibold transition-colors ${
                 active ? "text-brand-deep" : "text-muted"
               }`}
             >
               <span
                 className={
-                  active ? "rounded-full bg-brand px-4 py-1 text-white shadow-sm" : "rounded-full px-4 py-1"
+                  active ? "rounded-full bg-brand px-3.5 py-1 text-white shadow-sm" : "rounded-full px-3.5 py-1"
                 }
               >
                 {t.icon}
               </span>
-              {t.label}
+              <span className="max-w-full truncate">{t.label}</span>
             </Link>
           );
         })}

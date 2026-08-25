@@ -44,6 +44,8 @@ const {
   lastMonths,
   monthRange,
   dayRange,
+  periodRange,
+  describeRange,
   monthEnd,
 } = await import("../src/lib/reports.ts");
 
@@ -598,4 +600,50 @@ describe("supporting helpers", () => {
     assert.equal(monthEnd("2028-02"), "2028-02-29");
     assert.deepEqual(monthRange("2026-04"), { from: "2026-04-01", to: "2026-04-30" });
   });
+});
+
+
+// ------------------------------------------------------------- the period
+
+/*
+  The named periods.
+
+  Worth testing because every figure on the reports screen is read through one
+  of them: a week that starts on the wrong day moves money between two reports
+  and neither of them is wrong on its face.
+*/
+
+test("today is one day, and the week runs from Monday", () => {
+  // 2026-08-25 is a Tuesday.
+  assert.deepEqual(periodRange("today", "2026-08-25"), { from: "2026-08-25", to: "2026-08-25" });
+  assert.deepEqual(periodRange("week", "2026-08-25"), { from: "2026-08-24", to: "2026-08-25" });
+});
+
+test("a Sunday belongs to the week that started six days earlier, not to the next one", () => {
+  // 2026-08-30 is a Sunday. Counting back to Monday is six days, not zero.
+  assert.deepEqual(periodRange("week", "2026-08-30"), { from: "2026-08-24", to: "2026-08-30" });
+});
+
+test("this month runs to today; last month is the whole of it", () => {
+  assert.deepEqual(periodRange("month", "2026-08-25"), { from: "2026-08-01", to: "2026-08-25" });
+  assert.deepEqual(periodRange("last-month", "2026-08-25"), { from: "2026-07-01", to: "2026-07-31" });
+  assert.deepEqual(periodRange("year", "2026-08-25"), { from: "2026-01-01", to: "2026-08-25" });
+});
+
+test("last month from January is December of the year before", () => {
+  assert.deepEqual(periodRange("last-month", "2026-01-14"), { from: "2025-12-01", to: "2025-12-31" });
+});
+
+test("two dates typed backwards are read as a range, not as an empty one", () => {
+  assert.deepEqual(periodRange("custom", "2026-08-25", "2026-08-20", "2026-08-10"), {
+    from: "2026-08-10",
+    to: "2026-08-20",
+  });
+});
+
+test("a period is described the way somebody would say it out loud", () => {
+  assert.equal(describeRange({ from: "2026-08-25", to: "2026-08-25" }), "25 Aug 2026");
+  assert.equal(describeRange({ from: "2026-08-01", to: "2026-08-25" }), "1 – 25 Aug 2026");
+  assert.equal(describeRange({ from: "2026-07-28", to: "2026-08-03" }), "28 Jul – 3 Aug 2026");
+  assert.equal(describeRange({ from: "2025-12-30", to: "2026-01-02" }), "30 Dec 2025 – 2 Jan 2026");
 });

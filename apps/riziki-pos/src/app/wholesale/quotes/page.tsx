@@ -4,7 +4,7 @@ import { currentUser } from "@/lib/auth";
 import { wholesaleQuotes, quoteStateCounts, type QuoteState } from "@/lib/wholesale-lists";
 import { formatKes, formatDate } from "@/lib/units";
 import { Card, Empty, PageTitle } from "@/components/ui";
-import { WholesaleNav, NewBanner, BackLink, ListToolbar, Pager } from "@/components/wholesale-nav";
+import { WholesaleNav, NewBanner, BackLink, ListToolbar, Pager } from "@/components/section-nav";
 
 export const dynamic = "force-dynamic";
 

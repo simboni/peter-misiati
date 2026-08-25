@@ -4,6 +4,7 @@ import { currentUser, requireOwner } from "@/lib/auth";
 import { performStocktake, stockLines } from "@/lib/stock-service";
 import { formatKes } from "@/lib/units";
 import { StocktakeClient, type StocktakeState } from "./stocktake-client";
+import { SectionNav, STOCK_SECTIONS } from "@/components/section-nav";
 
 export const dynamic = "force-dynamic";
 
@@ -52,11 +53,14 @@ export default async function StocktakePage() {
   const lines = stockLines();
 
   return (
-    <StocktakeClient
-      // Staff count the shelf; they never see what it is worth.
-      lines={owner ? lines : lines.map((l) => ({ ...l, costCents: 0, valueCents: 0 }))}
-      owner={owner}
-      action={submitStocktake}
-    />
+    <>
+      <SectionNav sections={STOCK_SECTIONS} current="/stocktake" label="Stock" isOwner={owner} />
+      <StocktakeClient
+        // Staff count the shelf; they never see what it is worth.
+        lines={owner ? lines : lines.map((l) => ({ ...l, costCents: 0, valueCents: 0 }))}
+        owner={owner}
+        action={submitStocktake}
+      />
+    </>
   );
 }

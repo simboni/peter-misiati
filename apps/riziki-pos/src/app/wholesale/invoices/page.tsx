@@ -9,7 +9,7 @@ import {
 import { ageDays } from "@/lib/credit";
 import { formatKes, formatKesRounded, formatDate } from "@/lib/units";
 import { Card, Empty, PageTitle, Stat } from "@/components/ui";
-import { WholesaleNav, NewBanner, BackLink, ListToolbar, Pager } from "@/components/wholesale-nav";
+import { WholesaleNav, NewBanner, BackLink, ListToolbar, Pager } from "@/components/section-nav";
 
 export const dynamic = "force-dynamic";
 
