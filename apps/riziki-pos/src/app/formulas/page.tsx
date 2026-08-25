@@ -4,6 +4,7 @@ import { currentUser, requireOwner } from "@/lib/auth";
 import { listFormulas } from "@/lib/production";
 import { formatQty } from "@/lib/units";
 import { PageTitle, Card, Chip, Empty, inputClass, Button, Alert } from "@/components/ui";
+import { NewBanner } from "@/components/wholesale-nav";
 
 export const dynamic = "force-dynamic";
 
@@ -46,6 +47,16 @@ export default async function FormulasPage(props: {
         subtitle="Owner only. Every edit is saved as a new version, never over the old one."
       />
 
+      {/* The way in to a recipe the shop does not have yet. Large and first,
+          because the book was read-only until now and nobody will go looking
+          for a button they have never had. */}
+      <NewBanner
+        href="/formulas/new"
+        title="New recipe"
+        blurb="Name it, list what goes in, and the counter can sell it."
+        cta="Start"
+      />
+
       {/* The search box is the one thing here that is read at reading width. */}
       <form method="get" className="mb-2.5 flex max-w-xl gap-2">
         <input
@@ -77,7 +88,9 @@ export default async function FormulasPage(props: {
       ) : null}
 
       {formulas.length === 0 ? (
-        <Empty>No formula uses that name or ingredient.</Empty>
+        <Empty>
+          {term ? "No formula uses that name or ingredient." : "No recipes yet — add the first one above."}
+        </Empty>
       ) : (
         <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 3xl:grid-cols-5">
           {formulas.map((f) => (

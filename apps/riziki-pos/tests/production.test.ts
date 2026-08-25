@@ -20,6 +20,7 @@ const { seed } = await import("../src/lib/seed.ts");
 const { toMilli, toCents } = await import("../src/lib/units.ts");
 const {
   scaleFormula,
+  createFormula,
   createFormulaVersion,
   currentVersion,
   formulaItems,
@@ -60,6 +61,99 @@ function sourceRow(chemicalName: string) {
   assert.ok(row, `${chemicalName} should have one unit-priced row`);
   return row!;
 }
+
+// ------------------------------------------------------------ a new recipe
+
+test("a recipe can be written from nothing, and comes out as version 1", () => {
+  const magadi = get<{ id: number }>(`SELECT id FROM chemicals WHERE name = 'Magadi'`)!;
+  const salt = get<{ id: number }>(`SELECT id FROM chemicals WHERE name = 'Salt'`)!;
+
+  const { formulaId } = createFormula({
+    name: "Test Bench Cleaner",
+    refSizeMilli: toMilli(20),
+    steps: "Dissolve the magadi first.",
+    note: "",
+    items: [
+      { chemicalId: magadi.id, qtyMilli: toMilli(2) },
+      { chemicalId: salt.id, qtyMilli: toMilli(0.5) },
+    ],
+    userId: OWNER,
+  });
+
+  const version = currentVersion(formulaId);
+  assert.ok(version, "the name and its first version are written together");
+  assert.equal(version!.version, 1);
+  assert.equal(version!.ref_size_milli, toMilli(20));
+
+  const items = formulaItems(version!.id);
+  assert.equal(items.length, 2);
+  assert.equal(items[0].qty_milli, toMilli(2), "in the order they were given");
+
+  assert.ok(
+    listFormulas("bench").some((f) => f.id === formulaId),
+    "and it is on the recipe list straight away",
+  );
+});
+
+test("a new recipe is scaled by the counter like any other", () => {
+  const id = formula("Test Bench Cleaner").id;
+  const lines = scaleFormula(currentVersion(id)!.id, toMilli(60));
+  assert.equal(lines.length, 2);
+  assert.equal(lines[0].neededMilli, toMilli(6), "three times the batch, three times the magadi");
+});
+
+test("a second recipe cannot take a name the book already uses", () => {
+  const magadi = get<{ id: number }>(`SELECT id FROM chemicals WHERE name = 'Magadi'`)!;
+  const again = () =>
+    createFormula({
+      name: "test bench cleaner", // same name, different case
+      refSizeMilli: toMilli(20),
+      steps: "",
+      note: "",
+      items: [{ chemicalId: magadi.id, qtyMilli: toMilli(1) }],
+      userId: OWNER,
+    });
+
+  assert.throws(again, /already a recipe called/i);
+  assert.equal(
+    all(`SELECT id FROM formulas WHERE lower(name) = 'test bench cleaner'`).length,
+    1,
+    "and the refused one left nothing behind",
+  );
+});
+
+test("a recipe with no name, or no ingredients, is refused before anything is written", () => {
+  const magadi = get<{ id: number }>(`SELECT id FROM chemicals WHERE name = 'Magadi'`)!;
+  const before = all(`SELECT id FROM formulas`).length;
+
+  assert.throws(
+    () =>
+      createFormula({
+        name: "   ",
+        refSizeMilli: toMilli(20),
+        steps: "",
+        note: "",
+        items: [{ chemicalId: magadi.id, qtyMilli: toMilli(1) }],
+        userId: OWNER,
+      }),
+    /name/i,
+  );
+
+  assert.throws(
+    () =>
+      createFormula({
+        name: "Test Nothing In It",
+        refSizeMilli: toMilli(20),
+        steps: "",
+        note: "",
+        items: [],
+        userId: OWNER,
+      }),
+    /at least one ingredient/i,
+  );
+
+  assert.equal(all(`SELECT id FROM formulas`).length, before, "no half-written recipe");
+});
 
 // ---------------------------------------------------------------- (a) scaling
 

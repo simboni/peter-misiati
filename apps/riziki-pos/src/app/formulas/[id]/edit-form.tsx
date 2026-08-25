@@ -1,12 +1,18 @@
 "use client";
 
 /**
- * The recipe editor.
+ * The recipe editor, and the form for a recipe that does not exist yet.
  *
- * Saving never overwrites anything: the server action inserts a new version and
- * flips the old one out of `is_current`. The form says so plainly, because an
- * owner who thinks he is correcting a typo needs to know a sale billed
- * yesterday will still cost what it cost.
+ * One component for both. A new recipe is the same ingredient list, the same
+ * batch size and the same steps as an edited one — the only difference is that
+ * it has a name to be given and no history to protect — and two forms would
+ * have meant two places for "the same chemical twice" to be handled
+ * differently.
+ *
+ * When editing, saving never overwrites anything: the server action inserts a
+ * new version and flips the old one out of `is_current`. The form says so
+ * plainly, because an owner who thinks he is correcting a typo needs to know a
+ * sale billed yesterday will still cost what it cost.
  */
 
 import { useActionState, useState } from "react";
@@ -39,6 +45,7 @@ export function EditFormulaForm({
   rows,
   cancelHref,
   everSold,
+  isNew = false,
 }: {
   action: (state: SaveState, formData: FormData) => Promise<SaveState>;
   formulaId: number;
@@ -50,6 +57,8 @@ export function EditFormulaForm({
   cancelHref: string;
   /** Whether anything was ever sold against the version being edited. */
   everSold: boolean;
+  /** A recipe being invented rather than corrected: asks for a name, has no history. */
+  isNew?: boolean;
 }) {
   const [state, formAction, pending] = useActionState(action, {} as SaveState);
 
@@ -72,11 +81,26 @@ export function EditFormulaForm({
     // A form is one of the few things that should still be capped on a big
     // monitor — a 1600px-wide ingredient row is harder to use, not denser.
     <form action={formAction} className="space-y-2.5 xl:max-w-5xl xl:space-y-3 2xl:max-w-6xl">
-      <input type="hidden" name="formulaId" value={formulaId} />
+      {isNew ? null : <input type="hidden" name="formulaId" value={formulaId} />}
 
       {state.error ? <Alert tone="bad">{state.error}</Alert> : null}
 
       <Card className="space-y-3">
+        {isNew ? (
+          <Field
+            label="Product name"
+            hint="What the shop calls it on the board — “Carwash Shampoo”."
+          >
+            <input
+              className={inputClass}
+              name="name"
+              required
+              autoFocus
+              placeholder="e.g. Carwash Shampoo"
+            />
+          </Field>
+        ) : null}
+
         <Field
           label="Recipe makes (litres)"
           hint="The size the quantities below are written for. The counter scales from here."
@@ -172,14 +196,22 @@ export function EditFormulaForm({
       </Card>
 
       <Alert tone="neutral">
-        {everSold
+        {isNew
+          ? "Saved as version 1. Correcting it later rewrites it where it stands, until a customer has been charged for it — after that, an edit starts a new version and leaves the old one alone."
+          : everSold
           ? "Saving creates a new version. The old one stays exactly as it is, because every sale already billed on it points at it."
           : "Nothing has been sold on this recipe yet, so saving corrects it where it stands — no new version and no history to keep. Once a customer is charged for it, editing will start a new version instead."}
       </Alert>
 
       <div className="flex gap-2">
         <Button type="submit" disabled={pending} className="flex-1">
-          {pending ? "Saving…" : everSold ? "Save as new version" : "Save corrections"}
+          {pending
+            ? "Saving…"
+            : isNew
+              ? "Save recipe"
+              : everSold
+                ? "Save as new version"
+                : "Save corrections"}
         </Button>
         <a
           href={cancelHref}

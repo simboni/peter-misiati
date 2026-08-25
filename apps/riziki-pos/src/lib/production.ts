@@ -257,12 +257,21 @@ export function salesUsingVersion(versionId: number): number {
   return lines + batches;
 }
 
-export function createFormulaVersion(input: FormulaVersionInput): {
+export interface VersionResult {
   versionId: number;
   version: number;
   /** True when the existing version was corrected rather than a new one forked. */
   corrected: boolean;
-} {
+}
+
+/**
+ * The ingredients and the reference size, checked before a transaction opens.
+ *
+ * Pulled out because both ways of writing a recipe — correcting an existing one
+ * and creating one from nothing — have to apply the same rules, and a rule that
+ * lives in only one of them is a rule the other quietly does not have.
+ */
+function checkedItems(input: FormulaVersionInput): Array<{ chemicalId: number; qtyMilli: number }> {
   if (!Number.isInteger(input.refSizeMilli) || input.refSizeMilli <= 0) {
     throw new Error("The reference batch size must be more than zero.");
   }
@@ -277,8 +286,24 @@ export function createFormulaVersion(input: FormulaVersionInput): {
     }
     seen.add(item.chemicalId);
   }
+  return items;
+}
 
-  return tx(() => {
+export function createFormulaVersion(input: FormulaVersionInput): VersionResult {
+  const items = checkedItems(input);
+  return tx(() => writeVersion(input, items));
+}
+
+/**
+ * Write a version. Assumes a transaction is already open — `tx` is not
+ * re-entrant, and a new formula has to insert its name and its first version
+ * together or neither.
+ */
+function writeVersion(
+  input: FormulaVersionInput,
+  items: Array<{ chemicalId: number; qtyMilli: number }>,
+): VersionResult {
+  {
     const formula = formulaById(input.formulaId);
     if (!formula) throw new Error("That formula no longer exists.");
 
@@ -359,7 +384,58 @@ export function createFormulaVersion(input: FormulaVersionInput): {
         : `${formula.name} · version ${version} (${items.length} ingredients)`,
     );
 
-    return { versionId, version, corrected: correctInPlace };
+    return { versionId: Number(versionId), version, corrected: correctInPlace };
+  }
+}
+
+export interface NewFormulaInput {
+  /** What the shop calls the product — "Carwash Shampoo". */
+  name: string;
+  refSizeMilli: number;
+  steps: string;
+  note: string;
+  items: Array<{ chemicalId: number; qtyMilli: number }>;
+  userId: number;
+}
+
+/**
+ * A recipe the shop did not have before.
+ *
+ * The screen could edit every recipe it was delivered with and add none of its
+ * own, which is the wrong way round for a shop whose whole trade is inventing
+ * mixes. `createFormulaVersion` needed a formula to hang a version on and there
+ * was nothing that made one.
+ *
+ * Name and first version are written together. A formula row with no version
+ * behind it is a product the till would offer and then fail to price, so the
+ * two go in under one transaction or neither does.
+ */
+export function createFormula(input: NewFormulaInput): { formulaId: number; versionId: number } {
+  const name = input.name.trim();
+  if (!name) throw new Error("Give the recipe a name — what the shop calls the product.");
+
+  const items = checkedItems({ ...input, formulaId: 0 });
+
+  return tx(() => {
+    // Checked inside the transaction, not before it: two people adding the same
+    // recipe at once would both pass a check made outside one.
+    const clash = get<{ id: number; active: number }>(
+      `SELECT id, active FROM formulas WHERE lower(name) = lower(?)`,
+      name,
+    );
+    if (clash) {
+      throw new Error(
+        clash.active
+          ? `There is already a recipe called ${name}. Open that one and correct it instead.`
+          : `${name} exists but is hidden. Show it again rather than adding a second one.`,
+      );
+    }
+
+    const formulaId = Number(run(`INSERT INTO formulas (name) VALUES (?)`, name).lastInsertRowid);
+    const { versionId } = writeVersion({ ...input, formulaId }, items);
+
+    audit(input.userId, "formula_new", "formula", formulaId, `${name} · ${items.length} ingredients`);
+    return { formulaId, versionId };
   });
 }
 
