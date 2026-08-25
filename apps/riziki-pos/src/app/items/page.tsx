@@ -4,7 +4,6 @@ import { redirect } from "next/navigation";
 import { currentUser, requireOwner } from "@/lib/auth";
 import {
   listProducts,
-  updatePricing,
   setItemActive,
   createProduct,
   adoptUnitPricing,
@@ -14,6 +13,7 @@ import {
 } from "@/lib/catalog";
 import { fromCents, formatKes, formatQty, SIZE_UNITS, type SizeUnit } from "@/lib/units";
 import { Alert, Button, Card, Chip, Field, PageTitle, inputClass } from "@/components/ui";
+import PriceForm from "./price-form";
 
 // Prices and the catalogue change here; never serve a cached copy.
 export const dynamic = "force-dynamic";
@@ -35,24 +35,8 @@ function redirectWith(e: unknown): never {
 
 // ------------------------------------------------------------------ actions
 
-async function savePricing(formData: FormData): Promise<void> {
-  "use server";
-  const by = await guard();
-  try {
-    updatePricing({
-      itemId: Number(formData.get("itemId")),
-      price: Number(formData.get("price") ?? 0),
-      floor: Number(formData.get("floor") ?? 0),
-      ceiling: Number(formData.get("ceiling") ?? 0),
-      reorderUnits: Number(formData.get("reorder") ?? 0),
-      byUserId: by,
-    });
-  } catch (e) {
-    redirectWith(e);
-  }
-  revalidatePath("/items");
-  revalidatePath("/sell");
-}
+/* Saving prices lives in ./actions, called from ./price-form — a refused price
+   has to come back to the row it was typed in. See the note in that file. */
 
 async function toggleActive(formData: FormData): Promise<void> {
   "use server";
@@ -164,7 +148,12 @@ function ProductRow({ item }: { item: AdminItem }) {
   return (
     <details className={`group border-t border-line first:border-t-0 ${item.active ? "" : "opacity-60"}`}>
       <summary className="flex cursor-pointer flex-wrap items-baseline gap-x-3 gap-y-1 px-3 py-2.5 hover:bg-wash/60">
-        <span className="min-w-0 flex-1 truncate text-sm font-bold">
+        {/* The name takes the whole first line on a phone.
+            Sharing one line with the unit, the band and the price left it about
+            thirty pixels, and a list where every row reads "1 L…", "20 …", "A…"
+            is not a list of products — you cannot tell which row you are about
+            to edit. From `sm` up there is room for all four side by side. */}
+        <span className="min-w-0 flex-1 basis-full truncate text-sm font-bold sm:basis-0">
           {item.name}
           {item.active ? null : <span className="ml-2 text-[11px] font-semibold text-bad">hidden</span>}
         </span>
@@ -191,61 +180,19 @@ function ProductRow({ item }: { item: AdminItem }) {
       </summary>
 
       <div className="px-3 pb-3">
-        <form action={savePricing} className="space-y-2.5">
-          <input type="hidden" name="itemId" value={item.id} />
-          <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
-            <Field label={`Price ${per}`} hint="What the shop asks.">
-              <input
-                className={inputClass}
-                type="number"
-                name="price"
-                min="0"
-                step="any"
-                defaultValue={fromCents(item.price_cents)}
-              />
-            </Field>
-            <Field label="Never below" hint="Under this needs your PIN. Blank for no floor.">
-              <input
-                className={inputClass}
-                type="number"
-                name="floor"
-                min="0"
-                step="any"
-                defaultValue={fromCents(item.floor_cents)}
-              />
-            </Field>
-            <Field label="Never beyond" hint="Over this needs your PIN. Blank for no ceiling.">
-              <input
-                className={inputClass}
-                type="number"
-                name="ceiling"
-                min="0"
-                step="any"
-                defaultValue={fromCents(item.ceiling_cents)}
-              />
-            </Field>
-            <Field
-              label="Warn me at"
-              hint={
-                weighed
-                  ? `When less than this many ${item.canonical_unit} are left.`
-                  : `When fewer than this many ${item.unit_label}s are left.`
-              }
-            >
-              <input
-                className={inputClass}
-                type="number"
-                name="reorder"
-                min="0"
-                step="any"
-                defaultValue={Number(reorderUnits.toFixed(3))}
-              />
-            </Field>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button type="submit">Save</Button>
-          </div>
-        </form>
+        <PriceForm
+          itemId={item.id}
+          per={per}
+          reorderHint={
+            weighed
+              ? `When less than this many ${item.canonical_unit} are left.`
+              : `When fewer than this many ${item.unit_label}s are left.`
+          }
+          price={fromCents(item.price_cents)}
+          floor={fromCents(item.floor_cents)}
+          ceiling={fromCents(item.ceiling_cents)}
+          reorder={reorderUnits}
+        />
 
         {/* Hiding is a twice-a-year act; it lives inside the editor, in quiet
             ghost dress — red is for the moment of destruction, not the menu. */}
