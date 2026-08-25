@@ -163,17 +163,13 @@ async function lastOrderAction(customerId: number): Promise<RepeatOrder | null> 
  * If the owner would rather this stayed his alone, the guard goes back here,
  * and the Products board simply stops appearing for staff.
  */
-async function mixAction(
-  versionId: number,
-  targetMilli: number,
-  tier: "retail" | "wholesale",
-): Promise<MixOffer | null> {
+async function mixAction(versionId: number, targetMilli: number): Promise<MixOffer | null> {
   "use server";
 
   await requireUser();
   if (!Number.isFinite(targetMilli) || targetMilli <= 0) return null;
 
-  const mix = mixFor(versionId, Math.round(targetMilli), tier);
+  const mix = mixFor(versionId, Math.round(targetMilli));
   return {
     versionId: mix.versionId,
     formulaName: mix.formulaName,
@@ -208,7 +204,6 @@ async function mixAction(
 async function keepPriceAction(
   itemId: number,
   priceCents: number,
-  tier: "retail" | "wholesale",
   ownerPin?: string,
 ): Promise<{ ok: true; message: string } | { ok: false; error: string; needsPin: boolean }> {
   "use server";
@@ -226,10 +221,9 @@ async function keepPriceAction(
   try {
     const result = setCounterPrice({
       itemId,
-      tier,
       priceCents,
       userId: user.id,
-      allowBelowFloor: approvedBy !== null,
+      allowOutsideBand: approvedBy !== null,
     });
 
     // The grid and the top-sellers strip both quote the list price; without
@@ -240,13 +234,13 @@ async function keepPriceAction(
     return {
       ok: true,
       message: result.changed
-        ? `${result.name} is now ${formatKes(result.newCents)}${tier === "wholesale" ? " wholesale" : ""}.`
+        ? `${result.name} is now ${formatKes(result.newCents)}.`
         : `${result.name} was already that price.`,
     };
   } catch (err) {
     const message = err instanceof PriceError ? err.message : "Could not change that price.";
-    // Below the floor is the one refusal an owner standing here can overrule.
-    return { ok: false, error: message, needsPin: /floor/i.test(message) };
+    // Outside the band is the one refusal an owner standing here can overrule.
+    return { ok: false, error: message, needsPin: /floor|ceiling|least|most/i.test(message) };
   }
 }
 
@@ -258,8 +252,7 @@ interface ItemRow {
   canonical_unit: "kg" | "L" | "pcs";
   unit_label: string;
   size_milli: number;
-  retail_cents: number;
-  wholesale_cents: number;
+  price_cents: number;
   qty_milli: number;
   search: string;
 }
@@ -268,11 +261,13 @@ export default async function SellPage() {
   const user = await currentUser();
   if (!user) redirect("/login");
 
-  // `floor_cents` and `cost_cents` are deliberately not selected: a chemical's
-  // floor sits close to its cost price, and staff must never receive cost.
+  // `floor_cents`, `ceiling_cents` and `cost_cents` are deliberately not
+  // selected: a chemical's floor sits close to its cost price, and staff must
+  // never receive cost. A price outside the band is offered, refused by the
+  // server, and only then does the counter learn a limit exists.
   const rows = all<ItemRow>(
     `SELECT i.id, i.name, i.kind, i.price_basis, i.canonical_unit, i.unit_label, i.size_milli,
-            i.retail_cents, i.wholesale_cents,
+            i.price_cents,
             COALESCE(SUM(m.delta_milli), 0) AS qty_milli,
             LOWER(i.name || ' ' || COALESCE(c.name, '') || ' ' || COALESCE(c.aliases, '')) AS search
        FROM items i
@@ -290,8 +285,7 @@ export default async function SellPage() {
     name: r.name,
     unitLabel: r.unit_label,
     sizeMilli: r.size_milli,
-    retailCents: r.retail_cents,
-    wholesaleCents: r.wholesale_cents,
+    priceCents: r.price_cents,
     qtyMilli: r.qty_milli,
     search: r.search,
   }));

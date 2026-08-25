@@ -982,13 +982,13 @@ const EXPORT_SPECS: Record<ExportTable, ExportSpec> = {
   stock: {
     header: [
       "id", "name", "kind", "unit", "size", "unit_label", "qty", "units_on_hand",
-      "cost_kes", "retail_kes", "wholesale_kes", "stock_value_kes", "active",
+      "cost_kes", "price_kes", "never_below_kes", "never_beyond_kes", "stock_value_kes", "active",
     ],
     page: (limit, offset) =>
       all<Record<string, unknown>>(
         `SELECT i.id, i.name, i.kind, i.canonical_unit, i.size_milli, i.unit_label,
                 COALESCE(SUM(m.delta_milli), 0) AS qty_milli,
-                i.cost_cents, i.retail_cents, i.wholesale_cents, i.active
+                i.cost_cents, i.price_cents, i.floor_cents, i.ceiling_cents, i.active
            FROM items i
            LEFT JOIN stock_movements m ON m.item_id = i.id
           GROUP BY i.id
@@ -1003,7 +1003,8 @@ const EXPORT_SPECS: Record<ExportTable, ExportSpec> = {
         return [
           r.id, r.name, r.kind, r.canonical_unit, (size / 1000).toFixed(3), r.unit_label,
           (qty / 1000).toFixed(3), units.toFixed(3),
-          kes(r.cost_cents as number), kes(r.retail_cents as number), kes(r.wholesale_cents as number),
+          kes(r.cost_cents as number), kes(r.price_cents as number),
+          kes(r.floor_cents as number), kes(r.ceiling_cents as number),
           kes(Math.round(units * (r.cost_cents as number))), r.active,
         ];
       }),

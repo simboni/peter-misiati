@@ -36,8 +36,8 @@ process.on("exit", () => rmSync(TMP, { recursive: true, force: true }));
 const OWNER = 1;
 
 function sellableItem() {
-  const row = get<{ id: number; size_milli: number; retail_cents: number; floor_cents: number }>(
-    `SELECT id, size_milli, retail_cents, floor_cents FROM items WHERE retail_cents > 0 ORDER BY id LIMIT 1`,
+  const row = get<{ id: number; size_milli: number; price_cents: number; floor_cents: number }>(
+    `SELECT id, size_milli, price_cents, floor_cents FROM items WHERE price_cents > 0 ORDER BY id LIMIT 1`,
   );
   assert.ok(row, "the seed should contain a priced item");
   return row!;
@@ -157,7 +157,7 @@ test("approving and invoicing writes an ordinary sale, on credit by default", ()
     customerName: "Wholesale Buyer Ltd",
     note: "4 drums",
     validUntil: "",
-    lines: [{ itemId: item.id, units: 4, unitPriceCents: item.retail_cents }],
+    lines: [{ itemId: item.id, units: 4, unitPriceCents: item.price_cents }],
     userId: OWNER,
   });
   setQuoteStatus(quoteId, "approved", OWNER);
@@ -166,9 +166,9 @@ test("approving and invoicing writes an ordinary sale, on credit by default", ()
   const res = invoiceQuote({ quoteId, userId: OWNER, clientUuid: "uuid-invoice-1" });
 
   assert.ok(res.saleId > 0, "an invoice is a sale");
-  assert.equal(res.totalCents, 4 * item.retail_cents);
+  assert.equal(res.totalCents, 4 * item.price_cents);
   assert.equal(res.paidCents, 0, "nothing tendered means the whole bill is on account");
-  assert.equal(res.outstandingCents, 4 * item.retail_cents);
+  assert.equal(res.outstandingCents, 4 * item.price_cents);
   assert.ok(ledgerCount() > before, "now — and only now — the stock moves");
 
   const sale = get<{ tier: string; customer_id: number; note: string }>(
@@ -190,7 +190,7 @@ test("an invoiced quote cannot be invoiced or edited again", () => {
     customerName: "Twice Ltd",
     note: "",
     validUntil: "",
-    lines: [{ itemId: item.id, units: 1, unitPriceCents: item.retail_cents }],
+    lines: [{ itemId: item.id, units: 1, unitPriceCents: item.price_cents }],
     userId: OWNER,
   });
   setQuoteStatus(quoteId, "approved", OWNER);
@@ -226,7 +226,7 @@ test("part payment at invoice time leaves the rest owing", () => {
     customerName: "Part Payer",
     note: "",
     validUntil: "",
-    lines: [{ itemId: item.id, units: 2, unitPriceCents: item.retail_cents }],
+    lines: [{ itemId: item.id, units: 2, unitPriceCents: item.price_cents }],
     userId: OWNER,
   });
   setQuoteStatus(quoteId, "approved", OWNER);
@@ -237,11 +237,11 @@ test("part payment at invoice time leaves the rest owing", () => {
     clientUuid: "uuid-part",
     tenders: [
       { method: "cash", amountCents: 20_000 },
-      { method: "credit", amountCents: 2 * item.retail_cents - 20_000 },
+      { method: "credit", amountCents: 2 * item.price_cents - 20_000 },
     ],
   });
 
-  const total = 2 * item.retail_cents;
+  const total = 2 * item.price_cents;
   assert.equal(res.totalCents, total);
   assert.equal(res.paidCents, 20_000);
   assert.equal(res.outstandingCents, total - 20_000, "the balance is what the debtors list will show");
@@ -310,13 +310,13 @@ test("prices can be corrected as the quote becomes an invoice", () => {
     customerName: "Late Collector",
     note: "",
     validUntil: "",
-    lines: [{ itemId: item.id, units: 2, unitPriceCents: item.retail_cents }],
+    lines: [{ itemId: item.id, units: 2, unitPriceCents: item.price_cents }],
     userId: OWNER,
   });
   setQuoteStatus(quoteId, "approved", OWNER);
 
   // The drum went up between approval and collection.
-  const agreed = item.retail_cents + 5_000;
+  const agreed = item.price_cents + 5_000;
   const res = invoiceQuote({
     quoteId,
     userId: OWNER,
@@ -342,13 +342,13 @@ test("a wholesale customer can be invoiced with no quote at all", () => {
     customerId: buyerId,
     customerName: "Known Terms Ltd",
     note: "Standing order",
-    lines: [{ itemId: item.id, units: 3, unitPriceCents: item.retail_cents }],
+    lines: [{ itemId: item.id, units: 3, unitPriceCents: item.price_cents }],
     userId: OWNER,
     clientUuid: "uuid-direct-1",
   });
 
-  assert.equal(res.totalCents, 3 * item.retail_cents);
-  assert.equal(res.outstandingCents, 3 * item.retail_cents, "on account by default");
+  assert.equal(res.totalCents, 3 * item.price_cents);
+  assert.equal(res.outstandingCents, 3 * item.price_cents, "on account by default");
   assert.equal(get<{ n: number }>(`SELECT COUNT(*) AS n FROM quotes`)!.n, before,
     "billing directly must not invent a quote to hang it on");
   assert.equal(
@@ -364,7 +364,7 @@ test("a direct invoice is replay-safe, like every other sale", () => {
     customerId: customer("Double Tap"),
     customerName: "Double Tap",
     note: "",
-    lines: [{ itemId: item.id, units: 1, unitPriceCents: item.retail_cents }],
+    lines: [{ itemId: item.id, units: 1, unitPriceCents: item.price_cents }],
     userId: OWNER,
     clientUuid: "uuid-double-tap",
   };

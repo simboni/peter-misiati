@@ -3,8 +3,8 @@
  *
  * The thing worth protecting is the guard rail. This screen is open to
  * attendants, which is the whole point of it, and the only reason that is safe
- * is that the floor price holds. So these tests push on the floor from both
- * sides — retail and wholesale — and check that a refused batch leaves nothing
+ * is that the band holds. So these tests push on it from both ends — under the
+ * floor and over the ceiling — and check that a refused batch leaves nothing
  * behind, because a half-applied price list is worse than none.
  */
 
@@ -35,55 +35,57 @@ const STAFF = Number(
   run(`INSERT INTO users (name, role, pin_hash) VALUES ('Amina', 'staff', 'x')`).lastInsertRowid,
 );
 
-function item(name: string, retail: number, wholesale: number, floor: number): number {
+function item(name: string, price: number, floor: number, ceiling: number): number {
   return Number(
     run(
       `INSERT INTO items (name, kind, canonical_unit, size_milli, unit_label, sellable,
-                          retail_cents, wholesale_cents, floor_cents)
-       VALUES (?, 'pack', 'kg', ?, 'pack', 1, ?, ?, ?)`,
+                          price_basis, price_cents, floor_cents, ceiling_cents)
+       VALUES (?, 'bulk', 'kg', ?, 'bag', 1, 'unit', ?, ?, ?)`,
       name,
       toMilli(1),
-      toCents(retail),
-      toCents(wholesale),
+      toCents(price),
       toCents(floor),
+      toCents(ceiling),
     ).lastInsertRowid,
   );
 }
 
-const CAUSTIC = item("Caustic Soda — 1 kg", 200, 180, 150);
-const SLES = item("Ungerol — 1 kg", 500, 460, 400);
-const NOFLOOR = item("Salt — 1 kg", 20, 18, 0);
+const CAUSTIC = item("Caustic Soda", 200, 150, 260);
+const SLES = item("Ungerol", 500, 400, 650);
+const NOBAND = item("Salt", 20, 0, 0);
 
 test("an attendant may raise a price, and the old one is kept", () => {
-  const res = applyPrices([{ itemId: CAUSTIC, retail: 230, wholesale: 210 }], STAFF);
+  const res = applyPrices([{ itemId: CAUSTIC, price: 230 }], STAFF);
 
   assert.equal(res.changed, 1);
-  const row = get<{ retail_cents: number; wholesale_cents: number }>(
-    `SELECT retail_cents, wholesale_cents FROM items WHERE id = ?`,
-    CAUSTIC,
-  )!;
-  assert.equal(row.retail_cents, toCents(230));
-  assert.equal(row.wholesale_cents, toCents(210));
+  assert.equal(
+    get<{ price_cents: number }>(`SELECT price_cents FROM items WHERE id = ?`, CAUSTIC)!.price_cents,
+    toCents(230),
+  );
 
   const hist = priceHistory(CAUSTIC);
   assert.equal(hist.length, 1);
-  assert.equal(hist[0].old_retail, toCents(200), "what it was is still on the record");
-  assert.equal(hist[0].new_retail, toCents(230));
+  assert.equal(hist[0].old_price, toCents(200), "what it was is still on the record");
+  assert.equal(hist[0].new_price, toCents(230));
   assert.equal(hist[0].user_name, "Amina", "and who changed it");
 });
 
-test("the floor holds against an attendant, on retail and on wholesale alike", () => {
+test("the band holds against an attendant at both ends", () => {
+  // Ungerol: asks 500, never below 400, never beyond 650.
   assert.throws(
-    () => applyPrices([{ itemId: SLES, retail: 350, wholesale: 460 }], STAFF),
-    (e: unknown) => e instanceof PriceError && /below the floor/.test((e as Error).message),
+    () => applyPrices([{ itemId: SLES, price: 350 }], STAFF),
+    (e: unknown) => e instanceof PriceError && /below the least/.test((e as Error).message),
   );
   assert.throws(
-    () => applyPrices([{ itemId: SLES, retail: 500, wholesale: 300 }], STAFF),
-    (e: unknown) => e instanceof PriceError && /wholesale .* below the floor/.test((e as Error).message),
+    () => applyPrices([{ itemId: SLES, price: 900 }], STAFF),
+    (e: unknown) => e instanceof PriceError && /above the most/.test((e as Error).message),
   );
 
-  const row = get<{ retail_cents: number }>(`SELECT retail_cents FROM items WHERE id = ?`, SLES)!;
-  assert.equal(row.retail_cents, toCents(500), "nothing was written");
+  assert.equal(
+    get<{ price_cents: number }>(`SELECT price_cents FROM items WHERE id = ?`, SLES)!.price_cents,
+    toCents(500),
+    "nothing was written",
+  );
 });
 
 test("a refused batch applies none of it, not the rows before the bad one", () => {
@@ -93,8 +95,8 @@ test("a refused batch applies none of it, not the rows before the bad one", () =
     () =>
       applyPrices(
         [
-          { itemId: CAUSTIC, retail: 999, wholesale: 999 }, // fine on its own
-          { itemId: SLES, retail: 10, wholesale: 10 }, // under the floor
+          { itemId: CAUSTIC, price: 250 }, // fine on its own
+          { itemId: SLES, price: 10 }, // under the floor
         ],
         STAFF,
       ),
@@ -102,38 +104,44 @@ test("a refused batch applies none of it, not the rows before the bad one", () =
   );
 
   assert.equal(
-    get<{ retail_cents: number }>(`SELECT retail_cents FROM items WHERE id = ?`, CAUSTIC)!
-      .retail_cents,
+    get<{ price_cents: number }>(`SELECT price_cents FROM items WHERE id = ?`, CAUSTIC)!.price_cents,
     toCents(230),
     "the good row in front of the bad one must not have stuck",
   );
   assert.equal(get<{ n: number }>(`SELECT COUNT(*) AS n FROM price_changes`)!.n, before);
 });
 
-test("the owner's PIN opens the floor, and the change is still recorded", () => {
-  const res = applyPrices([{ itemId: SLES, retail: 350, wholesale: 340 }], OWNER, {
-    allowBelowFloor: true,
-  });
-  assert.equal(res.changed, 1);
+test("the owner's PIN opens both ends of the band, and the change is still recorded", () => {
+  const under = applyPrices([{ itemId: SLES, price: 350 }], OWNER, { allowOutsideBand: true });
+  assert.equal(under.changed, 1);
+  assert.equal(priceHistory(SLES)[0].new_price, toCents(350));
+
+  const over = applyPrices([{ itemId: SLES, price: 900 }], OWNER, { allowOutsideBand: true });
+  assert.equal(over.changed, 1);
   assert.equal(
-    get<{ retail_cents: number }>(`SELECT retail_cents FROM items WHERE id = ?`, SLES)!
-      .retail_cents,
-    toCents(350),
+    get<{ price_cents: number }>(`SELECT price_cents FROM items WHERE id = ?`, SLES)!.price_cents,
+    toCents(900),
   );
-  assert.equal(priceHistory(SLES)[0].new_retail, toCents(350));
+
+  // Put it back inside its band for the tests that follow.
+  applyPrices([{ itemId: SLES, price: 500 }], OWNER, { allowOutsideBand: true });
 });
 
-test("an item with no floor is not accidentally frozen at zero", () => {
-  const res = applyPrices([{ itemId: NOFLOOR, retail: 15, wholesale: 14 }], STAFF);
-  assert.equal(res.changed, 1, "no floor means no guard rail to trip over");
+test("an item with no band set is not accidentally frozen", () => {
+  // Zero at either end means "not set", never "a limit of nothing".
+  const res = applyPrices([{ itemId: NOBAND, price: 15 }], STAFF);
+  assert.equal(res.changed, 1, "no band means no guard rail to trip over");
+
+  const up = applyPrices([{ itemId: NOBAND, price: 9_999 }], STAFF);
+  assert.equal(up.changed, 1, "and none at the top either");
 });
 
 test("rows that did not move are skipped, not rewritten as history", () => {
   const before = priceHistory(CAUSTIC).length;
   const res = applyPrices(
     [
-      { itemId: CAUSTIC, retail: 230, wholesale: 210 }, // exactly what it already is
-      { itemId: NOFLOOR, retail: 16, wholesale: 14 }, // a real change
+      { itemId: CAUSTIC, price: 230 }, // exactly what it already is
+      { itemId: NOBAND, price: 16 }, // a real change
     ],
     STAFF,
   );
@@ -148,17 +156,17 @@ test("rows that did not move are skipped, not rewritten as history", () => {
 
 test("history is append-only", () => {
   const id = get<{ id: number }>(`SELECT id FROM price_changes ORDER BY id LIMIT 1`)!.id;
-  assert.throws(() => run(`UPDATE price_changes SET new_retail = 1 WHERE id = ?`, id), /append-only/);
+  assert.throws(() => run(`UPDATE price_changes SET new_price = 1 WHERE id = ?`, id), /append-only/);
   assert.throws(() => run(`DELETE FROM price_changes WHERE id = ?`, id), /append-only/);
 });
 
 
 test("a negative price is refused before it reaches the database", () => {
   assert.throws(
-    () => applyPrices([{ itemId: CAUSTIC, retail: -5, wholesale: 100 }], STAFF),
+    () => applyPrices([{ itemId: CAUSTIC, price: -5 }], STAFF),
     (e: unknown) => e instanceof PriceError && /zero or more/.test((e as Error).message),
   );
-  assert.equal(all(`SELECT id FROM items WHERE retail_cents < 0`).length, 0);
+  assert.equal(all(`SELECT id FROM items WHERE price_cents < 0`).length, 0);
 });
 
 
@@ -175,35 +183,39 @@ test("a price kept at the counter moves the shelf price and writes the history",
 
   const result = setCounterPrice({
     itemId: CAUSTIC,
-    tier: "retail",
     priceCents: 22000,
     userId: STAFF,
   });
 
   assert.equal(result.changed, true);
   assert.equal(result.newCents, 22000);
-  assert.equal(get<{ retail_cents: number }>(`SELECT retail_cents FROM items WHERE id = ?`, CAUSTIC)!.retail_cents, 22000);
+  assert.equal(get<{ price_cents: number }>(`SELECT price_cents FROM items WHERE id = ?`, CAUSTIC)!.price_cents, 22000);
 
   const rows = priceHistory(CAUSTIC);
   assert.equal(rows.length, before + 1, "the change is on the record");
-  assert.equal(rows[0].new_retail, 22000);
+  assert.equal(rows[0].new_price, 22000);
   assert.equal(rows[0].user_name, "Amina");
 });
 
-test("keeping a retail price leaves the wholesale one alone", () => {
-  const wholesaleBefore = get<{ wholesale_cents: number }>(
-    `SELECT wholesale_cents FROM items WHERE id = ?`,
+test("a price kept at the counter is inside the band, or it is not kept", () => {
+  const ceiling = get<{ ceiling_cents: number }>(
+    `SELECT ceiling_cents FROM items WHERE id = ?`,
     CAUSTIC,
-  )!.wholesale_cents;
+  )!.ceiling_cents;
+  assert.ok(ceiling > 0, "this item has a ceiling to test against");
 
-  setCounterPrice({ itemId: CAUSTIC, tier: "retail", priceCents: 23000, userId: STAFF });
-
-  assert.equal(
-    get<{ wholesale_cents: number }>(`SELECT wholesale_cents FROM items WHERE id = ?`, CAUSTIC)!
-      .wholesale_cents,
-    wholesaleBefore,
-    "a trade price nobody discussed must not move",
+  assert.throws(
+    () => setCounterPrice({ itemId: CAUSTIC, priceCents: ceiling + 100, userId: STAFF }),
+    /above the most/i,
   );
+
+  const result = setCounterPrice({
+    itemId: CAUSTIC,
+    priceCents: ceiling + 100,
+    userId: STAFF,
+    allowOutsideBand: true,
+  });
+  assert.equal(result.changed, true, "the owner standing there can allow it");
 });
 
 test("the floor still holds at the counter, and the owner can still overrule it", () => {
@@ -212,32 +224,31 @@ test("the floor still holds at the counter, and the owner can still overrule it"
   assert.ok(floor > 0, "this item has a floor to test against");
 
   assert.throws(
-    () => setCounterPrice({ itemId: CAUSTIC, tier: "retail", priceCents: floor - 100, userId: STAFF }),
-    /floor/i,
+    () => setCounterPrice({ itemId: CAUSTIC, priceCents: floor - 100, userId: STAFF }),
+    /below the least/i,
   );
 
   // Unchanged: a refused price must not have half-applied.
   assert.notEqual(
-    get<{ retail_cents: number }>(`SELECT retail_cents FROM items WHERE id = ?`, CAUSTIC)!.retail_cents,
+    get<{ price_cents: number }>(`SELECT price_cents FROM items WHERE id = ?`, CAUSTIC)!.price_cents,
     floor - 100,
   );
 
   const result = setCounterPrice({
     itemId: CAUSTIC,
-    tier: "retail",
     priceCents: floor - 100,
     userId: STAFF,
-    allowBelowFloor: true,
+    allowOutsideBand: true,
   });
   assert.equal(result.changed, true);
 });
 
 test("keeping the price it already is changes nothing and records nothing", () => {
-  const current = get<{ retail_cents: number }>(`SELECT retail_cents FROM items WHERE id = ?`, CAUSTIC)!
-    .retail_cents;
+  const current = get<{ price_cents: number }>(`SELECT price_cents FROM items WHERE id = ?`, CAUSTIC)!
+    .price_cents;
   const before = priceHistory(CAUSTIC).length;
 
-  const result = setCounterPrice({ itemId: CAUSTIC, tier: "retail", priceCents: current, userId: STAFF });
+  const result = setCounterPrice({ itemId: CAUSTIC, priceCents: current, userId: STAFF });
 
   assert.equal(result.changed, false);
   assert.equal(priceHistory(CAUSTIC).length, before, "no row saying nothing happened");

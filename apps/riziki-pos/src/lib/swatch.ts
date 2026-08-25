@@ -105,3 +105,25 @@ export function nameSize(name: string): string {
   if (base.length <= 9) return "text-[15px] leading-[1.2]";
   return "text-[13px] leading-tight";
 }
+
+/**
+ * How big to set the price on a tile.
+ *
+ * Same reasoning as the name, for a harder constraint: the price may not wrap
+ * and may not be truncated, because half a price is worse than no price. Three
+ * tiles to a row on a 390 mm phone leaves about ninety pixels, which "KES 810"
+ * fits and "KES 742.60/kg" does not — and what fell off the end was the "/kg",
+ * turning a rate into what looks like the price of the whole drum.
+ *
+ * Measured on the money alone. The unit is set smaller by the tile and rides
+ * along; a price short enough to keep its full size has room for it.
+ */
+export function priceSize(money: string): string {
+  // Measured on a 390 px phone, three tiles to a row: the price gets 88 px.
+  // "KES 810" fits at full size, "KES 1,215" needs a step down, and a price
+  // with shillings and cents needs two. The price may not be truncated and may
+  // not wrap, so the size is what gives.
+  if (money.length <= 7) return "text-[17px]";
+  if (money.length <= 9) return "text-[15px]";
+  return "text-[13px]";
+}

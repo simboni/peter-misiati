@@ -10,6 +10,10 @@ import {
   invoiceQuote,
   invoiceDirect,
 } from "@/lib/quotes";
+import { revalidatePath } from "next/cache";
+import { authoriseOwnerPin } from "@/lib/sales";
+import { setCounterPrice, PriceError } from "@/lib/pricing";
+import { formatKes } from "@/lib/units";
 import { PageTitle } from "@/components/ui";
 import Builder, { type SaveResult } from "./builder";
 
@@ -42,12 +46,11 @@ export default async function NewWholesalePage(props: {
     kind: string;
     price_basis: "pack" | "unit";
     canonical_unit: "kg" | "L" | "pcs";
-    wholesale_cents: number;
-    retail_cents: number;
+    price_cents: number;
   }>(
-    `SELECT id, name, kind, price_basis, canonical_unit, wholesale_cents, retail_cents
+    `SELECT id, name, kind, price_basis, canonical_unit, price_cents
        FROM items
-      WHERE active = 1 AND sellable = 1 AND (retail_cents > 0 OR wholesale_cents > 0)
+      WHERE active = 1 AND sellable = 1 AND price_cents > 0
       ORDER BY CASE kind WHEN 'bulk' THEN 0 ELSE 1 END, name`,
   ).map((r) => ({
     id: r.id,
@@ -55,8 +58,7 @@ export default async function NewWholesalePage(props: {
     kind: r.kind,
     basis: r.price_basis === "unit" ? ("unit" as const) : ("pack" as const),
     canonicalUnit: r.canonical_unit,
-    wholesaleCents: r.wholesale_cents,
-    retailCents: r.retail_cents,
+    priceCents: r.price_cents,
   }));
 
   const customers = all<{ id: number; name: string; phone: string; kind: string }>(
@@ -101,6 +103,50 @@ export default async function NewWholesalePage(props: {
     return l.qtyMilli > 0
       ? Math.round((l.unitPriceCents * l.qtyMilli) / 1000)
       : l.units * l.unitPriceCents;
+  }
+
+  /**
+   * Keep a price agreed on an invoice as the shop's price from now on.
+   *
+   * The same act as the one at the till, and deliberately the same code behind
+   * it. A wholesale buyer arguing a chemical down to a number the shop is happy
+   * with is exactly the moment the shelf price should move — and asking the
+   * owner to go and retype it somewhere else is how it never happens.
+   */
+  async function keepPrice(
+    itemId: number,
+    priceCents: number,
+    ownerPin?: string,
+  ): Promise<{ ok: true; message: string } | { ok: false; error: string; needsPin: boolean }> {
+    "use server";
+
+    const me = await requireUser();
+
+    let approvedBy: number | null = null;
+    if (ownerPin) {
+      approvedBy = authoriseOwnerPin(ownerPin);
+      if (!approvedBy) return { ok: false, error: "That is not an owner's PIN.", needsPin: true };
+    }
+
+    try {
+      const result = setCounterPrice({
+        itemId,
+        priceCents,
+        userId: me.id,
+        allowOutsideBand: approvedBy !== null,
+      });
+      revalidatePath("/wholesale/new");
+      revalidatePath("/sell");
+      return {
+        ok: true,
+        message: result.changed
+          ? `${result.name} is now ${formatKes(result.newCents)}.`
+          : `${result.name} was already that price.`,
+      };
+    } catch (err) {
+      const message = err instanceof PriceError ? err.message : "Could not change that price.";
+      return { ok: false, error: message, needsPin: /floor|ceiling|least|most/i.test(message) };
+    }
   }
 
   async function save(payload: {
@@ -242,6 +288,7 @@ export default async function NewWholesalePage(props: {
           })),
         }}
         onSave={save}
+        onKeepPrice={keepPrice}
       />
     </div>
   );

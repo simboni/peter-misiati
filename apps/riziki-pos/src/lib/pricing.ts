@@ -25,6 +25,7 @@
  */
 
 import { all, get, run, tx, audit } from "./db.ts";
+import { priceBandCheck } from "./sales.ts";
 import { formatKes, fromCents, toCents } from "./units.ts";
 
 export class PriceError extends Error {}
@@ -34,32 +35,29 @@ export const STALE_DAYS = 14;
 
 export interface PriceEdit {
   itemId: number;
-  /** Shillings, as typed. Blank or unchanged rows should not be sent. */
-  retail: number;
-  wholesale: number;
+  /** What the shop asks for one unit, in shillings. */
+  price: number;
 }
 
 export interface PriceResult {
   changed: number;
   skipped: number;
-  /** Human-readable, for reading back at the counter. */
+  /** One line per change, already phrased for a person. */
   lines: string[];
 }
 
 /**
- * Apply a batch of price edits.
+ * Apply price changes, all or nothing.
  *
- * A batch rather than one at a time because the morning check is one pass down
- * a list: typing six prices and pressing Save once is the job, and six separate
- * round trips would be six chances to be interrupted half way.
- *
+ * A batch rather than one at a time because a price sweep is one pass down a
+ * list, and six round trips would be six chances to be interrupted half way.
  * One transaction, so an unacceptable price in row four does not leave rows one
- * to three applied and the attendant unsure what actually took.
+ * to three applied and whoever typed them unsure what actually took.
  */
 export function applyPrices(
   edits: PriceEdit[],
   userId: number,
-  opts: { allowBelowFloor?: boolean; source?: "check" | "admin" | "counter" } = {},
+  opts: { allowOutsideBand?: boolean; source?: "check" | "admin" | "counter" } = {},
 ): PriceResult {
   if (!edits.length) return { changed: 0, skipped: 0, lines: [] };
 
@@ -72,64 +70,60 @@ export function applyPrices(
       const item = get<{
         id: number;
         name: string;
-        retail_cents: number;
-        wholesale_cents: number;
+        price_cents: number;
         floor_cents: number;
+        ceiling_cents: number;
       }>(
-        `SELECT id, name, retail_cents, wholesale_cents, floor_cents FROM items WHERE id = ?`,
+        `SELECT id, name, price_cents, floor_cents, ceiling_cents FROM items WHERE id = ?`,
         edit.itemId,
       );
       if (!item) throw new PriceError("One of those items no longer exists. Reload and try again.");
 
-      const retail = money(edit.retail, `${item.name} retail price`);
-      const wholesale = money(edit.wholesale, `${item.name} wholesale price`);
+      const price = money(edit.price, `${item.name} price`);
 
-      if (retail === item.retail_cents && wholesale === item.wholesale_cents) {
+      if (price === item.price_cents) {
         skipped++;
         continue;
       }
 
-      // The floor is the whole guard rail. A wholesale price of zero means "not
-      // sold at wholesale", so it is exempt — otherwise every item without a
-      // wholesale price would be unsavable.
-      if (!opts.allowBelowFloor && item.floor_cents > 0) {
-        if (retail > 0 && retail < item.floor_cents) {
+      /*
+        The band is the whole guard rail.
+
+        Both ends, and for the same reason: the owner decided the range this
+        price may move in, and a price outside it is his decision rather than
+        one made at a counter with somebody waiting. A price of zero is exempt —
+        it means "not priced yet", which is a state the catalogue has to be able
+        to be in while a new chemical is being set up.
+      */
+      if (!opts.allowOutsideBand && price > 0) {
+        const breach = priceBandCheck({ ...item, price_cents: price }, price);
+        if (breach === "below_floor") {
           throw new PriceError(
-            `${item.name}: ${formatKes(retail)} is below the floor of ${formatKes(item.floor_cents)}. The owner's PIN is needed to go under it.`,
+            `${item.name}: ${formatKes(price)} is below the least it may go for ` +
+              `(${formatKes(item.floor_cents)}). The owner's PIN is needed to go under it.`,
           );
         }
-        if (wholesale > 0 && wholesale < item.floor_cents) {
+        if (breach === "above_ceiling") {
           throw new PriceError(
-            `${item.name}: wholesale ${formatKes(wholesale)} is below the floor of ${formatKes(item.floor_cents)}. The owner's PIN is needed to go under it.`,
+            `${item.name}: ${formatKes(price)} is above the most it may go for ` +
+              `(${formatKes(item.ceiling_cents)}). The owner's PIN is needed to go over it.`,
           );
         }
       }
 
       run(
-        `INSERT INTO price_changes
-           (item_id, old_retail, new_retail, old_wholesale, new_wholesale, user_id, source)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO price_changes (item_id, old_price, new_price, user_id, source)
+         VALUES (?, ?, ?, ?, ?)`,
         item.id,
-        item.retail_cents,
-        retail,
-        item.wholesale_cents,
-        wholesale,
+        item.price_cents,
+        price,
         userId,
         opts.source ?? "check",
       );
-      run(
-        `UPDATE items SET retail_cents = ?, wholesale_cents = ? WHERE id = ?`,
-        retail,
-        wholesale,
-        item.id,
-      );
+      run(`UPDATE items SET price_cents = ? WHERE id = ?`, price, item.id);
 
       changed++;
-      lines.push(
-        retail === item.retail_cents
-          ? `${item.name}: wholesale ${formatKes(item.wholesale_cents)} → ${formatKes(wholesale)}`
-          : `${item.name}: ${formatKes(item.retail_cents)} → ${formatKes(retail)}`,
-      );
+      lines.push(`${item.name}: ${formatKes(item.price_cents)} → ${formatKes(price)}`);
     }
 
     if (changed) {
@@ -149,49 +143,40 @@ export function applyPrices(
  * should be the shelf price from then on. Without this, that fact lived in one
  * person's head until somebody opened a separate screen to type it in again.
  *
- * Only the tier being sold on is touched. Changing the retail price because a
- * trade buyer negotiated a wholesale one would move a number nobody discussed.
- *
- * Everything else is the same guard the price sheet had: the floor still holds
- * unless an owner authorised going under it, and the change is written to the
- * append-only history with the name of whoever made it.
+ * The band still holds, and the change is written to the append-only history
+ * with the name of whoever made it.
  */
 export function setCounterPrice(input: {
   itemId: number;
-  tier: "retail" | "wholesale";
   priceCents: number;
   userId: number;
-  allowBelowFloor?: boolean;
+  allowOutsideBand?: boolean;
 }): { name: string; oldCents: number; newCents: number; changed: boolean } {
-  const item = get<{ id: number; name: string; retail_cents: number; wholesale_cents: number }>(
-    `SELECT id, name, retail_cents, wholesale_cents FROM items WHERE id = ?`,
+  const item = get<{ id: number; name: string; price_cents: number }>(
+    `SELECT id, name, price_cents FROM items WHERE id = ?`,
     input.itemId,
   );
   if (!item) throw new PriceError("That item is no longer on the price list.");
 
-  const oldCents = input.tier === "wholesale" ? item.wholesale_cents : item.retail_cents;
-
   /*
     Delegated rather than reimplemented.
 
-    `applyPrices` owns the floor check, the history row and the transaction, and
+    `applyPrices` owns the band check, the history row and the transaction, and
     a second copy of that logic here would be a second place for the floor to
     stop being enforced. It takes shillings because that is what the forms hand
     it; `money()` rounds back to the same integer cents on the way in.
   */
-  const result = applyPrices(
-    [
-      {
-        itemId: item.id,
-        retail: fromCents(input.tier === "retail" ? input.priceCents : item.retail_cents),
-        wholesale: fromCents(input.tier === "wholesale" ? input.priceCents : item.wholesale_cents),
-      },
-    ],
-    input.userId,
-    { allowBelowFloor: input.allowBelowFloor, source: "counter" },
-  );
+  const result = applyPrices([{ itemId: item.id, price: fromCents(input.priceCents) }], input.userId, {
+    allowOutsideBand: input.allowOutsideBand,
+    source: "counter",
+  });
 
-  return { name: item.name, oldCents, newCents: input.priceCents, changed: result.changed > 0 };
+  return {
+    name: item.name,
+    oldCents: item.price_cents,
+    newCents: input.priceCents,
+    changed: result.changed > 0,
+  };
 }
 
 function money(shillings: number, label: string): number {
@@ -206,18 +191,16 @@ function money(shillings: number, label: string): number {
 export interface HistoryRow {
   at: string;
   item_name: string;
-  old_retail: number;
-  new_retail: number;
-  old_wholesale: number;
-  new_wholesale: number;
+  old_price: number;
+  new_price: number;
   user_name: string | null;
   source: string;
 }
 
 export function priceHistory(itemId?: number, limit = 60): HistoryRow[] {
   return all<HistoryRow>(
-    `SELECT p.at, i.name AS item_name, p.old_retail, p.new_retail,
-            p.old_wholesale, p.new_wholesale, u.name AS user_name, p.source
+    `SELECT p.at, i.name AS item_name, p.old_price, p.new_price,
+            u.name AS user_name, p.source
        FROM price_changes p
        JOIN items i ON i.id = p.item_id
        LEFT JOIN users u ON u.id = p.user_id

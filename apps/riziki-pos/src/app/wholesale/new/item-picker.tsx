@@ -10,8 +10,8 @@ export interface PickItem {
   /** 'unit' — priced per kg / L, and the line asks for a quantity. */
   basis: "pack" | "unit";
   canonicalUnit: "kg" | "L" | "pcs";
-  wholesaleCents: number;
-  retailCents: number;
+  /** What the shop asks for one unit. The only price an item has. */
+  priceCents: number;
 }
 
 /**
@@ -76,7 +76,7 @@ export default function ItemPicker({
     setOpen(false);
   }
 
-  const price = (i: PickItem) => (i.wholesaleCents > 0 ? i.wholesaleCents : i.retailCents);
+  const price = (i: PickItem) => i.priceCents;
 
   return (
     <div ref={box} className="relative">

@@ -3,29 +3,17 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { currentUser, requireOwner } from "@/lib/auth";
 import {
-  listFinished,
-  listPackaging,
-  listChemicals,
+  listProducts,
   updatePricing,
   setItemActive,
-  createFinished,
-  createChemical,
+  createProduct,
   adoptUnitPricing,
   pendingUnitPricing,
   CatalogError,
   type AdminItem,
 } from "@/lib/catalog";
-import { fromCents, formatQty, SIZE_UNITS, type SizeUnit } from "@/lib/units";
-import {
-  Alert,
-  Button,
-  Card,
-  Chip,
-  Field,
-  PageTitle,
-  SectionLabel,
-  inputClass,
-} from "@/components/ui";
+import { fromCents, formatKes, formatQty, SIZE_UNITS, type SizeUnit } from "@/lib/units";
+import { Alert, Button, Card, Chip, Field, PageTitle, inputClass } from "@/components/ui";
 
 // Prices and the catalogue change here; never serve a cached copy.
 export const dynamic = "force-dynamic";
@@ -53,9 +41,9 @@ async function savePricing(formData: FormData): Promise<void> {
   try {
     updatePricing({
       itemId: Number(formData.get("itemId")),
-      retail: Number(formData.get("retail") ?? 0),
-      wholesale: Number(formData.get("wholesale") ?? 0),
+      price: Number(formData.get("price") ?? 0),
       floor: Number(formData.get("floor") ?? 0),
+      ceiling: Number(formData.get("ceiling") ?? 0),
       reorderUnits: Number(formData.get("reorder") ?? 0),
       byUserId: by,
     });
@@ -63,6 +51,7 @@ async function savePricing(formData: FormData): Promise<void> {
     redirectWith(e);
   }
   revalidatePath("/items");
+  revalidatePath("/sell");
 }
 
 async function toggleActive(formData: FormData): Promise<void> {
@@ -74,51 +63,33 @@ async function toggleActive(formData: FormData): Promise<void> {
     redirectWith(e);
   }
   revalidatePath("/items");
+  revalidatePath("/sell");
 }
 
-async function addFinished(formData: FormData): Promise<void> {
+async function addProduct(formData: FormData): Promise<void> {
   "use server";
   const by = await guard();
   try {
-    createFinished({
+    createProduct({
       name: String(formData.get("name") ?? ""),
-      unit: (formData.get("unit") as SizeUnit) ?? "L",
-      sizeValue: Number(formData.get("size") ?? 0),
-      unitLabel: String(formData.get("label") ?? "bottle"),
-      retail: Number(formData.get("retail") ?? 0),
-      wholesale: Number(formData.get("wholesale") ?? 0),
-      byUserId: by,
-    });
-  } catch (e) {
-    redirectWith(e);
-  }
-  revalidatePath("/items");
-}
-
-async function addChemical(formData: FormData): Promise<void> {
-  "use server";
-  const by = await guard();
-
-  const unit = (formData.get("unit") as SizeUnit) ?? "kg";
-
-  try {
-    createChemical({
-      name: String(formData.get("name") ?? ""),
-      unit,
+      unit: (formData.get("unit") as SizeUnit) ?? "kg",
       aliases: String(formData.get("aliases") ?? ""),
-      bulkSizeValue: Number(formData.get("bulk") ?? 0),
-      bulkLabel: String(formData.get("bulkLabel") ?? "unit"),
-      ratePerUnit: Number(formData.get("rate") ?? 0),
+      containerValue: Number(formData.get("container") ?? 0),
+      containerLabel: String(formData.get("containerLabel") ?? "unit"),
+      price: Number(formData.get("price") ?? 0),
+      floor: Number(formData.get("floor") ?? 0),
+      ceiling: Number(formData.get("ceiling") ?? 0),
       byUserId: by,
     });
   } catch (e) {
     redirectWith(e);
   }
   revalidatePath("/items");
+  revalidatePath("/sell");
 }
 
 /**
- * Move the catalogue onto per-kilogram pricing.
+ * Move the catalogue onto per-unit pricing.
  *
  * This used to be a script somebody had to run in a terminal, which is a fine
  * thing to ask of a developer and no thing at all to ask of a shop. Until it has
@@ -135,17 +106,22 @@ async function addChemical(formData: FormData): Promise<void> {
 async function adoptPricing(): Promise<void> {
   "use server";
   const by = await guard();
+  let report;
+  // `redirect` reports itself by throwing, so it has to stand outside the catch
+  // — inside it, a migration that worked perfectly comes back as "that did not
+  // work" and the owner presses the button again looking for a change that has
+  // already happened.
   try {
-    const report = adoptUnitPricing(by);
-    revalidatePath("/items");
-    revalidatePath("/sell");
-    redirect(
-      `/items?moved=${report.priced.length}&packs=${report.packsRetired}` +
-        `&unpriced=${encodeURIComponent(report.unpriced.join(", "))}`,
-    );
+    report = adoptUnitPricing(by);
   } catch (e) {
     redirectWith(e);
   }
+  revalidatePath("/items");
+  revalidatePath("/sell");
+  redirect(
+    `/items?moved=${report.priced.length}&packs=${report.packsRetired}` +
+      `&unpriced=${encodeURIComponent(report.unpriced.join(", "))}`,
+  );
 }
 
 // -------------------------------------------------------------------- views
@@ -153,16 +129,13 @@ async function adoptPricing(): Promise<void> {
 /**
  * The unit a size is typed in.
  *
- * Offered everywhere a size is asked for, because "500 ml" is what the label
- * says and "0.5 litres" is what the database wanted. `only` narrows the list
- * when the answer is already fixed — a pack of a chemical measured in litres
- * can be ml or L, and nothing else.
+ * Offered wherever a size is asked for, because "500 ml" is what the label says
+ * and "0.5 litres" is what the database wanted.
  */
-function UnitSelect({ name, value, only }: { name: string; value?: string; only?: "kg" | "L" | "pcs" }) {
-  const options = only ? SIZE_UNITS.filter((u) => u.canonical === only) : SIZE_UNITS;
+function UnitSelect({ name, value }: { name: string; value?: string }) {
   return (
-    <select className={inputClass} name={name} defaultValue={value ?? options[0]?.key}>
-      {options.map((u) => (
+    <select className={inputClass} name={name} defaultValue={value ?? SIZE_UNITS[0]?.key}>
+      {SIZE_UNITS.map((u) => (
         <option key={u.key} value={u.key}>
           {u.label}
         </option>
@@ -172,121 +145,124 @@ function UnitSelect({ name, value, only }: { name: string; value?: string; only?
 }
 
 /**
- * A price-and-reorder editor.
+ * One row per thing the shop sells.
  *
- * The same four boxes for everything, but the words above them change with what
- * is being priced. "Retail price" against a chemical is ambiguous in the way
- * that costs money — the price of what, a kilo or a drum? — so a weighed item
- * says "per kg" in every label, and the reorder box asks for kilograms instead
- * of a count of containers nobody sells any more.
+ * A list, not a grid of cards. Sixty items as cards is six screens of scrolling
+ * to answer "what does Ungerol cost", and the answer is four characters wide —
+ * so the row states name, unit, price and band on one line, and the editor only
+ * exists once you open it.
  */
-function PriceForm({ item }: { item: AdminItem }) {
+function ProductRow({ item }: { item: AdminItem }) {
   const weighed = item.price_basis === "unit";
-  const per = weighed ? ` per ${item.canonical_unit}` : "";
+  const per = weighed ? `per ${item.canonical_unit}` : "each";
   const reorderUnits = weighed
     ? item.reorder_level_milli / 1000
     : item.size_milli > 0
       ? item.reorder_level_milli / item.size_milli
       : 0;
-  return (
-    <form action={savePricing} className="mt-2.5 space-y-2.5">
-      <input type="hidden" name="itemId" value={item.id} />
-      <div className="grid grid-cols-2 gap-2.5">
-        <Field
-          label={`Retail price${per}`}
-          hint={
-            weighed
-              ? `What a walk-in pays for one ${item.canonical_unit}. Half of that costs half as much.`
-              : "What a walk-in pays."
-          }
-        >
-          <input
-            className={inputClass}
-            type="number"
-            name="retail"
-            min="0"
-            step="any"
-            defaultValue={fromCents(item.retail_cents)}
-          />
-        </Field>
-        <Field label={`Wholesale price${per}`} hint="What a trade buyer pays.">
-          <input
-            className={inputClass}
-            type="number"
-            name="wholesale"
-            min="0"
-            step="any"
-            defaultValue={fromCents(item.wholesale_cents)}
-          />
-        </Field>
-        <Field
-          label={`Never below${per}`}
-          hint="An attendant cannot go under this without your PIN."
-        >
-          <input
-            className={inputClass}
-            type="number"
-            name="floor"
-            min="0"
-            step="any"
-            defaultValue={fromCents(item.floor_cents)}
-          />
-        </Field>
-        <Field
-          label="Warn me at"
-          hint={
-            weighed
-              ? `When less than this many ${item.canonical_unit} are left in the store.`
-              : `When stock drops to this many ${item.unit_label}s.`
-          }
-        >
-          <input
-            className={inputClass}
-            type="number"
-            name="reorder"
-            min="0"
-            step="any"
-            defaultValue={Number(reorderUnits.toFixed(3))}
-          />
-        </Field>
-      </div>
-      <Button type="submit" className="w-full">
-        Save prices
-      </Button>
-    </form>
-  );
-}
 
-function ItemCard({ item, sizeText }: { item: AdminItem; sizeText: string }) {
   return (
-    <Card>
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-sm font-bold">{item.name}</span>
-        <Chip tone="neutral">{sizeText}</Chip>
-        {item.active ? null : <Chip tone="bad">Hidden</Chip>}
-      </div>
-      <div className="mt-0.5 text-xs text-muted">
-        Retail {fromCents(item.retail_cents).toLocaleString("en-KE")} · Wholesale{" "}
-        {fromCents(item.wholesale_cents).toLocaleString("en-KE")}
-        {item.price_basis === "unit" ? ` per ${item.canonical_unit}` : ""}
-      </div>
+    <details className={`group border-t border-line first:border-t-0 ${item.active ? "" : "opacity-60"}`}>
+      <summary className="flex cursor-pointer flex-wrap items-baseline gap-x-3 gap-y-1 px-3 py-2.5 hover:bg-wash/60">
+        <span className="min-w-0 flex-1 truncate text-sm font-bold">
+          {item.name}
+          {item.active ? null : <span className="ml-2 text-[11px] font-semibold text-bad">hidden</span>}
+        </span>
 
-      <details className="mt-2.5">
-        <summary className="cursor-pointer text-sm font-bold text-brand-dark">
-          Prices and limits
-        </summary>
-        <PriceForm item={item} />
+        <span className="shrink-0 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">
+          {per}
+        </span>
+
+        {/* The band beside the price, because the price on its own does not say
+            how far it may be argued — which is the question the counter asks. */}
+        <span className="shrink-0 text-[11px] text-muted tnum">
+          {item.floor_cents > 0 ? formatKes(item.floor_cents) : "no floor"}
+          {" – "}
+          {item.ceiling_cents > 0 ? formatKes(item.ceiling_cents) : "no ceiling"}
+        </span>
+
+        <span
+          className={`w-28 shrink-0 text-right text-sm font-extrabold tnum ${
+            item.price_cents > 0 ? "text-brand-deep" : "text-warn"
+          }`}
+        >
+          {item.price_cents > 0 ? formatKes(item.price_cents) : "no price"}
+        </span>
+      </summary>
+
+      <div className="px-3 pb-3">
+        <form action={savePricing} className="space-y-2.5">
+          <input type="hidden" name="itemId" value={item.id} />
+          <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
+            <Field label={`Price ${per}`} hint="What the shop asks.">
+              <input
+                className={inputClass}
+                type="number"
+                name="price"
+                min="0"
+                step="any"
+                defaultValue={fromCents(item.price_cents)}
+              />
+            </Field>
+            <Field label="Never below" hint="Under this needs your PIN. Blank for no floor.">
+              <input
+                className={inputClass}
+                type="number"
+                name="floor"
+                min="0"
+                step="any"
+                defaultValue={fromCents(item.floor_cents)}
+              />
+            </Field>
+            <Field label="Never beyond" hint="Over this needs your PIN. Blank for no ceiling.">
+              <input
+                className={inputClass}
+                type="number"
+                name="ceiling"
+                min="0"
+                step="any"
+                defaultValue={fromCents(item.ceiling_cents)}
+              />
+            </Field>
+            <Field
+              label="Warn me at"
+              hint={
+                weighed
+                  ? `When less than this many ${item.canonical_unit} are left.`
+                  : `When fewer than this many ${item.unit_label}s are left.`
+              }
+            >
+              <input
+                className={inputClass}
+                type="number"
+                name="reorder"
+                min="0"
+                step="any"
+                defaultValue={Number(reorderUnits.toFixed(3))}
+              />
+            </Field>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button type="submit">Save</Button>
+          </div>
+        </form>
+
         {/* Hiding is a twice-a-year act; it lives inside the editor, in quiet
             ghost dress — red is for the moment of destruction, not the menu. */}
-        <form action={toggleActive} className="mt-2.5">
+        <form action={toggleActive} className="mt-2">
           <input type="hidden" name="itemId" value={item.id} />
           <input type="hidden" name="active" value={item.active ? "0" : "1"} />
           <Button type="submit" variant="ghost">
             {item.active ? "Hide from the counter" : "Show on the counter"}
           </Button>
         </form>
-      </details>
-    </Card>
+
+        <p className="mt-2 text-[11px] text-muted">
+          Arrives as {formatQty(item.size_milli, item.canonical_unit)} {item.unit_label}s
+          {item.aliases ? ` · also called ${item.aliases}` : ""}
+        </p>
+      </div>
+    </details>
   );
 }
 
@@ -299,20 +275,19 @@ export default async function ItemsPage(props: {
   // Prices, floors and the raw-chemical list all sit here; staff never see it.
   if (me.role !== "owner") redirect("/");
 
-  const finished = listFinished();
-  const packaging = listPackaging();
-  const chemicals = listChemicals();
+  const products = listProducts();
   const pending = pendingUnitPricing();
+  const unpricedCount = products.filter((p) => p.active && p.price_cents === 0).length;
 
   return (
     <div>
       <PageTitle
-        title="What the shop sells"
-        subtitle="Add a chemical or a product here. A price that has just moved is changed at the till."
+        title="Products & prices"
+        subtitle="One price for each thing, and how far it may be argued. Changed here or at the till."
       />
 
       {err ? (
-        <div className="mb-3">
+        <div className="mb-3 max-w-4xl">
           <Alert tone="bad">{err}</Alert>
         </div>
       ) : null}
@@ -321,14 +296,14 @@ export default async function ItemsPage(props: {
         <div className="mb-3 max-w-4xl">
           <Alert tone="good">
             <strong>
-              {moved} chemical{moved === "1" ? "" : "s"} now priced per kilogram
+              {moved} chemical{moved === "1" ? "" : "s"} now priced per unit
             </strong>
-            {packs && packs !== "0" ? `, ${packs} pack sizes retired` : ""}. The counter can sell
-            any quantity of them, and a recipe adds up in full.
+            {packs && packs !== "0" ? `, ${packs} pack sizes retired` : ""}. The counter can sell any
+            quantity of them, and a recipe adds up in full.
             {unpriced ? (
               <span className="mt-1 block font-semibold">
-                No price could be worked out for {unpriced} — there was no priced pack to go on.
-                Set those at the till, or below, before selling them.
+                No price could be worked out for {unpriced} — there was no priced pack to go on. Set
+                those below before selling them.
               </span>
             ) : null}
           </Alert>
@@ -349,7 +324,7 @@ export default async function ItemsPage(props: {
           <p className="mt-1.5 text-sm leading-relaxed">
             The counter sells chemicals by the kilogram now — any quantity, weighed out of the
             container. Until these move across they have no price per kilogram, so the till says
-            &ldquo;cannot be billed&rdquo; when a recipe asks for them.
+            “cannot be billed” when a recipe asks for them.
           </p>
           <p className="mt-2 text-sm leading-relaxed text-muted">
             Pressing this works each price out from the pack you were already selling nearest one
@@ -358,49 +333,43 @@ export default async function ItemsPage(props: {
             in {pending.packRows} pack sizes back into the containers it came from, and hides those
             pack sizes. Nothing is deleted and no stock is created or lost — past sales still read
             exactly as they did.
-            {pending.unpriceable.length ? (
-              <span className="mt-1 block">
-                <span className="font-bold text-ink">{pending.unpriceable.join(", ")}</span> ha
-                {pending.unpriceable.length === 1 ? "s" : "ve"} no priced pack to work from, so
-                {pending.unpriceable.length === 1 ? " it" : " they"} will come across at no price
-                and need one setting.
-              </span>
-            ) : null}
           </p>
           <form action={adoptPricing} className="mt-3">
-            <Button type="submit">Move {pending.chemicals} chemicals to per-kilogram pricing</Button>
+            <Button type="submit">Move {pending.chemicals} chemicals to per-unit pricing</Button>
           </form>
         </div>
       ) : null}
 
-      {/*
-        Three sentences saying what this screen is and is not.
+      {unpricedCount > 0 ? (
+        <div className="mb-3 max-w-4xl">
+          <Alert tone="warn">
+            <strong>
+              {unpricedCount} item{unpricedCount === 1 ? " has" : "s have"} no price.
+            </strong>{" "}
+            The counter shows {unpricedCount === 1 ? "it" : "them"} as “No price set” and
+            will not sell {unpricedCount === 1 ? "it" : "them"} — open the row and put a number in.
+          </Alert>
+        </div>
+      ) : null}
 
-        The client got lost here, and the reason was that the screen did four
-        jobs without saying so: it listed products, added products, set prices
-        and set floors, with "finished", "canonical unit" and "reorder level"
-        for labels. The words are plainer now, and the job that happens daily —
-        changing a price — has its own screen, which this one points at rather
-        than competing with.
-      */}
       <div className="max-w-4xl space-y-2.5">
         <div className="rounded-2xl bg-white p-4 shadow-card ring-1 ring-ink/5">
           <p className="text-sm leading-relaxed">
-            <strong>This screen is for the list itself</strong> — adding something new, or
-            hiding something you no longer sell.
+            <strong>Every price is per unit</strong> — per kilogram, per litre, per piece. The
+            customer names a quantity and pays for exactly that.
           </p>
           <p className="mt-2 text-sm leading-relaxed text-muted">
-            To change a price that has moved, change it at the till: tap the price on the line,
-            type the new one, and take &ldquo;Keep as the new price&rdquo;. An attendant can do
-            that, and every change lands in{" "}
+            The band is what makes handing the counter a price safe. An attendant may agree anything
+            between “never below” and “never beyond”; outside it, the sale
+            stops until you type your PIN. Every change lands in{" "}
             <Link href="/prices/history" className="font-bold text-brand">
               Price history
             </Link>{" "}
-            with their name on it. The prices here are for setting up something new.
+            with a name on it.
           </p>
           <p className="mt-2 text-sm leading-relaxed text-muted">
-            You never type what a chemical <em>cost</em> you. That comes from what you actually
-            paid on the{" "}
+            You never type what a chemical <em>cost</em> you. That comes from what you actually paid
+            on the{" "}
             <Link href="/purchases" className="font-bold text-brand">
               Purchases
             </Link>{" "}
@@ -409,185 +378,86 @@ export default async function ItemsPage(props: {
         </div>
       </div>
 
-      {/* Not "products we mix" any more: the shop stopped mixing and bottling.
-          What is left in this section is anything sold whole at a fixed price —
-          the last of the bottled stock, and ready-made goods bought in to
-          resell. Chemicals are priced per kilogram and live further down. */}
-      <SectionLabel>Things sold whole</SectionLabel>
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 3xl:grid-cols-5">
-        {finished.length === 0 ? (
-          <p className="text-sm text-muted">
-            Nothing yet. Add one below if you sell something ready-made in a fixed size.
-          </p>
+      <h2 className="mb-2 mt-5 flex items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted after:h-px after:flex-1 after:bg-line after:content-['']">
+        {products.length} item{products.length === 1 ? "" : "s"}
+      </h2>
+
+      {/* One list. See `ProductRow` for why this is not a grid of cards. */}
+      <div className="max-w-4xl overflow-hidden rounded-2xl bg-white shadow-card ring-1 ring-ink/5">
+        {products.length ? (
+          products.map((i) => <ProductRow key={i.id} item={i} />)
         ) : (
-          finished.map((i) => (
-            <ItemCard
-              key={i.id}
-              item={i}
-              // formatQty, not raw division: a 500 ml bottle was labelled
-              // "0.5 L bottle" here while its own name said 500 ml, which is
-              // exactly the kind of small disagreement that makes a screen feel
-              // untrustworthy.
-              sizeText={`${formatQty(i.size_milli, i.canonical_unit)} ${i.unit_label}`}
-            />
-          ))
+          <p className="px-3 py-6 text-center text-sm text-muted">
+            Nothing on the list yet. Add the first one below.
+          </p>
         )}
       </div>
 
-      <SectionLabel>Add something sold whole</SectionLabel>
-      <Card className="max-w-2xl">
-        <form action={addFinished} className="space-y-3">
-          <Field label="Name">
-            <input className={inputClass} name="name" required placeholder="e.g. Thick Bleach" />
-          </Field>
-          <div className="grid grid-cols-2 gap-2.5">
-            <Field label="How much is in one" hint="e.g. 500, then choose ml.">
+      <h2 className="mb-2 mt-5 flex items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted after:h-px after:flex-1 after:bg-line after:content-['']">
+        Add something
+      </h2>
+
+      {/* One form, everything set here — see `createProduct`. A thing added
+          without a price is a thing the counter cannot sell, and the old two
+          forms let that happen by making pricing a separate errand. */}
+      <Card className="max-w-4xl">
+        <form action={addProduct} className="space-y-3">
+          <div className="grid gap-2.5 sm:grid-cols-2">
+            <Field label="Name" hint="What the counter will see.">
+              <input className={inputClass} name="name" required placeholder="e.g. Caustic Soda" />
+            </Field>
+            <Field label="Other names it's known by" hint="Comma separated. Helps search find it.">
+              <input className={inputClass} name="aliases" placeholder="soda ash, magadi" />
+            </Field>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
+            <Field label="Sold by" hint="The unit the price is per.">
+              <UnitSelect name="unit" value="kg" />
+            </Field>
+            <Field label="Container holds" hint="What one drum or bag holds, in the unit above.">
               <input
                 className={inputClass}
                 type="number"
-                name="size"
-                min="0"
-                step="any"
-                required
-                placeholder="500"
-              />
-            </Field>
-            <Field label="Measured in">
-              <UnitSelect name="unit" value="ml" />
-            </Field>
-          </div>
-          <Field label="What it comes in" hint="The word the counter will see: bottle, jerrican, tub.">
-            <input className={inputClass} name="label" defaultValue="bottle" />
-          </Field>
-          <div className="grid grid-cols-2 gap-2.5">
-            <Field label="Retail price" hint="What a walk-in pays.">
-              <input className={inputClass} type="number" name="retail" min="0" step="any" required />
-            </Field>
-            <Field label="Wholesale price" hint="What a trade buyer pays.">
-              <input className={inputClass} type="number" name="wholesale" min="0" step="any" required />
-            </Field>
-          </div>
-          <Button type="submit" className="w-full">
-            Add it
-          </Button>
-        </form>
-      </Card>
-
-      <SectionLabel>Chemicals, and what a kilogram costs</SectionLabel>
-      {/* One card per chemical, one price on it.
-
-          This used to be one card per chemical with a fold-out for every pack
-          size under it — five entries for Ungerol whose only difference was a
-          number, each with its own price to keep up to date. That is what the
-          client kept calling confusing, and he was right: they were five names
-          for one substance. There is one price now, per kilogram, and the size
-          the customer wants is a quantity typed at the counter. */}
-      <div className="grid items-start gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 3xl:grid-cols-5">
-        {chemicals.map((chem) => {
-          const bulk = chem.items.find((i) => i.kind === "bulk");
-          return (
-            <Card key={chem.id}>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm font-bold">{chem.name}</span>
-                <Chip tone="neutral">per {chem.canonical_unit}</Chip>
-                {chem.active ? null : <Chip tone="bad">Hidden</Chip>}
-              </div>
-
-              {bulk ? (
-                <>
-                  <div className="mt-0.5 text-xs text-muted">
-                    {bulk.retail_cents > 0 ? (
-                      <>
-                        Retail {fromCents(bulk.retail_cents).toLocaleString("en-KE")} · Wholesale{" "}
-                        {fromCents(bulk.wholesale_cents || bulk.retail_cents).toLocaleString("en-KE")}{" "}
-                        per {chem.canonical_unit}
-                      </>
-                    ) : (
-                      <span className="font-bold text-warn">
-                        No price set — the counter cannot sell it
-                      </span>
-                    )}
-                  </div>
-                  <div className="mt-0.5 text-[11px] text-muted">
-                    Arrives as {formatQty(bulk.size_milli, bulk.canonical_unit)} {bulk.unit_label}s
-                  </div>
-
-                  <details className="mt-2.5">
-                    <summary className="cursor-pointer text-sm font-bold text-brand-dark">
-                      Prices and limits
-                    </summary>
-                    <PriceForm item={bulk} />
-                    <form action={toggleActive} className="mt-2.5">
-                      <input type="hidden" name="itemId" value={bulk.id} />
-                      <input type="hidden" name="active" value={bulk.active ? "0" : "1"} />
-                      <Button type="submit" variant="ghost">
-                        {bulk.active ? "Hide from the counter" : "Show on the counter"}
-                      </Button>
-                    </form>
-                  </details>
-                </>
-              ) : (
-                <p className="mt-2 text-xs text-muted">
-                  No container recorded for this chemical yet.
-                </p>
-              )}
-            </Card>
-          );
-        })}
-      </div>
-
-      <SectionLabel>Add a chemical we buy in</SectionLabel>
-      <Card className="max-w-2xl">
-        <form action={addChemical} className="space-y-3">
-          <Field label="Name">
-            <input className={inputClass} name="name" required placeholder="e.g. Perfume Green Apple" />
-          </Field>
-          <Field label="Other names it&rsquo;s known by" hint="Comma separated. Helps search find it.">
-            <input className={inputClass} name="aliases" placeholder="fragrance, scent" />
-          </Field>
-          <div className="grid grid-cols-2 gap-2.5">
-            <Field label="How big is the drum or bag" hint="What one container holds when it arrives.">
-              <input
-                className={inputClass}
-                type="number"
-                name="bulk"
+                name="container"
                 min="0"
                 step="any"
                 required
                 placeholder="25"
               />
             </Field>
-            <Field label="Measured in">
-              <UnitSelect name="unit" value="kg" />
+            <Field label="Container is called" hint="drum, bag, jerrican…">
+              <input className={inputClass} name="containerLabel" defaultValue="drum" />
+            </Field>
+            <Field label="Price per unit" hint="What one kilogram, litre or piece sells for.">
+              <input
+                className={inputClass}
+                type="number"
+                name="price"
+                min="0"
+                step="any"
+                required
+                placeholder="50"
+              />
             </Field>
           </div>
-          <Field label="Bulk container" hint="drum, bag, jerrican…">
-            <input className={inputClass} name="bulkLabel" defaultValue="drum" />
-          </Field>
-          <Field
-            label="What one costs to buy from us"
-            hint="Per kilogram or litre — whichever the chemical is measured in. Leave blank and set it later under Prices for today."
-          >
-            <input className={inputClass} type="number" name="rate" min="0" step="any" placeholder="50" />
-          </Field>
-          <Button type="submit" className="w-full">
-            Add chemical
+
+          <div className="grid grid-cols-2 gap-2.5 lg:max-w-md">
+            <Field label="Never below" hint="Under this needs your PIN.">
+              <input className={inputClass} type="number" name="floor" min="0" step="any" placeholder="40" />
+            </Field>
+            <Field label="Never beyond" hint="Over this needs your PIN.">
+              <input className={inputClass} type="number" name="ceiling" min="0" step="any" placeholder="60" />
+            </Field>
+          </div>
+
+          <Button type="submit" className="w-full sm:w-auto">
+            Add it
           </Button>
         </form>
       </Card>
 
-      {packaging.length > 0 ? (
-        <>
-          <SectionLabel>Packaging</SectionLabel>
-          <div className="grid items-start gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 3xl:grid-cols-5">
-            {packaging.map((i) => (
-              <ItemCard key={i.id} item={i} sizeText={i.unit_label} />
-            ))}
-          </div>
-        </>
-      ) : null}
-
-      <p className="mt-5 text-xs text-muted">
+      <p className="mt-5 max-w-4xl text-xs text-muted">
         Every price change and new product is recorded against your name.
       </p>
     </div>

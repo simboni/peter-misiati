@@ -40,14 +40,14 @@ export default async function PriceHistoryPage() {
                 <th className="px-3 py-2">Item</th>
                 <th className="hidden px-3 py-2 sm:table-cell">When</th>
                 <th className="hidden px-3 py-2 lg:table-cell">By</th>
-                <th className="px-3 py-2 text-right">Retail</th>
-                <th className="hidden px-3 py-2 text-right lg:table-cell">Wholesale</th>
+                <th className="px-3 py-2 text-right">Price</th>
+                <th className="hidden px-3 py-2 lg:table-cell">Where</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((r, i) => {
-                const up = r.new_retail > r.old_retail;
-                const same = r.new_retail === r.old_retail;
+                const up = r.new_price > r.old_price;
+                const same = r.new_price === r.old_price;
                 return (
                   <tr key={`${r.at}-${i}`} className="border-t border-line">
                     <td className="px-3 py-2">
@@ -61,35 +61,27 @@ export default async function PriceHistoryPage() {
                     </td>
                     <td className="hidden px-3 py-2 text-[12px] text-muted lg:table-cell">
                       {r.user_name ?? "—"}
-                      {r.source === "admin" ? (
-                        <span className="ml-1 text-[10px] uppercase">· catalogue</span>
-                      ) : null}
                     </td>
                     <td className="px-3 py-2 text-right tnum">
                       {same ? (
                         <span className="text-muted">unchanged</span>
                       ) : (
                         <>
-                          <span className="text-muted line-through">
-                            {formatKes(r.old_retail)}
-                          </span>{" "}
+                          <span className="text-muted line-through">{formatKes(r.old_price)}</span>{" "}
                           <span className={`font-bold ${up ? "text-bad" : "text-good"}`}>
-                            {formatKes(r.new_retail)}
+                            {formatKes(r.new_price)}
                           </span>
                         </>
                       )}
                     </td>
-                    <td className="hidden px-3 py-2 text-right tnum lg:table-cell">
-                      {r.new_wholesale === r.old_wholesale ? (
-                        <span className="text-muted">—</span>
-                      ) : (
-                        <>
-                          <span className="text-muted line-through">
-                            {formatKes(r.old_wholesale)}
-                          </span>{" "}
-                          <span className="font-bold">{formatKes(r.new_wholesale)}</span>
-                        </>
-                      )}
+                    {/* Where a price was changed says something the amount does
+                        not: at the counter means a customer was standing there. */}
+                    <td className="hidden px-3 py-2 text-[12px] text-muted lg:table-cell">
+                      {r.source === "counter"
+                        ? "at the till"
+                        : r.source === "admin"
+                          ? "catalogue"
+                          : "price check"}
                     </td>
                   </tr>
                 );

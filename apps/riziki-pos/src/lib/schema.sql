@@ -66,14 +66,32 @@ CREATE TABLE IF NOT EXISTS chemicals (
 -- NOT in unit count — so 15 packs of 20 kg is stored as 300000 (300 kg).
 -- Unit count for display = qty_milli / size_milli.
 --
--- price_basis says what the price columns below MEAN, and it is the hinge the
--- whole shop turns on:
+-- ONE price, and a band it may be argued inside.
 --
---   'pack'  retail_cents is the price of ONE unit of this row — one bottle, one
---           jerrican. You buy a whole one or you buy none.
---   'unit'  retail_cents is the price of ONE canonical unit — one kilogram, one
---           litre. The customer names a quantity and pays for exactly that, so
---           1 kg of Ungerol at 50 makes half a kilo 25 and ten kilos 500.
+--   price_cents    what the shop asks for one unit of this
+--   floor_cents    the least it may go for; under it needs the owner
+--   ceiling_cents  the most it may go for; over it needs the owner too
+--
+-- There used to be a retail price and a wholesale price, and the counter had a
+-- switch between them. Two prices for one thing is one price too many: the
+-- attendant had to decide which tier a walk-in buying forty kilos belonged to
+-- before quoting, and the answer was neither — it was a number between the two,
+-- which the switch could not express. The band expresses it exactly, and the
+-- price actually agreed is snapshotted onto the sale line beside the asking one.
+--
+-- A zero floor means "no floor set" and a zero ceiling means "no ceiling set";
+-- neither is a limit of nothing.
+--
+-- price_basis says what the price above MEANS, and it is the hinge the whole
+-- shop turns on:
+--
+--   'unit'  price_cents is the price of ONE canonical unit — one kilogram, one
+--           litre, one piece. The customer names a quantity and pays for exactly
+--           that, so 1 kg of Ungerol at 50 makes half a kilo 25 and ten kilos
+--           500. This is every row the shop sells.
+--   'pack'  price_cents is the price of ONE whole row — the old way, where a
+--           chemical had a row per size. Legacy only: nothing creates these, and
+--           the catalogue screen offers to move any that remain.
 --
 -- 'unit' is how chemicals are actually sold across the counter, and it is what
 -- removed the need to pre-pack anything: a drum on the floor is stock in kg, and
@@ -94,9 +112,9 @@ CREATE TABLE IF NOT EXISTS items (
   unit_label          TEXT    NOT NULL DEFAULT 'unit',   -- drum, bag, pack, bottle, jerrican
   sellable            INTEGER NOT NULL DEFAULT 1 CHECK (sellable IN (0, 1)),
   price_basis         TEXT    NOT NULL DEFAULT 'pack' CHECK (price_basis IN ('pack', 'unit')),
-  retail_cents        INTEGER NOT NULL DEFAULT 0 CHECK (retail_cents >= 0),
-  wholesale_cents     INTEGER NOT NULL DEFAULT 0 CHECK (wholesale_cents >= 0),
-  floor_cents         INTEGER NOT NULL DEFAULT 0 CHECK (floor_cents >= 0), -- below this needs owner PIN
+  price_cents         INTEGER NOT NULL DEFAULT 0 CHECK (price_cents >= 0),
+  floor_cents         INTEGER NOT NULL DEFAULT 0 CHECK (floor_cents >= 0),   -- never below, without the owner
+  ceiling_cents       INTEGER NOT NULL DEFAULT 0 CHECK (ceiling_cents >= 0), -- never beyond, without the owner
   cost_cents          INTEGER NOT NULL DEFAULT 0 CHECK (cost_cents >= 0),  -- weighted average, per ONE unit
   reorder_level_milli INTEGER NOT NULL DEFAULT 0 CHECK (reorder_level_milli >= 0),
   active              INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1))
@@ -526,7 +544,7 @@ CREATE INDEX IF NOT EXISTS idx_quote_lines_quote ON quote_lines(quote_id);
   Every price the shop has ever charged, and who set it.
 
   Chemical prices move with the supplier — sometimes weekly — and the shop needs
-  three things from that which a single `items.retail_cents` column cannot give:
+  three things from that which a single `items.price_cents` column cannot give:
 
     - what it used to be, when a customer says "last week it was 900";
     - when it last moved, so the attendant opening the shop knows which prices
@@ -541,10 +559,8 @@ CREATE TABLE IF NOT EXISTS price_changes (
   id             INTEGER PRIMARY KEY,
   at             TEXT    NOT NULL DEFAULT (datetime('now')),
   item_id        INTEGER NOT NULL REFERENCES items(id),
-  old_retail     INTEGER NOT NULL,
-  new_retail     INTEGER NOT NULL,
-  old_wholesale  INTEGER NOT NULL,
-  new_wholesale  INTEGER NOT NULL,
+  old_price      INTEGER NOT NULL,
+  new_price      INTEGER NOT NULL,
   user_id        INTEGER REFERENCES users(id),
   -- Where the change was made: 'counter' = agreed with a customer at the till
   -- and kept, 'admin' = the owner's catalogue screen, 'check' = the start-of-day

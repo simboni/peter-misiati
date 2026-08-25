@@ -43,8 +43,8 @@ process.on("exit", () => rmSync(TMP, { recursive: true, force: true }));
 const OWNER = 1;
 
 function sellableItem() {
-  const row = get<{ id: number; size_milli: number; retail_cents: number }>(
-    `SELECT id, size_milli, retail_cents FROM items WHERE retail_cents > 0 ORDER BY id LIMIT 1`,
+  const row = get<{ id: number; size_milli: number; price_cents: number }>(
+    `SELECT id, size_milli, price_cents FROM items WHERE price_cents > 0 ORDER BY id LIMIT 1`,
   );
   assert.ok(row, "the seed should contain a priced item");
   return row!;

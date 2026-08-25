@@ -126,12 +126,12 @@ export function loadDemoData(userId: number): DemoSummary {
   const items = all<{
     id: number;
     size_milli: number;
-    retail_cents: number;
+    price_cents: number;
     kind: string;
     price_basis: "pack" | "unit";
   }>(
-    `SELECT id, size_milli, retail_cents, kind, price_basis
-       FROM items WHERE active = 1 AND sellable = 1 AND retail_cents > 0 ORDER BY id`,
+    `SELECT id, size_milli, price_cents, kind, price_basis
+       FROM items WHERE active = 1 AND sellable = 1 AND price_cents > 0 ORDER BY id`,
   );
   if (items.length < 3) {
     throw new DemoError(
@@ -203,7 +203,7 @@ export function loadDemoData(userId: number): DemoSummary {
       be 170 times that, not once. Getting this wrong made every chemical look
       like it sold at a four-hundred-fold margin.
     */
-    const perUnit = it.price_basis === "unit" ? (it.retail_cents * it.size_milli) / 1000 : it.retail_cents;
+    const perUnit = it.price_basis === "unit" ? (it.price_cents * it.size_milli) / 1000 : it.price_cents;
     const unitCost = Math.max(1, Math.round(perUnit * (0.55 + rnd() * 0.2)));
     batches[i % deliveries].push({ itemId: it.id, units, costCents: unitCost * units });
     stockMilli.set(it.id, (stockMilli.get(it.id) ?? 0) + units * it.size_milli);
@@ -249,7 +249,7 @@ export function loadDemoData(userId: number): DemoSummary {
         const qtyMilli = (1 + Math.floor(rnd() * maxKg)) * 500;
         if (qtyMilli > left) continue;
         stockMilli.set(it.id, left - qtyMilli);
-        lines.push({ itemId: it.id, units: 1, qtyMilli, unitPriceCents: it.retail_cents });
+        lines.push({ itemId: it.id, units: 1, qtyMilli, unitPriceCents: it.price_cents });
         continue;
       }
 
@@ -258,7 +258,7 @@ export function loadDemoData(userId: number): DemoSummary {
       const cap = Math.min(leftUnits, wholesale ? 14 : 3);
       const units = 1 + Math.floor(rnd() * cap);
       stockMilli.set(it.id, left - units * it.size_milli);
-      lines.push({ itemId: it.id, units, unitPriceCents: it.retail_cents });
+      lines.push({ itemId: it.id, units, unitPriceCents: it.price_cents });
     }
     if (!lines.length) continue;
 
@@ -339,7 +339,7 @@ export function loadDemoData(userId: number): DemoSummary {
       customerName: name,
       note: rnd() < 0.4 ? "Delivery to Industrial Area" : "",
       validUntil: isoDaysFromNow(rnd() < 0.25 ? -6 : 14 + Math.floor(rnd() * 14)),
-      lines: [{ itemId: it.id, units: 2 + Math.floor(rnd() * 25), unitPriceCents: it.retail_cents }],
+      lines: [{ itemId: it.id, units: 2 + Math.floor(rnd() * 25), unitPriceCents: it.price_cents }],
       userId,
     });
     const st = STATES[Math.floor(rnd() * STATES.length)];
@@ -363,23 +363,15 @@ export function loadDemoData(userId: number): DemoSummary {
   // --- a few price moves, so the history screen has something in it -------
   const movers = shuffled(items, rnd).slice(0, 5);
   for (const it of movers) {
-    const row = get<{ retail_cents: number; wholesale_cents: number }>(
-      `SELECT retail_cents, wholesale_cents FROM items WHERE id = ?`,
-      it.id,
-    )!;
+    const row = get<{ price_cents: number }>(`SELECT price_cents FROM items WHERE id = ?`, it.id)!;
     const factor = 1 + (rnd() * 0.16 - 0.05); // mostly up, occasionally down
     try {
-      applyPrices(
-        [{
-          itemId: it.id,
-          retail: Math.round(row.retail_cents * factor) / 100,
-          wholesale: Math.round(row.wholesale_cents * factor) / 100,
-        }],
-        userId,
-        { allowBelowFloor: true, source: "check" },
-      );
+      applyPrices([{ itemId: it.id, price: Math.round(row.price_cents * factor) / 100 }], userId, {
+        allowOutsideBand: true,
+        source: "counter",
+      });
       summary.priceChanges++;
-    } catch { /* a floor got in the way; fine */ }
+    } catch { /* the band got in the way; fine */ }
   }
 
   spreadOverTime(rnd);

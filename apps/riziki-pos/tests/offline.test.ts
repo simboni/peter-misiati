@@ -46,14 +46,13 @@ const STAFF = 2;
 run(`INSERT INTO users (id, name, role, pin_hash) VALUES (?, ?, 'owner', ?)`, OWNER, "Owner", hashPin("1234"));
 run(`INSERT INTO users (id, name, role, pin_hash) VALUES (?, ?, 'staff', ?)`, STAFF, "Attendant", hashPin("1111"));
 
-function makeItem(name: string, retail: number, floor: number, openingUnits: number): number {
+function makeItem(name: string, price: number, floor: number, openingUnits: number): number {
   const { lastInsertRowid: id } = run(
     `INSERT INTO items (name, kind, canonical_unit, size_milli, unit_label, sellable,
-                        retail_cents, wholesale_cents, floor_cents, cost_cents)
-     VALUES (?, 'finished', 'L', 1000, 'bottle', 1, ?, ?, ?, ?)`,
+                        price_cents, floor_cents, cost_cents)
+     VALUES (?, 'finished', 'L', 1000, 'bottle', 1, ?, ?, ?)`,
     name,
-    retail,
-    retail,
+    price,
     floor,
     floor,
   );
@@ -220,7 +219,7 @@ test("(b2) a refused sale stays queued with its reason, and clears once approved
   const row: QueuedSale = { ...sale, seq: 10, attempts: 0, lastError: null };
   const kept = applySyncResults([row], refused).keep;
   assert.equal(kept.length, 1);
-  assert.match(kept[0].lastError!, /below the minimum price/);
+  assert.match(kept[0].lastError!, /below the least it may go for/);
 
   // The owner types their PIN at send time — it was never stored on the phone.
   const ownerId = authoriseOwnerPin("1234");

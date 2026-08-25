@@ -6,36 +6,37 @@ process.env.RIZIKI_DB = join(mkdtempSync(join(tmpdir(), "cat-")), "t.db");
 import test from "node:test";
 import assert from "node:assert/strict";
 const { seed } = await import("../src/lib/seed.ts");
-const { get } = await import("../src/lib/db.ts");
+const { get, all } = await import("../src/lib/db.ts");
 const cat = await import("../src/lib/catalog.ts");
 
 seed();
 
 const OWNER = 1;
 
-/** Something sold whole — a jerrican — as opposed to a chemical sold by weight. */
-function wholeItem() {
-  const item = cat.listPackaging()[0];
-  assert.ok(item, "the seed stocks containers");
+/** Anything on the list. They are all one kind of row now. */
+function anyItem() {
+  const item = cat.listProducts()[0];
+  assert.ok(item, "the seed puts something on the list");
   return item;
 }
 
-test("updatePricing: writes prices and converts the reorder level from units to milli", () => {
-  const item = wholeItem();
+test("updatePricing: writes the price and the band, and converts the reorder level", () => {
+  const item = anyItem();
   cat.updatePricing({
     itemId: item.id,
-    retail: 250,
-    wholesale: 220,
+    price: 250,
     floor: 200,
+    ceiling: 300,
     reorderUnits: 12,
     byUserId: OWNER,
   });
   const after = cat.getItem(item.id)!;
-  assert.equal(after.retail_cents, 25000);
-  assert.equal(after.wholesale_cents, 22000);
+  assert.equal(after.price_cents, 25000);
   assert.equal(after.floor_cents, 20000);
-  // 12 jerricans of size_milli each, stored in milli.
-  assert.equal(after.reorder_level_milli, 12 * item.size_milli);
+  assert.equal(after.ceiling_cents, 30000);
+  // Weighed rows count the reorder level in kilograms; whole ones in containers.
+  const per = after.price_basis === "unit" ? 1000 : item.size_milli;
+  assert.equal(after.reorder_level_milli, 12 * per);
 });
 
 test("updatePricing: a chemical's reorder level is counted in kilograms, not containers", () => {
@@ -45,228 +46,221 @@ test("updatePricing: a chemical's reorder level is counted in kilograms, not con
     is no such thing as a countable number of half-empty drums once the shop
     weighs out of them.
   */
-  const ungerol = cat.listChemicals().find((c) => c.name === "Ungerol")!;
-  const bulk = ungerol.items.find((i) => i.kind === "bulk")!;
-  assert.equal(bulk.price_basis, "unit");
+  const bulk = cat.listProducts().find((i) => i.price_basis === "unit" && i.chemical_id)!;
+  assert.ok(bulk, "the seed prices chemicals per unit");
 
   cat.updatePricing({
     itemId: bulk.id,
-    retail: 50,
-    wholesale: 45,
+    price: 50,
     floor: 40,
+    ceiling: 60,
     reorderUnits: 60,
     byUserId: OWNER,
   });
 
   const after = cat.getItem(bulk.id)!;
-  assert.equal(after.retail_cents, 5000, "KES 50 a kilogram");
+  assert.equal(after.price_cents, 5000, "KES 50 a kilogram");
   assert.equal(after.reorder_level_milli, 60_000, "60 kg, not 60 drums");
 });
 
-test("updatePricing: refuses a floor above the retail price", () => {
-  const item = wholeItem();
+test("updatePricing: the band has to be a band, and has to contain the price", () => {
+  const item = anyItem();
+  const args = { itemId: item.id, reorderUnits: 0, byUserId: OWNER };
+
   assert.throws(
-    () =>
-      cat.updatePricing({
-        itemId: item.id,
-        retail: 100,
-        wholesale: 90,
-        floor: 150,
-        reorderUnits: 0,
-        byUserId: OWNER,
-      }),
-    /floor price can't be above/i,
+    () => cat.updatePricing({ ...args, price: 100, floor: 150, ceiling: 120 }),
+    /can't be above the most/i,
+    "a floor over the ceiling is a rule nobody can obey",
+  );
+  assert.throws(
+    () => cat.updatePricing({ ...args, price: 100, floor: 150, ceiling: 300 }),
+    /below the least/i,
+    "and a price under its own floor refuses every sale at the asking price",
+  );
+  assert.throws(
+    () => cat.updatePricing({ ...args, price: 400, floor: 100, ceiling: 300 }),
+    /above the most/i,
   );
 });
 
 test("updatePricing: never touches cost", () => {
-  const item = cat.listPackaging().find((i) => i.cost_cents > 0) ?? wholeItem();
+  const item = cat.listProducts().find((i) => i.cost_cents > 0) ?? anyItem();
   const before = cat.getItem(item.id)!.cost_cents;
   cat.updatePricing({
     itemId: item.id,
-    retail: 300,
-    wholesale: 280,
-    floor: 260,
+    price: 300,
+    floor: 0,
+    ceiling: 0,
     reorderUnits: 5,
     byUserId: OWNER,
   });
-  assert.equal(cat.getItem(item.id)!.cost_cents, before);
+  assert.equal(cat.getItem(item.id)!.cost_cents, before, "cost comes from purchases, never typed");
 });
 
-test("createFinished: creates a sellable, zero-cost bottle and rejects a duplicate name", () => {
-  const id = cat.createFinished({
-    name: "Test Bleach Gel",
-    unit: "L",
-    sizeValue: 1,
-    unitLabel: "bottle",
-    retail: 180,
-    wholesale: 150,
-    byUserId: OWNER,
-  });
-  const item = cat.getItem(id)!;
-  assert.equal(item.kind, "finished");
-  assert.equal(item.sellable, 1);
-  assert.equal(item.cost_cents, 0, "cost arrives from production, not typed");
-  assert.equal(item.size_milli, 1000);
-  assert.equal(item.retail_cents, 18000);
-
-  assert.throws(
-    () =>
-      cat.createFinished({
-        name: "Test Bleach Gel",
-        unit: "L",
-        sizeValue: 1,
-        unitLabel: "bottle",
-        retail: 180,
-        wholesale: 150,
-        byUserId: OWNER,
-      }),
-    /already something called/i,
-  );
-});
-
-test("createFinished: rejects an empty name", () => {
-  assert.throws(
-    () =>
-      cat.createFinished({
-        name: " ",
-        unit: "L",
-        sizeValue: 1,
-        unitLabel: "bottle",
-        retail: 100,
-        wholesale: 90,
-        byUserId: OWNER,
-      }),
-    /name/i,
-  );
-});
-
-test("createChemical: one sellable row, priced per kilogram", () => {
-  const chemId = cat.createChemical({
+test("createProduct: one row, priced per unit, with its band", () => {
+  const id = cat.createProduct({
     name: "Test Surfactant",
     unit: "kg",
     aliases: "tsf,test",
-    bulkSizeValue: 200,
-    bulkLabel: "drum",
-    ratePerUnit: 90,
+    containerValue: 200,
+    containerLabel: "drum",
+    price: 90,
+    floor: 70,
+    ceiling: 110,
     byUserId: OWNER,
   });
 
-  const chem = cat.listChemicals().find((c) => c.id === chemId)!;
-  assert.ok(chem, "chemical is listed");
-
-  // One row. It used to be a bulk row plus one per resale size, and those pack
-  // rows are the whole of what this change deleted.
-  assert.equal(chem.items.length, 1);
-
-  const bulk = chem.items[0];
-  assert.equal(bulk.kind, "bulk");
-  assert.equal(bulk.price_basis, "unit");
-  assert.equal(bulk.sellable, 1, "the counter weighs out of the drum");
-  assert.equal(bulk.retail_cents, 9000, "KES 90 a kilogram");
-  assert.equal(bulk.cost_cents, 0, "cost arrives with the first delivery, never typed");
-  assert.equal(bulk.size_milli, 200_000, "the container is still 200 kg");
+  const item = cat.getItem(id)!;
+  assert.equal(item.kind, "bulk");
+  assert.equal(item.price_basis, "unit");
+  assert.equal(item.sellable, 1, "the counter weighs out of the drum");
+  assert.equal(item.price_cents, 9000, "KES 90 a kilogram");
+  assert.equal(item.floor_cents, 7000);
+  assert.equal(item.ceiling_cents, 11000);
+  assert.equal(item.cost_cents, 0, "cost arrives with the first delivery, never typed");
+  assert.equal(item.size_milli, 200_000, "the container is still 200 kg");
 
   assert.throws(
     () =>
-      cat.createChemical({
+      cat.createProduct({
         name: "Test Surfactant",
         unit: "kg",
         aliases: "",
-        bulkSizeValue: 200,
-        bulkLabel: "drum",
+        containerValue: 200,
+        containerLabel: "drum",
+        price: 90,
+        floor: 0,
+        ceiling: 0,
         byUserId: OWNER,
       }),
     /already in the list/i,
   );
 });
 
-test("createChemical: a chemical with no price yet is listed, not sold", () => {
-  const chemId = cat.createChemical({
+test("createProduct: a jerrican is the same kind of row, measured in pieces", () => {
+  /*
+    Not a trick. A shop sells things by some unit; the unit is the only thing
+    that varies. Three separate screens for products, chemicals and packaging
+    were three ways of saying that badly.
+  */
+  const id = cat.createProduct({
+    name: "Test 20 L Jerrican",
+    unit: "pcs",
+    aliases: "",
+    containerValue: 1,
+    containerLabel: "piece",
+    price: 180,
+    floor: 150,
+    ceiling: 250,
+    byUserId: OWNER,
+  });
+
+  const item = cat.getItem(id)!;
+  assert.equal(item.canonical_unit, "pcs");
+  assert.equal(item.price_basis, "unit", "priced per piece, like everything is priced per its unit");
+  assert.equal(item.price_cents, 18000);
+});
+
+test("createProduct: the band is checked before anything is written", () => {
+  const before = cat.listProducts().length;
+  assert.throws(
+    () =>
+      cat.createProduct({
+        name: "Test Bad Band",
+        unit: "kg",
+        aliases: "",
+        containerValue: 25,
+        containerLabel: "bag",
+        price: 100,
+        floor: 200,
+        ceiling: 150,
+        byUserId: OWNER,
+      }),
+    /can't be above the most/i,
+  );
+  assert.equal(cat.listProducts().length, before, "and no half-made chemical is left behind");
+});
+
+test("createProduct: something with no price yet is listed, not sold", () => {
+  const id = cat.createProduct({
     name: "Test Unpriced Base",
     unit: "L",
     aliases: "",
-    bulkSizeValue: 200,
-    bulkLabel: "drum",
+    containerValue: 200,
+    containerLabel: "drum",
+    price: 0,
+    floor: 0,
+    ceiling: 0,
     byUserId: OWNER,
   });
-  const bulk = cat.listChemicals().find((c) => c.id === chemId)!.items[0];
-  assert.equal(bulk.retail_cents, 0);
+  const item = cat.getItem(id)!;
+  assert.equal(item.price_cents, 0);
   // Sellable, but at zero — the counter renders that as "No price set" rather
   // than as free. Refusing to create it would strand a delivery nobody can book.
-  assert.equal(bulk.sellable, 1);
+  assert.equal(item.sellable, 1);
 });
 
 test("setItemActive: retires and restores an item", () => {
-  const id = cat.createFinished({
+  const id = cat.createProduct({
     name: "Test Retire Me",
     unit: "L",
-    sizeValue: 1,
-    unitLabel: "bottle",
-    retail: 100,
-    wholesale: 90,
+    aliases: "",
+    containerValue: 5,
+    containerLabel: "jerrican",
+    price: 100,
+    floor: 0,
+    ceiling: 0,
     byUserId: OWNER,
   });
+
   cat.setItemActive(id, false, OWNER);
   assert.equal(cat.getItem(id)!.active, 0);
+  assert.ok(
+    cat.listProducts().some((i) => i.id === id),
+    "a retired row is still listed, greyed — 'where did it go' is a worse question",
+  );
+
   cat.setItemActive(id, true, OWNER);
   assert.equal(cat.getItem(id)!.active, 1);
 });
 
 test("every catalog change is written to the audit log", () => {
-  const before = get<{ n: number }>(`SELECT COUNT(*) AS n FROM audit_log`)!.n;
-  cat.createFinished({
-    name: "Test Audited Product",
-    unit: "L",
-    sizeValue: 5,
-    unitLabel: "jerrican",
-    retail: 800,
-    wholesale: 700,
+  const id = cat.createProduct({
+    name: "Test Audited",
+    unit: "kg",
+    aliases: "",
+    containerValue: 25,
+    containerLabel: "bag",
+    price: 40,
+    floor: 0,
+    ceiling: 0,
     byUserId: OWNER,
   });
-  const after = get<{ n: number }>(`SELECT COUNT(*) AS n FROM audit_log`)!.n;
-  assert.ok(after > before, "product creation left an audit trail");
+  cat.updatePricing({ itemId: id, price: 45, floor: 0, ceiling: 0, reorderUnits: 0, byUserId: OWNER });
+
+  const actions = all<{ action: string }>(
+    `SELECT action FROM audit_log WHERE entity_id = ? ORDER BY id`,
+    id,
+  ).map((r) => r.action);
+  assert.ok(actions.includes("product_created"));
+  assert.ok(actions.includes("price_changed"));
 });
 
 test("sizes are typed the way the shelf label reads", () => {
-  // The whole point of the unit picker: a 500 ml bottle is entered as "500" and
-  // "ml", not as "0.5" and "litres", which is what the shop got wrong.
-  const bottle = cat.createFinished({
-    name: "Test Shower Gel",
-    unit: "ml",
-    sizeValue: 500,
-    unitLabel: "bottle",
-    retail: 250,
-    wholesale: 220,
-    byUserId: OWNER,
-  });
-  const b = cat.getItem(bottle)!;
-  assert.equal(b.size_milli, 500, "500 ml is 500 milli-litres");
-  assert.equal(b.canonical_unit, "L", "and it is stored against litres");
-
-  const sachet = cat.createFinished({
-    name: "Test Sachet",
+  // "500 g", not "0.5 kg" — the second was the single most confusing thing on
+  // this screen, and the conversion belongs in the code not the owner's head.
+  const id = cat.createProduct({
+    name: "Test Sachet Base",
     unit: "g",
-    sizeValue: 250,
-    unitLabel: "sachet",
-    retail: 60,
-    wholesale: 50,
+    aliases: "",
+    containerValue: 500,
+    containerLabel: "sachet",
+    price: 2,
+    floor: 0,
+    ceiling: 0,
     byUserId: OWNER,
   });
-  const g = cat.getItem(sachet)!;
-  assert.equal(g.size_milli, 250);
-  assert.equal(g.canonical_unit, "kg");
-
-  // Typing it the old way must land in exactly the same place, or the two
-  // routes would create duplicate items that look identical on the till.
-  const same = cat.createFinished({
-    name: "Test Shower Gel Large",
-    unit: "L",
-    sizeValue: 0.5,
-    unitLabel: "bottle",
-    retail: 250,
-    wholesale: 220,
-    byUserId: OWNER,
-  });
-  assert.equal(cat.getItem(same)!.size_milli, b.size_milli, "0.5 L and 500 ml are one size");
+  const item = cat.getItem(id)!;
+  assert.equal(item.canonical_unit, "kg", "grams are stored as thousandths of a kilogram");
+  assert.equal(item.size_milli, 500);
 });

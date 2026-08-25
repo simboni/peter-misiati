@@ -51,8 +51,8 @@ function versionOf(name: string) {
 
 /** The one sellable row a chemical has: its container, priced per kg / L. */
 function sourceRow(chemicalName: string) {
-  const row = get<{ id: number; retail_cents: number; canonical_unit: string }>(
-    `SELECT i.id, i.retail_cents, i.canonical_unit
+  const row = get<{ id: number; price_cents: number; canonical_unit: string }>(
+    `SELECT i.id, i.price_cents, i.canonical_unit
        FROM items i JOIN chemicals c ON c.id = i.chemical_id
       WHERE c.name = ? AND i.price_basis = 'unit'`,
     chemicalName,
@@ -108,7 +108,7 @@ test("scaling a 5 L formula to 20 L multiplies every ingredient by exactly 4", (
 
 test("a recipe is billed as its chemicals, weighed and priced per kilogram", () => {
   const version = versionOf("Carwash Shampoo");
-  const mix = mixFor(version.id, version.ref_size_milli, "retail");
+  const mix = mixFor(version.id, version.ref_size_milli);
 
   assert.equal(mix.ingredients.length, formulaItems(version.id).length);
   assert.ok(mix.sellable, "the seeded shop can supply its own reference batch");
@@ -116,7 +116,7 @@ test("a recipe is billed as its chemicals, weighed and priced per kilogram", () 
   for (const ing of mix.ingredients) {
     const source = sourceRow(ing.chemicalName);
     assert.equal(ing.itemId, source.id, `${ing.chemicalName} comes out of its own container`);
-    assert.equal(ing.rateCents, source.retail_cents, "the rate is the item's own price per unit");
+    assert.equal(ing.rateCents, source.price_cents, "the rate is the item's own price per unit");
     assert.equal(
       ing.amountCents,
       Math.round((ing.rateCents * ing.qtyMilli) / 1000),
@@ -140,7 +140,7 @@ test("the quantity a recipe needs is not rounded up to anything", () => {
     times too much, and the screen refused rather than do that.
   */
   const version = versionOf("Carwash Shampoo");
-  const mix = mixFor(version.id, toMilli(20), "retail");
+  const mix = mixFor(version.id, toMilli(20));
 
   const cde = mix.ingredients.find((i) => i.chemicalName === "C.D.E");
   assert.ok(cde, "Carwash Shampoo contains C.D.E");
@@ -151,8 +151,8 @@ test("the quantity a recipe needs is not rounded up to anything", () => {
 
 test("doubling the batch doubles the quantities and the bill", () => {
   const version = versionOf("Shower Gel");
-  const one = mixFor(version.id, toMilli(20), "retail");
-  const two = mixFor(version.id, toMilli(40), "retail");
+  const one = mixFor(version.id, toMilli(20));
+  const two = mixFor(version.id, toMilli(40));
 
   for (const line of two.ingredients) {
     const half = one.ingredients.find((i) => i.chemicalName === line.chemicalName)!;
@@ -163,26 +163,33 @@ test("doubling the batch doubles the quantities and the bill", () => {
   assert.ok(Math.abs(two.totalCents - one.totalCents * 2) <= two.ingredients.length);
 });
 
-test("a wholesale batch is priced at wholesale, falling back to retail where none is set", () => {
+test("a recipe is priced the same however it is billed", () => {
+  /*
+    There is one price. A recipe used to be priced twice — once at retail and
+    once at wholesale — which meant two answers to "what will twenty litres cost
+    me" and an attendant choosing between them with a customer waiting. The
+    concession now happens on the line, inside the band, and is recorded as a
+    discount rather than hidden in which list was open.
+  */
   const version = versionOf("Handwash");
-  const retail = mixFor(version.id, toMilli(20), "retail");
-  const wholesale = mixFor(version.id, toMilli(20), "wholesale");
+  const once = mixFor(version.id, toMilli(20));
+  const again = mixFor(version.id, toMilli(20));
 
-  assert.ok(wholesale.totalCents < retail.totalCents, "trade pays less");
-  for (const line of wholesale.ingredients) {
-    assert.ok(line.rateCents > 0, `${line.chemicalName} is never given away at the trade tier`);
+  assert.equal(once.totalCents, again.totalCents);
+  for (const line of once.ingredients) {
+    assert.ok(line.rateCents > 0, `${line.chemicalName} is never given away`);
   }
 });
 
 test("a batch bigger than the store can supply says how big a batch it can", () => {
   const version = versionOf("Shower Gel");
-  const huge = mixFor(version.id, toMilli(500_000), "retail");
+  const huge = mixFor(version.id, toMilli(500_000));
 
   assert.equal(huge.sellable, false);
   assert.ok(huge.ingredients.some((i) => i.short), "something has run out");
   assert.ok(huge.possibleMilli > 0, "and there is still a batch size that works");
 
-  const offered = mixFor(version.id, huge.possibleMilli, "retail");
+  const offered = mixFor(version.id, huge.possibleMilli);
   assert.ok(
     offered.ingredients.every((i) => !i.short),
     "the size it offers is one the store can actually supply",
@@ -195,7 +202,7 @@ test("an unpriced ingredient is named, and no batch size hides it", () => {
   );
   run(
     `INSERT INTO items (chemical_id, name, kind, canonical_unit, size_milli, unit_label,
-                        sellable, price_basis, retail_cents)
+                        sellable, price_basis, price_cents)
      VALUES (?, 'Test Unpriced', 'bulk', 'kg', 25000, 'bag', 1, 'unit', 0)`,
     chemId,
   );
@@ -209,7 +216,7 @@ test("an unpriced ingredient is named, and no batch size hides it", () => {
   );
   run(`INSERT INTO formula_items (formula_version_id, chemical_id, qty_milli) VALUES (?, ?, 500)`, vId, chemId);
 
-  const mix = mixFor(vId, toMilli(20), "retail");
+  const mix = mixFor(vId, toMilli(20));
   assert.equal(mix.sellable, false);
   assert.equal(mix.ingredients[0].unpriced, true);
   assert.equal(mix.ingredients[0].amountCents, 0, "an unpriced chemical is never billed at zero");
@@ -232,7 +239,7 @@ test("editing a recipe that has been SOLD creates version 2 and leaves version 1
   // Sell one batch against version 1 first. Until a customer has been charged
   // for it, the version is only a piece of writing and an edit corrects it
   // where it stands — see the two tests at the end of this file.
-  const mix = mixFor(v1.id, toMilli(20), "retail");
+  const mix = mixFor(v1.id, toMilli(20));
   recordSale({
     clientUuid: "version-guard-1",
     userId: OWNER,
@@ -297,7 +304,7 @@ test("a sale billed on version 1 still points at version 1 after the recipe is e
   const target = formula("Multipurpose");
   const v1 = currentVersion(target.id)!;
 
-  const mix = mixFor(v1.id, toMilli(20), "retail");
+  const mix = mixFor(v1.id, toMilli(20));
   const { saleId } = recordSale({
     clientUuid: "version-guard-2",
     userId: OWNER,
@@ -412,7 +419,7 @@ test("a recipe with no sellable chemical at all is refused by name", () => {
   );
   run(`INSERT INTO formula_items (formula_version_id, chemical_id, qty_milli) VALUES (?, ?, 500)`, vId, chemId);
 
-  const mix = mixFor(vId, toMilli(20), "retail");
+  const mix = mixFor(vId, toMilli(20));
   assert.equal(mix.ingredients[0].unlisted, true);
   assert.equal(mix.ingredients[0].itemId, null);
   assert.equal(mix.sellable, false);

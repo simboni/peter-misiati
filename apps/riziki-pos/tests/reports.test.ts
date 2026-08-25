@@ -121,19 +121,19 @@ before(() => {
   // A repacked chemical and a finished product — the two business lines.
   run(
     `INSERT INTO items (id, chemical_id, name, kind, canonical_unit, size_milli, unit_label,
-                        sellable, retail_cents, wholesale_cents, floor_cents, cost_cents)
-     VALUES (1, 1, 'Ungerol — 20 kg', 'pack', 'kg', 20000, 'pack', 1, 100000, 90000, 85000, 76000)`,
+                        sellable, price_cents, floor_cents, cost_cents)
+     VALUES (1, 1, 'Ungerol — 20 kg', 'pack', 'kg', 20000, 'pack', 1, 100000, 85000, 76000)`,
   );
   run(
     `INSERT INTO items (id, name, kind, canonical_unit, size_milli, unit_label,
-                        sellable, retail_cents, wholesale_cents, floor_cents, cost_cents)
-     VALUES (2, '1 L bottle', 'packaging', 'pcs', 1000, 'bottle', 1, 12000, 9000, 8000, 6000)`,
+                        sellable, price_cents, floor_cents, cost_cents)
+     VALUES (2, '1 L bottle', 'packaging', 'pcs', 1000, 'bottle', 1, 12000, 8000, 6000)`,
   );
   // Never sold, still on the shelf — dead stock.
   run(
     `INSERT INTO items (id, name, kind, canonical_unit, size_milli, unit_label,
-                        sellable, retail_cents, wholesale_cents, floor_cents, cost_cents)
-     VALUES (3, '5 L jerrican', 'packaging', 'pcs', 1000, 'jerrican', 1, 13000, 10000, 9000, 8000)`,
+                        sellable, price_cents, floor_cents, cost_cents)
+     VALUES (3, '5 L jerrican', 'packaging', 'pcs', 1000, 'jerrican', 1, 13000, 9000, 8000)`,
   );
   run(
     `INSERT INTO stock_movements (item_id, at, delta_milli, reason, user_id)
@@ -295,7 +295,7 @@ describe("profit per product uses the snapshot, not today's price list", () => {
     assert.equal(soapBefore.unit_price_cents, 12000);
 
     // The owner doubles the shelf price and re-costs the item today.
-    run(`UPDATE items SET retail_cents = 24000, cost_cents = 20000 WHERE id = 2`);
+    run(`UPDATE items SET price_cents = 24000, cost_cents = 20000 WHERE id = 2`);
 
     const after = profitPerProduct(monthRange("2026-09"));
     const soapAfter = after.find((r) => r.name === "Laundry Soap 1 L");

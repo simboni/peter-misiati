@@ -25,7 +25,7 @@
  */
 
 import { all, get, run, tx, audit } from "./db.ts";
-import { amountFor, priceFor, type Tier } from "./sales.ts";
+import { amountFor, priceOf } from "./sales.ts";
 import { scaleMilli } from "./units.ts";
 
 export type Unit = "kg" | "L" | "pcs";
@@ -437,8 +437,12 @@ export interface Mix {
  *
  * The recipe itself is never shown to staff: this returns quantities, and the
  * screens that call it decide who may see them.
+ *
+ * There is no tier here any more. One price per chemical, argued inside its
+ * band at the till like anything else — a recipe priced two ways was two
+ * answers to "what will twenty litres cost me".
  */
-export function mixFor(versionId: number, targetMilli: number, tier: Tier): Mix {
+export function mixFor(versionId: number, targetMilli: number): Mix {
   const version = versionById(versionId);
   if (!version) throw new Error("That formula version no longer exists.");
   const formula = formulaById(version.formula_id);
@@ -477,7 +481,7 @@ export function mixFor(versionId: number, targetMilli: number, tier: Tier): Mix 
       };
     }
 
-    const rateCents = priceFor(source, tier);
+    const rateCents = priceOf(source);
     const short = line.neededMilli > source.qty_milli;
     if (rateCents <= 0) possibleMilli = 0;
 
@@ -523,8 +527,9 @@ export function mixFor(versionId: number, targetMilli: number, tier: Tier): Mix 
 interface MixSource {
   id: number;
   name: string;
-  retail_cents: number;
-  wholesale_cents: number;
+  price_cents: number;
+  floor_cents: number;
+  ceiling_cents: number;
   qty_milli: number;
 }
 
@@ -538,7 +543,7 @@ interface MixSource {
  */
 function sellableSource(chemicalId: number): MixSource | undefined {
   return get<MixSource>(
-    `SELECT i.id, i.name, i.retail_cents, i.wholesale_cents,
+    `SELECT i.id, i.name, i.price_cents, i.floor_cents, i.ceiling_cents,
             COALESCE(SUM(m.delta_milli), 0) AS qty_milli
        FROM items i
        LEFT JOIN stock_movements m ON m.item_id = i.id

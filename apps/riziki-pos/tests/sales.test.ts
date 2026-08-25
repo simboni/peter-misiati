@@ -26,7 +26,8 @@ const {
   voidSale,
   cartTotal,
   lineTotal,
-  priceFor,
+  priceOf,
+  priceBandCheck,
   creditStatus,
   customerOutstanding,
   authoriseOwnerPin,
@@ -50,23 +51,23 @@ function makeItem(opts: {
   name: string;
   kind: "finished" | "pack" | "packaging";
   sizeMilli: number;
-  retail: number;
-  wholesale: number;
+  price: number;
   floor: number;
+  ceiling?: number;
   openingUnits?: number;
   sellable?: number;
 }): number {
   const { lastInsertRowid: id } = run(
     `INSERT INTO items (name, kind, canonical_unit, size_milli, unit_label, sellable,
-                        retail_cents, wholesale_cents, floor_cents, cost_cents)
+                        price_cents, floor_cents, ceiling_cents, cost_cents)
      VALUES (?, ?, 'L', ?, 'bottle', ?, ?, ?, ?, ?)`,
     opts.name,
     opts.kind,
     opts.sizeMilli,
     opts.sellable ?? 1,
-    opts.retail,
-    opts.wholesale,
+    opts.price,
     opts.floor,
+    opts.ceiling ?? 0,
     opts.floor,
   );
   if (opts.openingUnits) {
@@ -80,24 +81,22 @@ function makeItem(opts: {
   return id;
 }
 
-// KES 100 retail / KES 80 wholesale, 1 L bottle
+// KES 100 a bottle, never below KES 70.
 const SOAP = makeItem({
   name: "Test Laundry Soap 1 L",
   kind: "finished",
   sizeMilli: 1000,
-  retail: 10000,
-  wholesale: 8000,
+  price: 10000,
   floor: 7000,
   openingUnits: 50,
 });
 
-// KES 500 retail / KES 450 wholesale, 5 kg repack
+// KES 500 for the 5 kg pack, never below KES 400.
 const PACK = makeItem({
   name: "Test Ungerol — 5 kg",
   kind: "pack",
   sizeMilli: 5000,
-  retail: 50000,
-  wholesale: 45000,
+  price: 50000,
   floor: 40000,
   openingUnits: 20,
 });
@@ -107,8 +106,7 @@ const EIGHT_HUNDRED = makeItem({
   name: "Test Bundle 800",
   kind: "finished",
   sizeMilli: 1000,
-  retail: 80000,
-  wholesale: 80000,
+  price: 80000,
   floor: 60000,
   openingUnits: 10,
 });
@@ -116,8 +114,8 @@ const EIGHT_HUNDRED = makeItem({
 /** A chemical priced per kilogram — the thing customers actually argue about. */
 const { lastInsertRowid: CAUSTIC } = run(
   `INSERT INTO items (name, kind, canonical_unit, size_milli, unit_label, sellable,
-                      price_basis, retail_cents, wholesale_cents, floor_cents, cost_cents)
-   VALUES ('Test Caustic Soda', 'bulk', 'kg', 25000, 'bag', 1, 'unit', 10000, 9000, 7000, 6000)`,
+                      price_basis, price_cents, floor_cents, ceiling_cents, cost_cents)
+   VALUES ('Test Caustic Soda', 'bulk', 'kg', 25000, 'bag', 1, 'unit', 10000, 7000, 13000, 6000)`,
 );
 postMovement({ itemId: CAUSTIC, deltaMilli: 500_000, reason: "opening", userId: OWNER });
 
@@ -146,10 +144,20 @@ test("cartTotal is the exact integer sum of unit_price × units", () => {
   assert.throws(() => cartTotal([{ unitPriceCents: 99.5, units: 1 }]), SaleError);
 });
 
-test("priceFor picks the tier price, falling back to retail when no wholesale is set", () => {
-  assert.equal(priceFor({ retail_cents: 10000, wholesale_cents: 8000 }, "retail"), 10000);
-  assert.equal(priceFor({ retail_cents: 10000, wholesale_cents: 8000 }, "wholesale"), 8000);
-  assert.equal(priceFor({ retail_cents: 10000, wholesale_cents: 0 }, "wholesale"), 10000);
+test("priceOf is the one price, and the band is what bounds it", () => {
+  const item = { price_cents: 10000, floor_cents: 7000, ceiling_cents: 13000 };
+  assert.equal(priceOf(item), 10000, "there is exactly one price to ask");
+
+  assert.equal(priceBandCheck(item, 10000), null);
+  assert.equal(priceBandCheck(item, 7000), null, "the floor itself is allowed");
+  assert.equal(priceBandCheck(item, 13000), null, "and so is the ceiling");
+  assert.equal(priceBandCheck(item, 6999), "below_floor");
+  assert.equal(priceBandCheck(item, 13001), "above_ceiling");
+
+  // Zero at either end means "nobody set one", never "a limit of nothing".
+  const open = { price_cents: 10000, floor_cents: 0, ceiling_cents: 0 };
+  assert.equal(priceBandCheck(open, 1), null);
+  assert.equal(priceBandCheck(open, 9_999_999), null);
 });
 
 // -------------------------------------------------------------------- (a)
@@ -196,39 +204,43 @@ test("(a) a two-line sale totals exactly and drops stock by size_milli × units"
 
 // -------------------------------------------------------------------- (b)
 
-test("(b) the same cart costs less at wholesale than at retail", () => {
+test("(b) the shelf price is the same for everyone; the tier only says who bought", () => {
+  /*
+    This test used to prove the wholesale column was the cheaper of two. There
+    is one price now. A wholesale customer is not handed a different number off
+    the shelf — they are handed the same one, and then it is argued down at the
+    counter and that argument is recorded as a discount. So what is worth
+    asserting is the reverse of what it was: the cart does not change price when
+    the customer does.
+  */
   const cart = [
     { itemId: SOAP, units: 2 },
     { itemId: PACK, units: 1 },
   ];
 
-  const priced = (tier: "retail" | "wholesale") =>
+  const priced = () =>
     cart.map((c) => {
-      const item = get<{ retail_cents: number; wholesale_cents: number }>(
-        `SELECT retail_cents, wholesale_cents FROM items WHERE id = ?`,
+      const item = get<{ price_cents: number }>(
+        `SELECT price_cents FROM items WHERE id = ?`,
         c.itemId,
       )!;
-      return { itemId: c.itemId, units: c.units, unitPriceCents: priceFor(item, tier) };
+      return { itemId: c.itemId, units: c.units, unitPriceCents: priceOf(item) };
     });
 
-  const retailLines = priced("retail");
-  const wholesaleLines = priced("wholesale");
-
-  const retailTotal = cartTotal(retailLines);
-  const wholesaleTotal = cartTotal(wholesaleLines);
+  const retailTotal = cartTotal(priced());
+  const wholesaleTotal = cartTotal(priced());
 
   assert.equal(retailTotal, 70000);
-  assert.equal(wholesaleTotal, 61000); // 2 × 8000 + 45000
-  assert.ok(wholesaleTotal < retailTotal);
+  assert.equal(wholesaleTotal, retailTotal, "one price, whoever is standing there");
 
   const sale = recordSale({
     clientUuid: uuid(),
     userId: STAFF,
     tier: "wholesale",
-    lines: wholesaleLines,
+    lines: priced(),
     tenders: [{ method: "cash", amountCents: wholesaleTotal }],
   });
-  assert.equal(sale.totalCents, 61000);
+  assert.equal(sale.totalCents, 70000);
 
   const row = get<{ tier: string }>(`SELECT tier FROM sales WHERE id = ?`, sale.saleId)!;
   assert.equal(row.tier, "wholesale");
@@ -580,6 +592,57 @@ test("a price below the floor is refused for staff and allowed with owner approv
   assert.match(entry!.detail, new RegExp(`authorised by user ${OWNER}`));
 });
 
+test("a price above the ceiling is refused too, and is logged as its own thing", () => {
+  /*
+    The end nobody thinks to guard. Selling over the ceiling does not show up in
+    the day's takings as a problem — it shows up as a good day — and the shop
+    only finds out when the customer buys somewhere else next month. So it is
+    refused the same way the floor is, and audited under its own name, because
+    an owner asking "who has been overcharging" should not have to read every
+    override to find out.
+  */
+  assert.throws(
+    () =>
+      recordSale({
+        clientUuid: uuid(),
+        userId: STAFF,
+        tier: "retail",
+        // Caustic asks 100/kg, never beyond 130.
+        lines: [{ itemId: CAUSTIC, units: 1, qtyMilli: 1000, unitPriceCents: 14000 }],
+        tenders: [{ method: "cash", amountCents: 14000 }],
+      }),
+    (err: unknown) => err instanceof SaleError && err.code === "above_ceiling",
+  );
+
+  // The ceiling itself is fine — it is a limit, not a line nobody may stand on.
+  const atCeiling = recordSale({
+    clientUuid: uuid(),
+    userId: STAFF,
+    tier: "retail",
+    lines: [{ itemId: CAUSTIC, units: 1, qtyMilli: 1000, unitPriceCents: 13000 }],
+    tenders: [{ method: "cash", amountCents: 13000 }],
+  });
+  assert.equal(atCeiling.totalCents, 13000);
+
+  const approved = recordSale({
+    clientUuid: uuid(),
+    userId: STAFF,
+    tier: "retail",
+    lines: [{ itemId: CAUSTIC, units: 1, qtyMilli: 1000, unitPriceCents: 14000 }],
+    tenders: [{ method: "cash", amountCents: 14000 }],
+    floorOverrideBy: OWNER,
+  });
+  assert.equal(approved.totalCents, 14000);
+
+  const entry = get<{ action: string; detail: string }>(
+    `SELECT action, detail FROM audit_log WHERE entity = 'sale_line' AND entity_id = ? ORDER BY id DESC LIMIT 1`,
+    approved.saleId,
+  )!;
+  assert.equal(entry.action, "price_override_above_ceiling", "not filed under the same name as a giveaway");
+  assert.match(entry.detail, /above the ceiling/);
+  assert.match(entry.detail, new RegExp(`authorised by user ${OWNER}`));
+});
+
 test("overpaying is refused so paid_cents can never exceed the sale", () => {
   assert.throws(
     () =>
@@ -688,7 +751,7 @@ test("a discount survives the shelf price moving afterwards", () => {
   });
 
   // The world moves. Caustic goes to 150 a kilo next week.
-  run(`UPDATE items SET retail_cents = 15000 WHERE id = ?`, CAUSTIC);
+  run(`UPDATE items SET price_cents = 15000 WHERE id = ?`, CAUSTIC);
 
   const line = get<{
     units: number;
@@ -705,7 +768,7 @@ test("a discount survives the shelf price moving afterwards", () => {
     2000,
     "the customer saved 20, not the 70 today's price would imply",
   );
-  run(`UPDATE items SET retail_cents = 10000 WHERE id = ?`, CAUSTIC);
+  run(`UPDATE items SET price_cents = 10000 WHERE id = ?`, CAUSTIC);
 });
 
 test("selling at the asking price is not a discount, and neither is selling above it", () => {
@@ -791,7 +854,8 @@ test("a below-floor price still needs the owner, and still records what was aske
     `SELECT action, detail FROM audit_log
       WHERE action = 'price_override_below_floor' ORDER BY id DESC LIMIT 1`,
   )!;
-  assert.match(entry.detail, /below floor/);
+  assert.match(entry.detail, /below the floor/);
+  assert.match(entry.detail, new RegExp(`authorised by user ${OWNER}`));
 });
 
 test("a whole-unit line discounts by the count, not by the quantity", () => {

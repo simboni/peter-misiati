@@ -25,7 +25,7 @@
  */
 
 import { all, get, run, tx, audit } from "./db.ts";
-import { priceFor, recordSale, type RecordSaleResult } from "./sales.ts";
+import { priceOf, recordSale, type RecordSaleResult } from "./sales.ts";
 import { businessDate, formatQty } from "./units.ts";
 
 export type QuoteStatus = "draft" | "sent" | "approved" | "declined" | "invoiced";
@@ -77,9 +77,8 @@ export interface QuoteLineRow {
   rate_cents: number;
   price_basis: "pack" | "unit";
   canonical_unit: "kg" | "L" | "pcs";
-  /** What the item is normally worth, so a discount is visible as a discount. */
-  wholesale_cents: number;
-  retail_cents: number;
+  /** What the item is worth today, for context beside the frozen asking price. */
+  price_cents: number;
 }
 
 /**
@@ -158,7 +157,7 @@ export function quoteLines(quoteId: number): QuoteLineRow[] {
   return all<QuoteLineRow>(
     `SELECT l.id, l.item_id, i.name AS item_name, l.units, l.unit_price_cents,
             l.qty_milli, l.rate_cents, l.list_price_cents, i.price_basis, i.canonical_unit,
-            i.wholesale_cents, i.retail_cents
+            i.price_cents
        FROM quote_lines l
        JOIN items i ON i.id = l.item_id
       WHERE l.quote_id = ?
@@ -182,15 +181,14 @@ function normaliseLine(line: QuoteLineInput): {
   rateCents: number;
   listPriceCents: number;
 } {
-  const item = get<{ price_basis: "pack" | "unit"; retail_cents: number; wholesale_cents: number }>(
-    `SELECT price_basis, retail_cents, wholesale_cents FROM items WHERE id = ?`,
+  const item = get<{ price_basis: "pack" | "unit"; price_cents: number }>(
+    `SELECT price_basis, price_cents FROM items WHERE id = ?`,
     line.itemId,
   );
   const price = Math.max(0, Math.trunc(line.unitPriceCents));
-  // Quotes are always wholesale — that is what a quote is for — so the asking
-  // price to measure the offer against is the trade one, falling back to retail
-  // where no trade price is set.
-  const listPriceCents = item ? priceFor(item, "wholesale") : 0;
+  // The shop's one asking price. A quote is measured against the same number a
+  // walk-in is quoted, because it is the same number.
+  const listPriceCents = item ? priceOf(item) : 0;
 
   if (item?.price_basis !== "unit") {
     return {

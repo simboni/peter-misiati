@@ -40,6 +40,7 @@ export type SaleErrorCode =
   | "bad_price"
   | "unknown_item"
   | "below_floor"
+  | "above_ceiling"
   | "bad_amount"
   | "mpesa_code_required"
   | "mpesa_code_reused"
@@ -66,22 +67,45 @@ export class SaleError extends Error {
 // ------------------------------------------------------- pure price maths
 
 export interface PricedItem {
-  retail_cents: number;
-  wholesale_cents: number;
+  price_cents: number;
+  floor_cents: number;
+  ceiling_cents: number;
 }
 
 /**
- * The list price for a tier.
+ * What the shop is asking for one unit.
  *
- * An item with no wholesale price set falls back to retail rather than to zero —
- * flipping the tier toggle must never hand goods over for free.
+ * One price, not a retail one and a wholesale one. The tier switch it replaces
+ * could not express the answer to the commonest question at this counter — a
+ * walk-in buying forty kilos is neither tier, they are a number in between — so
+ * the shop asks one price and argues inside a band. See `priceBandCheck`.
  *
  * For a `price_basis = 'unit'` item this is the rate per kilogram or litre, not
  * the price of anything you can pick up; `amountFor` turns it into money.
  */
-export function priceFor(item: PricedItem, tier: Tier): number {
-  if (tier === "wholesale" && item.wholesale_cents > 0) return item.wholesale_cents;
-  return item.retail_cents;
+export function priceOf(item: Pick<PricedItem, "price_cents">): number {
+  return item.price_cents;
+}
+
+/** Why a price was refused, or null when it is inside the band. */
+export type BandBreach = "below_floor" | "above_ceiling" | null;
+
+/**
+ * Is this price one an attendant may agree on their own?
+ *
+ * Both ends need the owner, and for the same reason rather than two: a price is
+ * the one thing at this counter that is neither counted nor weighed, so the
+ * owner sets the range it may move in and anything outside it is his decision,
+ * not a judgement call made with a customer waiting. Under the floor gives the
+ * shop's money away; over the ceiling gives its reputation away, and the second
+ * is the one nobody notices until the customer does.
+ *
+ * A zero floor or ceiling means "not set" — no limit at that end.
+ */
+export function priceBandCheck(item: PricedItem, priceCents: number): BandBreach {
+  if (item.floor_cents > 0 && priceCents < item.floor_cents) return "below_floor";
+  if (item.ceiling_cents > 0 && priceCents > item.ceiling_cents) return "above_ceiling";
+  return null;
 }
 
 /**
@@ -357,15 +381,28 @@ export function recordSale(input: RecordSaleInput): RecordSaleResult {
       // the rate per kilogram, not over the amount the scoop came to.
       const charged = l.rateCents || l.unitPriceCents;
       if (charged !== l.listPriceCents) {
-        const belowFloor = charged < l.item.floor_cents;
+        const breach = priceBandCheck(l.item, charged);
         const per = l.rateCents ? `/${l.item.canonical_unit}` : "";
+        // The two ends are logged apart on purpose. An owner reading this back
+        // is asking one of two different questions — who has been giving the
+        // stock away, or who has been overcharging at the counter — and one
+        // action covering both would answer neither without reading every line.
         audit(
           input.userId,
-          belowFloor ? "price_override_below_floor" : "price_discount",
+          breach === "below_floor"
+            ? "price_override_below_floor"
+            : breach === "above_ceiling"
+              ? "price_override_above_ceiling"
+              : charged < l.listPriceCents
+                ? "price_discount"
+                : "price_uplift",
           "sale_line",
           saleId,
           `${l.item.name}: ${formatKes(l.listPriceCents)}${per} → ${formatKes(charged)}${per}` +
-            (belowFloor ? ` (below floor, authorised by user ${input.floorOverrideBy})` : ""),
+            (breach
+              ? ` (${breach === "below_floor" ? "below the floor" : "above the ceiling"}, ` +
+                `authorised by user ${input.floorOverrideBy})`
+              : ""),
         );
       }
     }
@@ -413,18 +450,30 @@ function resolveLines(input: RecordSaleInput): ResolvedLine[] {
       throw new SaleError("bad_price", `The price for ${item.name} is not a valid amount.`);
     }
 
-    // The floor is never sent to the counter — for a chemical it sits close to
-    // the cost price, and staff must not see cost. The price is offered, the
-    // server refuses it, and only then is the owner's PIN asked for. Both sides
-    // of the comparison are per the same thing: per pack, or per kilogram.
-    if (line.unitPriceCents < item.floor_cents && !input.floorOverrideBy) {
+    /*
+      The band, checked at both ends.
+
+      Neither limit is ever sent to the counter — a chemical's floor sits close
+      to its cost price, and staff must not see cost. The price is offered, the
+      server refuses it, and only then is the owner's PIN asked for.
+
+      `floorOverrideBy` authorises either end. One PIN means one thing: the owner
+      is standing here and approves this price. Splitting it into two would be
+      two ways of saying the same sentence.
+    */
+    const breach = priceBandCheck(item, line.unitPriceCents);
+    if (breach && !input.floorOverrideBy) {
       throw new SaleError(
-        "below_floor",
-        `${item.name} at ${formatKes(line.unitPriceCents)} is below the minimum price. The owner must approve it.`,
+        breach,
+        breach === "below_floor"
+          ? `${item.name} at ${formatKes(line.unitPriceCents)} is below the least it may go for ` +
+            `(${formatKes(item.floor_cents)}). The owner must approve it.`
+          : `${item.name} at ${formatKes(line.unitPriceCents)} is above the most it may go for ` +
+            `(${formatKes(item.ceiling_cents)}). The owner must approve it.`,
       );
     }
 
-    const listPriceCents = priceFor(item, input.tier);
+    const listPriceCents = priceOf(item);
     const formulaVersionId = line.formulaVersionId ?? null;
 
     if (item.price_basis === "unit") {

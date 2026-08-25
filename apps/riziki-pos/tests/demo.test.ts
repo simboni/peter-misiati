@@ -106,13 +106,10 @@ test("it is deterministic — same starting shop, same seed, same result", () =>
   // table counts across a wipe would not do it: the seeded catalogue ships with
   // its own customers, so the first load's total includes rows the second one
   // never created, and the test would fail for a reason that is not a bug.
-  const prices = all<{ id: number; retail_cents: number; wholesale_cents: number }>(
-    `SELECT id, retail_cents, wholesale_cents FROM items`,
-  );
+  const prices = all<{ id: number; price_cents: number }>(`SELECT id, price_cents FROM items`);
   const restore = () => {
     for (const p of prices) {
-      run(`UPDATE items SET retail_cents = ?, wholesale_cents = ? WHERE id = ?`,
-        p.retail_cents, p.wholesale_cents, p.id);
+      run(`UPDATE items SET price_cents = ? WHERE id = ?`, p.price_cents, p.id);
     }
   };
 
@@ -167,7 +164,7 @@ test("the append-only guards come back, and still bite", () => {
 
 test("a shop with nothing priced is told why it cannot be filled", () => {
   clearTradingData(OWNER);
-  run(`UPDATE items SET retail_cents = 0`);
+  run(`UPDATE items SET price_cents = 0`);
   assert.throws(() => loadDemoData(OWNER), DemoError);
   assert.equal(guardCount(), GUARDS.length, "a refused load leaves the guards alone");
 });

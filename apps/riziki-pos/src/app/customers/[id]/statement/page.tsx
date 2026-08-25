@@ -131,7 +131,7 @@ export default async function StatementPage(props: { params: Promise<{ id: strin
         )}
 
         <p className="mt-5 text-[11px] text-muted">
-          All figures in Kenya Shillings. Amounts under &ldquo;Paid&rdquo; are money received
+          All figures in Kenya Shillings. Amounts under “Paid” are money received
           (cash or M-Pesa); the balance is what remains owing. Queries: {business.phone}.
         </p>
       </div>

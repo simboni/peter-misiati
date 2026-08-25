@@ -20,7 +20,7 @@
  */
 
 import Link from "next/link";
-import { swatchFor, nameSize } from "@/lib/swatch";
+import { swatchFor, nameSize, priceSize } from "@/lib/swatch";
 import {
   useActionState,
   useCallback,
@@ -82,8 +82,8 @@ export interface SellItem {
   /** How much one container holds. Only a display fact for a weighed item. */
   sizeMilli: number;
   /** Per container, or per kg / L when `basis` is 'unit'. */
-  retailCents: number;
-  wholesaleCents: number;
+  /** What the shop asks for one unit. The only price an item has. */
+  priceCents: number;
   qtyMilli: number;
   /** name + chemical name + aliases, lower-cased, so "sles" finds Ungerol */
   search: string;
@@ -354,7 +354,7 @@ function receiptFromQueued(
       // before the till has ever seen the sale, so there is nothing else to
       // compare against. The till snapshots its own copy when the queue drains,
       // and that one is the record; this is the customer's slip in the meantime.
-      const listCents = listPrice(item, q.tier);
+      const listCents = listPrice(item);
       const discountCents = Math.max(0, at(listCents) - amount);
       return {
         name: item.name,
@@ -394,9 +394,17 @@ function receiptFromQueued(
   };
 }
 
-function listPrice(item: SellItem, tier: Tier): number {
-  if (tier === "wholesale" && item.wholesaleCents > 0) return item.wholesaleCents;
-  return item.retailCents;
+/**
+ * What the shop asks for one unit of this.
+ *
+ * One price. The retail/wholesale switch this replaces could not express the
+ * commonest question at the counter — a walk-in buying forty kilos is neither
+ * tier — so the shop asks one price and the attendant argues inside the band
+ * the owner set. The band itself never reaches this screen: a price outside it
+ * is offered, refused by the till, and only then is a PIN asked for.
+ */
+function listPrice(item: SellItem): number {
+  return item.priceCents;
 }
 
 /** "75.50" → 7550. Blank or nonsense → null, so a slip never becomes a zero. */
@@ -554,7 +562,7 @@ export default function SellClient({
   /** The Products board: what a customer comes in to make. */
   recipes: RecipeChoice[];
   onLastOrder: (customerId: number) => Promise<RepeatOrder | null>;
-  onMix: (versionId: number, targetMilli: number, tier: Tier) => Promise<MixOffer | null>;
+  onMix: (versionId: number, targetMilli: number) => Promise<MixOffer | null>;
   /**
    * Keep a price agreed here as the shop's price from now on.
    *
@@ -566,14 +574,12 @@ export default function SellClient({
   onKeepPrice: (
     itemId: number,
     priceCents: number,
-    tier: Tier,
     ownerPin?: string,
   ) => Promise<{ ok: true; message: string } | { ok: false; error: string; needsPin: boolean }>;
   /** The shop's letterhead — nothing owner-sensitive — so a queued sale can
    *  build its own receipt on the phone with no server round trip. */
   printer: { paper: PaperWidth; header: string[]; footer: string; autoPrint: boolean };
 }) {
-  const [tier, setTier] = useState<Tier>("retail");
   const [cart, setCart] = useState<CartLine[]>([]);
   const [query, setQuery] = useState("");
   const [board, setBoard] = useState<Board>("products");
@@ -712,7 +718,7 @@ export default function SellClient({
     counter sees here is what the customer is handed.
   */
   const atListCents = lines.reduce(
-    (s, x) => s + lineCents(x.item, { ...x.line, priceCents: listPrice(x.item, tier) }),
+    (s, x) => s + lineCents(x.item, { ...x.line, priceCents: listPrice(x.item) }),
     0,
   );
   const discountCents = Math.max(0, atListCents - totalCents);
@@ -800,7 +806,7 @@ export default function SellClient({
             itemId: item.id,
             units: item.basis === "unit" ? 1 : l.units,
             qtyMilli: item.basis === "unit" ? l.qtyMilli : item.sizeMilli * l.units,
-            priceCents: listPrice(item, tier),
+            priceCents: listPrice(item),
             formulaVersionId: null,
           };
         })
@@ -815,7 +821,7 @@ export default function SellClient({
     if (!Number.isFinite(litres) || litres <= 0) return;
     setMixBusy(true);
     try {
-      setMixOffer(await onMix(versionId, Math.round(litres * 1000), tier));
+      setMixOffer(await onMix(versionId, Math.round(litres * 1000)));
     } catch {
       setMixOffer(null);
     } finally {
@@ -921,9 +927,6 @@ export default function SellClient({
   const needsCustomer = onAccountCents > 0;
 
   // --- after a completed sale, start clean --------------------------------
-  // Resetting the tier is the point: a toggle left on wholesale silently
-  // mis-prices every sale for the rest of the day.
-  //
   // A queued sale resets exactly like a recorded one. The customer has paid and
   // walked off; making the counter treat "saved here" differently from "saved
   // there" is how a queue builds up behind one confused attendant.
@@ -945,7 +948,6 @@ export default function SellClient({
     setSecond(null);
     setCustomerId(null);
     setOwnerPin("");
-    setTier("retail");
     setQuery("");
     setSheet("none");
     setDeskPane("cart");
@@ -968,11 +970,8 @@ export default function SellClient({
     try {
       const raw = sessionStorage.getItem("riziki_cart");
       if (!raw) return;
-      const saved = JSON.parse(raw) as { cart: CartLine[]; tier: Tier };
-      if (saved.cart?.length) {
-        setCart(saved.cart);
-        if (saved.tier === "retail" || saved.tier === "wholesale") setTier(saved.tier);
-      }
+      const saved = JSON.parse(raw) as { cart: CartLine[] };
+      if (saved.cart?.length) setCart(saved.cart);
     } catch {
       /* a corrupt cart is not worth crashing the till over */
     }
@@ -980,12 +979,12 @@ export default function SellClient({
 
   useEffect(() => {
     try {
-      if (cart.length) sessionStorage.setItem("riziki_cart", JSON.stringify({ cart, tier }));
+      if (cart.length) sessionStorage.setItem("riziki_cart", JSON.stringify({ cart }));
       else sessionStorage.removeItem("riziki_cart");
     } catch {
       /* private mode / storage full — the cart just won't survive navigation */
     }
-  }, [cart, tier]);
+  }, [cart]);
 
   // --- connection and outbox ----------------------------------------------
   useEffect(() => {
@@ -1093,7 +1092,7 @@ export default function SellClient({
           itemId: item.id,
           units: unitsFor(item, add),
           qtyMilli: add,
-          priceCents: listPrice(item, tier),
+          priceCents: listPrice(item),
           formulaVersionId,
         },
       ];
@@ -1111,18 +1110,14 @@ export default function SellClient({
   }
 
   /**
-   * Switching tier re-prices the whole cart, haggled lines included. Carrying a
-   * negotiated retail price into a wholesale bill is the more expensive mistake.
+   * Which book a sale goes in.
+   *
+   * Not a price switch any more — there is one price — but reports still split
+   * trade from counter, and that split is a fact about the buyer rather than a
+   * button somebody has to remember to press. A named wholesale customer makes
+   * it a wholesale sale; a walk-in makes it a counter one.
    */
-  function switchTier(next: Tier) {
-    setTier(next);
-    setCart((prev) =>
-      prev.map((l) => {
-        const item = byId.get(l.itemId);
-        return item ? { ...l, priceCents: listPrice(item, next) } : l;
-      }),
-    );
-  }
+  const tier: Tier = customer?.kind === "wholesale" ? "wholesale" : "retail";
 
   // --- payment ------------------------------------------------------------
 
@@ -1202,7 +1197,6 @@ export default function SellClient({
   const chemicals = [...items].sort(shelfOrder);
   const top = topSellerIds.map((id) => byId.get(id)).filter((i): i is SellItem => Boolean(i));
 
-  const wholesale = tier === "wholesale";
 
   /** Lines from the last order that can still be sold today. */
   const repeatUsable = repeat ? repeat.lines.filter((l) => l.available && byId.has(l.itemId)) : [];
@@ -1301,11 +1295,10 @@ export default function SellClient({
               key={line.itemId}
               item={item}
               line={line}
-              tier={tier}
               onStep={(d) => changeUnits(line.itemId, d)}
               onQuantity={(v) => setQuantity(line.itemId, v)}
               onPrice={(c) => setLinePrice(line.itemId, c)}
-              onKeepPrice={(pin) => onKeepPrice(line.itemId, line.priceCents, tier, pin)}
+              onKeepPrice={(pin) => onKeepPrice(line.itemId, line.priceCents, pin)}
             />
           ))}
         </div>
@@ -1703,20 +1696,12 @@ export default function SellClient({
 
   return (
     <div className="pb-24 lg:flex lg:h-[calc(100dvh-var(--pos-header)-(var(--pos-pad)*2))] lg:flex-col lg:pb-0">
-      {/* Wholesale has to be impossible to miss — a toggle left in the wrong
-          position mis-prices every sale until somebody notices at day close. */}
-      {wholesale ? (
-        <div className="sticky top-0 z-20 -mx-4 mb-3 flex items-center gap-3 bg-warn px-4 py-2.5 text-white shadow-sm">
-          <span className="text-sm font-extrabold uppercase tracking-[0.14em]">Wholesale prices</span>
-          <button
-            type="button"
-            onClick={() => switchTier("retail")}
-            className="ml-auto rounded-lg bg-white/20 px-3 py-1.5 text-xs font-bold"
-          >
-            Back to retail
-          </button>
-        </div>
-      ) : null}
+      {/*
+        The wholesale banner used to sit here, over a toggle that switched the
+        whole cart between two price lists. There is one price list now, so
+        there is nothing to switch and nothing to leave in the wrong position —
+        which was the thing the banner existed to shout about.
+      */}
 
       {/*
         Everything that is not an item, on one line.
@@ -2018,7 +2003,7 @@ export default function SellClient({
                         <Link href="/items" className="font-bold underline">
                           Products &amp; prices
                         </Link>{" "}
-                        and press &ldquo;Move to per-kilogram pricing&rdquo; — once, and this
+                        and press “Move to per-kilogram pricing” — once, and this
                         recipe adds up from then on.
                       </>
                     ) : (
@@ -2039,8 +2024,8 @@ export default function SellClient({
                         wraps to the next source line, and "Tap iton the
                         Chemicals board" is what reached the screen. */}
                     Tap {mixLeftOut.length === 1 ? "it" : "them"}{" "}
-                    on the Chemicals board, set a price, and take &ldquo;Keep as the new
-                    price&rdquo; — then this recipe adds up in full. The rest can still go on the
+                    on the Chemicals board, set a price, and take “Keep as the new
+                    price” — then this recipe adds up in full. The rest can still go on the
                     sale.
                   </Alert>
                 </div>
@@ -2098,7 +2083,6 @@ export default function SellClient({
           </SectionLabel>
           <Grid
             items={matches}
-            tier={tier}
             onAdd={(item) => addQuantity(item, queryCount * stepMilli(item), null)}
             cart={cart}
             searching
@@ -2136,21 +2120,13 @@ export default function SellClient({
                     type="button"
                     onClick={() => addItem(item)}
                     title={item.name}
-                    className={`flex shrink-0 items-baseline gap-2 rounded-full border py-2 pl-3.5 pr-3 text-left transition-colors lg:py-1.5 ${
-                      wholesale
-                        ? "border-warn/40 bg-warn-soft hover:border-warn"
-                        : "border-brand/30 bg-brand-soft hover:border-brand/60"
-                    }`}
+                    className="flex shrink-0 items-baseline gap-2 rounded-full border border-brand/30 bg-brand-soft py-2 pl-3.5 pr-3 text-left transition-colors hover:border-brand/60 lg:py-1.5"
                   >
                     <span className="max-w-[11rem] truncate text-[13px] font-bold leading-none">
                       {item.name}
                     </span>
-                    <span
-                      className={`text-[13px] font-extrabold leading-none tnum ${
-                        wholesale ? "text-warn" : "text-brand"
-                      }`}
-                    >
-                      {formatKes(listPrice(item, tier))}
+                    <span className="text-[13px] font-extrabold leading-none text-brand tnum">
+                      {formatKes(listPrice(item))}
                     </span>
                   </button>
                 ))}
@@ -2188,7 +2164,7 @@ export default function SellClient({
                 </p>
               )
             ) : chemicals.length ? (
-              <Grid items={chemicals} tier={tier} onAdd={addItem} cart={cart} />
+              <Grid items={chemicals} onAdd={addItem} cart={cart} />
             ) : (
               <p className="py-8 text-center text-sm text-muted">No chemicals are priced yet.</p>
             )}
@@ -2224,15 +2200,7 @@ export default function SellClient({
               {unitCount} item{unitCount === 1 ? "" : "s"}
             </span>
           ) : null}
-          {cart.length && deskPane === "cart" ? (
-            <button
-              type="button"
-              onClick={() => setCart([])}
-              className="rounded-lg px-1.5 py-1 text-[11px] font-bold text-muted hover:bg-wash hover:text-bad"
-            >
-              Clear
-            </button>
-          ) : null}
+          {cart.length && deskPane === "cart" ? <ClearCart onClear={() => setCart([])} /> : null}
         </div>
 
         {/* Body — the only part that scrolls. */}
@@ -2263,7 +2231,7 @@ export default function SellClient({
                   </span>
                 </div>
                 <Button
-                  className={`w-full text-base ${wholesale ? "!bg-warn hover:!bg-warn" : ""}`}
+                  className="w-full text-base"
                   onClick={() => setDeskPane("pay")}
                 >
                   Pay {formatKes(totalCents)}
@@ -2294,9 +2262,7 @@ export default function SellClient({
             <button
               type="button"
               onClick={() => setSheet("pay")}
-              className={`min-h-14 flex-1 px-4 text-base font-extrabold text-white tnum ${
-                wholesale ? "bg-warn" : "bg-brand"
-              }`}
+              className="min-h-14 flex-1 bg-brand px-4 text-base font-extrabold text-white tnum"
             >
               Pay {formatKes(totalCents)}
             </button>
@@ -2306,15 +2272,31 @@ export default function SellClient({
 
       <div className="lg:hidden">
         {sheet === "cart" ? (
-          <Sheet title="Cart" onClose={() => setSheet("none")}>
+          <Sheet
+            title="Cart"
+            onClose={() => setSheet("none")}
+            // Emptying the cart was a desktop-only button, which left the phone
+            // — the thing actually on the counter — with no way to abandon a
+            // sale except taking every line down to nothing one tap at a time.
+            action={
+              cart.length ? (
+                <ClearCart
+                  onClear={() => {
+                    setCart([]);
+                    setSheet("none");
+                  }}
+                />
+              ) : null
+            }
+          >
             {renderCartBody()}
-          <div className="mt-4 flex items-center justify-between border-t border-line pt-3">
-            <span className="text-sm font-bold uppercase tracking-[0.1em] text-muted">Total</span>
-            <span className="text-2xl font-extrabold tnum">{formatKes(totalCents)}</span>
-          </div>
-          <Button className="mt-4 w-full" onClick={() => setSheet("pay")}>
-            Pay {formatKes(totalCents)}
-          </Button>
+            <div className="mt-4 flex items-center justify-between border-t border-line pt-3">
+              <span className="text-sm font-bold uppercase tracking-[0.1em] text-muted">Total</span>
+              <span className="text-2xl font-extrabold tnum">{formatKes(totalCents)}</span>
+            </div>
+            <Button className="mt-4 w-full" onClick={() => setSheet("pay")}>
+              Pay {formatKes(totalCents)}
+            </Button>
           </Sheet>
         ) : null}
 
@@ -2388,13 +2370,11 @@ function RecipeGrid({
 
 function Grid({
   items,
-  tier,
   onAdd,
   cart,
   searching = false,
 }: {
   items: SellItem[];
-  tier: Tier;
   onAdd: (item: SellItem) => void;
   cart: CartLine[];
   searching?: boolean;
@@ -2402,7 +2382,7 @@ function Grid({
   // The counter's worst enemy is scrolling past dead tiles with a queue
   // watching. Browsing shows sellable stock first and folds the rest away;
   // an explicit search still finds everything, including unpriced items.
-  const visible = searching ? items : items.filter((i) => listPrice(i, tier) > 0);
+  const visible = searching ? items : items.filter((i) => listPrice(i) > 0);
   const inStock = visible.filter((i) => i.qtyMilli > 0);
   const outOfStock = visible.filter((i) => i.qtyMilli <= 0);
 
@@ -2413,7 +2393,7 @@ function Grid({
   const tile = (item: SellItem) => {
     const inCart = cart.find((l) => l.itemId === item.id);
     const out = item.qtyMilli <= 0;
-    const unpriced = listPrice(item, tier) === 0;
+    const unpriced = listPrice(item) === 0;
     const { base, size } = splitName(item.name);
     // "25 drums · 1,000 kg". The owner counts containers on the floor; the
     // counter sells out of them by the kilogram. Neither number on its own
@@ -2501,27 +2481,23 @@ function Grid({
         </div>
 
         <div className="mt-auto flex flex-col gap-0.5">
+          {/* Just the money.
+
+              This used to read "KES 742.60/kg", and three tiles to a row on a
+              390px phone leaves eighty-eight pixels, which that does not fit in
+              at any size worth reading — so the "/kg" was being clipped off the
+              end, turning a rate into what looked like the price of the whole
+              drum. The tile already says "per kg" under the name, two lines up.
+              Saying it twice was what cost the room. A long price still steps
+              down a size rather than wrap or truncate; see `priceSize`. */}
           <span
             className={`whitespace-nowrap font-extrabold leading-none tnum ${
               unpriced
                 ? "text-[13px] font-bold text-muted"
-                : `text-[17px] ${tier === "wholesale" ? "text-warn" : "text-brand-deep"}`
+                : `${priceSize(formatKes(listPrice(item)))} text-brand-deep`
             }`}
           >
-            {/* The unit is set smaller than the money. Three tiles to a row on
-                a 390px phone leaves about ninety pixels, and "KES 810/kg" at
-                the price's own size lost its last character to the ellipsis —
-                which is the one thing on this tile that must never be wrong. */}
-            {unpriced ? (
-              "No price set"
-            ) : (
-              <>
-                {formatKes(listPrice(item, tier))}
-                {item.basis === "unit" ? (
-                  <span className="text-[11px] font-bold opacity-70">/{item.unit}</span>
-                ) : null}
-              </>
-            )}
+            {unpriced ? "No price set" : formatKes(listPrice(item))}
           </span>
           <span
             className={`truncate text-[11px] leading-none tnum md:hidden ${
@@ -2594,7 +2570,6 @@ function Grid({
 function CartRow({
   item,
   line,
-  tier,
   onStep,
   onQuantity,
   onPrice,
@@ -2602,7 +2577,6 @@ function CartRow({
 }: {
   item: SellItem;
   line: CartLine;
-  tier: Tier;
   /** One more, or one fewer — one container, or one kilogram. */
   onStep: (delta: number) => void;
   /** A quantity typed outright, in containers or in kg / L. */
@@ -2617,7 +2591,7 @@ function CartRow({
   const [draft, setDraft] = useState(() => centsToInput(line.priceCents));
   /** Held while the box is being typed in, so a half-typed "2" of "20" is not applied. */
   const [qtyDraft, setQtyDraft] = useState<string | null>(null);
-  const list = listPrice(item, tier);
+  const list = listPrice(item);
   const discounted = line.priceCents !== list;
   const weighed = item.basis === "unit";
   /** What the box shows: "3" jerricans, or "1.5" kilograms. */
@@ -2872,29 +2846,76 @@ function CartRow({
 function Sheet({
   title,
   onClose,
+  action,
   children,
 }: {
   title: string;
   onClose: () => void;
+  /** Optional control beside Close — the cart's "Clear", and nothing else yet. */
+  action?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <div className="no-print fixed inset-0 z-40 flex flex-col bg-black/40" role="dialog" aria-modal="true">
       <button type="button" className="flex-1" aria-label="Close" onClick={onClose} />
       <div className="mx-auto max-h-[88dvh] w-full max-w-lg overflow-y-auto rounded-t-2xl bg-white p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
-        <div className="mb-3 flex items-center">
+        <div className="mb-3 flex items-center gap-2">
           <h2 className="text-lg font-bold">{title}</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="ml-auto rounded-lg border border-line px-3 py-1.5 text-xs font-bold text-muted"
-          >
-            Close
-          </button>
+          <div className="ml-auto flex items-center gap-2">
+            {action}
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border border-line px-3 py-1.5 text-xs font-bold text-muted"
+            >
+              Close
+            </button>
+          </div>
         </div>
         {children}
       </div>
     </div>
+  );
+}
+
+/**
+ * Empty the cart.
+ *
+ * It asks twice. On the desktop panel this button sits beside "Current sale"
+ * under a mouse, but on a phone the cart is a sheet held in one hand with a
+ * customer waiting, and a thumb that lands on "Clear" instead of "Close" throws
+ * away a basket that has just been counted out loud. The second tap costs a
+ * moment; rebuilding the sale costs the queue.
+ *
+ * The armed state resets on its own, so a Clear tapped by accident and then
+ * left alone does nothing at all.
+ */
+function ClearCart({ onClear }: { onClear: () => void }) {
+  const [armed, setArmed] = useState(false);
+
+  useEffect(() => {
+    if (!armed) return;
+    const t = setTimeout(() => setArmed(false), 4000);
+    return () => clearTimeout(t);
+  }, [armed]);
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        if (armed) {
+          onClear();
+          setArmed(false);
+        } else {
+          setArmed(true);
+        }
+      }}
+      className={`shrink-0 whitespace-nowrap rounded-lg px-2 py-1.5 text-[11px] font-bold ${
+        armed ? "bg-bad/10 text-bad" : "text-muted hover:bg-wash hover:text-bad"
+      }`}
+    >
+      {armed ? "Tap again to empty" : "Clear"}
+    </button>
   );
 }
 

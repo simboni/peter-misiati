@@ -55,6 +55,7 @@ export default function Builder({
   quotes,
   initial,
   onSave,
+  onKeepPrice,
 }: {
   mode: "quote" | "invoice";
   items: PickItem[];
@@ -68,6 +69,17 @@ export default function Builder({
     validUntil: string;
     lines: DraftLine[];
   };
+  /**
+   * Keep the price on this line as the shop's price from now on.
+   *
+   * The same offer the till makes. A wholesale buyer arguing a chemical down to
+   * a number the shop is happy with is exactly when the shelf price should move.
+   */
+  onKeepPrice: (
+    itemId: number,
+    priceCents: number,
+    ownerPin?: string,
+  ) => Promise<{ ok: true; message: string } | { ok: false; error: string; needsPin: boolean }>;
   onSave: (payload: {
     mode: "quote" | "invoice";
     fromQuoteId: number | null;
@@ -98,6 +110,9 @@ export default function Builder({
   const [mpesaCode, setMpesaCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Items whose shelf price was moved from this document, so the confirmation
+   *  stays on screen after the difference that offered it has gone. */
+  const [kept, setKept] = useState<Set<number>>(new Set());
 
   const total = lines.reduce((s, l) => s + draftCents(byId.get(l.itemId), l), 0);
   const paidCents = Math.max(0, Math.round(Number(paid || 0) * 100));
@@ -113,7 +128,7 @@ export default function Builder({
     const item = byId.get(itemId);
     setLine(i, {
       itemId,
-      unitPriceCents: item ? (item.wholesaleCents > 0 ? item.wholesaleCents : item.retailCents) : 0,
+      unitPriceCents: item ? item.priceCents : 0,
     });
   }
 
@@ -258,7 +273,7 @@ export default function Builder({
         <div className="space-y-2">
           {lines.map((l, i) => {
             const item = byId.get(l.itemId);
-            const list = item ? (item.wholesaleCents > 0 ? item.wholesaleCents : item.retailCents) : 0;
+            const list = item ? item.priceCents : 0;
             const cut = item && l.unitPriceCents < list;
             return (
               <div key={i} className="grid grid-cols-12 items-end gap-2">
@@ -332,6 +347,32 @@ export default function Builder({
                     Remove
                   </button>
                 </div>
+
+                {/* Offered only once the price differs from the shop's. A second
+                    tap, never a side effect of the first: most price changes on
+                    an invoice are this buyer for this order.
+
+                    It stays put after a successful keep, which is why `kept` is
+                    in the condition. Without it the shelf price becomes the line
+                    price, the difference that summoned the control disappears,
+                    and the control unmounts — taking its own "✓ Finesalt is now
+                    KES 95" with it. The button would vanish under the finger
+                    that pressed it and nothing would say whether it worked. */}
+                {item && list > 0 && (l.unitPriceCents !== list || kept.has(item.id)) ? (
+                  <div className="col-span-12">
+                    <KeepPrice
+                      itemId={item.id}
+                      priceCents={l.unitPriceCents}
+                      name={item.name}
+                      wasCents={list}
+                      onKeepPrice={async (id, cents, pin) => {
+                        const result = await onKeepPrice(id, cents, pin);
+                        if (result.ok) setKept((prev) => new Set(prev).add(id));
+                        return result;
+                      }}
+                    />
+                  </div>
+                ) : null}
               </div>
             );
           })}
@@ -419,6 +460,104 @@ export default function Builder({
             ? `Save quote — ${formatKes(total)}`
             : `Create invoice — ${formatKes(total)}`}
       </Button>
+    </div>
+  );
+}
+
+
+/**
+ * "Keep as the new price", on an invoice line.
+ *
+ * Deliberately the same control and the same wording as the one on the till —
+ * it is the same decision, made about the same number, and two different
+ * gestures for it would be two things to learn. Its own component because it
+ * carries its own small state machine: idle, asking for a PIN, done.
+ */
+function KeepPrice({
+  itemId,
+  priceCents,
+  name,
+  wasCents,
+  onKeepPrice,
+}: {
+  itemId: number;
+  priceCents: number;
+  name: string;
+  wasCents: number;
+  onKeepPrice: (
+    itemId: number,
+    priceCents: number,
+    ownerPin?: string,
+  ) => Promise<{ ok: true; message: string } | { ok: false; error: string; needsPin: boolean }>;
+}) {
+  const [state, setState] = useState<"idle" | "busy" | "pin" | "done">("idle");
+  const [pin, setPin] = useState("");
+  const [note, setNote] = useState<string | null>(null);
+
+  async function keep(withPin?: string) {
+    setState("busy");
+    setNote(null);
+    try {
+      const result = await onKeepPrice(itemId, priceCents, withPin);
+      if (result.ok) {
+        setState("done");
+        setNote(result.message);
+        setPin("");
+      } else {
+        setState(result.needsPin ? "pin" : "idle");
+        setNote(result.error);
+      }
+    } catch {
+      setState("idle");
+      setNote("Could not reach the till. The invoice is unaffected.");
+    }
+  }
+
+  if (state === "done") {
+    return <p className="text-[11px] font-bold text-good">✓ {note}</p>;
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-[11px] text-muted">
+        {name} normally {formatKes(wasCents)}.
+      </span>
+      {state === "pin" ? (
+        <>
+          <input
+            className="min-h-8 w-24 rounded-lg border border-warn/40 bg-white px-2 text-[12px] font-bold tnum"
+            value={pin}
+            onChange={(e) => setPin(e.target.value)}
+            type="password"
+            inputMode="numeric"
+            autoComplete="off"
+            placeholder="Owner PIN"
+            aria-label={`Owner's PIN to set ${name} outside its band`}
+          />
+          <button
+            type="button"
+            onClick={() => keep(pin.trim())}
+            disabled={!pin.trim()}
+            className="rounded-full bg-warn px-3 py-1 text-[11px] font-bold text-white disabled:opacity-50"
+          >
+            Approve
+          </button>
+        </>
+      ) : (
+        <button
+          type="button"
+          onClick={() => keep()}
+          disabled={state === "busy"}
+          className="rounded-full bg-brand-soft px-3 py-1 text-[11px] font-bold text-brand-dark hover:bg-brand hover:text-white disabled:opacity-50"
+        >
+          {state === "busy" ? "Saving…" : "Keep as the new price"}
+        </button>
+      )}
+      {note ? (
+        <span className={`text-[11px] font-semibold ${state === "pin" ? "text-warn" : "text-bad"}`}>
+          {note}
+        </span>
+      ) : null}
     </div>
   );
 }

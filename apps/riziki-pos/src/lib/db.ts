@@ -36,9 +36,12 @@ export interface Item {
   unit_label: string;
   sellable: number;
   price_basis: PriceBasis;
-  retail_cents: number;
-  wholesale_cents: number;
+  /** What the shop asks for one unit. The only price an item has. */
+  price_cents: number;
+  /** The least it may go for without the owner. Zero means no floor set. */
   floor_cents: number;
+  /** The most it may go for without the owner. Zero means no ceiling set. */
+  ceiling_cents: number;
   cost_cents: number;
   reorder_level_milli: number;
   active: number;
@@ -83,19 +86,42 @@ export function db(): DatabaseSync {
 }
 
 /**
- * Columns added to tables that already exist in the shop's file.
+ * Schema changes applied to a file that already exists.
  *
  * `CREATE TABLE IF NOT EXISTS` builds a new database correctly and does exactly
  * nothing to an old one, so a column added to schema.sql would be present on a
  * developer's fresh copy and missing on the till — the worst possible split,
- * because everything would work here and fail there. Each entry below is
+ * because everything would work here and fail there. Every entry below is
  * therefore stated twice: in schema.sql for a new file, and here for the file
  * the shop has been trading on since March.
  *
- * Adding a column is the only migration this list may hold. Anything that
- * rewrites existing rows belongs in a script the owner runs deliberately, not in
- * a code path that opens the database.
+ * Only shape may be changed here — a column added, renamed or dropped. Anything
+ * that rewrites the VALUES in existing rows belongs behind a button the owner
+ * presses, not in a code path that opens the database: see `adoptUnitPricing`.
+ * Each step checks the current shape first, so opening the file twice is the
+ * same as opening it once.
  */
+const RENAMED_COLUMNS: Array<{ table: string; from: string; to: string }> = [
+  // One price, not a retail one and a wholesale one. See the `items` comment in
+  // schema.sql for why the tier switch was the wrong instrument.
+  { table: "items", from: "retail_cents", to: "price_cents" },
+  { table: "price_changes", from: "old_retail", to: "old_price" },
+  { table: "price_changes", from: "new_retail", to: "new_price" },
+];
+
+/**
+ * Dropped once nothing reads them.
+ *
+ * `wholesale_cents` held the second of two prices for one thing. Its value is
+ * not recoverable afterwards, which is the right trade: leaving a column nobody
+ * reads is how the next person concludes there are still two prices.
+ */
+const DROPPED_COLUMNS: Array<{ table: string; column: string }> = [
+  { table: "items", column: "wholesale_cents" },
+  { table: "price_changes", column: "old_wholesale" },
+  { table: "price_changes", column: "new_wholesale" },
+];
+
 const ADDED_COLUMNS: Array<{ table: string; column: string; definition: string }> = [
   {
     table: "items",
@@ -115,14 +141,38 @@ const ADDED_COLUMNS: Array<{ table: string; column: string; definition: string }
   },
   { table: "quote_lines", column: "qty_milli", definition: "INTEGER NOT NULL DEFAULT 0 CHECK (qty_milli >= 0)" },
   { table: "quote_lines", column: "rate_cents", definition: "INTEGER NOT NULL DEFAULT 0 CHECK (rate_cents >= 0)" },
+  {
+    table: "items",
+    column: "ceiling_cents",
+    definition: "INTEGER NOT NULL DEFAULT 0 CHECK (ceiling_cents >= 0)",
+  },
 ];
 
 function migrate(conn: DatabaseSync): void {
-  for (const { table, column, definition } of ADDED_COLUMNS) {
-    const columns = conn.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  const columnsOf = (table: string) =>
+    (conn.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map((c) => c.name);
+
+  // Renames first: a column added below may be the one a rename is producing,
+  // and adding it empty before the rename would leave the values behind.
+  for (const { table, from, to } of RENAMED_COLUMNS) {
+    const columns = columnsOf(table);
     if (!columns.length) continue; // table not created yet — schema.sql owns it
-    if (columns.some((c) => c.name === column)) continue;
+    if (!columns.includes(from) || columns.includes(to)) continue;
+    conn.exec(`ALTER TABLE ${table} RENAME COLUMN ${from} TO ${to}`);
+  }
+
+  for (const { table, column, definition } of ADDED_COLUMNS) {
+    const columns = columnsOf(table);
+    if (!columns.length) continue;
+    if (columns.includes(column)) continue;
     conn.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+
+  for (const { table, column } of DROPPED_COLUMNS) {
+    const columns = columnsOf(table);
+    if (!columns.length) continue;
+    if (!columns.includes(column)) continue;
+    conn.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
   }
 }
 

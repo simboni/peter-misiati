@@ -22,6 +22,10 @@ export type Unit = "kg" | "L" | "pcs";
 
 export interface AdminItem {
   id: number;
+  /** The substance this row is of, when it is a chemical. */
+  chemical_id?: number | null;
+  chemical_name?: string | null;
+  aliases?: string | null;
   name: string;
   kind: "bulk" | "pack" | "finished" | "packaging";
   canonical_unit: Unit;
@@ -29,54 +33,36 @@ export interface AdminItem {
   unit_label: string;
   sellable: number;
   price_basis: PriceBasis;
-  retail_cents: number;
-  wholesale_cents: number;
+  price_cents: number;
   floor_cents: number;
+  ceiling_cents: number;
   cost_cents: number;
   reorder_level_milli: number;
   active: number;
 }
 
-export interface AdminChemical {
-  id: number;
-  name: string;
-  canonical_unit: Unit;
-  aliases: string;
-  active: number;
-  items: AdminItem[];
-}
-
 // -------------------------------------------------------------------- reads
 
-export function listFinished(): AdminItem[] {
-  return all<AdminItem>(`SELECT * FROM items WHERE kind = 'finished' ORDER BY active DESC, name`);
-}
-
-export function listPackaging(): AdminItem[] {
-  return all<AdminItem>(`SELECT * FROM items WHERE kind = 'packaging' ORDER BY active DESC, name`);
-}
-
 /**
- * Chemicals with their stock rows nested, for the admin screen.
+ * Everything the shop sells, in one list.
  *
- * Retired pack rows are left out. They are the old way of saying "this
- * chemical, at this size, for this price" — one number on the bulk row now —
- * and listing forty-six of them under the chemicals they belong to would put
- * the thing the owner no longer edits above the thing he does.
+ * There used to be three: finished products, chemicals with their pack sizes
+ * nested under them, and packaging. Three lists for one question — "what do we
+ * sell and what does it cost" — and the owner had to know which of the three a
+ * thing lived in before he could change its price. They are one kind of row
+ * now: a name, a unit, a price per unit, and a band.
+ *
+ * Retired rows come last rather than being hidden, because "where did it go" is
+ * a worse question than a greyed-out line.
  */
-export function listChemicals(): AdminChemical[] {
-  const chems = all<Omit<AdminChemical, "items">>(
-    `SELECT id, name, canonical_unit, aliases, active FROM chemicals ORDER BY active DESC, name`,
+export function listProducts(): AdminItem[] {
+  return all<AdminItem>(
+    `SELECT i.*, c.name AS chemical_name, c.aliases AS aliases
+       FROM items i
+       LEFT JOIN chemicals c ON c.id = i.chemical_id
+      WHERE i.kind <> 'pack'
+      ORDER BY i.active DESC, i.name COLLATE NOCASE`,
   );
-  const items = all<AdminItem>(
-    `SELECT * FROM items
-      WHERE kind IN ('bulk', 'pack') AND (kind = 'bulk' OR active = 1)
-      ORDER BY (kind = 'bulk') DESC, size_milli DESC`,
-  );
-  return chems.map((c) => ({
-    ...c,
-    items: items.filter((i) => (i as AdminItem & { chemical_id: number }).chemical_id === c.id),
-  }));
 }
 
 export function getItem(id: number): AdminItem | undefined {
@@ -94,9 +80,12 @@ function cents(value: number, label: string): number {
 
 export interface PricingInput {
   itemId: number;
-  retail: number;
-  wholesale: number;
+  /** What the shop asks for one unit, in shillings. */
+  price: number;
+  /** The least it may go for. Zero means no floor. */
   floor: number;
+  /** The most it may go for. Zero means no ceiling. */
+  ceiling: number;
   reorderUnits: number;
   byUserId: number;
 }
@@ -114,9 +103,9 @@ export function updatePricing(input: PricingInput): void {
   const item = getItem(input.itemId);
   if (!item) throw new CatalogError("That item no longer exists.");
 
-  const retail = cents(input.retail, "Retail price");
-  const wholesale = cents(input.wholesale, "Wholesale price");
-  const floor = cents(input.floor, "Floor price");
+  const price = cents(input.price, "Price");
+  const floor = cents(input.floor, "Least it may go for");
+  const ceiling = cents(input.ceiling, "Most it may go for");
   if (input.reorderUnits < 0 || !Number.isFinite(input.reorderUnits)) {
     throw new CatalogError("Reorder level must be zero or more.");
   }
@@ -128,36 +117,49 @@ export function updatePricing(input: PricingInput): void {
       ? Math.round(input.reorderUnits * 1000)
       : Math.round(input.reorderUnits * item.size_milli);
 
-  if (floor > retail) throw new CatalogError("The floor price can't be above the retail price.");
+  /*
+    The band has to contain the price, and has to be a band.
 
-  // The owner's screen writes the same history the morning price check does.
-  // Two ways in, one record — otherwise "when did this last change?" would
-  // depend on which screen happened to be used, and the answer would be wrong
-  // exactly when the owner had been the one to change it.
-  if (retail !== item.retail_cents || wholesale !== item.wholesale_cents) {
+    Checked here rather than left to the counter to discover: a floor above the
+    ceiling is not a rule anybody can obey, and a price outside its own band
+    would refuse every sale at the asking price — which reads as the till being
+    broken rather than as a catalogue that needs fixing.
+  */
+  if (floor > 0 && ceiling > 0 && floor > ceiling) {
+    throw new CatalogError("The least it may go for can't be above the most it may go for.");
+  }
+  if (price > 0 && floor > 0 && price < floor) {
+    throw new CatalogError("The price can't be below the least it may go for.");
+  }
+  if (price > 0 && ceiling > 0 && price > ceiling) {
+    throw new CatalogError("The price can't be above the most it may go for.");
+  }
+
+  // The owner's screen writes the same history the counter does. Two ways in,
+  // one record — otherwise "when did this last change?" would depend on which
+  // screen happened to be used, and the answer would be wrong exactly when the
+  // owner had been the one to change it.
+  if (price !== item.price_cents) {
     run(
-      `INSERT INTO price_changes
-         (item_id, old_retail, new_retail, old_wholesale, new_wholesale, user_id, source)
-       VALUES (?, ?, ?, ?, ?, ?, 'admin')`,
+      `INSERT INTO price_changes (item_id, old_price, new_price, user_id, source)
+       VALUES (?, ?, ?, ?, 'admin')`,
       input.itemId,
-      item.retail_cents,
-      retail,
-      item.wholesale_cents,
-      wholesale,
+      item.price_cents,
+      price,
       input.byUserId,
     );
   }
 
   run(
-    `UPDATE items SET retail_cents = ?, wholesale_cents = ?, floor_cents = ?, reorder_level_milli = ?
+    `UPDATE items SET price_cents = ?, floor_cents = ?, ceiling_cents = ?, reorder_level_milli = ?
       WHERE id = ?`,
-    retail,
-    wholesale,
+    price,
     floor,
+    ceiling,
     reorderMilli,
     input.itemId,
   );
-  audit(input.byUserId, "price_changed", "item", input.itemId, `${item.name} → retail ${retail}c`);
+  audit(input.byUserId, "price_changed", "item", input.itemId, `${item.name} → ${price}c`);
 }
 
 export function setItemActive(itemId: number, active: boolean, byUserId: number): void {
@@ -169,106 +171,86 @@ export function setItemActive(itemId: number, active: boolean, byUserId: number)
 
 // ------------------------------------------------------------- new products
 
-export interface FinishedInput {
-  name: string;
-  /**
-   * What the size was typed in — g, kg, ml, L or pcs. The database still holds
-   * kg / L / pcs; this is only how the shop said it.
-   */
-  unit: SizeUnit;
-  sizeValue: number;
-  unitLabel: string;
-  retail: number;
-  wholesale: number;
-  byUserId: number;
-}
-
-/** A new bottled product the shop mixes and sells. */
-export function createFinished(input: FinishedInput): number {
-  const name = input.name.trim();
-  if (name.length < 2) throw new CatalogError("Give the product a name.");
-  if (get(`SELECT 1 FROM items WHERE name = ? AND active = 1`, name)) {
-    throw new CatalogError(`There is already something called "${name}".`);
-  }
-  const u = sizeUnit(input.unit);
-  const sizeMilli = sizeToMilli(input.sizeValue, input.unit);
-  const retail = cents(input.retail, "Retail price");
-  const wholesale = cents(input.wholesale, "Wholesale price");
-
-  const { lastInsertRowid } = run(
-    `INSERT INTO items (name, kind, canonical_unit, size_milli, unit_label,
-                        sellable, retail_cents, wholesale_cents, floor_cents, cost_cents, reorder_level_milli)
-     VALUES (?, 'finished', ?, ?, ?, 1, ?, ?, ?, 0, ?)`,
-    name,
-    u.canonical,
-    sizeMilli,
-    input.unitLabel.trim() || "bottle",
-    retail,
-    wholesale,
-    Math.round(wholesale * 0.9),
-    sizeMilli * 10,
-  );
-  audit(input.byUserId, "product_created", "item", lastInsertRowid, name);
-  return lastInsertRowid;
-}
-
-export interface ChemicalInput {
+export interface ProductInput {
   name: string;
   /** As typed: g, kg, ml, L or pcs. */
   unit: SizeUnit;
   aliases: string;
-  bulkSizeValue: number;
-  bulkLabel: string;
-  /** What one kilogram / litre sells for. Zero is allowed — set it later. */
-  ratePerUnit?: number;
+  /** How much one container holds, in the unit above. */
+  containerValue: number;
+  /** What one container is called: drum, bag, jerrican, bottle. */
+  containerLabel: string;
+  /** What one kilogram / litre / piece sells for. Zero is allowed. */
+  price: number;
+  /** The least it may go for. Zero means no floor. */
+  floor: number;
+  /** The most it may go for. Zero means no ceiling. */
+  ceiling: number;
   byUserId: number;
 }
 
 /**
- * A new raw chemical: the substance and the container it arrives in.
+ * Add something the shop sells.
  *
- * One row, not six. This used to create a bulk row plus a pack row for every
- * resale size the owner could think of, and those pack rows were the whole of
- * what made this screen confusing — five near-identical "Ungerol" entries whose
- * only difference was a number, each needing its own price kept up to date.
- * A chemical has one price now, per kilogram, and the size the customer wants
- * is a quantity typed at the counter.
+ * One way in, and everything set here. There used to be two forms — one for
+ * products the shop mixed, one for chemicals, with pack sizes added afterwards
+ * from a third place and prices from a fourth — so adding a thing and pricing a
+ * thing were separate acts and half the catalogue arrived unpriced.
  *
- * Cost and stock start at zero — they arrive with the first purchase. The rate
- * may start at zero too, which shows on the counter as "No price set" rather
- * than as free.
+ * Everything is a substance with a container and a price per unit. A jerrican
+ * is a "chemical" measured in pieces whose container holds one; that is not a
+ * trick, it is the observation that a shop sells things by some unit and the
+ * unit is the only thing that varies.
+ *
+ * Cost is deliberately absent: it comes from what was actually paid on the
+ * Purchases screen, so margins stay honest. A made-up cost poisons every one.
  */
-export function createChemical(input: ChemicalInput): number {
+export function createProduct(input: ProductInput): number {
   const name = input.name.trim();
-  if (name.length < 2) throw new CatalogError("Give the chemical a name.");
+  if (name.length < 2) throw new CatalogError("Give it a name.");
   if (get(`SELECT 1 FROM chemicals WHERE name = ?`, name)) {
     throw new CatalogError(`"${name}" is already in the list.`);
   }
-  const cu = sizeUnit(input.unit);
-  const bulkMilli = sizeToMilli(input.bulkSizeValue, input.unit);
-  const rate = cents(input.ratePerUnit ?? 0, "Price");
+  const u = sizeUnit(input.unit);
+  const containerMilli = sizeToMilli(input.containerValue, input.unit);
+  const price = cents(input.price, "Price");
+  const floor = cents(input.floor, "Least it may go for");
+  const ceiling = cents(input.ceiling, "Most it may go for");
+
+  if (floor > 0 && ceiling > 0 && floor > ceiling) {
+    throw new CatalogError("The least it may go for can't be above the most it may go for.");
+  }
+  if (price > 0 && floor > 0 && price < floor) {
+    throw new CatalogError("The price can't be below the least it may go for.");
+  }
+  if (price > 0 && ceiling > 0 && price > ceiling) {
+    throw new CatalogError("The price can't be above the most it may go for.");
+  }
 
   return tx(() => {
     const { lastInsertRowid: chemId } = run(
       `INSERT INTO chemicals (name, canonical_unit, aliases) VALUES (?, ?, ?)`,
       name,
-      cu.canonical,
+      u.canonical,
       input.aliases.trim(),
     );
-    run(
+    const { lastInsertRowid: itemId } = run(
       `INSERT INTO items (chemical_id, name, kind, canonical_unit, size_milli, unit_label,
-                          sellable, price_basis, retail_cents, cost_cents, reorder_level_milli)
-       VALUES (?, ?, 'bulk', ?, ?, ?, 1, 'unit', ?, 0, ?)`,
+                          sellable, price_basis, price_cents, floor_cents, ceiling_cents,
+                          cost_cents, reorder_level_milli)
+       VALUES (?, ?, 'bulk', ?, ?, ?, 1, 'unit', ?, ?, ?, 0, ?)`,
       chemId,
       name,
-      cu.canonical,
-      bulkMilli,
-      input.bulkLabel.trim() || "unit",
-      rate,
-      bulkMilli * 2,
+      u.canonical,
+      containerMilli,
+      input.containerLabel.trim() || "unit",
+      price,
+      floor,
+      ceiling,
+      50_000,
     );
-    audit(input.byUserId, "chemical_created", "chemical", chemId, name);
-    return chemId;
+    audit(input.byUserId, "product_created", "item", itemId, `${name} at ${price}c per ${u.canonical}`);
+    return itemId;
   });
 }
 
@@ -330,7 +312,7 @@ export function pendingUnitPricing(): PendingAdoption {
   const rows = all<{ id: number; name: string; priced: number }>(
     `SELECT c.id, c.name,
             (SELECT COUNT(*) FROM items p
-              WHERE p.chemical_id = c.id AND p.kind = 'pack' AND p.retail_cents > 0) AS priced
+              WHERE p.chemical_id = c.id AND p.kind = 'pack' AND p.price_cents > 0) AS priced
        FROM chemicals c
        JOIN items b ON b.chemical_id = c.id AND b.kind = 'bulk' AND b.price_basis <> 'unit'
       ORDER BY c.name`,
@@ -401,7 +383,7 @@ export function adoptUnitPricing(byUserId: number | null): AdoptionReport {
           would raise every price in the shop. The biggest runs the other way.
           The one-kilo price is the one the owner quotes on the phone.
         */
-        const priced = packs.filter((p) => p.retail_cents > 0 && p.size_milli > 0);
+        const priced = packs.filter((p) => p.price_cents > 0 && p.size_milli > 0);
         const source = priced.length
           ? priced.reduce((best, p) =>
               Math.abs(p.size_milli - 1000) < Math.abs(best.size_milli - 1000) ? p : best,
@@ -409,20 +391,29 @@ export function adoptUnitPricing(byUserId: number | null): AdoptionReport {
           : null;
 
         const per = (cents: number, sizeMilli: number) => Math.round((cents * 1000) / sizeMilli);
-        const rate = source ? per(source.retail_cents, source.size_milli) : 0;
-        const wholesale =
-          source && source.wholesale_cents > 0 ? per(source.wholesale_cents, source.size_milli) : 0;
+        const rate = source ? per(source.price_cents, source.size_milli) : 0;
         const floor = source && source.floor_cents > 0 ? per(source.floor_cents, source.size_milli) : 0;
+        /*
+          A ceiling nobody set, set to something defensible.
+
+          These prices are being carried across from a catalogue that had no
+          upper limit at all, so leaving every ceiling at zero would mean the
+          band only guards one end until the owner walks the whole list. A fifth
+          over the asking price is wide enough that ordinary haggling never
+          touches it and narrow enough to catch a fat finger — and it is one
+          number on one row to change.
+        */
+        const ceiling = rate > 0 ? Math.round(rate * 1.2) : 0;
 
         run(
           `UPDATE items
               SET price_basis = 'unit', sellable = 1,
-                  retail_cents = ?, wholesale_cents = ?, floor_cents = ?,
+                  price_cents = ?, floor_cents = ?, ceiling_cents = ?,
                   reorder_level_milli = ?
             WHERE id = ?`,
           rate,
-          wholesale,
           floor,
+          ceiling,
           // Reorder levels were counted in drums. Two drums of one chemical and
           // two of another are wildly different quantities; 50 kg is a number
           // the owner can read off the shelf.

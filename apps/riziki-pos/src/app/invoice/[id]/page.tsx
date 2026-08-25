@@ -371,7 +371,7 @@ export default async function InvoicePage(props: {
         </div>
 
         <p className="text-center text-[11px] text-muted">
-          &ldquo;Print&rdquo; makes the A5 paper copy. &ldquo;Share on WhatsApp&rdquo; sends the invoice
+          “Print” makes the A5 paper copy. “Share on WhatsApp” sends the invoice
           itself — on a phone, straight into WhatsApp as a file, the same as sharing any document.{" "}
           <Link href="/settings/printer" className="font-semibold text-brand">
             Printer settings

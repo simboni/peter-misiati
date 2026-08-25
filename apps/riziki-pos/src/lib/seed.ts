@@ -332,12 +332,15 @@ export function seed(
       opening numbers for a shop that has not set its own yet: the owner walks
       down Prices for today on the first morning and puts the real ones in.
     */
-    const retail = Math.round((perUnitCents * 1.35) / 100) * 100;
-    const wholesale = Math.round((perUnitCents * 1.2) / 100) * 100;
+    const price = Math.round((perUnitCents * 1.35) / 100) * 100;
+    // The band the shop opens with: cost at the bottom, a fifth over the asking
+    // price at the top. Wide enough that ordinary haggling never touches either
+    // end, narrow enough to catch a fat finger, and one number per row to change.
+    const ceiling = Math.round((price * 1.2) / 100) * 100;
 
     const { lastInsertRowid: bid } = run(
       `INSERT INTO items (chemical_id, name, kind, canonical_unit, size_milli, unit_label,
-                          sellable, price_basis, retail_cents, wholesale_cents, floor_cents,
+                          sellable, price_basis, price_cents, floor_cents, ceiling_cents,
                           cost_cents, reorder_level_milli)
        VALUES (?, ?, 'bulk', ?, ?, ?, 1, 'unit', ?, ?, ?, ?, ?)`,
       cid,
@@ -345,9 +348,9 @@ export function seed(
       c.unit,
       toMilli(bulkSize),
       c.bulkLabel ?? "unit",
-      retail,
-      wholesale,
+      price,
       perUnitCents,
+      ceiling,
       bulkCostCents,
       toMilli(50),
     );
@@ -360,15 +363,18 @@ export function seed(
   // buying five litres of shampoo base needs something to carry it in. Priced
   // at cost plus half, whole units only — half a jerrican is not a thing.
   for (const p of PACKAGING) {
+    // Priced per piece, like everything else is priced per its own unit — a
+    // jerrican is not a different kind of thing, only a different unit.
+    const price = Math.round((toCents(p.cost) * 1.5) / 100) * 100;
     const { lastInsertRowid: id } = run(
       `INSERT INTO items (name, kind, canonical_unit, size_milli, unit_label,
-                          sellable, price_basis, retail_cents, wholesale_cents, floor_cents,
+                          sellable, price_basis, price_cents, floor_cents, ceiling_cents,
                           cost_cents, reorder_level_milli)
-       VALUES (?, 'packaging', 'pcs', 1000, 'piece', 1, 'pack', ?, ?, ?, ?, ?)`,
+       VALUES (?, 'packaging', 'pcs', 1000, 'piece', 1, 'unit', ?, ?, ?, ?, ?)`,
       p.name,
-      Math.round((toCents(p.cost) * 1.5) / 100) * 100,
-      Math.round((toCents(p.cost) * 1.3) / 100) * 100,
+      price,
       toCents(p.cost),
+      Math.round((price * 1.2) / 100) * 100,
       toCents(p.cost),
       toMilli(50),
     );

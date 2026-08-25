@@ -87,7 +87,7 @@ export default async function CustomersPage(props: {
       </details>
       {needle ? (
         <p className="mt-1.5 text-xs text-muted">
-          Showing matches for &ldquo;{q.trim()}&rdquo;.{" "}
+          Showing matches for “{q.trim()}”.{" "}
           <Link href="/customers" className="font-bold text-brand">
             Clear
           </Link>

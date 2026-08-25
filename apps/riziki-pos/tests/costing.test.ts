@@ -27,12 +27,12 @@ interface Row {
   id: number;
   size_milli: number;
   cost_cents: number;
-  retail_cents: number;
+  price_cents: number;
 }
 
 function chemical(name: string): Row {
   const row = get<Row>(
-    `SELECT i.id, i.size_milli, i.cost_cents, i.retail_cents
+    `SELECT i.id, i.size_milli, i.cost_cents, i.price_cents
        FROM items i JOIN chemicals c ON c.id = i.chemical_id
       WHERE c.name = ? AND i.price_basis = 'unit'`,
     name,
@@ -50,9 +50,9 @@ test("a weighed line carries its share of the drum's cost, not a whole drum's", 
     userId: OWNER,
     tier: "retail",
     lines: [
-      { itemId: ungerol.id, units: 1, unitPriceCents: ungerol.retail_cents, qtyMilli: toMilli(0.25) },
+      { itemId: ungerol.id, units: 1, unitPriceCents: ungerol.price_cents, qtyMilli: toMilli(0.25) },
     ],
-    tenders: [{ method: "cash", amountCents: Math.round((ungerol.retail_cents * 250) / 1000) }],
+    tenders: [{ method: "cash", amountCents: Math.round((ungerol.price_cents * 250) / 1000) }],
   });
 
   const line = get<{ cost_cents: number; qty_milli: number; rate_cents: number }>(
@@ -61,7 +61,7 @@ test("a weighed line carries its share of the drum's cost, not a whole drum's", 
   )!;
 
   assert.equal(line.qty_milli, 250);
-  assert.equal(line.rate_cents, ungerol.retail_cents, "the rate is snapshotted, not the amount");
+  assert.equal(line.rate_cents, ungerol.price_cents, "the rate is snapshotted, not the amount");
 
   // cost_cents on the item is per ONE container. A quarter kilogram out of a
   // 170 kg drum carries 250/170000 of it, and nothing more — booking a whole
@@ -79,8 +79,8 @@ test("selling by weight takes exactly that weight out of the ledger", () => {
     clientUuid: "cost-weighed-2",
     userId: OWNER,
     tier: "retail",
-    lines: [{ itemId: caustic.id, units: 1, unitPriceCents: caustic.retail_cents, qtyMilli: 1500 }],
-    tenders: [{ method: "cash", amountCents: Math.round((caustic.retail_cents * 1500) / 1000) }],
+    lines: [{ itemId: caustic.id, units: 1, unitPriceCents: caustic.price_cents, qtyMilli: 1500 }],
+    tenders: [{ method: "cash", amountCents: Math.round((caustic.price_cents * 1500) / 1000) }],
   });
 
   assert.equal(stockOf(caustic.id), before - 1500, "1.5 kg, to the gram");
@@ -93,15 +93,15 @@ test("a delivery moves the average cost, and the next sale is costed at the new 
   // One more container, bought dearer. The weighted average is per container,
   // which is what makes the fraction taken by a weighed line meaningful.
   updateAverageCost(salt.id, 1, before * 2);
-  const after = get<Row>(`SELECT id, size_milli, cost_cents, retail_cents FROM items WHERE id = ?`, salt.id)!;
+  const after = get<Row>(`SELECT id, size_milli, cost_cents, price_cents FROM items WHERE id = ?`, salt.id)!;
   assert.ok(after.cost_cents > before, "buying dearer raises the average");
 
   const { saleId } = recordSale({
     clientUuid: "cost-weighed-3",
     userId: OWNER,
     tier: "retail",
-    lines: [{ itemId: salt.id, units: 1, unitPriceCents: after.retail_cents, qtyMilli: toMilli(2) }],
-    tenders: [{ method: "cash", amountCents: Math.round((after.retail_cents * 2000) / 1000) }],
+    lines: [{ itemId: salt.id, units: 1, unitPriceCents: after.price_cents, qtyMilli: toMilli(2) }],
+    tenders: [{ method: "cash", amountCents: Math.round((after.price_cents * 2000) / 1000) }],
   });
 
   const line = get<{ cost_cents: number }>(
@@ -111,9 +111,15 @@ test("a delivery moves the average cost, and the next sale is costed at the new 
   assert.equal(line.cost_cents, Math.round((after.cost_cents * 2000) / after.size_milli));
 });
 
-test("something sold whole still costs one container per unit", () => {
+test("a container is priced per piece the same way a chemical is priced per kilo", () => {
+  /*
+    A jerrican is not a different kind of thing from a drum of caustic — only a
+    different unit. It is priced per piece, sold in pieces, and costed the same
+    way: three pieces out of the shelf take three pieces' worth of money with
+    them. The only visible difference is that its unit happens to be countable.
+  */
   const jerrican = get<Row>(
-    `SELECT id, size_milli, cost_cents, retail_cents FROM items
+    `SELECT id, size_milli, cost_cents, price_cents FROM items
       WHERE kind = 'packaging' AND cost_cents > 0 ORDER BY id LIMIT 1`,
   )!;
   assert.ok(jerrican, "the seed stocks containers");
@@ -122,15 +128,23 @@ test("something sold whole still costs one container per unit", () => {
     clientUuid: "cost-whole-1",
     userId: OWNER,
     tier: "retail",
-    lines: [{ itemId: jerrican.id, units: 3, unitPriceCents: jerrican.retail_cents }],
-    tenders: [{ method: "cash", amountCents: jerrican.retail_cents * 3 }],
+    lines: [
+      { itemId: jerrican.id, units: 1, unitPriceCents: jerrican.price_cents, qtyMilli: toMilli(3) },
+    ],
+    tenders: [{ method: "cash", amountCents: jerrican.price_cents * 3 }],
   });
 
-  const line = get<{ cost_cents: number; rate_cents: number; units: number }>(
-    `SELECT cost_cents, rate_cents, units FROM sale_lines WHERE sale_id = ?`,
+  const line = get<{
+    cost_cents: number;
+    rate_cents: number;
+    qty_milli: number;
+    line_total_cents: number;
+  }>(
+    `SELECT cost_cents, rate_cents, qty_milli, line_total_cents FROM sale_lines WHERE sale_id = ?`,
     saleId,
   )!;
-  assert.equal(line.units, 3);
-  assert.equal(line.rate_cents, 0, "nothing was weighed, so there is no rate to snapshot");
+  assert.equal(line.qty_milli, toMilli(3), "three pieces");
+  assert.equal(line.rate_cents, jerrican.price_cents, "the rate is the price of one piece");
+  assert.equal(line.line_total_cents, jerrican.price_cents * 3);
   assert.equal(line.cost_cents, jerrican.cost_cents * 3);
 });
