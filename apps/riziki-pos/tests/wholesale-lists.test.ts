@@ -77,7 +77,10 @@ function bill(customerId: number | null, total: number, paid: number) {
     userId: OWNER,
     tier: "wholesale",
     customerId,
-    lines: [{ itemId: ITEM.id, units: 1, unitPriceCents: total }],
+    // One kilogram at whatever the bill is meant to come to. These tests are
+    // about invoices and debts, not about pricing, so the line is the smallest
+    // shape that produces an exact total.
+    lines: [{ itemId: ITEM.id, units: 1, qtyMilli: 1000, unitPriceCents: total }],
     tenders: paid > 0 ? [{ method: "cash", amountCents: paid }] : [],
     floorOverrideBy: OWNER,
   });

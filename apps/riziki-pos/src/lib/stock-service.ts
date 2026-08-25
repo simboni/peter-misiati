@@ -198,6 +198,15 @@ export function stockView(): StockView {
 
 export interface CountInput {
   itemId: number;
+  /**
+   * What was counted, in whatever the item is sold in: containers for something
+   * sold whole, kilograms or litres for a chemical.
+   *
+   * That distinction is the whole of what changed here. Counting a chemical in
+   * containers made sense while it was pre-packed into 1 kg bags; now that it
+   * is weighed out of the drum, a half-empty drum is not a countable number of
+   * anything, and the shop weighs it.
+   */
   countedUnits: number;
 }
 
@@ -236,16 +245,20 @@ export function planStocktake(counts: CountInput[]): StocktakePlan {
       canonical_unit: "kg" | "L" | "pcs";
       size_milli: number;
       unit_label: string;
+      price_basis: "pack" | "unit";
       cost_cents: number;
     }>(
-      `SELECT id, name, canonical_unit, size_milli, unit_label, cost_cents
+      `SELECT id, name, canonical_unit, size_milli, unit_label, price_basis, cost_cents
          FROM items WHERE id = ? AND active = 1`,
       c.itemId,
     );
     if (!item) throw new Error("One of the counted items no longer exists.");
 
+    // What one counted unit is worth in milli: a container, or one kilogram.
+    const perCount = item.price_basis === "unit" ? 1000 : item.size_milli;
+
     const systemMilli = stockOf(item.id);
-    const countedMilli = Math.round(c.countedUnits * item.size_milli);
+    const countedMilli = Math.round(c.countedUnits * perCount);
     const deltaMilli = countedMilli - systemMilli;
 
     lines.push({
@@ -253,11 +266,11 @@ export function planStocktake(counts: CountInput[]): StocktakePlan {
       name: item.name,
       unit: item.canonical_unit,
       sizeMilli: item.size_milli,
-      unitLabel: item.unit_label,
+      unitLabel: item.price_basis === "unit" ? item.canonical_unit : item.unit_label,
       systemMilli,
       countedMilli,
       deltaMilli,
-      deltaUnits: item.size_milli > 0 ? deltaMilli / item.size_milli : 0,
+      deltaUnits: perCount > 0 ? deltaMilli / perCount : 0,
       deltaCents: valueAtCost(deltaMilli, item.size_milli, item.cost_cents),
     });
   }

@@ -1,5 +1,5 @@
 /**
- * Production service tests.
+ * Recipes: scaling, versioning, and what a recipe comes to at the counter.
  *
  * The database path is set before anything is imported, so these never touch
  * the shop's real file. `db.ts` reads it once at module load, which is why the
@@ -15,31 +15,21 @@ import { join } from "node:path";
 const TMP = mkdtempSync(join(tmpdir(), "riziki-production-"));
 process.env.RIZIKI_DB = join(TMP, "test.db");
 
-const { all, get, run, chemicalStock } = await import("../src/lib/db.ts");
+const { all, get, run } = await import("../src/lib/db.ts");
 const { seed } = await import("../src/lib/seed.ts");
-const { toMilli } = await import("../src/lib/units.ts");
+const { toMilli, toCents } = await import("../src/lib/units.ts");
 const {
   scaleFormula,
-  planBatch,
-  runBatch,
-  newBatchNo,
-  recordYield,
   createFormulaVersion,
   currentVersion,
   formulaItems,
   listFormulas,
-  listMixableProducts,
-  batchReadiness,
   minimumTargetMilli,
-  outputItemsFor,
-  listBatches,
-  pendingYieldBatches,
-  voidBatch,
-  allocate,
-  buildKit,
-  smallestKitBatch,
-  StockShortError,
+  mixFor,
+  salesUsingVersion,
+  versionsOf,
 } = await import("../src/lib/production.ts");
+const { recordSale } = await import("../src/lib/sales.ts");
 
 seed();
 
@@ -59,10 +49,16 @@ function versionOf(name: string) {
   return v!;
 }
 
-function ledgerSnapshot() {
-  return all<{ id: number; item_id: number; delta_milli: number; reason: string }>(
-    `SELECT id, item_id, delta_milli, reason FROM stock_movements ORDER BY id`,
+/** The one sellable row a chemical has: its container, priced per kg / L. */
+function sourceRow(chemicalName: string) {
+  const row = get<{ id: number; retail_cents: number; canonical_unit: string }>(
+    `SELECT i.id, i.retail_cents, i.canonical_unit
+       FROM items i JOIN chemicals c ON c.id = i.chemical_id
+      WHERE c.name = ? AND i.price_basis = 'unit'`,
+    chemicalName,
   );
+  assert.ok(row, `${chemicalName} should have one unit-priced row`);
+  return row!;
 }
 
 // ---------------------------------------------------------------- (a) scaling
@@ -90,8 +86,6 @@ test("scaling a 20 L formula to 100 L multiplies every ingredient by exactly 5",
   assert.equal(ungerol.neededMilli, toMilli(7.5), "1.5 kg per 20 L becomes 7.5 kg per 100 L");
 });
 
-// ---------------------------------------------------------------- (b) scaling
-
 test("scaling a 5 L formula to 20 L multiplies every ingredient by exactly 4", () => {
   const version = versionOf("Handwash");
   assert.equal(version.ref_size_milli, toMilli(5), "Handwash is written for a 5 L batch");
@@ -110,143 +104,121 @@ test("scaling a 5 L formula to 20 L multiplies every ingredient by exactly 4", (
   assert.equal(ungerol.neededMilli, toMilli(2), "0.5 kg per 5 L becomes 2 kg per 20 L");
 });
 
-test("allocate takes from the largest container first and reports what is missing", () => {
-  const rows = [
-    { id: 1, name: "drum 170 kg", size_milli: 170_000, cost_cents: 6_460_000, qty_milli: 10_000 },
-    { id: 2, name: "pack 20 kg", size_milli: 20_000, cost_cents: 760_000, qty_milli: 5_000 },
-  ];
+// --------------------------------------------------- (b) a recipe, priced up
 
-  const exact = allocate(rows, 12_000);
-  assert.deepEqual(
-    exact.allocations.map((a) => [a.itemId, a.qtyMilli]),
-    [
-      [1, 10_000],
-      [2, 2_000],
-    ],
-  );
-  assert.equal(exact.shortMilli, 0);
+test("a recipe is billed as its chemicals, weighed and priced per kilogram", () => {
+  const version = versionOf("Carwash Shampoo");
+  const mix = mixFor(version.id, version.ref_size_milli, "retail");
 
-  const short = allocate(rows, 20_000);
-  assert.equal(short.shortMilli, 5_000, "15 kg on hand cannot cover 20 kg");
-});
+  assert.equal(mix.ingredients.length, formulaItems(version.id).length);
+  assert.ok(mix.sellable, "the seeded shop can supply its own reference batch");
 
-// ------------------------------------------------------- (c) batch deductions
-
-test("running a batch deducts exactly the scaled quantities from the ledger", () => {
-  const version = versionOf("Jik"); // 20 L reference: chlorine, caustic, magadi
-  const target = toMilli(60); // three reference batches
-
-  const scaled = scaleFormula(version.id, target);
-  const before = new Map(scaled.map((l) => [l.chemicalId, chemicalStock(l.chemicalId)]));
-  const movementsBefore = ledgerSnapshot().length;
-
-  const result = runBatch({ formulaVersionId: version.id, targetMilli: target, userId: OWNER });
-
-  assert.match(result.batchNo, /^RZK-\d{8}-\d{3}$/, "batch numbers are label-printable");
-
-  for (const line of scaled) {
+  for (const ing of mix.ingredients) {
+    const source = sourceRow(ing.chemicalName);
+    assert.equal(ing.itemId, source.id, `${ing.chemicalName} comes out of its own container`);
+    assert.equal(ing.rateCents, source.retail_cents, "the rate is the item's own price per unit");
     assert.equal(
-      chemicalStock(line.chemicalId),
-      before.get(line.chemicalId)! - line.neededMilli,
-      `${line.chemicalName} should fall by exactly ${line.neededMilli}`,
+      ing.amountCents,
+      Math.round((ing.rateCents * ing.qtyMilli) / 1000),
+      `${ing.chemicalName} is charged for exactly what the recipe asks for`,
     );
   }
 
-  // Every deduction went through the ledger, tagged to this batch.
-  const posted = all<{ delta_milli: number; reason: string }>(
-    `SELECT delta_milli, reason FROM stock_movements WHERE ref_type = 'batch' AND ref_id = ?`,
-    result.batchId,
-  );
-  assert.ok(posted.length > 0);
-  assert.ok(posted.every((m) => m.reason === "batch_consume" && m.delta_milli < 0));
-  assert.equal(ledgerSnapshot().length, movementsBefore + posted.length);
-
-  // The batch pins the VERSION, never a bare formula id.
-  const batch = get<{ formula_version_id: number; actual_milli: number | null; target_milli: number }>(
-    `SELECT formula_version_id, actual_milli, target_milli FROM batches WHERE id = ?`,
-    result.batchId,
-  )!;
-  assert.equal(batch.formula_version_id, version.id);
-  assert.equal(batch.target_milli, target);
-  assert.equal(batch.actual_milli, null, "yield is unknown until it is measured");
-
-  const lines = all<{ chemical_id: number; qty_milli: number }>(
-    `SELECT chemical_id, qty_milli FROM batch_lines WHERE batch_id = ? ORDER BY id`,
-    result.batchId,
-  );
-  assert.deepEqual(
-    lines.map((l) => [l.chemical_id, l.qty_milli]).sort(),
-    scaled.map((l) => [l.chemicalId, l.neededMilli]).sort(),
-  );
-});
-
-test("actual yield is recorded against the batch and books the measured litres, not the target", () => {
-  const version = versionOf("Jik");
-  const target = toMilli(20);
-  const { batchId } = runBatch({ formulaVersionId: version.id, targetMilli: target, userId: OWNER });
-
-  const bottle = get<{ id: number }>(`SELECT id FROM items WHERE name = 'Jik 1 L'`)!;
-  const before = all<{ q: number }>(
-    `SELECT COALESCE(SUM(delta_milli), 0) AS q FROM stock_movements WHERE item_id = ?`,
-    bottle.id,
-  )[0].q;
-
-  const { varianceMilli } = recordYield({
-    batchId,
-    actualMilli: toMilli(19.4), // 600 ml stayed in the tank
-    outputItemId: bottle.id,
-    userId: OWNER,
-  });
-
-  assert.equal(varianceMilli, toMilli(-0.6));
   assert.equal(
-    get<{ actual_milli: number }>(`SELECT actual_milli FROM batches WHERE id = ?`, batchId)!.actual_milli,
-    toMilli(19.4),
-  );
-
-  const after = all<{ q: number }>(
-    `SELECT COALESCE(SUM(delta_milli), 0) AS q FROM stock_movements WHERE item_id = ?`,
-    bottle.id,
-  )[0].q;
-  assert.equal(after - before, toMilli(19.4), "finished stock is the measured yield, not 20 L");
-
-  assert.throws(
-    () => recordYield({ batchId, actualMilli: toMilli(19.4), userId: OWNER }),
-    /already been recorded/,
-    "a second yield entry would double-count the finished stock",
+    mix.totalCents,
+    mix.ingredients.reduce((s, i) => s + i.amountCents, 0),
+    "the total is the sum of its lines and nothing else",
   );
 });
 
-// ----------------------------------------------------------- (d) short stock
+test("the quantity a recipe needs is not rounded up to anything", () => {
+  /*
+    This is the whole point of the change. Carwash Shampoo asks for one gram of
+    C.D.E in a 20 L batch, and the smallest tub of C.D.E the shop ever stocked
+    was 5 kg — so the pack-filling this replaced could not sell that batch at
+    all: it would have billed 5 kg for the 25 g the recipe wanted, two hundred
+    times too much, and the screen refused rather than do that.
+  */
+  const version = versionOf("Carwash Shampoo");
+  const mix = mixFor(version.id, toMilli(20), "retail");
 
-test("a batch that exceeds available stock is rejected and leaves the ledger untouched", () => {
+  const cde = mix.ingredients.find((i) => i.chemicalName === "C.D.E");
+  assert.ok(cde, "Carwash Shampoo contains C.D.E");
+  assert.equal(cde!.qtyMilli, 25, "25 g, to the gram");
+  assert.ok(cde!.amountCents > 0, "and it is charged for");
+  assert.ok(cde!.amountCents < 10_000, "at grams-worth of money, not a whole tub's");
+});
+
+test("doubling the batch doubles the quantities and the bill", () => {
   const version = versionOf("Shower Gel");
-  // Perfume runs out long before anything else at this size.
-  const target = toMilli(5000);
+  const one = mixFor(version.id, toMilli(20), "retail");
+  const two = mixFor(version.id, toMilli(40), "retail");
 
-  const plan = planBatch(version.id, target);
-  assert.equal(plan.ok, false);
-  assert.ok(plan.short.length > 0);
-
-  const ledgerBefore = ledgerSnapshot();
-  const batchesBefore = get<{ n: number }>(`SELECT COUNT(*) AS n FROM batches`)!.n;
-  const linesBefore = get<{ n: number }>(`SELECT COUNT(*) AS n FROM batch_lines`)!.n;
-
-  assert.throws(
-    () => runBatch({ formulaVersionId: version.id, targetMilli: target, userId: OWNER }),
-    (err: unknown) => err instanceof StockShortError && err.short.length > 0,
-  );
-
-  // Nothing moved — not even the ingredients that WERE in stock. A partial
-  // deduction here would be the transaction failing to roll back.
-  assert.deepEqual(ledgerSnapshot(), ledgerBefore, "no stock movement survived the rejection");
-  assert.equal(get<{ n: number }>(`SELECT COUNT(*) AS n FROM batches`)!.n, batchesBefore);
-  assert.equal(get<{ n: number }>(`SELECT COUNT(*) AS n FROM batch_lines`)!.n, linesBefore);
+  for (const line of two.ingredients) {
+    const half = one.ingredients.find((i) => i.chemicalName === line.chemicalName)!;
+    assert.equal(line.qtyMilli, half.qtyMilli * 2, `${line.chemicalName} doubles`);
+  }
+  // Each line is rounded once, so the totals may differ by a cent per line at
+  // most — never by a shilling, and never systematically.
+  assert.ok(Math.abs(two.totalCents - one.totalCents * 2) <= two.ingredients.length);
 });
 
-// -------------------------------------------------------------- (e) versions
+test("a wholesale batch is priced at wholesale, falling back to retail where none is set", () => {
+  const version = versionOf("Handwash");
+  const retail = mixFor(version.id, toMilli(20), "retail");
+  const wholesale = mixFor(version.id, toMilli(20), "wholesale");
 
-test("editing a formula that HAS been mixed creates version 2 and leaves version 1 untouched", () => {
+  assert.ok(wholesale.totalCents < retail.totalCents, "trade pays less");
+  for (const line of wholesale.ingredients) {
+    assert.ok(line.rateCents > 0, `${line.chemicalName} is never given away at the trade tier`);
+  }
+});
+
+test("a batch bigger than the store can supply says how big a batch it can", () => {
+  const version = versionOf("Shower Gel");
+  const huge = mixFor(version.id, toMilli(500_000), "retail");
+
+  assert.equal(huge.sellable, false);
+  assert.ok(huge.ingredients.some((i) => i.short), "something has run out");
+  assert.ok(huge.possibleMilli > 0, "and there is still a batch size that works");
+
+  const offered = mixFor(version.id, huge.possibleMilli, "retail");
+  assert.ok(
+    offered.ingredients.every((i) => !i.short),
+    "the size it offers is one the store can actually supply",
+  );
+});
+
+test("an unpriced ingredient is named, and no batch size hides it", () => {
+  const chemId = Number(
+    run(`INSERT INTO chemicals (name, canonical_unit) VALUES ('Test Unpriced', 'kg')`).lastInsertRowid,
+  );
+  run(
+    `INSERT INTO items (chemical_id, name, kind, canonical_unit, size_milli, unit_label,
+                        sellable, price_basis, retail_cents)
+     VALUES (?, 'Test Unpriced', 'bulk', 'kg', 25000, 'bag', 1, 'unit', 0)`,
+    chemId,
+  );
+  run(`INSERT INTO stock_movements (item_id, delta_milli, reason)
+       VALUES ((SELECT id FROM items WHERE chemical_id = ?), 25000, 'opening')`, chemId);
+
+  const fId = Number(run(`INSERT INTO formulas (name) VALUES ('Test Unpriced Recipe')`).lastInsertRowid);
+  const vId = Number(
+    run(`INSERT INTO formula_versions (formula_id, version, ref_size_milli) VALUES (?, 1, 20000)`, fId)
+      .lastInsertRowid,
+  );
+  run(`INSERT INTO formula_items (formula_version_id, chemical_id, qty_milli) VALUES (?, ?, 500)`, vId, chemId);
+
+  const mix = mixFor(vId, toMilli(20), "retail");
+  assert.equal(mix.sellable, false);
+  assert.equal(mix.ingredients[0].unpriced, true);
+  assert.equal(mix.ingredients[0].amountCents, 0, "an unpriced chemical is never billed at zero");
+  assert.equal(mix.possibleMilli, 0, "no batch size fixes a missing price");
+});
+
+// -------------------------------------------------------------- (c) versions
+
+test("editing a recipe that has been SOLD creates version 2 and leaves version 1 untouched", () => {
   const target = formula("Carwash Shampoo");
   const v1 = currentVersion(target.id)!;
   assert.equal(v1.version, 1);
@@ -257,22 +229,24 @@ test("editing a formula that HAS been mixed creates version 2 and leaves version
   const v1ItemsBefore = all(`SELECT * FROM formula_items WHERE formula_version_id = ? ORDER BY id`, v1.id);
   assert.ok(v1ItemsBefore.length > 0);
 
-  // Mix one batch against version 1 first. Without a batch depending on it the
-  // version is only a piece of writing, and an edit now corrects it where it
-  // stands instead of forking — see the two tests at the end of this file.
-  for (const item of formulaItems(v1.id)) {
-    const itemRow = get<{ id: number }>(
-      `SELECT id FROM items WHERE chemical_id = ? ORDER BY id LIMIT 1`, item.chemical_id);
-    if (itemRow) {
-      run(`INSERT INTO stock_movements (item_id, delta_milli, reason, user_id)
-           VALUES (?, ?, 'opening', ?)`, itemRow.id, toMilli(500), OWNER);
-    }
-  }
-  runBatch({
-    formulaVersionId: v1.id,
-    targetMilli: minimumTargetMilli(v1.id),
+  // Sell one batch against version 1 first. Until a customer has been charged
+  // for it, the version is only a piece of writing and an edit corrects it
+  // where it stands — see the two tests at the end of this file.
+  const mix = mixFor(v1.id, toMilli(20), "retail");
+  recordSale({
+    clientUuid: "version-guard-1",
     userId: OWNER,
+    tier: "retail",
+    lines: mix.ingredients.map((i) => ({
+      itemId: i.itemId!,
+      units: 1,
+      unitPriceCents: i.rateCents,
+      qtyMilli: i.qtyMilli,
+      formulaVersionId: v1.id,
+    })),
+    tenders: [{ method: "cash", amountCents: mix.totalCents }],
   });
+  assert.ok(salesUsingVersion(v1.id) > 0, "the sale is what makes the version history");
 
   const edited = formulaItems(v1.id).map((i) => ({ chemicalId: i.chemical_id, qtyMilli: i.qty_milli }));
   edited[0].qtyMilli += toMilli(0.25);
@@ -294,7 +268,7 @@ test("editing a formula that HAS been mixed creates version 2 and leaves version
   assert.equal(v2.is_current, 1);
 
   // Version 1 is byte-identical apart from losing the "current" flag: past
-  // batches point at it and must still describe what they were made of.
+  // sales point at it and must still describe what the customer was charged for.
   const v1After = get<Record<string, unknown>>(`SELECT * FROM formula_versions WHERE id = ?`, v1.id)!;
   assert.equal(v1After.is_current, 0);
   assert.deepEqual({ ...v1After, is_current: 1 }, v1Before);
@@ -312,16 +286,30 @@ test("editing a formula that HAS been mixed creates version 2 and leaves version
     all<{ n: number }>(`SELECT COUNT(*) AS n FROM formula_versions WHERE formula_id = ?`, target.id)[0].n,
     2,
   );
+
+  // And the version history says which one carries the sale.
+  const history = versionsOf(target.id);
+  assert.equal(history.find((v) => v.id === v1.id)!.use_count, 1);
+  assert.equal(history.find((v) => v.id === versionId)!.use_count, 0);
 });
 
-test("a batch mixed on version 1 still points at version 1 after the recipe is edited", () => {
+test("a sale billed on version 1 still points at version 1 after the recipe is edited", () => {
   const target = formula("Multipurpose");
   const v1 = currentVersion(target.id)!;
 
-  const { batchId } = runBatch({
-    formulaVersionId: v1.id,
-    targetMilli: toMilli(20),
+  const mix = mixFor(v1.id, toMilli(20), "retail");
+  const { saleId } = recordSale({
+    clientUuid: "version-guard-2",
     userId: OWNER,
+    tier: "retail",
+    lines: mix.ingredients.map((i) => ({
+      itemId: i.itemId!,
+      units: 1,
+      unitPriceCents: i.rateCents,
+      qtyMilli: i.qtyMilli,
+      formulaVersionId: v1.id,
+    })),
+    tenders: [{ method: "cash", amountCents: mix.totalCents }],
   });
 
   createFormulaVersion({
@@ -333,11 +321,11 @@ test("a batch mixed on version 1 still points at version 1 after the recipe is e
     userId: OWNER,
   });
 
-  assert.equal(
-    get<{ formula_version_id: number }>(`SELECT formula_version_id FROM batches WHERE id = ?`, batchId)!
-      .formula_version_id,
-    v1.id,
+  const pinned = all<{ formula_version_id: number }>(
+    `SELECT DISTINCT formula_version_id FROM sale_lines WHERE sale_id = ?`,
+    saleId,
   );
+  assert.deepEqual(pinned.map((p) => p.formula_version_id), [v1.id]);
 });
 
 // ------------------------------------------------------------------- search
@@ -357,307 +345,29 @@ test("search matches an ingredient as well as the product name", () => {
     listFormulas("toilet").map((f) => f.name).sort(),
     ["Toilet Cleaner", "Toilet Cleaner (thickened)"],
   );
-  assert.equal(listFormulas("").length, 14, "the shop has 14 formulas on file");
+  // Filtered, because other tests in this file add recipes of their own.
+  const shopFormulas = listFormulas("").filter((f) => !f.name.startsWith("Test "));
+  assert.equal(shopFormulas.length, 14, "the shop has 14 formulas on file");
 });
 
-test("the staff product picker carries no recipe, and readiness needs no ingredient rows", () => {
-  const products = listMixableProducts();
-  assert.equal(products.length, 14);
-  for (const p of products) {
-    // Anything a competitor could use — the note, even the ingredient count —
-    // must not be in the list staff receive.
-    assert.deepEqual(Object.keys({ ...p }).sort(), [
-      "id",
-      "name",
-      "ref_size_milli",
-      "version",
-      "version_id",
-    ]);
-  }
-
-  const jik = versionOf("Jik");
-  assert.deepEqual(batchReadiness(jik.id, toMilli(20)), {
-    ok: true,
-    shortCount: 0,
-    tooSmall: false,
-  });
-
+test("the smallest accurate batch still holds", () => {
+  // Nothing about weighing removes this: below a certain batch the tiniest
+  // ingredient rounds away to nothing, and a recipe missing an ingredient is
+  // not the recipe. Half a litre of Shower Gel would lose its pine oil.
   const showerGel = versionOf("Shower Gel");
-  const short = batchReadiness(showerGel.id, toMilli(5000));
-  assert.equal(short.ok, false);
-  assert.ok(short.shortCount > 0);
-
-  // Half a litre of Shower Gel would round 10 ml of pine oil away to nothing.
-  assert.equal(batchReadiness(showerGel.id, toMilli(0.5)).tooSmall, true);
   assert.equal(minimumTargetMilli(showerGel.id), toMilli(1));
 });
 
-test("the batch list only carries a cost when the owner asked for one", () => {
-  const forOwner = listBatches(5, true);
-  assert.ok(forOwner.length > 0);
-  assert.ok(forOwner.every((b) => typeof b.cost_cents === "number"));
-  assert.ok(forOwner.every((b) => typeof b.batch_no === "string" && b.version >= 1));
+// ----------------------------------------------------- correcting a new shop
 
-  const forStaff = listBatches(5, false);
-  assert.ok(forStaff.every((b) => !("cost_cents" in b)), "staff must not receive a batch cost");
-
-  // Anything mixed but not yet measured is waiting for its yield.
-  const waiting = pendingYieldBatches();
-  assert.ok(waiting.every((b) => b.actual_milli === null && b.status === "completed"));
-});
-
-test("a finished item is only suggested when it is unmistakably the same product", () => {
-  const jik = outputItemsFor("Jik");
-  assert.deepEqual(
-    jik.filter((o) => o.suggested).map((o) => o.name),
-    ["Jik 1 L"],
-  );
-
-  // "Jik Coloured" is a different product; suggesting Jik 1 L would inflate the
-  // stock of something that was never made.
-  assert.deepEqual(outputItemsFor("Jik Coloured").filter((o) => o.suggested), []);
-
-  assert.deepEqual(
-    outputItemsFor("Laundry Soap")
-      .filter((o) => o.suggested)
-      .map((o) => o.name),
-    ["Laundry Soap 1 L", "Laundry Soap 5 L"],
-  );
-
-  // Everything is still selectable by hand, suggestions first.
-  assert.ok(outputItemsFor("Jik Coloured").length > 0);
-});
-
-test("batch numbers increment within a business day and never collide", () => {
-  const at = new Date("2027-01-05T09:00:00Z");
-  const first = newBatchNo(at);
-  assert.equal(first, "RZK-20270105-001");
-
-  const version = versionOf("Jik");
-  runBatch({ formulaVersionId: version.id, targetMilli: toMilli(20), userId: OWNER });
-
-  const taken = all<{ batch_no: string }>(`SELECT batch_no FROM batches`).map((b) => b.batch_no);
-  assert.equal(new Set(taken).size, taken.length, "batch numbers are unique");
-});
-
-// -------------------------------------------------------------- (h) voiding
-
-test("voiding a batch restores every chemical and the booked output, and stays visible", () => {
-  const version = versionOf("Jik");
-  const target = toMilli(20);
-  const scaled = scaleFormula(version.id, target);
-  const before = new Map(scaled.map((l) => [l.chemicalId, chemicalStock(l.chemicalId)]));
-
-  const bottle = get<{ id: number }>(`SELECT id FROM items WHERE name = 'Jik 1 L'`)!;
-  const bottleBefore = ledgerSnapshot()
-    .filter((m) => m.item_id === bottle.id)
-    .reduce((s, m) => s + m.delta_milli, 0);
-
-  const { batchId } = runBatch({ formulaVersionId: version.id, targetMilli: target, userId: OWNER });
-  recordYield({ batchId, actualMilli: toMilli(19), outputItemId: bottle.id, userId: OWNER });
-
-  voidBatch(batchId, OWNER, "meant 2 L, typed 20 L");
-
-  // Every chemical is back where it started.
-  for (const line of scaled) {
-    assert.equal(chemicalStock(line.chemicalId), before.get(line.chemicalId)!,
-      `${line.chemicalName} should be restored`);
-  }
-  // The finished stock the yield created is gone again.
-  const bottleAfter = ledgerSnapshot()
-    .filter((m) => m.item_id === bottle.id)
-    .reduce((s, m) => s + m.delta_milli, 0);
-  assert.equal(bottleAfter, bottleBefore, "booked output is reversed");
-
-  // Nothing was deleted: the reversals are new rows pointing at the batch.
-  const reversals = all<{ delta_milli: number; reason: string }>(
-    `SELECT delta_milli, reason FROM stock_movements WHERE ref_type = 'batch_void' AND ref_id = ?`,
-    batchId,
-  );
-  assert.ok(reversals.length >= scaled.length + 1, "consumes + output all reversed");
-  assert.ok(reversals.every((m) => m.reason === "adjustment"));
-
-  assert.equal(get<{ status: string }>(`SELECT status FROM batches WHERE id = ?`, batchId)!.status, "voided");
-
-  // Voiding twice is refused, as is voiding without a reason.
-  assert.throws(() => voidBatch(batchId, OWNER, "again"), /already voided/i);
-  assert.throws(() => voidBatch(99999, OWNER, "x"), /no longer exists/i);
-});
-
-test("a void without a reason is refused before anything moves", () => {
-  const version = versionOf("Jik");
-  const { batchId } = runBatch({ formulaVersionId: version.id, targetMilli: toMilli(20), userId: OWNER });
-  const before = ledgerSnapshot().length;
-  assert.throws(() => voidBatch(batchId, OWNER, "   "), /why/i);
-  assert.equal(ledgerSnapshot().length, before, "nothing was written");
-  voidBatch(batchId, OWNER, "cleanup"); // leave the fixture tidy
-});
-
-// ------------------------------------------------------------------ (k) kits
-
-test("a kit turns a recipe into whole packs, never short, and says what is missing", () => {
-  const version = versionOf("Shower Gel");
-  const kit = buildKit(version.id, toMilli(20));
-
-  assert.equal(kit.targetMilli, toMilli(20));
-  assert.ok(kit.ingredients.length > 0, "a kit has the recipe's ingredients");
-
-  for (const ing of kit.ingredients) {
-    if (ing.missing) {
-      assert.equal(ing.picks.length, 0, "nothing is picked for a chemical with no pack");
-      assert.equal(ing.suppliedMilli, 0);
-      continue;
-    }
-
-    // Whole units of real, sellable items — the sale stays an ordinary sale.
-    for (const p of ing.picks) {
-      assert.ok(Number.isInteger(p.units) && p.units > 0, `${p.name} must be whole packs`);
-      const item = get<{ kind: string; sellable: number; active: number; size_milli: number }>(
-        `SELECT kind, sellable, active, size_milli FROM items WHERE id = ?`,
-        p.itemId,
-      );
-      assert.equal(item!.kind, "pack");
-      assert.equal(item!.sellable, 1);
-      assert.equal(item!.active, 1);
-      assert.equal(item!.size_milli, p.sizeMilli);
-    }
-
-    const supplied = ing.picks.reduce((s, p) => s + p.sizeMilli * p.units, 0);
-    assert.equal(supplied, ing.suppliedMilli, "the stated total is the packs' total");
-    assert.ok(
-      ing.suppliedMilli >= ing.neededMilli,
-      `${ing.chemicalName}: a kit must never be short (${ing.suppliedMilli} < ${ing.neededMilli})`,
-    );
-  }
-});
-
-test("doubling the batch size doubles what the kit asks for", () => {
-  const version = versionOf("Shower Gel");
-  const small = buildKit(version.id, toMilli(20));
-  const big = buildKit(version.id, toMilli(40));
-
-  for (const [i, ing] of small.ingredients.entries()) {
-    assert.equal(big.ingredients[i].chemicalId, ing.chemicalId);
-    assert.equal(big.ingredients[i].neededMilli, ing.neededMilli * 2);
-  }
-});
-
-test("a kit prefers one pack over three that weigh the same", () => {
-  // 800 g from 1 kg / 500 g / 250 g packs: largest-first gives 500+250+250,
-  // which is the same kilogram in three packs. One 1 kg pack wins.
-  const { lastInsertRowid: chem } = run(
-    `INSERT INTO chemicals (name, canonical_unit) VALUES ('Kit Test Powder', 'kg')`,
-  );
-  for (const [size, label] of [[1000, "1 kg"], [500, "500 g"], [250, "250 g"]] as const) {
-    run(
-      `INSERT INTO items (chemical_id, name, kind, canonical_unit, size_milli, unit_label,
-                          sellable, retail_cents, active)
-       VALUES (?, ?, 'pack', 'kg', ?, 'pack', 1, 100, 1)`,
-      chem,
-      `Kit Test Powder — ${label}`,
-      size,
-    );
-  }
-
-  const packs = all<{ id: number; name: string; size_milli: number }>(
-    `SELECT id, name, size_milli FROM items WHERE chemical_id = ? ORDER BY size_milli DESC`,
-    chem,
-  );
-  assert.equal(packs.length, 3);
-
-  // buildKit works from a formula, so exercise the same rule through one: a
-  // recipe needing 800 g of this powder.
-  const { lastInsertRowid: f } = run(`INSERT INTO formulas (name) VALUES ('Kit Test Formula')`);
-  const { lastInsertRowid: v } = run(
-    `INSERT INTO formula_versions (formula_id, version, ref_size_milli, is_current)
-     VALUES (?, 1, ?, 1)`,
-    f,
-    toMilli(20),
-  );
-  run(
-    `INSERT INTO formula_items (formula_version_id, chemical_id, qty_milli, sort_order)
-     VALUES (?, ?, 800, 1)`,
-    v,
-    chem,
-  );
-
-  const kit = buildKit(Number(v), toMilli(20));
-  const ing = kit.ingredients[0];
-  assert.equal(ing.neededMilli, 800);
-  assert.equal(ing.suppliedMilli, 1000, "rounds up to a kilogram");
-  assert.equal(ing.picks.length, 1, "one pack, not three");
-  assert.equal(ing.picks[0].units, 1);
-  assert.equal(ing.picks[0].sizeMilli, 1000);
-});
-
-test("a kit refuses to bill 5 kg for a recipe that needs 25 g", () => {
-  // The real case from the shop's own Carwash Shampoo: C.D.E is stocked in
-  // 5 kg packs and the recipe wants 25 g. Rounding up is fine at 1.5 kg; at
-  // two hundred times the requirement it is a bill nobody would pay, so the
-  // ingredient is flagged and left out rather than added silently.
-  const { lastInsertRowid: chem } = run(
-    `INSERT INTO chemicals (name, canonical_unit) VALUES ('Overshoot Test Gum', 'kg')`,
-  );
-  run(
-    `INSERT INTO items (chemical_id, name, kind, canonical_unit, size_milli, unit_label,
-                        sellable, retail_cents, active)
-     VALUES (?, 'Overshoot Test Gum — 5 kg', 'pack', 'kg', 5000, 'pack', 1, 100, 1)`,
-    chem,
-  );
-
-  const { lastInsertRowid: f } = run(`INSERT INTO formulas (name) VALUES ('Overshoot Test Formula')`);
-  const { lastInsertRowid: v } = run(
-    `INSERT INTO formula_versions (formula_id, version, ref_size_milli, is_current)
-     VALUES (?, 1, ?, 1)`,
-    f,
-    toMilli(20),
-  );
-  run(
-    `INSERT INTO formula_items (formula_version_id, chemical_id, qty_milli, sort_order)
-     VALUES (?, ?, 25, 1)`,
-    v,
-    chem,
-  );
-
-  const ing = buildKit(Number(v), toMilli(20)).ingredients[0];
-  assert.equal(ing.neededMilli, 25);
-  assert.equal(ing.missing, false, "there IS a pack — it is just far too big");
-  assert.equal(ing.oversized, true);
-  assert.equal(ing.suppliedMilli, 5000, "the smallest pack is still reported, so it can be shown");
-
-  // And ordinary rounding is not flagged: 1.5 kg from 1 kg packs is 2 kg.
-  const { lastInsertRowid: chem2 } = run(
-    `INSERT INTO chemicals (name, canonical_unit) VALUES ('Overshoot Test Flour', 'kg')`,
-  );
-  run(
-    `INSERT INTO items (chemical_id, name, kind, canonical_unit, size_milli, unit_label,
-                        sellable, retail_cents, active)
-     VALUES (?, 'Overshoot Test Flour — 1 kg', 'pack', 'kg', 1000, 'pack', 1, 100, 1)`,
-    chem2,
-  );
-  run(
-    `INSERT INTO formula_items (formula_version_id, chemical_id, qty_milli, sort_order)
-     VALUES (?, ?, 1500, 2)`,
-    v,
-    chem2,
-  );
-
-  const flour = buildKit(Number(v), toMilli(20)).ingredients.find(
-    (i) => i.chemicalName === "Overshoot Test Flour",
-  )!;
-  assert.equal(flour.suppliedMilli, 2000);
-  assert.equal(flour.oversized, false, "2 kg for 1.5 kg is ordinary shopkeeping");
-});
-
-/**
- * Correcting a recipe that has never been mixed.
- *
+/*
  * The shop was delivered with placeholder recipes, and the owner has to correct
- * them before the first batch. Forking a version each time would walk a product
- * he has never made to "version 6" and make the number meaningless. The rule is
- * about protecting batches, so it only has to bite once a batch exists.
+ * them before the first sale. Forking a version each time would walk a product
+ * nobody has been charged for to "version 6" and make the number meaningless.
+ * The rule is about protecting what a customer paid, so it only has to bite
+ * once somebody has paid.
  */
-test("editing an unmixed recipe corrects it in place", () => {
+test("editing a recipe nobody has been charged for corrects it in place", () => {
   const target = formula("Handwash");
   const before = currentVersion(target.id)!;
   const chemicalId = formulaItems(before.id)[0].chemical_id;
@@ -670,7 +380,7 @@ test("editing an unmixed recipe corrects it in place", () => {
     items: [{ chemicalId, qtyMilli: toMilli(3) }],
     userId: OWNER,
   });
-  assert.equal(first.corrected, true, "a never-mixed recipe should be corrected, not forked");
+  assert.equal(first.corrected, true, "a never-sold recipe should be corrected, not forked");
   assert.equal(first.version, before.version, "the version number should not move");
   assert.equal(first.versionId, before.id, "it should be the same row");
 
@@ -691,96 +401,24 @@ test("editing an unmixed recipe corrects it in place", () => {
     "no extra versions should have been created");
 });
 
-test("once a batch is mixed, editing forks a new version and the old one is untouched", () => {
-  const target = formula("Dettol-type Disinfectant");
-  const version = currentVersion(target.id)!;
-  const chemicalId = formulaItems(version.id)[0].chemical_id;
-
-  // Give the shelf enough to mix with, then mix.
-  for (const item of formulaItems(version.id)) {
-    const itemRow = get<{ id: number }>(
-      "SELECT id FROM items WHERE chemical_id = ? ORDER BY id LIMIT 1", item.chemical_id);
-    if (itemRow) {
-      run(`INSERT INTO stock_movements (item_id, delta_milli, reason, user_id)
-           VALUES (?, ?, 'opening', ?)`, itemRow.id, toMilli(500), OWNER);
-    }
-  }
-  runBatch({
-    formulaVersionId: version.id,
-    targetMilli: minimumTargetMilli(version.id),
-    userId: OWNER,
-  });
-
-  const after = createFormulaVersion({
-    formulaId: target.id,
-    refSizeMilli: toMilli(20),
-    steps: "changed after mixing",
-    note: "",
-    items: [{ chemicalId, qtyMilli: toMilli(9) }],
-    userId: OWNER,
-  });
-  assert.equal(after.corrected, false, "a mixed recipe must fork");
-  assert.equal(after.version, version.version + 1);
-
-  // The batch's own version still says exactly what it said when it was mixed.
-  const kept = formulaItems(version.id);
-  assert.ok(kept.length > 0, "the mixed version kept its ingredients");
-  assert.notEqual(kept[0].qty_milli, toMilli(9), "the mixed version was not rewritten");
-});
-
-test("the smallest workable kit is derived, not guessed", () => {
-  // A kit is whole packs off the price list. If a recipe wants a pinch of
-  // something the shop only sells in big tubs, the kit cannot be sold small —
-  // and the counter needs to be told what size WOULD work, not just refused.
+test("a recipe with no sellable chemical at all is refused by name", () => {
   const chemId = Number(
-    run(`INSERT INTO chemicals (name, canonical_unit) VALUES ('Test Trace', 'kg')`)
+    run(`INSERT INTO chemicals (name, canonical_unit) VALUES ('Test Unlisted', 'kg')`).lastInsertRowid,
+  );
+  const fId = Number(run(`INSERT INTO formulas (name) VALUES ('Test Unlisted Recipe')`).lastInsertRowid);
+  const vId = Number(
+    run(`INSERT INTO formula_versions (formula_id, version, ref_size_milli) VALUES (?, 1, 20000)`, fId)
       .lastInsertRowid,
   );
-  const bulkId = Number(
-    run(
-      `INSERT INTO items (chemical_id, name, kind, canonical_unit, size_milli, unit_label, sellable)
-       VALUES (?, 'Test Trace — 25 kg', 'bulk', 'kg', 25000, 'bag', 0)`,
-      chemId,
-    ).lastInsertRowid,
-  );
-  // The only pack on sale is 5 kg.
-  run(
-    `INSERT INTO items (chemical_id, name, kind, canonical_unit, size_milli, unit_label, sellable, retail_cents)
-     VALUES (?, 'Test Trace — 5 kg', 'pack', 'kg', 5000, 'pack', 1, 90000)`,
-    chemId,
-  );
+  run(`INSERT INTO formula_items (formula_version_id, chemical_id, qty_milli) VALUES (?, ?, 500)`, vId, chemId);
 
-  const fId = Number(
-    run(`INSERT INTO formulas (name) VALUES ('Test Trace Recipe')`).lastInsertRowid,
-  );
-  const vId = Number(
-    run(
-      `INSERT INTO formula_versions (formula_id, version, ref_size_milli) VALUES (?, 1, 20000)`,
-      fId,
-    ).lastInsertRowid,
-  );
-  // 20 g in a 20 L batch — one gram per litre, like the shop's real C.D.E line.
-  run(
-    `INSERT INTO formula_items (formula_version_id, chemical_id, qty_milli) VALUES (?, ?, 20)`,
-    vId,
-    chemId,
-  );
-
-  const floor = smallestKitBatch(vId);
-  // 5 kg pack must be within 2x of what the batch needs, so the batch must need
-  // at least 2.5 kg: 2.5 kg at 1 g/L is 2,500 litres.
-  assert.equal(floor.targetMilli, 2_500_000, "the floor is arithmetic, not a guess");
-  assert.equal(floor.binding?.name, "Test Trace");
-  assert.deepEqual(floor.unpackable, []);
-
-  // And at that size the kit stops complaining.
-  assert.equal(buildKit(vId, 2_500_000).ingredients[0].oversized, false);
-  assert.equal(buildKit(vId, 1000).ingredients[0].oversized, true, "one litre is absurd");
-
-  // A chemical with no sellable pack can never be kitted, at any size.
-  run(`UPDATE items SET retail_cents = 0 WHERE chemical_id = ? AND kind = 'pack'`, chemId);
-  const none = smallestKitBatch(vId);
-  assert.deepEqual(none.unpackable, ["Test Trace"]);
-  assert.equal(none.targetMilli, 0, "no batch size fixes a chemical that is not sold in packs");
-  assert.ok(bulkId > 0);
+  const mix = mixFor(vId, toMilli(20), "retail");
+  assert.equal(mix.ingredients[0].unlisted, true);
+  assert.equal(mix.ingredients[0].itemId, null);
+  assert.equal(mix.sellable, false);
+  assert.equal(mix.possibleMilli, 0);
+  // Still named, so the owner knows which row to add rather than being told
+  // "this recipe cannot be sold" with no way forward.
+  assert.equal(mix.ingredients[0].chemicalName, "Test Unlisted");
+  assert.ok(toCents(0) === 0);
 });

@@ -146,7 +146,7 @@ export function currentVersion(formulaId: number): FormulaVersionRow | undefined
 export function versionsOf(formulaId: number): FormulaVersionWithUse[] {
   return all<FormulaVersionWithUse>(
     `SELECT v.*,
-            (SELECT COUNT(*) FROM sale_lines l WHERE l.formula_version_id = v.id)
+            (SELECT COUNT(DISTINCT l.sale_id) FROM sale_lines l WHERE l.formula_version_id = v.id)
               + (SELECT COUNT(*) FROM batches b WHERE b.formula_version_id = v.id) AS use_count
        FROM formula_versions v
       WHERE v.formula_id = ?
@@ -244,9 +244,11 @@ export interface FormulaVersionInput {
  * asked of the shop's earlier way of working.
  */
 export function salesUsingVersion(versionId: number): number {
+  // DISTINCT: a mix is billed as several lines on one sale, and "sold on three
+  // times" must mean three customers, not three chemicals.
   const lines =
     get<{ n: number }>(
-      `SELECT COUNT(*) AS n FROM sale_lines WHERE formula_version_id = ?`,
+      `SELECT COUNT(DISTINCT sale_id) AS n FROM sale_lines WHERE formula_version_id = ?`,
       versionId,
     )?.n ?? 0;
   const batches =

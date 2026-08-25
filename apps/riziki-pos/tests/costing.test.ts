@@ -1,3 +1,12 @@
+/**
+ * Costing: what a weighed sale line is worth to the shop.
+ *
+ * This used to test bottling — a batch's reagent cost plus its packaging,
+ * divided over the bottles it filled. The shop stopped mixing and bottling, so
+ * the only costing question left is the one that matters at the counter: when
+ * 250 g comes out of a drum, how much of the drum's money went with it.
+ */
+
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,40 +15,122 @@ process.env.RIZIKI_DB = join(mkdtempSync(join(tmpdir(), "cf-")), "t.db");
 import test from "node:test";
 import assert from "node:assert/strict";
 const { seed } = await import("../src/lib/seed.ts");
-const { all, get, stockOf } = await import("../src/lib/db.ts");
-const prod = await import("../src/lib/production.ts");
-const { toMilli, fromCents } = await import("../src/lib/units.ts");
+const { get, stockOf, updateAverageCost } = await import("../src/lib/db.ts");
+const { recordSale } = await import("../src/lib/sales.ts");
+const { toMilli } = await import("../src/lib/units.ts");
 
 seed();
 
-test("a bottled batch puts its cost on the bottle and eats the packaging", () => {
-  const f: any = get(`SELECT v.id vid FROM formulas f JOIN formula_versions v ON v.formula_id=f.id
-                      WHERE f.name='Laundry Soap' AND v.is_current=1`);
-  const out: any = get(`SELECT id, size_milli, cost_cents FROM items WHERE name='Laundry Soap 1 L'`);
-  assert.equal(out.cost_cents, 0, "starts with no cost");
+const OWNER = 1;
 
-  const capBefore = stockOf(get<any>(`SELECT id FROM items WHERE name='Bottle cap'`)!.id);
-  const bottleId = get<any>(`SELECT id FROM items WHERE name='1 L bottle'`)!.id;
-  const bottleBefore = stockOf(bottleId);
+interface Row {
+  id: number;
+  size_milli: number;
+  cost_cents: number;
+  retail_cents: number;
+}
 
-  const b = prod.runBatch({ formulaVersionId: f.vid, targetMilli: toMilli(100), userId: 1 });
-  const batch: any = get(`SELECT cost_cents FROM batches WHERE id=?`, b.batchId);
-  assert.ok(batch.cost_cents > 0, "batch has a reagent cost");
+function chemical(name: string): Row {
+  const row = get<Row>(
+    `SELECT i.id, i.size_milli, i.cost_cents, i.retail_cents
+       FROM items i JOIN chemicals c ON c.id = i.chemical_id
+      WHERE c.name = ? AND i.price_basis = 'unit'`,
+    name,
+  );
+  assert.ok(row, `${name} should have a unit-priced row`);
+  return row!;
+}
 
-  prod.recordYield({ batchId: b.batchId, actualMilli: toMilli(97), outputItemId: out.id, userId: 1 });
+test("a weighed line carries its share of the drum's cost, not a whole drum's", () => {
+  const ungerol = chemical("Ungerol");
+  assert.ok(ungerol.cost_cents > 0, "the seed lands a cost per drum from the delivery price");
 
-  const after: any = get(`SELECT cost_cents FROM items WHERE id=?`, out.id);
-  assert.ok(after.cost_cents > 0, "the bottle now carries a cost");
+  const { saleId } = recordSale({
+    clientUuid: "cost-weighed-1",
+    userId: OWNER,
+    tier: "retail",
+    lines: [
+      { itemId: ungerol.id, units: 1, unitPriceCents: ungerol.retail_cents, qtyMilli: toMilli(0.25) },
+    ],
+    tenders: [{ method: "cash", amountCents: Math.round((ungerol.retail_cents * 250) / 1000) }],
+  });
 
-  // 97 bottles of 1 L consumed 97 bottles, 97 caps, 97 labels
-  assert.equal(stockOf(bottleId), bottleBefore - toMilli(97), "97 bottles used");
-  assert.equal(stockOf(get<any>(`SELECT id FROM items WHERE name='Bottle cap'`)!.id),
-               capBefore - toMilli(97), "97 caps used");
+  const line = get<{ cost_cents: number; qty_milli: number; rate_cents: number }>(
+    `SELECT cost_cents, qty_milli, rate_cents FROM sale_lines WHERE sale_id = ?`,
+    saleId,
+  )!;
 
-  // cost per bottle = (reagents + packaging) / 97
-  const packCents = 97 * (2500 + 300 + 400); // 1 L bottle 25, cap 3, label 4
-  const expected = Math.round((batch.cost_cents + packCents) / 97);
-  assert.equal(after.cost_cents, expected,
-    `cost per bottle should be ${fromCents(expected)} got ${fromCents(after.cost_cents)}`);
-  console.log(`   reagents ${fromCents(batch.cost_cents)} + packaging ${fromCents(packCents)} over 97 bottles = ${fromCents(after.cost_cents)}/bottle`);
+  assert.equal(line.qty_milli, 250);
+  assert.equal(line.rate_cents, ungerol.retail_cents, "the rate is snapshotted, not the amount");
+
+  // cost_cents on the item is per ONE container. A quarter kilogram out of a
+  // 170 kg drum carries 250/170000 of it, and nothing more — booking a whole
+  // drum's cost against a 250 g sale is how a margin report turns into fiction.
+  const expected = Math.round((ungerol.cost_cents * 250) / ungerol.size_milli);
+  assert.equal(line.cost_cents, expected);
+  assert.ok(expected > 0, "and it is not rounded away to nothing");
+});
+
+test("selling by weight takes exactly that weight out of the ledger", () => {
+  const caustic = chemical("Caustic Soda");
+  const before = stockOf(caustic.id);
+
+  recordSale({
+    clientUuid: "cost-weighed-2",
+    userId: OWNER,
+    tier: "retail",
+    lines: [{ itemId: caustic.id, units: 1, unitPriceCents: caustic.retail_cents, qtyMilli: 1500 }],
+    tenders: [{ method: "cash", amountCents: Math.round((caustic.retail_cents * 1500) / 1000) }],
+  });
+
+  assert.equal(stockOf(caustic.id), before - 1500, "1.5 kg, to the gram");
+});
+
+test("a delivery moves the average cost, and the next sale is costed at the new one", () => {
+  const salt = chemical("Salt");
+  const before = salt.cost_cents;
+
+  // One more container, bought dearer. The weighted average is per container,
+  // which is what makes the fraction taken by a weighed line meaningful.
+  updateAverageCost(salt.id, 1, before * 2);
+  const after = get<Row>(`SELECT id, size_milli, cost_cents, retail_cents FROM items WHERE id = ?`, salt.id)!;
+  assert.ok(after.cost_cents > before, "buying dearer raises the average");
+
+  const { saleId } = recordSale({
+    clientUuid: "cost-weighed-3",
+    userId: OWNER,
+    tier: "retail",
+    lines: [{ itemId: salt.id, units: 1, unitPriceCents: after.retail_cents, qtyMilli: toMilli(2) }],
+    tenders: [{ method: "cash", amountCents: Math.round((after.retail_cents * 2000) / 1000) }],
+  });
+
+  const line = get<{ cost_cents: number }>(
+    `SELECT cost_cents FROM sale_lines WHERE sale_id = ?`,
+    saleId,
+  )!;
+  assert.equal(line.cost_cents, Math.round((after.cost_cents * 2000) / after.size_milli));
+});
+
+test("something sold whole still costs one container per unit", () => {
+  const jerrican = get<Row>(
+    `SELECT id, size_milli, cost_cents, retail_cents FROM items
+      WHERE kind = 'packaging' AND cost_cents > 0 ORDER BY id LIMIT 1`,
+  )!;
+  assert.ok(jerrican, "the seed stocks containers");
+
+  const { saleId } = recordSale({
+    clientUuid: "cost-whole-1",
+    userId: OWNER,
+    tier: "retail",
+    lines: [{ itemId: jerrican.id, units: 3, unitPriceCents: jerrican.retail_cents }],
+    tenders: [{ method: "cash", amountCents: jerrican.retail_cents * 3 }],
+  });
+
+  const line = get<{ cost_cents: number; rate_cents: number; units: number }>(
+    `SELECT cost_cents, rate_cents, units FROM sale_lines WHERE sale_id = ?`,
+    saleId,
+  )!;
+  assert.equal(line.units, 3);
+  assert.equal(line.rate_cents, 0, "nothing was weighed, so there is no rate to snapshot");
+  assert.equal(line.cost_cents, jerrican.cost_cents * 3);
 });

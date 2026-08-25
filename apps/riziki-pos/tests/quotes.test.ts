@@ -107,8 +107,12 @@ test("editing a quote replaces its lines rather than adding to them", () => {
 
   const lines = quoteLines(quoteId);
   assert.equal(lines.length, 1, "the old line must not survive alongside the new one");
-  assert.equal(lines[0].units, 3);
+  // A chemical is quoted as a quantity, so "3" is three kilograms and the line
+  // is one scoop of it — the same shape the sale will take.
+  assert.equal(lines[0].qty_milli, 3_000);
+  assert.equal(lines[0].units, 1);
   assert.equal(lines[0].unit_price_cents, 9_000);
+  assert.equal(lines[0].rate_cents, 9_000, "9,000 cents a kilogram");
   assert.equal(getQuote(quoteId)!.quote_no.startsWith("QT-"), true, "the number is kept on edit");
 });
 

@@ -13,8 +13,15 @@ seed();
 
 const OWNER = 1;
 
+/** Something sold whole — a jerrican — as opposed to a chemical sold by weight. */
+function wholeItem() {
+  const item = cat.listPackaging()[0];
+  assert.ok(item, "the seed stocks containers");
+  return item;
+}
+
 test("updatePricing: writes prices and converts the reorder level from units to milli", () => {
-  const item = cat.listFinished()[0];
+  const item = wholeItem();
   cat.updatePricing({
     itemId: item.id,
     retail: 250,
@@ -27,12 +34,37 @@ test("updatePricing: writes prices and converts the reorder level from units to 
   assert.equal(after.retail_cents, 25000);
   assert.equal(after.wholesale_cents, 22000);
   assert.equal(after.floor_cents, 20000);
-  // 12 bottles of size_milli each, stored in milli.
+  // 12 jerricans of size_milli each, stored in milli.
   assert.equal(after.reorder_level_milli, 12 * item.size_milli);
 });
 
+test("updatePricing: a chemical's reorder level is counted in kilograms, not containers", () => {
+  /*
+    The two bases part company here. "Warn me at 12" against a jerrican means
+    twelve jerricans; against Ungerol it means twelve kilograms, because there
+    is no such thing as a countable number of half-empty drums once the shop
+    weighs out of them.
+  */
+  const ungerol = cat.listChemicals().find((c) => c.name === "Ungerol")!;
+  const bulk = ungerol.items.find((i) => i.kind === "bulk")!;
+  assert.equal(bulk.price_basis, "unit");
+
+  cat.updatePricing({
+    itemId: bulk.id,
+    retail: 50,
+    wholesale: 45,
+    floor: 40,
+    reorderUnits: 60,
+    byUserId: OWNER,
+  });
+
+  const after = cat.getItem(bulk.id)!;
+  assert.equal(after.retail_cents, 5000, "KES 50 a kilogram");
+  assert.equal(after.reorder_level_milli, 60_000, "60 kg, not 60 drums");
+});
+
 test("updatePricing: refuses a floor above the retail price", () => {
-  const item = cat.listFinished()[0];
+  const item = wholeItem();
   assert.throws(
     () =>
       cat.updatePricing({
@@ -48,7 +80,7 @@ test("updatePricing: refuses a floor above the retail price", () => {
 });
 
 test("updatePricing: never touches cost", () => {
-  const item = cat.listFinished().find((i) => i.cost_cents > 0) ?? cat.listFinished()[0];
+  const item = cat.listPackaging().find((i) => i.cost_cents > 0) ?? wholeItem();
   const before = cat.getItem(item.id)!.cost_cents;
   cat.updatePricing({
     itemId: item.id,
@@ -109,29 +141,31 @@ test("createFinished: rejects an empty name", () => {
   );
 });
 
-test("createChemical: creates the chemical plus a non-sellable bulk row and sellable packs", () => {
+test("createChemical: one sellable row, priced per kilogram", () => {
   const chemId = cat.createChemical({
     name: "Test Surfactant",
     unit: "kg",
     aliases: "tsf,test",
     bulkSizeValue: 200,
     bulkLabel: "drum",
-    packSizes: [{ value: 20, unit: "kg" }, { value: 1, unit: "kg" }, { value: 500, unit: "g" }],
+    ratePerUnit: 90,
     byUserId: OWNER,
   });
 
-  const chems = cat.listChemicals();
-  const chem = chems.find((c) => c.id === chemId)!;
+  const chem = cat.listChemicals().find((c) => c.id === chemId)!;
   assert.ok(chem, "chemical is listed");
 
-  const bulk = chem.items.find((i) => i.kind === "bulk")!;
-  assert.equal(bulk.sellable, 0, "bulk drum is not sold whole over the counter");
-  assert.equal(bulk.cost_cents, 0);
-  assert.equal(bulk.size_milli, 200_000);
+  // One row. It used to be a bulk row plus one per resale size, and those pack
+  // rows are the whole of what this change deleted.
+  assert.equal(chem.items.length, 1);
 
-  const packs = chem.items.filter((i) => i.kind === "pack");
-  assert.equal(packs.length, 3);
-  assert.ok(packs.every((p) => p.sellable === 1 && p.cost_cents === 0));
+  const bulk = chem.items[0];
+  assert.equal(bulk.kind, "bulk");
+  assert.equal(bulk.price_basis, "unit");
+  assert.equal(bulk.sellable, 1, "the counter weighs out of the drum");
+  assert.equal(bulk.retail_cents, 9000, "KES 90 a kilogram");
+  assert.equal(bulk.cost_cents, 0, "cost arrives with the first delivery, never typed");
+  assert.equal(bulk.size_milli, 200_000, "the container is still 200 kg");
 
   assert.throws(
     () =>
@@ -141,67 +175,26 @@ test("createChemical: creates the chemical plus a non-sellable bulk row and sell
         aliases: "",
         bulkSizeValue: 200,
         bulkLabel: "drum",
-        packSizes: [],
         byUserId: OWNER,
       }),
     /already in the list/i,
   );
 });
 
-test("addPackSize: adds a new size and refuses a duplicate", () => {
+test("createChemical: a chemical with no price yet is listed, not sold", () => {
   const chemId = cat.createChemical({
-    name: "Test Thickener",
-    unit: "kg",
-    aliases: "",
-    bulkSizeValue: 25,
-    bulkLabel: "bag",
-    packSizes: [{ value: 1, unit: "kg" }],
-    byUserId: OWNER,
-  });
-
-  // Typed the way the label reads — "500 g", not "0.5 kg".
-  const id = cat.addPackSize(chemId, 500, "g", OWNER);
-  const item = cat.getItem(id)!;
-  assert.equal(item.kind, "pack");
-  assert.equal(item.size_milli, 500);
-  assert.equal(item.name, "Test Thickener — 500 g");
-
-  assert.throws(() => cat.addPackSize(chemId, 500, "g", OWNER), /already has a 500 g pack/i);
-  // The same size said a different way is still the same size.
-  assert.throws(() => cat.addPackSize(chemId, 0.5, "kg", OWNER), /already has a 500 g pack/i);
-  assert.throws(() => cat.addPackSize(chemId, 1, "kg", OWNER), /already has a 1 kg pack/i);
-});
-
-test("addPackSize: a size cannot be given in a unit the chemical is not measured in", () => {
-  const chemId = cat.createChemical({
-    name: "Test Liquid Base",
+    name: "Test Unpriced Base",
     unit: "L",
     aliases: "",
     bulkSizeValue: 200,
     bulkLabel: "drum",
-    packSizes: [],
     byUserId: OWNER,
   });
-
-  // Litres and millilitres are fine; kilograms are not the same substance measure.
-  assert.equal(cat.getItem(cat.addPackSize(chemId, 500, "ml", OWNER))!.size_milli, 500);
-  assert.equal(cat.getItem(cat.addPackSize(chemId, 5, "L", OWNER))!.size_milli, 5000);
-  assert.throws(() => cat.addPackSize(chemId, 1, "kg", OWNER), /measured in L/i);
-  assert.throws(() => cat.addPackSize(chemId, 0, "ml", OWNER), /more than zero/i);
-});
-
-test("addPackSize: labels a whole-unit pack in the canonical unit", () => {
-  const chemId = cat.createChemical({
-    name: "Test Builder",
-    unit: "kg",
-    aliases: "",
-    bulkSizeValue: 50,
-    bulkLabel: "bag",
-    packSizes: [],
-    byUserId: OWNER,
-  });
-  const id = cat.addPackSize(chemId, 2, "kg", OWNER);
-  assert.equal(cat.getItem(id)!.name, "Test Builder — 2 kg");
+  const bulk = cat.listChemicals().find((c) => c.id === chemId)!.items[0];
+  assert.equal(bulk.retail_cents, 0);
+  // Sellable, but at zero — the counter renders that as "No price set" rather
+  // than as free. Refusing to create it would strand a delivery nobody can book.
+  assert.equal(bulk.sellable, 1);
 });
 
 test("setItemActive: retires and restores an item", () => {

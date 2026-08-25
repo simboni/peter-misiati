@@ -400,6 +400,7 @@ test("a receipt built from a sale uses the snapshotted line values only", () => 
         qty_milli: 40000,
         unit_price_cents: 350000,
         line_total_cents: 700000,
+        rate_cents: 0,
         canonical_unit: "kg",
       },
     ],
@@ -416,6 +417,31 @@ test("a receipt built from a sale uses the snapshotted line values only", () => 
   assert.equal(receipt.lines[0].lineTotalCents, 700000);
   assert.equal(receipt.lines[0].qty, "40 kg");
   assert.equal(receipt.tenders[0].label, "Cash");
+
+  // The same invoice, weighed: 400 g of caustic at 133 a kilo. The detail line
+  // has to say what the customer got and what a kilogram cost, because "1 x
+  // 53.20" states a quantity of one and hides both.
+  const weighed = settings.receiptFromInvoice(
+    {
+      ...invoice,
+      lines: [
+        {
+          id: 2,
+          name_snapshot: "Caustic Soda",
+          units: 1,
+          qty_milli: 400,
+          unit_price_cents: 5320,
+          line_total_cents: 5320,
+          rate_cents: 13300,
+          canonical_unit: "kg",
+        },
+      ],
+    },
+    settings.getPrintSettings(),
+  );
+  const weighedText = receiptText(weighed, { paper: 58 });
+  assert.match(weighedText, /400 g x 133\/kg\s+53\.20/);
+  assert.ok(!weighedText.includes("1 x 53.20"), "a weighed line never prints a count of one");
 
   const text = receiptText(receipt, { paper: 58 });
   assert.ok(text.includes("BALANCE DUE"));

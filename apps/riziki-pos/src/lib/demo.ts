@@ -123,9 +123,15 @@ export function tradingCounts(): Record<string, number> {
  * half way leaves a smaller demo shop rather than none, which is recoverable.
  */
 export function loadDemoData(userId: number): DemoSummary {
-  const items = all<{ id: number; size_milli: number; retail_cents: number; kind: string }>(
-    `SELECT id, size_milli, retail_cents, kind FROM items WHERE active = 1 AND sellable = 1
-      AND retail_cents > 0 ORDER BY id`,
+  const items = all<{
+    id: number;
+    size_milli: number;
+    retail_cents: number;
+    kind: string;
+    price_basis: "pack" | "unit";
+  }>(
+    `SELECT id, size_milli, retail_cents, kind, price_basis
+       FROM items WHERE active = 1 AND sellable = 1 AND retail_cents > 0 ORDER BY id`,
   );
   if (items.length < 3) {
     throw new DemoError(
@@ -175,7 +181,13 @@ export function loadDemoData(userId: number): DemoSummary {
     Bulk drums arrive by the handful, packs and bottles by the dozen: buying
     thirty 250 kg drums of LABSA would be six tonnes, which is not this shop.
   */
-  const stockUnits = new Map<number, number>();
+  /*
+    Tracked in milli rather than in containers, because that is what the shop
+    now sells in. A chemical arrives as three drums and leaves as a kilogram at
+    a time, so the only number that keeps the two sides of this honest is the
+    quantity itself.
+  */
+  const stockMilli = new Map<number, number>();
   const deliveries = 6;
   const batches: Array<Array<{ itemId: number; units: number; costCents: number }>> = Array.from(
     { length: deliveries },
@@ -185,10 +197,16 @@ export function loadDemoData(userId: number): DemoSummary {
   shuffled(items, rnd).forEach((it, i) => {
     const bulk = it.kind === "bulk";
     const units = bulk ? 3 + Math.floor(rnd() * 5) : 18 + Math.floor(rnd() * 30);
-    // Buy at roughly 55-75% of the shelf price, which is where this trade sits.
-    const unitCost = Math.max(1, Math.round(it.retail_cents * (0.55 + rnd() * 0.2)));
+    /*
+      Cost is per container, and for a weighed chemical the shelf price is per
+      kilogram — so a 170 kg drum bought at "55-75% of the shelf price" has to
+      be 170 times that, not once. Getting this wrong made every chemical look
+      like it sold at a four-hundred-fold margin.
+    */
+    const perUnit = it.price_basis === "unit" ? (it.retail_cents * it.size_milli) / 1000 : it.retail_cents;
+    const unitCost = Math.max(1, Math.round(perUnit * (0.55 + rnd() * 0.2)));
     batches[i % deliveries].push({ itemId: it.id, units, costCents: unitCost * units });
-    stockUnits.set(it.id, (stockUnits.get(it.id) ?? 0) + units);
+    stockMilli.set(it.id, (stockMilli.get(it.id) ?? 0) + units * it.size_milli);
   });
 
   batches.forEach((lines, i) => {
@@ -213,19 +231,45 @@ export function loadDemoData(userId: number): DemoSummary {
     // Roughly a third of what arrived is sold over the month, which leaves the
     // Stock screen with a believable mix of full, low and reorder-level rows.
     const wanted = 1 + Math.floor(rnd() * 3);
-    const lines: Array<{ itemId: number; units: number; unitPriceCents: number }> = [];
+    const lines: Array<{
+      itemId: number;
+      units: number;
+      qtyMilli?: number;
+      unitPriceCents: number;
+    }> = [];
     for (const it of shuffled(items, rnd)) {
       if (lines.length >= wanted) break;
-      const left = stockUnits.get(it.id) ?? 0;
+      const left = stockMilli.get(it.id) ?? 0;
       if (left <= 0) continue;
-      const cap = Math.min(left, wholesale ? 14 : 3);
+
+      if (it.price_basis === "unit") {
+        // A weighed sale: whole and half kilos, capped at what is in the store.
+        const maxKg = Math.min(Math.floor(left / 1000), wholesale ? 40 : 5);
+        if (maxKg < 1) continue;
+        const qtyMilli = (1 + Math.floor(rnd() * maxKg)) * 500;
+        if (qtyMilli > left) continue;
+        stockMilli.set(it.id, left - qtyMilli);
+        lines.push({ itemId: it.id, units: 1, qtyMilli, unitPriceCents: it.retail_cents });
+        continue;
+      }
+
+      const leftUnits = Math.floor(left / it.size_milli);
+      if (leftUnits <= 0) continue;
+      const cap = Math.min(leftUnits, wholesale ? 14 : 3);
       const units = 1 + Math.floor(rnd() * cap);
-      stockUnits.set(it.id, left - units);
+      stockMilli.set(it.id, left - units * it.size_milli);
       lines.push({ itemId: it.id, units, unitPriceCents: it.retail_cents });
     }
     if (!lines.length) continue;
 
-    const total = lines.reduce((t, l) => t + l.units * l.unitPriceCents, 0);
+    const total = lines.reduce(
+      (t, l) =>
+        t +
+        (l.qtyMilli
+          ? Math.round((l.unitPriceCents * l.qtyMilli) / 1000)
+          : l.units * l.unitPriceCents),
+      0,
+    );
 
     // Most walk-ins pay in full; wholesale often part-pays and leaves a balance,
     // which is what makes the debtors and invoice screens worth looking at.

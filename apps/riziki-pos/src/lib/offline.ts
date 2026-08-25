@@ -186,13 +186,20 @@ export function parseQueuedSale(value: unknown): QueuedSalePayload {
     if (l.formulaVersionId !== undefined && l.formulaVersionId !== null && !isCount(l.formulaVersionId)) {
       throw new OutboxError("bad_request", "A queued line names an unreadable recipe.");
     }
-    return {
+    // Built up rather than spelled out, so a line that carried neither field
+    // comes back the shape it went in as. A queued sale is compared with what
+    // was stored on the device to decide whether it is safe to drop, and
+    // `{ qtyMilli: undefined }` is not the same object as one without the key.
+    const parsed: QueuedLine = {
       itemId: l.itemId,
       units: l.units,
       unitPriceCents: l.unitPriceCents,
-      qtyMilli: l.qtyMilli as number | undefined,
-      formulaVersionId: (l.formulaVersionId ?? null) as number | null,
     };
+    if (l.qtyMilli !== undefined) parsed.qtyMilli = l.qtyMilli;
+    if (l.formulaVersionId !== undefined && l.formulaVersionId !== null) {
+      parsed.formulaVersionId = l.formulaVersionId;
+    }
+    return parsed;
   });
 
   if (!Array.isArray(raw.tenders) || raw.tenders.length > 8) {

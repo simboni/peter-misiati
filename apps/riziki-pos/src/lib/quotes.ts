@@ -165,6 +165,42 @@ export function quoteLines(quoteId: number): QuoteLineRow[] {
   );
 }
 
+/**
+ * The shape a line actually takes, decided by the item rather than the caller.
+ *
+ * A form that sent a container count for something sold by the kilogram would
+ * otherwise quote a price the sale could never charge. Where no quantity came
+ * with the line, the count is read as the quantity — "3" of Ungerol means three
+ * kilograms, which is what anybody saying it means.
+ */
+function normaliseLine(line: QuoteLineInput): {
+  units: number;
+  unitPriceCents: number;
+  qtyMilli: number;
+  rateCents: number;
+} {
+  const item = get<{ price_basis: "pack" | "unit" }>(
+    `SELECT price_basis FROM items WHERE id = ?`,
+    line.itemId,
+  );
+  const price = Math.max(0, Math.trunc(line.unitPriceCents));
+
+  if (item?.price_basis !== "unit") {
+    return {
+      units: Math.max(1, Math.trunc(line.units)),
+      unitPriceCents: price,
+      qtyMilli: 0,
+      rateCents: 0,
+    };
+  }
+  return {
+    units: 1,
+    unitPriceCents: price,
+    qtyMilli: Math.max(1, Math.trunc(line.qtyMilli ?? Math.trunc(line.units) * 1000)),
+    rateCents: price,
+  };
+}
+
 export interface SaveQuoteInput {
   quoteId?: number;
   customerId: number | null;
@@ -232,28 +268,16 @@ export function saveQuote(input: SaveQuoteInput): { quoteId: number; quoteNo: st
 
     let order = 0;
     for (const line of lines) {
-      // The item decides the shape of the line, not the caller. A form that
-      // sent a container count for something sold by the kilogram would
-      // otherwise quote a price the sale could never charge.
-      const item = get<{ price_basis: "pack" | "unit"; size_milli: number }>(
-        `SELECT price_basis, size_milli FROM items WHERE id = ?`,
-        line.itemId,
-      );
-      const weighed = item?.price_basis === "unit";
-      const price = Math.max(0, Math.trunc(line.unitPriceCents));
-      const qtyMilli = weighed
-        ? Math.max(1, Math.trunc(line.qtyMilli ?? Math.trunc(line.units) * 1000))
-        : 0;
-
+      const n = normaliseLine(line);
       run(
         `INSERT INTO quote_lines (quote_id, item_id, units, unit_price_cents, qty_milli, rate_cents, sort_order)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
         quoteId,
         line.itemId,
-        weighed ? 1 : Math.max(1, Math.trunc(line.units)),
-        price,
-        qtyMilli,
-        weighed ? price : 0,
+        n.units,
+        n.unitPriceCents,
+        n.qtyMilli,
+        n.rateCents,
         order++,
       );
     }
@@ -418,14 +442,10 @@ export function invoiceDirect(input: DirectInvoiceInput): RecordSaleResult {
 
   // An estimate only, to decide what "the whole bill on account" means when no
   // tender was named. `recordSale` recomputes every line from the item itself.
-  const total = lines.reduce(
-    (s, l) =>
-      s +
-      (l.qtyMilli
-        ? Math.round((l.unitPriceCents * l.qtyMilli) / 1000)
-        : l.units * l.unitPriceCents),
-    0,
-  );
+  const total = lines.reduce((s, l) => {
+    const n = normaliseLine(l);
+    return s + (n.rateCents > 0 ? Math.round((n.rateCents * n.qtyMilli) / 1000) : n.units * n.unitPriceCents);
+  }, 0);
   const tenders =
     input.tenders && input.tenders.length
       ? input.tenders
@@ -440,12 +460,15 @@ export function invoiceDirect(input: DirectInvoiceInput): RecordSaleResult {
     // Same reasoning as invoicing a quote: a wholesale price is negotiated, and
     // the person raising the invoice is the person agreeing it.
     floorOverrideBy: input.userId,
-    lines: lines.map((l) => ({
-      itemId: l.itemId,
-      units: l.units,
-      unitPriceCents: l.unitPriceCents,
-      qtyMilli: l.qtyMilli,
-    })),
+    lines: lines.map((l) => {
+      const n = normaliseLine(l);
+      return {
+        itemId: l.itemId,
+        units: n.units,
+        unitPriceCents: n.unitPriceCents,
+        qtyMilli: n.qtyMilli || undefined,
+      };
+    }),
     tenders: tenders.map((t) => ({
       method: t.method,
       amountCents: t.amountCents,
