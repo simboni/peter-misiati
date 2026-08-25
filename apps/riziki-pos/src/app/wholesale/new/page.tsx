@@ -20,6 +20,32 @@ import Builder, { type SaveResult } from "./builder";
 export const dynamic = "force-dynamic";
 
 /**
+ * What a draft line comes to, before anything is written.
+ *
+ * Only ever used to decide two things — whether this bill is going to leave
+ * money on account, and how much "the whole bill on credit" means. The money
+ * that is actually charged is worked out from the items themselves, inside
+ * `recordSale`, which is the only place allowed to price anything.
+ *
+ * A line carries either a quantity of substance or a count of containers, and
+ * `qtyMilli` is set only for the first; that is what tells them apart here.
+ *
+ * Declared out here, not inside the page, and it has to stay out here. An
+ * inline "use server" action carries its closure across the wire, and a
+ * function cannot be serialised — so a helper declared beside the action and
+ * called by it takes the whole action down with it. The message Next gives is
+ * "Functions cannot be passed directly to Client Components", which points at
+ * the props rather than at the closure, and the screen shows an error digest
+ * with no message at all. Saving a quote failed this way and said nothing
+ * useful about why.
+ */
+function draftCents(l: { units: number; unitPriceCents: number; qtyMilli: number }): number {
+  return l.qtyMilli > 0
+    ? Math.round((l.unitPriceCents * l.qtyMilli) / 1000)
+    : l.units * l.unitPriceCents;
+}
+
+/**
  * Raise a quote, or raise an invoice — the same screen, told which by `mode`.
  *
  * `from` pre-fills it from an approved quote, which is how converting works:
@@ -87,23 +113,6 @@ export default async function NewWholesalePage(props: {
 
   const source = fromQuoteId ? getQuote(fromQuoteId) : undefined;
   const sourceLines = source ? quoteLines(source.id) : [];
-
-  /**
-   * What a draft line comes to, before anything is written.
-   *
-   * Only ever used to decide two things — whether this bill is going to leave
-   * money on account, and how much "the whole bill on credit" means. The money
-   * that is actually charged is worked out from the items themselves, inside
-   * `recordSale`, which is the only place allowed to price anything.
-   *
-   * A line carries either a quantity of substance or a count of containers, and
-   * `qtyMilli` is set only for the first; that is what tells them apart here.
-   */
-  function draftCents(l: { units: number; unitPriceCents: number; qtyMilli: number }): number {
-    return l.qtyMilli > 0
-      ? Math.round((l.unitPriceCents * l.qtyMilli) / 1000)
-      : l.units * l.unitPriceCents;
-  }
 
   /**
    * Keep a price agreed on an invoice as the shop's price from now on.
