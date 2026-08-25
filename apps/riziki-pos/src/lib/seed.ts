@@ -10,6 +10,11 @@
  *
  * Quantities marked TO CONFIRM are the gaps we found while transcribing; they are
  * carried into the formula note so the shop can settle them on screen.
+ *
+ * The sheet counts each chemical in several pack sizes because that is how it
+ * was kept. They all land on one row here, added up in kilograms: the shop
+ * weighs out of the container now, so a kilogram of Ungerol is a kilogram of
+ * Ungerol whichever bag it came out of.
  */
 
 import { db, run, get, postMovement, audit } from "./db.ts";
@@ -27,8 +32,6 @@ interface ChemSpec {
   /** bulk container size in canonical units, e.g. 170 for a 170 kg drum */
   bulk?: number;
   bulkLabel?: string;
-  /** repack sizes offered for resale */
-  packs?: number[];
   /** cost per ONE bulk unit, KES */
   bulkCost?: number;
 }
@@ -37,82 +40,82 @@ interface ChemSpec {
 
 const CHEMICALS: ChemSpec[] = [
   { key: "ungerol", name: "Ungerol", unit: "kg", aliases: "sles,sodium lauryl ether sulfate,texapon",
-    bulk: 170, bulkLabel: "drum", packs: [20, 5, 1, 0.5, 0.25], bulkCost: 64600 },
+    bulk: 170, bulkLabel: "drum", bulkCost: 64600 },
   { key: "ufacid", name: "Ufacid", unit: "kg", aliases: "labsa,sulphonic,sulphonic acid",
-    bulk: 250, bulkLabel: "drum", packs: [20, 5, 4, 0.5, 0.25, 0.125], bulkCost: 87500 },
+    bulk: 250, bulkLabel: "drum", bulkCost: 87500 },
   { key: "salt", name: "Salt", unit: "kg", aliases: "industrial salt,sodium chloride",
-    bulk: 50, bulkLabel: "bag", packs: [1, 0.5, 0.25], bulkCost: 3000 },
+    bulk: 50, bulkLabel: "bag", bulkCost: 3000 },
   { key: "finesalt", name: "Finesalt", unit: "kg", aliases: "fine salt",
-    bulk: 50, bulkLabel: "bag", packs: [1], bulkCost: 4000 },
+    bulk: 50, bulkLabel: "bag", bulkCost: 4000 },
   { key: "hcl", name: "H.C.L", unit: "kg", aliases: "hydrochloric acid,hydrochloric",
-    bulk: 40, bulkLabel: "drum", packs: [1, 0.5, 0.25], bulkCost: 7200 },
+    bulk: 40, bulkLabel: "drum", bulkCost: 7200 },
   { key: "hypo", name: "Hypo", unit: "L", aliases: "sodium hypochlorite,hpo,bleach concentrate",
-    bulk: 23, bulkLabel: "drum", packs: [5, 1], bulkCost: 2760, perishable: true },
+    bulk: 23, bulkLabel: "drum", bulkCost: 2760, perishable: true },
   { key: "chlorine", name: "Chlorine", unit: "kg", aliases: "calcium hypochlorite",
-    bulk: 45, bulkLabel: "drum", packs: [20, 1], bulkCost: 13500, perishable: true },
+    bulk: 45, bulkLabel: "drum", bulkCost: 13500, perishable: true },
   { key: "caustic", name: "Caustic Soda", unit: "kg", aliases: "sodium hydroxide,caustic,caustic pearls",
-    bulk: 25, bulkLabel: "bag", packs: [1], bulkCost: 3750 },
+    bulk: 25, bulkLabel: "bag", bulkCost: 3750 },
   { key: "magadi", name: "Magadi", unit: "kg", aliases: "soda ash,sodium carbonate",
-    bulk: 50, bulkLabel: "bag", packs: [1], bulkCost: 5000 },
+    bulk: 50, bulkLabel: "bag", bulkCost: 5000 },
   { key: "np9", name: "NP9", unit: "kg", aliases: "nonylphenol",
-    bulk: 20, bulkLabel: "drum", packs: [5], bulkCost: 11000 },
+    bulk: 20, bulkLabel: "drum", bulkCost: 11000 },
   { key: "cde", name: "C.D.E", unit: "kg", aliases: "cdea,cocamide dea,foam booster",
-    bulk: 20, bulkLabel: "drum", packs: [5], bulkCost: 10400 },
+    bulk: 20, bulkLabel: "drum", bulkCost: 10400 },
   // Confirmed by the owner: DOD is BAC 50 (benzalkonium chloride 50%), the
   // germicide in the disinfectant. "DOD gen" is the shop's short form.
   { key: "dod", name: "DOD", unit: "kg", aliases: "bac 50,benzalkonium chloride,dod gen,germicide",
-    bulk: 20, bulkLabel: "drum", packs: [5, 1], bulkCost: 8000 },
+    bulk: 20, bulkLabel: "drum", bulkCost: 8000 },
   { key: "cmc", name: "C.M.C", unit: "kg", aliases: "carboxymethyl cellulose,thickener",
-    bulk: 25, bulkLabel: "bag", packs: [1], bulkCost: 15000 },
+    bulk: 25, bulkLabel: "bag", bulkCost: 15000 },
   // For the thickened toilet-cleaner method — C.M.C would not survive the acid.
   // No cost on file yet; the weighted average arrives with the first purchase.
   { key: "acidthick", name: "Acid Thickener", unit: "kg", aliases: "acid thickner,thickener for acid",
-    bulk: 25, bulkLabel: "bag", packs: [1] },
+    bulk: 25, bulkLabel: "bag" },
   { key: "stpp", name: "S.T.P.P", unit: "kg", aliases: "sodium tripolyphosphate",
-    bulk: 25, bulkLabel: "bag", packs: [1], bulkCost: 10500 },
+    bulk: 25, bulkLabel: "bag", bulkCost: 10500 },
   { key: "simet", name: "Simet", unit: "kg", aliases: "simel,sodium metasilicate",
-    bulk: 25, bulkLabel: "bag", packs: [1], bulkCost: 10000 },
+    bulk: 25, bulkLabel: "bag", bulkCost: 10000 },
   { key: "cbase", name: "Conditioner Base", unit: "kg", aliases: "c.base,c base,conditioner",
-    bulk: 25, bulkLabel: "bag", packs: [1], bulkCost: 11250 },
+    bulk: 25, bulkLabel: "bag", bulkCost: 11250 },
   { key: "peroxide", name: "Peroxide", unit: "kg", aliases: "perocide,hydrogen peroxide",
-    bulk: 30, bulkLabel: "drum", packs: [5], bulkCost: 7500, perishable: true },
+    bulk: 30, bulkLabel: "drum", bulkCost: 7500, perishable: true },
   { key: "whiteoil", name: "White Oil", unit: "L", aliases: "white oll,mineral oil",
-    bulk: 20, bulkLabel: "drum", packs: [5], bulkCost: 9000 },
+    bulk: 20, bulkLabel: "drum", bulkCost: 9000 },
   { key: "ipa", name: "I.P.A", unit: "L", aliases: "isopropyl alcohol,isopropanol",
-    bulk: 20, bulkLabel: "drum", packs: [5], bulkCost: 12000 },
+    bulk: 20, bulkLabel: "drum", bulkCost: 12000 },
   { key: "blue", name: "Blue Colour", unit: "kg", aliases: "colour blue,acid blue",
-    bulk: 1, bulkLabel: "tub", packs: [], bulkCost: 1800 },
+    bulk: 1, bulkLabel: "tub", bulkCost: 1800 },
   { key: "green", name: "Green Colour", unit: "kg", aliases: "colour green",
-    bulk: 1, bulkLabel: "tub", packs: [], bulkCost: 1800 },
+    bulk: 1, bulkLabel: "tub", bulkCost: 1800 },
   { key: "brown", name: "Brown Colour", unit: "kg", aliases: "colour brown",
-    bulk: 1, bulkLabel: "tub", packs: [], bulkCost: 1500 },
+    bulk: 1, bulkLabel: "tub", bulkCost: 1500 },
   { key: "colour", name: "Colour (assorted)", unit: "kg", aliases: "dye,cotour",
-    bulk: 1, bulkLabel: "tub", packs: [], bulkCost: 1800 },
+    bulk: 1, bulkLabel: "tub", bulkCost: 1800 },
   // Formula-sheet chemicals not itemised on the stock sheet
   { key: "glycerine", name: "Glycerine", unit: "kg", aliases: "glycerin,glycerol",
-    bulk: 25, bulkLabel: "drum", packs: [1], bulkCost: 8750 },
+    bulk: 25, bulkLabel: "drum", bulkCost: 8750 },
   { key: "pearlizer", name: "Pearlizer", unit: "kg", aliases: "peariizer,pearliser",
-    bulk: 20, bulkLabel: "drum", packs: [1], bulkCost: 8000 },
+    bulk: 20, bulkLabel: "drum", bulkCost: 8000 },
   { key: "citric", name: "Citric Acid", unit: "kg", aliases: "citric",
-    bulk: 25, bulkLabel: "bag", packs: [1], bulkCost: 11250 },
+    bulk: 25, bulkLabel: "bag", bulkCost: 11250 },
   { key: "edta", name: "EDTA", unit: "kg", aliases: "",
-    bulk: 25, bulkLabel: "bag", packs: [1], bulkCost: 17500 },
+    bulk: 25, bulkLabel: "bag", bulkCost: 17500 },
   { key: "sodiumg", name: "Sodium G", unit: "kg", aliases: "sodium gluconate",
-    bulk: 25, bulkLabel: "bag", packs: [1], bulkCost: 12500 },
+    bulk: 25, bulkLabel: "bag", bulkCost: 12500 },
   { key: "optical", name: "Optical Brightener", unit: "kg", aliases: "optical.b,optical b,brightener",
-    bulk: 20, bulkLabel: "bag", packs: [1], bulkCost: 18000 },
+    bulk: 20, bulkLabel: "bag", bulkCost: 18000 },
   { key: "cma", name: "C.M.A", unit: "kg", aliases: "cma",
-    bulk: 25, bulkLabel: "bag", packs: [1], bulkCost: 7500 },
+    bulk: 25, bulkLabel: "bag", bulkCost: 7500 },
   { key: "gbase", name: "G. Base", unit: "kg", aliases: "g base,softener base",
-    bulk: 25, bulkLabel: "drum", packs: [1], bulkCost: 11250 },
+    bulk: 25, bulkLabel: "drum", bulkCost: 11250 },
   { key: "flares", name: "Flares", unit: "kg", aliases: "softener flares",
-    bulk: 25, bulkLabel: "bag", packs: [1], bulkCost: 8750 },
+    bulk: 25, bulkLabel: "bag", bulkCost: 8750 },
   { key: "bg", name: "B.G", unit: "L", aliases: "b g,bg",
-    bulk: 20, bulkLabel: "drum", packs: [1], bulkCost: 7000 },
+    bulk: 20, bulkLabel: "drum", bulkCost: 7000 },
   { key: "pineoil", name: "Pine Oil", unit: "pcs", aliases: "pine,pine/purple",
-    bulk: 1, bulkLabel: "bottle", packs: [], bulkCost: 200 },
+    bulk: 1, bulkLabel: "bottle", bulkCost: 200 },
   { key: "perfume", name: "Perfume", unit: "pcs", aliases: "p.b,perfume bottle,fragrance",
-    bulk: 1, bulkLabel: "bottle", packs: [], bulkCost: 150 },
+    bulk: 1, bulkLabel: "bottle", bulkCost: 150 },
 ];
 
 // Closing stock from the client's stock-take sheet, in UNITS of each size.
@@ -254,23 +257,7 @@ const FORMULAS: FormulaSpec[] = [
 ];
 
 // Finished products bottled from the formulas above.
-const FINISHED: Array<{ name: string; unit: Unit; size: number; label: string; retail: number; wholesale: number }> = [
-  { name: "Multipurpose 1 L", unit: "L", size: 1, label: "bottle", retail: 100, wholesale: 80 },
-  { name: "Multipurpose 5 L", unit: "L", size: 5, label: "jerrican", retail: 450, wholesale: 380 },
-  { name: "Shower Gel 500 ml", unit: "L", size: 0.5, label: "bottle", retail: 250, wholesale: 200 },
-  { name: "Shampoo 500 ml", unit: "L", size: 0.5, label: "bottle", retail: 200, wholesale: 160 },
-  { name: "Handwash 500 ml", unit: "L", size: 0.5, label: "bottle", retail: 150, wholesale: 110 },
-  { name: "Laundry Soap 1 L", unit: "L", size: 1, label: "bottle", retail: 120, wholesale: 90 },
-  { name: "Laundry Soap 5 L", unit: "L", size: 5, label: "jerrican", retail: 500, wholesale: 420 },
-  { name: "Toilet Cleaner 500 ml", unit: "L", size: 0.5, label: "bottle", retail: 180, wholesale: 140 },
-  { name: "Dettol-type 500 ml", unit: "L", size: 0.5, label: "bottle", retail: 220, wholesale: 180 },
-  { name: "Jik 1 L", unit: "L", size: 1, label: "bottle", retail: 130, wholesale: 100 },
-  { name: "Fabric Softener 1 L", unit: "L", size: 1, label: "bottle", retail: 250, wholesale: 200 },
-  { name: "Degreaser 1 L", unit: "L", size: 1, label: "bottle", retail: 200, wholesale: 160 },
-  { name: "Carwash Shampoo 1 L", unit: "L", size: 1, label: "bottle", retail: 180, wholesale: 150 },
-];
-
-// Packaging is a real cost — a jerrican can be a fifth of a 5 L product's COGS.
+// Containers and sundries the shop sells alongside the chemicals.
 const PACKAGING: Array<{ name: string; cost: number; qty: number }> = [
   { name: "500 ml bottle", cost: 15, qty: 400 },
   { name: "1 L bottle", cost: 25, qty: 350 },
@@ -333,74 +320,56 @@ export function seed(
     const bulkCostCents = toCents(c.bulkCost ?? 0);
     const perUnitCents = bulkSize > 0 ? Math.round(bulkCostCents / bulkSize) : 0;
 
-    // bulk row
-    const bulkName = `${c.name} — ${bulkSize} ${c.unit} ${c.bulkLabel ?? "unit"}`;
+    /*
+      One row per chemical, priced per kilogram.
+
+      This is the whole catalogue now. There used to be a bulk row plus a pack
+      row for every resale size — forty-six of them across thirty-six
+      chemicals — and their only job was to hold a price for a quantity. A
+      quantity is typed at the counter, so the price belongs to the substance.
+
+      The rate is the landed cost of a kilogram plus about 35%, rounded to the
+      shilling, with the wholesale rate at 20% and the floor at cost. Those are
+      opening numbers for a shop that has not set its own yet: the owner walks
+      down Prices for today on the first morning and puts the real ones in.
+    */
+    const retail = Math.round((perUnitCents * 1.35) / 100) * 100;
+    const wholesale = Math.round((perUnitCents * 1.2) / 100) * 100;
+
     const { lastInsertRowid: bid } = run(
       `INSERT INTO items (chemical_id, name, kind, canonical_unit, size_milli, unit_label,
-                          sellable, retail_cents, wholesale_cents, floor_cents, cost_cents, reorder_level_milli)
-       VALUES (?, ?, 'bulk', ?, ?, ?, 0, 0, 0, 0, ?, ?)`,
+                          sellable, price_basis, retail_cents, wholesale_cents, floor_cents,
+                          cost_cents, reorder_level_milli)
+       VALUES (?, ?, 'bulk', ?, ?, ?, 1, 'unit', ?, ?, ?, ?, ?)`,
       cid,
-      bulkName,
+      c.name,
       c.unit,
       toMilli(bulkSize),
       c.bulkLabel ?? "unit",
+      retail,
+      wholesale,
+      perUnitCents,
       bulkCostCents,
-      toMilli(bulkSize * 2),
+      toMilli(50),
     );
     itemIds[`${c.key}:bulk`] = bid;
     itemCount++;
-
-    // repack rows
-    for (const size of c.packs ?? []) {
-      const label = size >= 1 ? `${size} ${c.unit}` : `${size * 1000} ${c.unit === "kg" ? "g" : "ml"}`;
-      const cost = Math.round(perUnitCents * size);
-      const retail = Math.round((cost * 1.35) / 100) * 100; // ~35% markup, rounded to the shilling
-      const wholesale = Math.round((cost * 1.2) / 100) * 100;
-      const { lastInsertRowid: pid } = run(
-        `INSERT INTO items (chemical_id, name, kind, canonical_unit, size_milli, unit_label,
-                            sellable, retail_cents, wholesale_cents, floor_cents, cost_cents, reorder_level_milli)
-         VALUES (?, ?, 'pack', ?, ?, 'pack', 1, ?, ?, ?, ?, ?)`,
-        cid,
-        `${c.name} — ${label}`,
-        c.unit,
-        toMilli(size),
-        retail,
-        wholesale,
-        cost,
-        cost,
-        toMilli(size * 5),
-      );
-      itemIds[`${c.key}:${size}`] = pid;
-      itemCount++;
-    }
   }
 
-  // --- finished goods ----------------------------------------------------
-  for (const f of FINISHED) {
-    const { lastInsertRowid: id } = run(
-      `INSERT INTO items (name, kind, canonical_unit, size_milli, unit_label,
-                          sellable, retail_cents, wholesale_cents, floor_cents, cost_cents, reorder_level_milli)
-       VALUES (?, 'finished', ?, ?, ?, 1, ?, ?, ?, 0, ?)`,
-      f.name,
-      f.unit,
-      toMilli(f.size),
-      f.label,
-      toCents(f.retail),
-      toCents(f.wholesale),
-      toCents(f.wholesale * 0.9),
-      toMilli(f.size * 10),
-    );
-    itemIds[`finished:${f.name}`] = id;
-    itemCount++;
-  }
-
-  // --- packaging ---------------------------------------------------------
+  // --- containers and sundries, sold whole -------------------------------
+  // Bottles and jerricans are goods on the shelf like anything else: somebody
+  // buying five litres of shampoo base needs something to carry it in. Priced
+  // at cost plus half, whole units only — half a jerrican is not a thing.
   for (const p of PACKAGING) {
     const { lastInsertRowid: id } = run(
       `INSERT INTO items (name, kind, canonical_unit, size_milli, unit_label,
-                          sellable, retail_cents, wholesale_cents, floor_cents, cost_cents, reorder_level_milli)
-       VALUES (?, 'packaging', 'pcs', 1000, 'piece', 0, 0, 0, 0, ?, ?)`,
+                          sellable, price_basis, retail_cents, wholesale_cents, floor_cents,
+                          cost_cents, reorder_level_milli)
+       VALUES (?, 'packaging', 'pcs', 1000, 'piece', 1, 'pack', ?, ?, ?, ?, ?)`,
       p.name,
+      Math.round((toCents(p.cost) * 1.5) / 100) * 100,
+      Math.round((toCents(p.cost) * 1.3) / 100) * 100,
+      toCents(p.cost),
       toCents(p.cost),
       toMilli(50),
     );
@@ -411,48 +380,39 @@ export function seed(
     }
   }
 
-  // --- what each finished product is packed into -------------------------
-  // Bottling consumes these, and their cost lands in the product's cost, so a
-  // 500 ml bottle is not reported as pure profit.
-  const capId = itemIds["pack:Bottle cap"];
-  const labelId = itemIds["pack:Product label"];
-  for (const f of FINISHED) {
-    const outId = itemIds[`finished:${f.name}`];
-    if (!outId) continue;
-    const container =
-      f.size <= 0.5 ? "500 ml bottle" : f.size <= 1 ? "1 L bottle" : f.size <= 5 ? "5 L jerrican" : "20 L jerrican";
-    const containerId = itemIds[`pack:${container}`];
-    for (const [pid, qty] of [
-      [containerId, 1],
-      [capId, 1],
-      [labelId, 1],
-    ] as Array<[number | undefined, number]>) {
-      if (!pid) continue;
-      run(
-        `INSERT OR IGNORE INTO item_packaging (item_id, packaging_item_id, qty_per_unit) VALUES (?, ?, ?)`,
-        outId,
-        pid,
-        qty,
-      );
-    }
-  }
+  /*
+    Opening stock from the stock-take sheet.
 
-  // --- opening stock from the stock-take sheet ---------------------------
+    The sheet counts containers of each size — nineteen 20 kg packs of Ungerol,
+    thirty-three half-kilos — because that is how it was counted off the shelf.
+    All of it is the same substance, so it all lands on the one row, added up in
+    kilograms. Nineteen twenties plus thirty-three halves plus fourteen ones is
+    410.5 kg of Ungerol, and 410.5 kg is what the counter can sell.
+  */
   if (withOpeningStock) {
     for (const [key, sizes] of Object.entries(OPENING)) {
+      const itemId = itemIds[`${key}:bulk`];
+      if (!itemId) continue;
+
+      const spec = CHEMICALS.find((c) => c.key === key);
+      const bulkSize = spec?.bulk ?? 1;
+
+      let milli = 0;
       for (const [sizeKey, units] of Object.entries(sizes)) {
-        const itemId = itemIds[`${key}:${sizeKey}`];
-        if (!itemId || units <= 0) continue;
-        const item = get<{ size_milli: number }>(`SELECT size_milli FROM items WHERE id = ?`, itemId);
-        if (!item) continue;
-        postMovement({
-          itemId,
-          deltaMilli: Math.round(units * item.size_milli),
-          reason: "opening",
-          userId: ownerId,
-          note: "closing stock carried from the stock-take sheet",
-        });
+        if (units <= 0) continue;
+        const size = sizeKey === "bulk" ? bulkSize : Number(sizeKey);
+        if (!Number.isFinite(size) || size <= 0) continue;
+        milli += Math.round(units * toMilli(size));
       }
+      if (milli <= 0) continue;
+
+      postMovement({
+        itemId,
+        deltaMilli: milli,
+        reason: "opening",
+        userId: ownerId,
+        note: "closing stock carried from the stock-take sheet",
+      });
     }
   }
 

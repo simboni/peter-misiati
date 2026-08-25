@@ -26,14 +26,25 @@
 
 import { all, get, run, tx, audit } from "./db.ts";
 import { recordSale, type RecordSaleResult } from "./sales.ts";
-import { businessDate } from "./units.ts";
+import { businessDate, formatQty } from "./units.ts";
 
 export type QuoteStatus = "draft" | "sent" | "approved" | "declined" | "invoiced";
 
 export interface QuoteLineInput {
   itemId: number;
+  /** Whole containers. Ignored for a chemical, where the quantity is the order. */
   units: number;
+  /** Per container, or per kg / L for a chemical priced by quantity. */
   unitPriceCents: number;
+  /**
+   * How much substance, in milli, when the item is priced per unit.
+   *
+   * A wholesale buyer asking for 400 kg of caustic has to be quotable for
+   * 400 kg. Before this, a quote could only offer whole rows off the price
+   * list, so the answer to "what would four hundred kilos cost me" was a
+   * multiplication done on paper and typed back in as a discount.
+   */
+  qtyMilli?: number;
 }
 
 export interface QuoteRow {
@@ -58,9 +69,40 @@ export interface QuoteLineRow {
   item_name: string;
   units: number;
   unit_price_cents: number;
+  /** Quantity of substance; zero on a line sold whole. */
+  qty_milli: number;
+  /** Per kg / L; zero on a line sold whole. */
+  rate_cents: number;
+  price_basis: "pack" | "unit";
+  canonical_unit: "kg" | "L" | "pcs";
   /** What the item is normally worth, so a discount is visible as a discount. */
   wholesale_cents: number;
   retail_cents: number;
+}
+
+/**
+ * How a quote line says its quantity: "3" of something whole, "400 kg" of a
+ * chemical. One helper so the screen, the print sheet and the WhatsApp message
+ * cannot drift apart on it.
+ */
+export function quoteLineQty(l: {
+  units: number;
+  qty_milli: number;
+  rate_cents: number;
+  canonical_unit: string;
+}): string {
+  return l.rate_cents > 0 ? formatQty(l.qty_milli, l.canonical_unit) : String(l.units);
+}
+
+/** What one quote line comes to. The one place that arithmetic is written. */
+export function quoteLineCents(l: {
+  units: number;
+  unit_price_cents: number;
+  qty_milli: number;
+  rate_cents: number;
+}): number {
+  if (l.rate_cents > 0) return Math.round((l.rate_cents * l.qty_milli) / 1000);
+  return l.units * l.unit_price_cents;
 }
 
 /**
@@ -79,8 +121,15 @@ export function newQuoteNo(at: Date = new Date()): string {
   return `QT-${compact}-${(used?.n ?? 0) + 1}`;
 }
 
+// The same two line shapes as a sale: a count at a price each, or a quantity at
+// a price per kilogram. `rate_cents` is what tells them apart, and the rounding
+// lands on the whole line so a quote and the invoice it becomes agree to the
+// cent — `quoteLineCents` below is the same arithmetic in TypeScript.
 const TOTAL_SQL = `
-  COALESCE((SELECT SUM(l.units * l.unit_price_cents) FROM quote_lines l WHERE l.quote_id = q.id), 0) AS total_cents,
+  COALESCE((SELECT SUM(CASE WHEN l.rate_cents > 0
+                            THEN CAST(ROUND(l.rate_cents * l.qty_milli / 1000.0) AS INTEGER)
+                            ELSE l.units * l.unit_price_cents END)
+              FROM quote_lines l WHERE l.quote_id = q.id), 0) AS total_cents,
   COALESCE((SELECT COUNT(*) FROM quote_lines l WHERE l.quote_id = q.id), 0) AS line_count`;
 
 export function listQuotes(status?: QuoteStatus | "open", limit = 50): QuoteRow[] {
@@ -106,6 +155,7 @@ export function getQuote(id: number): QuoteRow | undefined {
 export function quoteLines(quoteId: number): QuoteLineRow[] {
   return all<QuoteLineRow>(
     `SELECT l.id, l.item_id, i.name AS item_name, l.units, l.unit_price_cents,
+            l.qty_milli, l.rate_cents, i.price_basis, i.canonical_unit,
             i.wholesale_cents, i.retail_cents
        FROM quote_lines l
        JOIN items i ON i.id = l.item_id
@@ -134,7 +184,7 @@ export interface SaveQuoteInput {
  * into the version they accept.
  */
 export function saveQuote(input: SaveQuoteInput): { quoteId: number; quoteNo: string } {
-  const lines = input.lines.filter((l) => l.itemId > 0 && l.units > 0);
+  const lines = input.lines.filter((l) => l.itemId > 0 && (l.units > 0 || (l.qtyMilli ?? 0) > 0));
   if (!lines.length) throw new Error("A quote needs at least one line.");
   if (!input.customerName.trim() && input.customerId === null) {
     throw new Error("Say who the quote is for.");
@@ -182,13 +232,28 @@ export function saveQuote(input: SaveQuoteInput): { quoteId: number; quoteNo: st
 
     let order = 0;
     for (const line of lines) {
+      // The item decides the shape of the line, not the caller. A form that
+      // sent a container count for something sold by the kilogram would
+      // otherwise quote a price the sale could never charge.
+      const item = get<{ price_basis: "pack" | "unit"; size_milli: number }>(
+        `SELECT price_basis, size_milli FROM items WHERE id = ?`,
+        line.itemId,
+      );
+      const weighed = item?.price_basis === "unit";
+      const price = Math.max(0, Math.trunc(line.unitPriceCents));
+      const qtyMilli = weighed
+        ? Math.max(1, Math.trunc(line.qtyMilli ?? Math.trunc(line.units) * 1000))
+        : 0;
+
       run(
-        `INSERT INTO quote_lines (quote_id, item_id, units, unit_price_cents, sort_order)
-         VALUES (?, ?, ?, ?, ?)`,
+        `INSERT INTO quote_lines (quote_id, item_id, units, unit_price_cents, qty_milli, rate_cents, sort_order)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
         quoteId,
         line.itemId,
-        Math.trunc(line.units),
-        Math.max(0, Math.trunc(line.unitPriceCents)),
+        weighed ? 1 : Math.max(1, Math.trunc(line.units)),
+        price,
+        qtyMilli,
+        weighed ? price : 0,
         order++,
       );
     }
@@ -285,7 +350,7 @@ export function invoiceQuote(input: InvoiceQuoteInput): RecordSaleResult & { quo
   const lines = quoteLines(input.quoteId);
   if (!lines.length) throw new Error("This quote has no lines.");
 
-  const total = lines.reduce((s, l) => s + l.units * l.unit_price_cents, 0);
+  const total = lines.reduce((s, l) => s + quoteLineCents(l), 0);
   const tenders =
     input.tenders && input.tenders.length
       ? input.tenders
@@ -309,6 +374,7 @@ export function invoiceQuote(input: InvoiceQuoteInput): RecordSaleResult & { quo
       itemId: l.item_id,
       units: l.units,
       unitPriceCents: l.unit_price_cents,
+      qtyMilli: l.qty_milli || undefined,
     })),
     tenders: tenders.map((t) => ({
       method: t.method,
@@ -347,10 +413,19 @@ export interface DirectInvoiceInput {
  * proposal — which is why it is thirty lines and not a second subsystem.
  */
 export function invoiceDirect(input: DirectInvoiceInput): RecordSaleResult {
-  const lines = input.lines.filter((l) => l.itemId > 0 && l.units > 0);
+  const lines = input.lines.filter((l) => l.itemId > 0 && (l.units > 0 || (l.qtyMilli ?? 0) > 0));
   if (!lines.length) throw new Error("Add a line before invoicing.");
 
-  const total = lines.reduce((s, l) => s + l.units * l.unitPriceCents, 0);
+  // An estimate only, to decide what "the whole bill on account" means when no
+  // tender was named. `recordSale` recomputes every line from the item itself.
+  const total = lines.reduce(
+    (s, l) =>
+      s +
+      (l.qtyMilli
+        ? Math.round((l.unitPriceCents * l.qtyMilli) / 1000)
+        : l.units * l.unitPriceCents),
+    0,
+  );
   const tenders =
     input.tenders && input.tenders.length
       ? input.tenders
@@ -369,6 +444,7 @@ export function invoiceDirect(input: DirectInvoiceInput): RecordSaleResult {
       itemId: l.itemId,
       units: l.units,
       unitPriceCents: l.unitPriceCents,
+      qtyMilli: l.qtyMilli,
     })),
     tenders: tenders.map((t) => ({
       method: t.method,

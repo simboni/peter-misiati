@@ -10,7 +10,6 @@ import {
   setItemActive,
   createFinished,
   createChemical,
-  addPackSize,
   CatalogError,
   type AdminItem,
 } from "@/lib/catalog";
@@ -98,22 +97,7 @@ async function addChemical(formData: FormData): Promise<void> {
   "use server";
   const by = await guard();
 
-  // Pack sizes are typed as a list — "500 ml, 1 L, 5 L" — because that is how
-  // the shop says them. Each entry carries its own unit; a number with no unit
-  // takes the chemical's own.
   const unit = (formData.get("unit") as SizeUnit) ?? "kg";
-  const packSizes = String(formData.get("packs") ?? "")
-    .split(",")
-    .map((raw) => {
-      const m = /^\s*([\d.]+)\s*(g|kg|ml|l|pcs)?\s*$/i.exec(raw);
-      if (!m) return null;
-      const value = Number(m[1]);
-      if (!Number.isFinite(value) || value <= 0) return null;
-      const typed = (m[2] ?? unit).toLowerCase();
-      const key = (typed === "l" ? "L" : typed) as SizeUnit;
-      return { value, unit: key };
-    })
-    .filter((x): x is { value: number; unit: SizeUnit } => x !== null);
 
   try {
     createChemical({
@@ -122,25 +106,9 @@ async function addChemical(formData: FormData): Promise<void> {
       aliases: String(formData.get("aliases") ?? ""),
       bulkSizeValue: Number(formData.get("bulk") ?? 0),
       bulkLabel: String(formData.get("bulkLabel") ?? "unit"),
-      packSizes,
+      ratePerUnit: Number(formData.get("rate") ?? 0),
       byUserId: by,
     });
-  } catch (e) {
-    redirectWith(e);
-  }
-  revalidatePath("/items");
-}
-
-async function addPack(formData: FormData): Promise<void> {
-  "use server";
-  const by = await guard();
-  try {
-    addPackSize(
-      Number(formData.get("chemicalId")),
-      Number(formData.get("size") ?? 0),
-      (formData.get("sizeUnit") as SizeUnit) ?? "kg",
-      by,
-    );
   } catch (e) {
     redirectWith(e);
   }
@@ -170,14 +138,35 @@ function UnitSelect({ name, value, only }: { name: string; value?: string; only?
   );
 }
 
-/** A price-and-reorder editor, shared by finished products and packs. */
+/**
+ * A price-and-reorder editor.
+ *
+ * The same four boxes for everything, but the words above them change with what
+ * is being priced. "Retail price" against a chemical is ambiguous in the way
+ * that costs money — the price of what, a kilo or a drum? — so a weighed item
+ * says "per kg" in every label, and the reorder box asks for kilograms instead
+ * of a count of containers nobody sells any more.
+ */
 function PriceForm({ item }: { item: AdminItem }) {
-  const reorderUnits = item.size_milli > 0 ? item.reorder_level_milli / item.size_milli : 0;
+  const weighed = item.price_basis === "unit";
+  const per = weighed ? ` per ${item.canonical_unit}` : "";
+  const reorderUnits = weighed
+    ? item.reorder_level_milli / 1000
+    : item.size_milli > 0
+      ? item.reorder_level_milli / item.size_milli
+      : 0;
   return (
     <form action={savePricing} className="mt-2.5 space-y-2.5">
       <input type="hidden" name="itemId" value={item.id} />
       <div className="grid grid-cols-2 gap-2.5">
-        <Field label="Retail price" hint="What a walk-in pays.">
+        <Field
+          label={`Retail price${per}`}
+          hint={
+            weighed
+              ? `What a walk-in pays for one ${item.canonical_unit}. Half of that costs half as much.`
+              : "What a walk-in pays."
+          }
+        >
           <input
             className={inputClass}
             type="number"
@@ -187,7 +176,7 @@ function PriceForm({ item }: { item: AdminItem }) {
             defaultValue={fromCents(item.retail_cents)}
           />
         </Field>
-        <Field label="Wholesale price" hint="What a trade buyer pays.">
+        <Field label={`Wholesale price${per}`} hint="What a trade buyer pays.">
           <input
             className={inputClass}
             type="number"
@@ -197,7 +186,10 @@ function PriceForm({ item }: { item: AdminItem }) {
             defaultValue={fromCents(item.wholesale_cents)}
           />
         </Field>
-        <Field label="Never below" hint="An attendant cannot go under this without your PIN.">
+        <Field
+          label={`Never below${per}`}
+          hint="An attendant cannot go under this without your PIN."
+        >
           <input
             className={inputClass}
             type="number"
@@ -207,7 +199,14 @@ function PriceForm({ item }: { item: AdminItem }) {
             defaultValue={fromCents(item.floor_cents)}
           />
         </Field>
-        <Field label="Warn me at" hint={`When stock drops to this many ${item.unit_label}s.`}>
+        <Field
+          label="Warn me at"
+          hint={
+            weighed
+              ? `When less than this many ${item.canonical_unit} are left in the store.`
+              : `When stock drops to this many ${item.unit_label}s.`
+          }
+        >
           <input
             className={inputClass}
             type="number"
@@ -236,6 +235,7 @@ function ItemCard({ item, sizeText }: { item: AdminItem; sizeText: string }) {
       <div className="mt-0.5 text-xs text-muted">
         Retail {fromCents(item.retail_cents).toLocaleString("en-KE")} · Wholesale{" "}
         {fromCents(item.wholesale_cents).toLocaleString("en-KE")}
+        {item.price_basis === "unit" ? ` per ${item.canonical_unit}` : ""}
       </div>
 
       <details className="mt-2.5">
@@ -274,7 +274,7 @@ export default async function ItemsPage(props: {
     <div>
       <PageTitle
         title="What the shop sells"
-        subtitle="Add products and pack sizes here. For a price that has just moved, use Prices for today."
+        subtitle="Add a chemical or a product here. For a price that has just moved, use Prices for today."
       />
 
       {err ? (
@@ -296,8 +296,8 @@ export default async function ItemsPage(props: {
       <div className="max-w-4xl space-y-2.5">
         <div className="rounded-2xl bg-white p-4 shadow-card ring-1 ring-ink/5">
           <p className="text-sm leading-relaxed">
-            <strong>This screen is for the list itself</strong> — adding something new, adding
-            another pack size, or hiding something you no longer sell.
+            <strong>This screen is for the list itself</strong> — adding something new, or
+            hiding something you no longer sell.
           </p>
           <p className="mt-2 text-sm leading-relaxed text-muted">
             To change a price that has moved, use{" "}
@@ -318,10 +318,16 @@ export default async function ItemsPage(props: {
         </div>
       </div>
 
-      <SectionLabel>Products we mix and bottle</SectionLabel>
+      {/* Not "products we mix" any more: the shop stopped mixing and bottling.
+          What is left in this section is anything sold whole at a fixed price —
+          the last of the bottled stock, and ready-made goods bought in to
+          resell. Chemicals are priced per kilogram and live further down. */}
+      <SectionLabel>Things sold whole</SectionLabel>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 3xl:grid-cols-5">
         {finished.length === 0 ? (
-          <p className="text-sm text-muted">Nothing yet. Add your first one below — handwash, bleach, shampoo and so on.</p>
+          <p className="text-sm text-muted">
+            Nothing yet. Add one below if you sell something ready-made in a fixed size.
+          </p>
         ) : (
           finished.map((i) => (
             <ItemCard
@@ -337,7 +343,7 @@ export default async function ItemsPage(props: {
         )}
       </div>
 
-      <SectionLabel>Add a product we mix</SectionLabel>
+      <SectionLabel>Add something sold whole</SectionLabel>
       <Card className="max-w-2xl">
         <form action={addFinished} className="space-y-3">
           <Field label="Name">
@@ -371,76 +377,69 @@ export default async function ItemsPage(props: {
             </Field>
           </div>
           <Button type="submit" className="w-full">
-            Add product
+            Add it
           </Button>
         </form>
       </Card>
 
-      <SectionLabel>Chemicals, and the sizes we sell them in</SectionLabel>
+      <SectionLabel>Chemicals, and what a kilogram costs</SectionLabel>
+      {/* One card per chemical, one price on it.
+
+          This used to be one card per chemical with a fold-out for every pack
+          size under it — five entries for Ungerol whose only difference was a
+          number, each with its own price to keep up to date. That is what the
+          client kept calling confusing, and he was right: they were five names
+          for one substance. There is one price now, per kilogram, and the size
+          the customer wants is a quantity typed at the counter. */}
       <div className="grid items-start gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 3xl:grid-cols-5">
         {chemicals.map((chem) => {
-          const packs = chem.items.filter((i) => i.kind === "pack");
+          const bulk = chem.items.find((i) => i.kind === "bulk");
           return (
             <Card key={chem.id}>
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm font-bold">{chem.name}</span>
-                <Chip tone="neutral">{chem.canonical_unit}</Chip>
+                <Chip tone="neutral">per {chem.canonical_unit}</Chip>
                 {chem.active ? null : <Chip tone="bad">Hidden</Chip>}
               </div>
 
-              {packs.length > 0 ? (
-                <div className="mt-2.5 space-y-2.5">
-                  {packs.map((p) => (
-                    <details key={p.id} className="rounded-xl border border-line px-3 py-2">
-                      <summary className="cursor-pointer text-sm font-semibold">
-                        {formatQty(p.size_milli, p.canonical_unit)} — retail{" "}
-                        {fromCents(p.retail_cents).toLocaleString("en-KE")}
-                        {p.active ? "" : " (hidden)"}
-                      </summary>
-                      <PriceForm item={p} />
-                      <form action={toggleActive} className="mt-2.5">
-                        <input type="hidden" name="itemId" value={p.id} />
-                        <input type="hidden" name="active" value={p.active ? "0" : "1"} />
-                        <Button type="submit" variant="ghost">
-                          {p.active ? "Hide this size" : "Show this size"}
-                        </Button>
-                      </form>
-                    </details>
-                  ))}
-                </div>
-              ) : (
-                <p className="mt-2 text-xs text-muted">Sold only by the whole drum so far. Add a smaller size below.</p>
-              )}
-
-              <details className="mt-2.5">
-                <summary className="cursor-pointer text-sm font-bold text-brand">
-                  Add a size we sell it in
-                </summary>
-                <form action={addPack} className="mt-2.5 space-y-2.5">
-                  <input type="hidden" name="chemicalId" value={chem.id} />
-                  <div className="grid grid-cols-2 gap-2.5">
-                    <Field label="How much">
-                      <input
-                        className={inputClass}
-                        type="number"
-                        name="size"
-                        min="0"
-                        step="any"
-                        required
-                        placeholder={chem.canonical_unit === "kg" ? "500" : "500"}
-                      />
-                    </Field>
-                    <Field label="In">
-                      <UnitSelect
-                        name="sizeUnit"
-                        only={chem.canonical_unit}
-                        value={chem.canonical_unit === "kg" ? "g" : chem.canonical_unit === "L" ? "ml" : "pcs"}
-                      />
-                    </Field>
+              {bulk ? (
+                <>
+                  <div className="mt-0.5 text-xs text-muted">
+                    {bulk.retail_cents > 0 ? (
+                      <>
+                        Retail {fromCents(bulk.retail_cents).toLocaleString("en-KE")} · Wholesale{" "}
+                        {fromCents(bulk.wholesale_cents || bulk.retail_cents).toLocaleString("en-KE")}{" "}
+                        per {chem.canonical_unit}
+                      </>
+                    ) : (
+                      <span className="font-bold text-warn">
+                        No price set — the counter cannot sell it
+                      </span>
+                    )}
                   </div>
-                  <Button type="submit" className="w-full">Add this size</Button>
-                </form>
-              </details>
+                  <div className="mt-0.5 text-[11px] text-muted">
+                    Arrives as {formatQty(bulk.size_milli, bulk.canonical_unit)} {bulk.unit_label}s
+                  </div>
+
+                  <details className="mt-2.5">
+                    <summary className="cursor-pointer text-sm font-bold text-brand-dark">
+                      Prices and limits
+                    </summary>
+                    <PriceForm item={bulk} />
+                    <form action={toggleActive} className="mt-2.5">
+                      <input type="hidden" name="itemId" value={bulk.id} />
+                      <input type="hidden" name="active" value={bulk.active ? "0" : "1"} />
+                      <Button type="submit" variant="ghost">
+                        {bulk.active ? "Hide from the counter" : "Show on the counter"}
+                      </Button>
+                    </form>
+                  </details>
+                </>
+              ) : (
+                <p className="mt-2 text-xs text-muted">
+                  No container recorded for this chemical yet.
+                </p>
+              )}
             </Card>
           );
         })}
@@ -473,6 +472,12 @@ export default async function ItemsPage(props: {
           </div>
           <Field label="Bulk container" hint="drum, bag, jerrican…">
             <input className={inputClass} name="bulkLabel" defaultValue="drum" />
+          </Field>
+          <Field
+            label="What one costs to buy from us"
+            hint="Per kilogram or litre — whichever the chemical is measured in. Leave blank and set it later under Prices for today."
+          >
+            <input className={inputClass} type="number" name="rate" min="0" step="any" placeholder="50" />
           </Field>
           <Button type="submit" className="w-full">
             Add chemical

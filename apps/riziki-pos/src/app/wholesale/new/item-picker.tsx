@@ -7,6 +7,9 @@ export interface PickItem {
   id: number;
   name: string;
   kind: string;
+  /** 'unit' — priced per kg / L, and the line asks for a quantity. */
+  basis: "pack" | "unit";
+  canonicalUnit: "kg" | "L" | "pcs";
   wholesaleCents: number;
   retailCents: number;
 }
@@ -14,10 +17,10 @@ export interface PickItem {
 /**
  * Choosing one item out of fifty-eight.
  *
- * A native `<select>` was the wrong instrument: it holds every finished product
- * and every repacked chemical in one scroll, and the counter knows the name it
- * wants long before it can find it in that list. So this is a search box that
- * happens to be a picker — type three letters, press Enter.
+ * A native `<select>` was the wrong instrument: it holds every chemical and
+ * every container in one scroll, and the counter knows the name it wants long
+ * before it can find it in that list. So this is a search box that happens to
+ * be a picker — type three letters, press Enter.
  *
  * Products and chemicals are deliberately in the same list rather than behind a
  * pair of tabs. On the till they are separate boards because the counter is
@@ -26,7 +29,7 @@ export interface PickItem {
  * is a question with no purpose. The kind is shown as a label instead.
  *
  * Matching is on the whole string, so "sles" finds "Ungerol" through its search
- * column upstream, and "20" finds every 20 kg pack.
+ * column upstream.
  */
 export default function ItemPicker({
   items,
@@ -139,7 +142,7 @@ export default function ItemPicker({
                       {i.name}
                     </span>
                     <span className="shrink-0 rounded px-1.5 text-[10px] font-bold uppercase tracking-wide text-muted">
-                      {i.kind === "finished" ? "product" : "chemical"}
+                      {i.basis === "unit" ? `per ${i.canonicalUnit}` : "each"}
                     </span>
                     <span className="shrink-0 text-[12px] font-bold text-brand-dark tnum">
                       {formatKes(price(i))}

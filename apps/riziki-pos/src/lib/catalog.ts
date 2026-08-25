@@ -13,7 +13,7 @@
  * bought.
  */
 
-import { all, get, run, tx, audit } from "./db.ts";
+import { all, get, run, tx, audit, postMovement, stockOf, type PriceBasis } from "./db.ts";
 import { formatQty, sizeToMilli, sizeUnit, type SizeUnit } from "./units.ts";
 
 export class CatalogError extends Error {}
@@ -28,6 +28,7 @@ export interface AdminItem {
   size_milli: number;
   unit_label: string;
   sellable: number;
+  price_basis: PriceBasis;
   retail_cents: number;
   wholesale_cents: number;
   floor_cents: number;
@@ -55,13 +56,22 @@ export function listPackaging(): AdminItem[] {
   return all<AdminItem>(`SELECT * FROM items WHERE kind = 'packaging' ORDER BY active DESC, name`);
 }
 
-/** Chemicals with their bulk + pack rows nested, for the admin screen. */
+/**
+ * Chemicals with their stock rows nested, for the admin screen.
+ *
+ * Retired pack rows are left out. They are the old way of saying "this
+ * chemical, at this size, for this price" — one number on the bulk row now —
+ * and listing forty-six of them under the chemicals they belong to would put
+ * the thing the owner no longer edits above the thing he does.
+ */
 export function listChemicals(): AdminChemical[] {
   const chems = all<Omit<AdminChemical, "items">>(
     `SELECT id, name, canonical_unit, aliases, active FROM chemicals ORDER BY active DESC, name`,
   );
   const items = all<AdminItem>(
-    `SELECT * FROM items WHERE kind IN ('bulk', 'pack') ORDER BY size_milli DESC`,
+    `SELECT * FROM items
+      WHERE kind IN ('bulk', 'pack') AND (kind = 'bulk' OR active = 1)
+      ORDER BY (kind = 'bulk') DESC, size_milli DESC`,
   );
   return chems.map((c) => ({
     ...c,
@@ -95,6 +105,10 @@ export interface PricingInput {
  * Edit an item's selling prices and reorder level. Cost is deliberately absent —
  * it comes from purchases. The floor is the lowest an attendant may haggle to
  * before an owner PIN is needed, so it can't sit above the wholesale price.
+ *
+ * All three prices mean whatever the item's `price_basis` says they mean: the
+ * price of one jerrican, or the price of one kilogram. The form asks in those
+ * words; the arithmetic here does not care which.
  */
 export function updatePricing(input: PricingInput): void {
   const item = getItem(input.itemId);
@@ -106,7 +120,13 @@ export function updatePricing(input: PricingInput): void {
   if (input.reorderUnits < 0 || !Number.isFinite(input.reorderUnits)) {
     throw new CatalogError("Reorder level must be zero or more.");
   }
-  const reorderMilli = Math.round(input.reorderUnits * item.size_milli);
+  // A reorder level is counted in containers for something sold whole and in
+  // kilograms for something weighed — "tell me when there is less than 50 kg
+  // left" is the question, and it has nothing to do with drum sizes.
+  const reorderMilli =
+    item.price_basis === "unit"
+      ? Math.round(input.reorderUnits * 1000)
+      : Math.round(input.reorderUnits * item.size_milli);
 
   if (floor > retail) throw new CatalogError("The floor price can't be above the retail price.");
 
@@ -199,14 +219,24 @@ export interface ChemicalInput {
   aliases: string;
   bulkSizeValue: number;
   bulkLabel: string;
-  /** Each pack size, as typed, with the unit it was typed in. */
-  packSizes: Array<{ value: number; unit: SizeUnit }>;
+  /** What one kilogram / litre sells for. Zero is allowed — set it later. */
+  ratePerUnit?: number;
   byUserId: number;
 }
 
 /**
- * A new raw chemical: the substance, its bulk container, and any resale pack
- * sizes. Cost and stock start at zero — they arrive with the first purchase.
+ * A new raw chemical: the substance and the container it arrives in.
+ *
+ * One row, not six. This used to create a bulk row plus a pack row for every
+ * resale size the owner could think of, and those pack rows were the whole of
+ * what made this screen confusing — five near-identical "Ungerol" entries whose
+ * only difference was a number, each needing its own price kept up to date.
+ * A chemical has one price now, per kilogram, and the size the customer wants
+ * is a quantity typed at the counter.
+ *
+ * Cost and stock start at zero — they arrive with the first purchase. The rate
+ * may start at zero too, which shows on the counter as "No price set" rather
+ * than as free.
  */
 export function createChemical(input: ChemicalInput): number {
   const name = input.name.trim();
@@ -216,6 +246,7 @@ export function createChemical(input: ChemicalInput): number {
   }
   const cu = sizeUnit(input.unit);
   const bulkMilli = sizeToMilli(input.bulkSizeValue, input.unit);
+  const rate = cents(input.ratePerUnit ?? 0, "Price");
 
   return tx(() => {
     const { lastInsertRowid: chemId } = run(
@@ -226,79 +257,168 @@ export function createChemical(input: ChemicalInput): number {
     );
     run(
       `INSERT INTO items (chemical_id, name, kind, canonical_unit, size_milli, unit_label,
-                          sellable, cost_cents, reorder_level_milli)
-       VALUES (?, ?, 'bulk', ?, ?, ?, 0, 0, ?)`,
+                          sellable, price_basis, retail_cents, cost_cents, reorder_level_milli)
+       VALUES (?, ?, 'bulk', ?, ?, ?, 1, 'unit', ?, 0, ?)`,
       chemId,
-      `${name} — ${input.bulkSizeValue} ${input.unit} ${input.bulkLabel.trim() || "unit"}`,
+      name,
       cu.canonical,
       bulkMilli,
       input.bulkLabel.trim() || "unit",
+      rate,
       bulkMilli * 2,
     );
-    for (const p of input.packSizes) {
-      if (!Number.isFinite(p.value) || p.value <= 0) continue;
-      addPackRow(chemId, name, cu.canonical, sizeToMilli(p.value, p.unit));
-    }
     audit(input.byUserId, "chemical_created", "chemical", chemId, name);
     return chemId;
   });
 }
 
 /**
- * A new resale size for a chemical — "500 ml", "250 g", "20 kg".
+ * The one-off move from pack prices to a price per kilogram.
  *
- * The size is typed in whatever unit the label on the shelf uses, and converted
- * here. Asking somebody to enter a 500 ml pack as "0.5" was the single most
- * confusing thing on this screen.
+ * The shop was delivered with forty-six `pack` rows: Ungerol at 250 g, 500 g,
+ * 1 kg, 5 kg and 20 kg, Ufacid at six sizes, and so on down the list. Every one
+ * of them existed to hold a price, and every one of them had to be kept up to
+ * date by hand when the supplier moved — which is why prices drifted.
+ *
+ * This does three things, once, inside one transaction:
+ *
+ *   1. gives each chemical's bulk row a price per kilogram, worked out from the
+ *      pack the shop was already selling closest to one kilogram — that is the
+ *      price the owner has in his head, and the one his customers quote back;
+ *   2. pours the stock sitting in pack rows back into the bulk row it came out
+ *      of, as an equal pair of ledger movements, so nothing is created or lost
+ *      and the pair can be read back years later;
+ *   3. retires the pack rows.
+ *
+ * Nothing is deleted. A retired pack row still carries the sales that were made
+ * from it, and a sale whose item vanished is a hole in the books.
+ *
+ * Safe to run twice: a chemical whose bulk row is already priced per unit is
+ * skipped, and a pack row already retired holds no stock to move.
  */
-export function addPackSize(
-  chemicalId: number,
-  sizeValue: number,
-  unit: SizeUnit,
-  byUserId: number,
-): number {
-  const chem = get<{ name: string; canonical_unit: Unit }>(
-    `SELECT name, canonical_unit FROM chemicals WHERE id = ?`,
-    chemicalId,
-  );
-  if (!chem) throw new CatalogError("That chemical no longer exists.");
-
-  const typed = sizeUnit(unit);
-  if (typed.canonical !== chem.canonical_unit) {
-    throw new CatalogError(
-      `${chem.name} is measured in ${chem.canonical_unit}, so a pack of it cannot be in ${unit}.`,
-    );
-  }
-
-  let sizeMilli: number;
-  try {
-    sizeMilli = sizeToMilli(sizeValue, unit);
-  } catch {
-    throw new CatalogError("Pack size must be more than zero.");
-  }
-
-  if (get(`SELECT 1 FROM items WHERE chemical_id = ? AND kind = 'pack' AND size_milli = ?`, chemicalId, sizeMilli)) {
-    throw new CatalogError(
-      `${chem.name} already has a ${formatQty(sizeMilli, chem.canonical_unit)} pack.`,
-    );
-  }
-  const id = addPackRow(chemicalId, chem.name, chem.canonical_unit, sizeMilli);
-  audit(byUserId, "pack_size_added", "item", id, `${chem.name} ${sizeValue} ${unit}`);
-  return id;
+export interface AdoptionReport {
+  /** Chemicals that came away with a price per kilogram. */
+  priced: Array<{ chemicalId: number; name: string; rateCents: number; from: string }>;
+  /** Chemicals with no priced pack to work from. The owner sets these by hand. */
+  unpriced: string[];
+  /** Pack rows retired, and how much substance moved back to the bulk row. */
+  packsRetired: number;
+  movedMilli: number;
 }
 
-/** Shared pack-row insert. The label is what the shelf says: "500 g", "1 kg". */
-function addPackRow(chemId: number, chemName: string, unit: Unit, sizeMilli: number): number {
-  const label = formatQty(sizeMilli, unit);
-  const { lastInsertRowid } = run(
-    `INSERT INTO items (chemical_id, name, kind, canonical_unit, size_milli, unit_label,
-                        sellable, cost_cents, reorder_level_milli)
-     VALUES (?, ?, 'pack', ?, ?, 'pack', 1, 0, ?)`,
-    chemId,
-    `${chemName} — ${label}`,
-    unit,
-    sizeMilli,
-    sizeMilli * 5,
-  );
-  return lastInsertRowid;
+export function adoptUnitPricing(byUserId: number | null): AdoptionReport {
+  return tx(() => {
+    const report: AdoptionReport = { priced: [], unpriced: [], packsRetired: 0, movedMilli: 0 };
+
+    const chemicals = all<{ id: number; name: string; canonical_unit: Unit }>(
+      `SELECT id, name, canonical_unit FROM chemicals ORDER BY name`,
+    );
+
+    for (const chem of chemicals) {
+      const bulk = get<AdminItem>(
+        `SELECT * FROM items WHERE chemical_id = ? AND kind = 'bulk' ORDER BY id LIMIT 1`,
+        chem.id,
+      );
+      if (!bulk) continue;
+
+      const packs = all<AdminItem>(
+        `SELECT * FROM items WHERE chemical_id = ? AND kind = 'pack' ORDER BY size_milli`,
+        chem.id,
+      );
+
+      if (bulk.price_basis !== "unit") {
+        /*
+          Which pack sets the rate.
+
+          The pack nearest one kilogram, not the smallest and not the biggest.
+          The smallest carries the markup that pays for the packing — 250 g of
+          caustic never cost a quarter of what a kilo did — so deriving from it
+          would raise every price in the shop. The biggest runs the other way.
+          The one-kilo price is the one the owner quotes on the phone.
+        */
+        const priced = packs.filter((p) => p.retail_cents > 0 && p.size_milli > 0);
+        const source = priced.length
+          ? priced.reduce((best, p) =>
+              Math.abs(p.size_milli - 1000) < Math.abs(best.size_milli - 1000) ? p : best,
+            )
+          : null;
+
+        const per = (cents: number, sizeMilli: number) => Math.round((cents * 1000) / sizeMilli);
+        const rate = source ? per(source.retail_cents, source.size_milli) : 0;
+        const wholesale =
+          source && source.wholesale_cents > 0 ? per(source.wholesale_cents, source.size_milli) : 0;
+        const floor = source && source.floor_cents > 0 ? per(source.floor_cents, source.size_milli) : 0;
+
+        run(
+          `UPDATE items
+              SET price_basis = 'unit', sellable = 1,
+                  retail_cents = ?, wholesale_cents = ?, floor_cents = ?,
+                  reorder_level_milli = ?
+            WHERE id = ?`,
+          rate,
+          wholesale,
+          floor,
+          // Reorder levels were counted in drums. Two drums of one chemical and
+          // two of another are wildly different quantities; 50 kg is a number
+          // the owner can read off the shelf.
+          Math.max(bulk.reorder_level_milli, 50_000),
+          bulk.id,
+        );
+
+        if (source) {
+          report.priced.push({
+            chemicalId: chem.id,
+            name: chem.name,
+            rateCents: rate,
+            from: `${formatQty(source.size_milli, chem.canonical_unit)} pack`,
+          });
+        } else {
+          report.unpriced.push(chem.name);
+        }
+      }
+
+      for (const pack of packs) {
+        const onHand = stockOf(pack.id);
+        if (onHand > 0) {
+          // Two movements, not one net adjustment: the pair is what makes the
+          // move readable as a move. A single line would look like stock
+          // appearing from nowhere in one row and vanishing in another.
+          postMovement({
+            itemId: pack.id,
+            deltaMilli: -onHand,
+            reason: "adjustment",
+            refType: "unit_pricing",
+            refId: bulk.id,
+            userId: byUserId,
+            note: `Moved to ${bulk.name}: chemicals are now weighed out of the container`,
+          });
+          postMovement({
+            itemId: bulk.id,
+            deltaMilli: onHand,
+            reason: "adjustment",
+            refType: "unit_pricing",
+            refId: pack.id,
+            userId: byUserId,
+            note: `Moved from ${pack.name}`,
+          });
+          report.movedMilli += onHand;
+        }
+        if (pack.active || pack.sellable) {
+          run(`UPDATE items SET active = 0, sellable = 0 WHERE id = ?`, pack.id);
+          report.packsRetired += 1;
+        }
+      }
+    }
+
+    audit(
+      byUserId,
+      "unit_pricing_adopted",
+      "item",
+      null,
+      `${report.priced.length} chemicals priced per unit, ${report.packsRetired} pack rows retired, ` +
+        `${formatQty(report.movedMilli, "kg")} moved back to bulk`,
+    );
+
+    return report;
+  });
 }

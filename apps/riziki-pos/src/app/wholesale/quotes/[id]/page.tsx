@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { currentUser, requireUser } from "@/lib/auth";
 import { get } from "@/lib/db";
-import { getQuote, quoteLines, setQuoteStatus } from "@/lib/quotes";
+import { getQuote, quoteLineCents, quoteLineQty as lineQty, quoteLines, setQuoteStatus } from "@/lib/quotes";
 import { formatKes, formatDateTime } from "@/lib/units";
 import { Alert, Card, PageTitle, SectionLabel } from "@/components/ui";
 import ShareRow from "./share-row";
@@ -43,7 +43,12 @@ export default async function QuotePage(props: { params: Promise<{ id: string }>
     (quote.customer_name ? `For: ${quote.customer_name}\n` : "") +
     `\n` +
     lines
-      .map((l) => `${l.units} x ${l.item_name} @ ${formatKes(l.unit_price_cents)} = ${formatKes(l.units * l.unit_price_cents)}`)
+      .map(
+        (l) =>
+          `${lineQty(l)} ${l.item_name} @ ${formatKes(l.unit_price_cents)}${
+            l.rate_cents > 0 ? `/${l.canonical_unit}` : ""
+          } = ${formatKes(quoteLineCents(l))}`,
+      )
       .join("\n") +
     `\n\n*Total: ${formatKes(quote.total_cents)}*` +
     (quote.valid_until ? `\nPrice holds until ${quote.valid_until}` : "") +
@@ -89,11 +94,12 @@ export default async function QuotePage(props: { params: Promise<{ id: string }>
               <div key={l.id} className="flex items-baseline gap-2 py-2">
                 <span className="min-w-0 flex-1 truncate text-sm font-bold">{l.item_name}</span>
                 <span className="shrink-0 text-[12px] text-muted tnum">
-                  {l.units} × {formatKes(l.unit_price_cents)}
+                  {lineQty(l)} × {formatKes(l.unit_price_cents)}
+                  {l.rate_cents > 0 ? `/${l.canonical_unit}` : ""}
                   {cut ? <span className="ml-1 text-warn">↓</span> : null}
                 </span>
                 <span className="w-28 shrink-0 text-right text-sm font-bold tnum">
-                  {formatKes(l.units * l.unit_price_cents)}
+                  {formatKes(quoteLineCents(l))}
                 </span>
               </div>
             );

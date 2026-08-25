@@ -32,18 +32,29 @@ export default async function NewWholesalePage(props: {
   const mode = modeParam === "invoice" ? "invoice" : "quote";
   const fromQuoteId = from ? Number(from) : null;
 
-  // Products and chemicals in one list: on a document the person already knows
-  // what they want, so making them choose a board first is a question with no
-  // purpose. The kind rides along as a label.
-  const items = all<{ id: number; name: string; kind: string; wholesale_cents: number; retail_cents: number }>(
-    `SELECT id, name, kind, wholesale_cents, retail_cents
+  // Chemicals and containers in one list: on a document the person already
+  // knows what they want, so making them choose a board first is a question
+  // with no purpose. Whether a thing is priced by the kilogram rides along as
+  // a label, because that decides what the quantity box is asking for.
+  const items = all<{
+    id: number;
+    name: string;
+    kind: string;
+    price_basis: "pack" | "unit";
+    canonical_unit: "kg" | "L" | "pcs";
+    wholesale_cents: number;
+    retail_cents: number;
+  }>(
+    `SELECT id, name, kind, price_basis, canonical_unit, wholesale_cents, retail_cents
        FROM items
       WHERE active = 1 AND sellable = 1 AND (retail_cents > 0 OR wholesale_cents > 0)
-      ORDER BY CASE kind WHEN 'finished' THEN 0 ELSE 1 END, name`,
+      ORDER BY CASE kind WHEN 'bulk' THEN 0 ELSE 1 END, name`,
   ).map((r) => ({
     id: r.id,
     name: r.name,
     kind: r.kind,
+    basis: r.price_basis === "unit" ? ("unit" as const) : ("pack" as const),
+    canonicalUnit: r.canonical_unit,
     wholesaleCents: r.wholesale_cents,
     retailCents: r.retail_cents,
   }));
@@ -75,6 +86,23 @@ export default async function NewWholesalePage(props: {
   const source = fromQuoteId ? getQuote(fromQuoteId) : undefined;
   const sourceLines = source ? quoteLines(source.id) : [];
 
+  /**
+   * What a draft line comes to, before anything is written.
+   *
+   * Only ever used to decide two things — whether this bill is going to leave
+   * money on account, and how much "the whole bill on credit" means. The money
+   * that is actually charged is worked out from the items themselves, inside
+   * `recordSale`, which is the only place allowed to price anything.
+   *
+   * A line carries either a quantity of substance or a count of containers, and
+   * `qtyMilli` is set only for the first; that is what tells them apart here.
+   */
+  function draftCents(l: { units: number; unitPriceCents: number; qtyMilli: number }): number {
+    return l.qtyMilli > 0
+      ? Math.round((l.unitPriceCents * l.qtyMilli) / 1000)
+      : l.units * l.unitPriceCents;
+  }
+
   async function save(payload: {
     mode: "quote" | "invoice";
     fromQuoteId: number | null;
@@ -82,7 +110,7 @@ export default async function NewWholesalePage(props: {
     customerName: string;
     note: string;
     validUntil: string;
-    lines: Array<{ itemId: number; units: number; unitPriceCents: number }>;
+    lines: Array<{ itemId: number; units: number; unitPriceCents: number; qtyMilli: number }>;
     paidCents: number;
     payMethod: "cash" | "mpesa";
     mpesaCode: string;
@@ -121,7 +149,7 @@ export default async function NewWholesalePage(props: {
        * sale simply stops being impossible.
        */
       let customerId = payload.customerId;
-      const provisionalTotal = payload.lines.reduce((s, l) => s + l.units * l.unitPriceCents, 0);
+      const provisionalTotal = payload.lines.reduce((s, l) => s + draftCents(l), 0);
       if (customerId === null && payload.paidCents < provisionalTotal && payload.customerName.trim()) {
         const existing = get<{ id: number }>(
           `SELECT id FROM customers WHERE lower(name) = lower(?) AND active = 1`,
@@ -137,7 +165,7 @@ export default async function NewWholesalePage(props: {
           );
       }
 
-      const total = payload.lines.reduce((s, l) => s + l.units * l.unitPriceCents, 0);
+      const total = payload.lines.reduce((s, l) => s + draftCents(l), 0);
       const tenders: Array<{ method: "cash" | "mpesa" | "credit"; amountCents: number; ref?: string | null }> = [];
       if (payload.paidCents > 0) {
         tenders.push({
@@ -210,6 +238,7 @@ export default async function NewWholesalePage(props: {
             itemId: l.item_id,
             units: l.units,
             unitPriceCents: l.unit_price_cents,
+            qtyMilli: l.qty_milli,
           })),
         }}
         onSave={save}

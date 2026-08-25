@@ -1,7 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { currentUser } from "@/lib/auth";
 import { get } from "@/lib/db";
-import { getQuote, quoteLines } from "@/lib/quotes";
+import { getQuote, quoteLineCents, quoteLineQty, quoteLines } from "@/lib/quotes";
 import { formatKes, formatDate } from "@/lib/units";
 import { PrintButton } from "@/app/invoice/[id]/print-button";
 
@@ -99,11 +99,12 @@ export default async function QuotePrintPage(props: { params: Promise<{ id: stri
             {lines.map((l) => (
               <tr key={l.id} className="border-b border-line">
                 <td className="py-2 font-semibold">{l.item_name}</td>
-                <td className="py-2 text-right tnum">{l.units}</td>
-                <td className="py-2 text-right tnum">{formatKes(l.unit_price_cents)}</td>
-                <td className="py-2 text-right font-bold tnum">
-                  {formatKes(l.units * l.unit_price_cents)}
+                <td className="py-2 text-right tnum">{quoteLineQty(l)}</td>
+                <td className="py-2 text-right tnum">
+                  {formatKes(l.unit_price_cents)}
+                  {l.rate_cents > 0 ? `/${l.canonical_unit}` : ""}
                 </td>
+                <td className="py-2 text-right font-bold tnum">{formatKes(quoteLineCents(l))}</td>
               </tr>
             ))}
           </tbody>

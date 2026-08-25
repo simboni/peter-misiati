@@ -18,8 +18,18 @@ export interface QuoteChoice {
 }
 export interface DraftLine {
   itemId: number;
+  /** Whole containers. Ignored once the item is priced per kilogram. */
   units: number;
+  /** Per container, or per kg / L. */
   unitPriceCents: number;
+  /** How much substance, in milli, for an item priced per kilogram. */
+  qtyMilli: number;
+}
+
+/** What one draft line comes to. Matches `quoteLineCents` on the server. */
+function draftCents(item: PickItem | undefined, l: DraftLine): number {
+  if (item?.basis === "unit") return Math.round((l.unitPriceCents * l.qtyMilli) / 1000);
+  return l.units * l.unitPriceCents;
 }
 
 export type SaveResult = { error?: string; quoteId?: number; saleId?: number };
@@ -81,7 +91,7 @@ export default function Builder({
   const [note, setNote] = useState(initial.note);
   const [validUntil, setValidUntil] = useState(initial.validUntil);
   const [lines, setLines] = useState<DraftLine[]>(
-    initial.lines.length ? initial.lines : [{ itemId: 0, units: 1, unitPriceCents: 0 }],
+    initial.lines.length ? initial.lines : [{ itemId: 0, units: 1, unitPriceCents: 0, qtyMilli: 1000 }],
   );
   const [paid, setPaid] = useState("");
   const [payMethod, setPayMethod] = useState<"cash" | "mpesa">("cash");
@@ -89,7 +99,7 @@ export default function Builder({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const total = lines.reduce((s, l) => s + l.units * l.unitPriceCents, 0);
+  const total = lines.reduce((s, l) => s + draftCents(byId.get(l.itemId), l), 0);
   const paidCents = Math.max(0, Math.round(Number(paid || 0) * 100));
   const onCredit = Math.max(0, total - paidCents);
 
@@ -118,7 +128,23 @@ export default function Builder({
 
   async function submit() {
     setError(null);
-    const clean = lines.filter((l) => l.itemId > 0 && l.units > 0);
+    /*
+      One shape leaves this form, whatever the boxes looked like.
+
+      `qtyMilli` is zeroed for anything sold whole and `units` for anything sold
+      by the kilogram, so nothing downstream has to guess which number to read.
+      A line carrying both would be a line the server could price two ways.
+    */
+    const clean = lines
+      .map((l) => {
+        const weighed = byId.get(l.itemId)?.basis === "unit";
+        return {
+          ...l,
+          units: weighed ? 1 : l.units,
+          qtyMilli: weighed ? l.qtyMilli : 0,
+        };
+      })
+      .filter((l) => l.itemId > 0 && (l.qtyMilli > 0 || l.units > 0));
     if (!clean.length) return setError("Add at least one line.");
     if (!customerName.trim() && customerId === null) return setError("Say who this is for.");
 
@@ -248,22 +274,42 @@ export default function Builder({
                   />
                 </div>
 
+                {/* One box, two questions. A chemical is quoted as a quantity —
+                    "400 kg of caustic" — and a container as a count. Asking for
+                    "units" of something sold by the kilogram was how a
+                    four-hundred-kilo order became a multiplication done on
+                    paper and typed back in as a discount. */}
                 <label className="col-span-3 md:col-span-2">
                   <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">
-                    Units
+                    {item?.basis === "unit" ? item.canonicalUnit : "Units"}
                   </span>
                   <input
                     className={`${inputClass} tnum`}
-                    inputMode="numeric"
-                    value={l.units}
-                    onChange={(e) => setLine(i, { units: Math.max(0, Math.trunc(Number(e.target.value) || 0)) })}
-                    aria-label={`Units on line ${i + 1}`}
+                    inputMode={item?.basis === "unit" ? "decimal" : "numeric"}
+                    value={
+                      item?.basis === "unit"
+                        ? String(Number((l.qtyMilli / 1000).toFixed(3)))
+                        : l.units
+                    }
+                    onChange={(e) =>
+                      setLine(
+                        i,
+                        item?.basis === "unit"
+                          ? { qtyMilli: Math.max(0, Math.round(Number(e.target.value) * 1000 || 0)) }
+                          : { units: Math.max(0, Math.trunc(Number(e.target.value) || 0)) },
+                      )
+                    }
+                    aria-label={
+                      item?.basis === "unit"
+                        ? `How much on line ${i + 1}, in ${item.canonicalUnit}`
+                        : `Units on line ${i + 1}`
+                    }
                   />
                 </label>
 
                 <label className="col-span-5 md:col-span-3">
                   <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">
-                    Price each
+                    {item?.basis === "unit" ? `Price per ${item.canonicalUnit}` : "Price each"}
                   </span>
                   <input
                     className={`${inputClass} tnum ${cut ? "text-warn" : ""}`}
@@ -293,7 +339,9 @@ export default function Builder({
 
         <button
           type="button"
-          onClick={() => setLines((prev) => [...prev, { itemId: 0, units: 1, unitPriceCents: 0 }])}
+          onClick={() =>
+            setLines((prev) => [...prev, { itemId: 0, units: 1, unitPriceCents: 0, qtyMilli: 1000 }])
+          }
           className="mt-3 flex min-h-11 items-center rounded-xl px-3 text-sm font-bold text-brand hover:bg-wash xl:min-h-9"
         >
           + Another line
