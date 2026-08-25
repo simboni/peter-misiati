@@ -401,11 +401,14 @@ test("a receipt built from a sale uses the snapshotted line values only", () => 
         unit_price_cents: 350000,
         line_total_cents: 700000,
         rate_cents: 0,
+        list_price_cents: 0,
         canonical_unit: "kg",
       },
     ],
     tenders: [{ method: "cash" as const, amount_cents: 200000, codes: null }],
     balanceCents: 500000,
+    subtotalCents: 700000,
+    discountCents: 0,
   };
 
   const receipt = settings.receiptFromInvoice(invoice, settings.getPrintSettings());
@@ -433,6 +436,7 @@ test("a receipt built from a sale uses the snapshotted line values only", () => 
           unit_price_cents: 5320,
           line_total_cents: 5320,
           rate_cents: 13300,
+          list_price_cents: 0,
           canonical_unit: "kg",
         },
       ],
@@ -442,6 +446,48 @@ test("a receipt built from a sale uses the snapshotted line values only", () => 
   const weighedText = receiptText(weighed, { paper: 58 });
   assert.match(weighedText, /400 g x 133\/kg\s+53\.20/);
   assert.ok(!weighedText.includes("1 x 53.20"), "a weighed line never prints a count of one");
+
+  /*
+    And the same line haggled: asked 133 a kilo, agreed 100.
+
+    The customer negotiated that, so both figures belong on the paper — the
+    price they were quoted and the amount they talked off it. Printing only
+    "40.00" would be true and would give them no way to see they got anything,
+    which is the whole reason they asked.
+
+    The amounts must still add up: 53.20 asked, 13.20 off, 40.00 charged, and
+    the Subtotal / Discount / TOTAL block carries the same three numbers so the
+    column reconciles with the bottom line.
+  */
+  const haggled = settings.receiptFromInvoice(
+    {
+      ...invoice,
+      sale: { ...invoice.sale, total_cents: 4000, paid_cents: 4000 },
+      lines: [
+        {
+          id: 3,
+          name_snapshot: "Caustic Soda",
+          units: 1,
+          qty_milli: 400,
+          unit_price_cents: 4000,
+          line_total_cents: 4000,
+          rate_cents: 10000,
+          list_price_cents: 13300,
+          canonical_unit: "kg",
+        },
+      ],
+      balanceCents: 0,
+      subtotalCents: 5320,
+      discountCents: 1320,
+    },
+    settings.getPrintSettings(),
+  );
+  const haggledText = receiptText(haggled, { paper: 58 });
+  assert.match(haggledText, /400 g x 133\/kg\s+53\.20/, "the price the customer was quoted");
+  assert.match(haggledText, /Discount\s+-13\.20/, "and what came off it");
+  assert.match(haggledText, /Subtotal\s+53\.20/);
+  // `money` drops a trailing ".00", so a round total prints bare.
+  assert.match(haggledText, /TOTAL\s+40$/m);
 
   const text = receiptText(receipt, { paper: 58 });
   assert.ok(text.includes("BALANCE DUE"));

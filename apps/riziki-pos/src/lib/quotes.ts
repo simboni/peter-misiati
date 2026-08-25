@@ -25,7 +25,7 @@
  */
 
 import { all, get, run, tx, audit } from "./db.ts";
-import { recordSale, type RecordSaleResult } from "./sales.ts";
+import { priceFor, recordSale, type RecordSaleResult } from "./sales.ts";
 import { businessDate, formatQty } from "./units.ts";
 
 export type QuoteStatus = "draft" | "sent" | "approved" | "declined" | "invoiced";
@@ -71,6 +71,8 @@ export interface QuoteLineRow {
   unit_price_cents: number;
   /** Quantity of substance; zero on a line sold whole. */
   qty_milli: number;
+  /** What the shop was asking when the quote was written. */
+  list_price_cents: number;
   /** Per kg / L; zero on a line sold whole. */
   rate_cents: number;
   price_basis: "pack" | "unit";
@@ -155,7 +157,7 @@ export function getQuote(id: number): QuoteRow | undefined {
 export function quoteLines(quoteId: number): QuoteLineRow[] {
   return all<QuoteLineRow>(
     `SELECT l.id, l.item_id, i.name AS item_name, l.units, l.unit_price_cents,
-            l.qty_milli, l.rate_cents, i.price_basis, i.canonical_unit,
+            l.qty_milli, l.rate_cents, l.list_price_cents, i.price_basis, i.canonical_unit,
             i.wholesale_cents, i.retail_cents
        FROM quote_lines l
        JOIN items i ON i.id = l.item_id
@@ -178,12 +180,17 @@ function normaliseLine(line: QuoteLineInput): {
   unitPriceCents: number;
   qtyMilli: number;
   rateCents: number;
+  listPriceCents: number;
 } {
-  const item = get<{ price_basis: "pack" | "unit" }>(
-    `SELECT price_basis FROM items WHERE id = ?`,
+  const item = get<{ price_basis: "pack" | "unit"; retail_cents: number; wholesale_cents: number }>(
+    `SELECT price_basis, retail_cents, wholesale_cents FROM items WHERE id = ?`,
     line.itemId,
   );
   const price = Math.max(0, Math.trunc(line.unitPriceCents));
+  // Quotes are always wholesale — that is what a quote is for — so the asking
+  // price to measure the offer against is the trade one, falling back to retail
+  // where no trade price is set.
+  const listPriceCents = item ? priceFor(item, "wholesale") : 0;
 
   if (item?.price_basis !== "unit") {
     return {
@@ -191,6 +198,7 @@ function normaliseLine(line: QuoteLineInput): {
       unitPriceCents: price,
       qtyMilli: 0,
       rateCents: 0,
+      listPriceCents,
     };
   }
   return {
@@ -198,6 +206,7 @@ function normaliseLine(line: QuoteLineInput): {
     unitPriceCents: price,
     qtyMilli: Math.max(1, Math.trunc(line.qtyMilli ?? Math.trunc(line.units) * 1000)),
     rateCents: price,
+    listPriceCents,
   };
 }
 
@@ -270,14 +279,16 @@ export function saveQuote(input: SaveQuoteInput): { quoteId: number; quoteNo: st
     for (const line of lines) {
       const n = normaliseLine(line);
       run(
-        `INSERT INTO quote_lines (quote_id, item_id, units, unit_price_cents, qty_milli, rate_cents, sort_order)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO quote_lines (quote_id, item_id, units, unit_price_cents, qty_milli,
+                                  rate_cents, list_price_cents, sort_order)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         quoteId,
         line.itemId,
         n.units,
         n.unitPriceCents,
         n.qtyMilli,
         n.rateCents,
+        n.listPriceCents,
         order++,
       );
     }

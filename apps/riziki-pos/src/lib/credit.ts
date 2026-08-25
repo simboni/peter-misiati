@@ -12,6 +12,7 @@
  */
 
 import { all, get, run, tx, audit, db } from "./db.ts";
+import { lineDiscountCents } from "./sales.ts";
 import { formatKes, formatDate } from "./units.ts";
 import { twoCol, wrapText, money, type ReceiptBlock } from "./escpos.ts";
 
@@ -655,6 +656,8 @@ export interface InvoiceLine {
   line_total_cents: number;
   /** Per kg / L when the line was weighed; 0 when it was sold whole. */
   rate_cents: number;
+  /** What the shop was asking. 0 on lines from before this was recorded. */
+  list_price_cents: number;
   canonical_unit: string | null;
 }
 
@@ -669,6 +672,16 @@ export interface Invoice {
   lines: InvoiceLine[];
   tenders: InvoiceTender[];
   balanceCents: number;
+  /**
+   * What the lines would have come to at the shop's asking price, and what was
+   * taken off. `subtotalCents - discountCents === sale.total_cents` always, so
+   * the document reconciles however much haggling went on.
+   *
+   * Both are zero when nothing was discounted, which is the ordinary sale — the
+   * receipt then prints one TOTAL and no arithmetic nobody asked for.
+   */
+  subtotalCents: number;
+  discountCents: number;
 }
 
 export function getInvoice(saleId: number): Invoice | undefined {
@@ -692,7 +705,7 @@ export function getInvoice(saleId: number): Invoice | undefined {
   // price.
   const lines = all<InvoiceLine>(
     `SELECT sl.id, sl.name_snapshot, sl.units, sl.qty_milli,
-            sl.unit_price_cents, sl.line_total_cents, sl.rate_cents,
+            sl.unit_price_cents, sl.line_total_cents, sl.rate_cents, sl.list_price_cents,
             i.canonical_unit
        FROM sale_lines sl
        LEFT JOIN items i ON i.id = sl.item_id
@@ -711,7 +724,24 @@ export function getInvoice(saleId: number): Invoice | undefined {
     saleId,
   );
 
-  return { sale, lines, tenders, balanceCents: sale.total_cents - sale.paid_cents };
+  /*
+    The discount, totalled from the lines rather than stored on the sale.
+
+    Storing it would be a fourth number that has to agree with the other three,
+    and the day it stopped agreeing there would be no way to tell which was
+    right. Derived, it cannot disagree: it is the difference between what the
+    lines would have come to at the asking price and what they did come to.
+  */
+  const discountCents = lines.reduce((sum, l) => sum + lineDiscountCents(l), 0);
+
+  return {
+    sale,
+    lines,
+    tenders,
+    balanceCents: sale.total_cents - sale.paid_cents,
+    subtotalCents: sale.total_cents + discountCents,
+    discountCents,
+  };
 }
 
 // --------------------------------------------------------------- WhatsApp

@@ -25,6 +25,10 @@ const {
   profitPerProduct,
   monthlySales,
   businessLineSplit,
+  discountSummary,
+  discountsByPerson,
+  discountsByItem,
+  discountedSales,
   deadStock,
   shrinkageByMonth,
   expenseTotalForMonth,
@@ -59,6 +63,9 @@ function sale(opts: {
   cash?: number;
   mpesa?: number;
   credit?: number;
+  /** What the shop was asking, when it differs from what was charged. */
+  listPriceCents?: number;
+  userId?: number;
 }): number {
   const total = opts.units * opts.unitPriceCents;
   const paid = (opts.cash ?? 0) + (opts.mpesa ?? 0);
@@ -67,14 +74,14 @@ function sale(opts: {
      VALUES (?, ?, ?, 'retail', ?, ?, 'completed')`,
     opts.uuid,
     opts.atUtc,
-    OWNER,
+    opts.userId ?? OWNER,
     total,
     paid,
   );
   run(
     `INSERT INTO sale_lines (sale_id, item_id, name_snapshot, units, qty_milli,
-                             unit_price_cents, line_total_cents, cost_cents)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                             unit_price_cents, line_total_cents, list_price_cents, cost_cents)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     saleId,
     opts.itemId,
     opts.name,
@@ -82,6 +89,7 @@ function sale(opts: {
     opts.units * 1000,
     opts.unitPriceCents,
     total,
+    opts.listPriceCents ?? opts.unitPriceCents,
     opts.lineCostCents,
   );
   for (const [method, amount] of [
@@ -311,6 +319,103 @@ describe("profit per product uses the snapshot, not today's price list", () => {
 });
 
 // ------------------------------------------------------------ (d) CSV escaping
+
+describe("discounts given", () => {
+  /*
+    Haggling, reported.
+
+    Two attendants, one month, one chemical argued down and one sold at the
+    asking price — enough to check that the figures separate the two, attribute
+    them to the right person, and measure the concession against the price that
+    was being asked at the time rather than against whatever the shelf says now.
+  */
+  before(() => {
+    run(`INSERT INTO users (id, name, role, pin_hash) VALUES (2, 'Grace', 'staff', 'x')`);
+    run(`INSERT INTO users (id, name, role, pin_hash) VALUES (3, 'Peter', 'staff', 'x')`);
+
+    // Grace: asked 1,000 a pack, agreed 900, twice.
+    sale({
+      uuid: "disc-grace-1", atUtc: "2026-11-04 09:00:00", itemId: 1, name: "Ungerol — 20 kg",
+      units: 2, unitPriceCents: 90000, listPriceCents: 100000, lineCostCents: 152000,
+      cash: 180000, userId: 2,
+    });
+    // Peter: asked 1,000, agreed 950, once.
+    sale({
+      uuid: "disc-peter-1", atUtc: "2026-11-05 09:00:00", itemId: 1, name: "Ungerol — 20 kg",
+      units: 1, unitPriceCents: 95000, listPriceCents: 100000, lineCostCents: 76000,
+      cash: 95000, userId: 3,
+    });
+    // Peter again, at the asking price. Must not appear as a discount.
+    sale({
+      uuid: "disc-peter-2", atUtc: "2026-11-06 09:00:00", itemId: 2, name: "1 L bottle",
+      units: 4, unitPriceCents: 12000, lineCostCents: 24000, cash: 48000, userId: 3,
+    });
+  });
+
+  test("the month's total is what was asked less what was charged", () => {
+    const d = discountSummary(monthRange("2026-11"));
+    // Grace 2 × 100 off, Peter 1 × 50 off.
+    assert.equal(d.discountCents, 25000);
+    // 2 packs + 1 pack at 1,000, plus 4 bottles at 120 = 348,000 asked.
+    assert.equal(d.atListCents, 348000);
+    assert.equal(Math.round(d.pct * 10) / 10, 7.2);
+    assert.equal(d.lines, 2, "two lines were cut; the bottles were not");
+  });
+
+  test("a price above the floor is a discount but not an override", () => {
+    // 900 and 950 both clear the 850 floor, so nobody needed the owner's PIN.
+    assert.equal(discountSummary(monthRange("2026-11")).belowFloorLines, 0);
+  });
+
+  test("it is attributed to whoever agreed it", () => {
+    const rows = discountsByPerson(monthRange("2026-11"));
+    assert.equal(rows.length, 2, "only the two who discounted");
+    assert.deepEqual(rows.map((r) => r.user_name), ["Grace", "Peter"], "biggest first");
+
+    const grace = rows[0];
+    assert.equal(grace.discount_cents, 20000);
+    assert.equal(grace.at_list_cents, 200000);
+    assert.equal(grace.lines, 1);
+    assert.equal(grace.sales, 1);
+
+    assert.equal(rows[1].discount_cents, 5000);
+  });
+
+  test("and to the item that was argued down", () => {
+    const rows = discountsByItem(monthRange("2026-11"));
+    assert.equal(rows.length, 1, "only Ungerol was haggled over");
+    assert.equal(rows[0].name, "Ungerol — 20 kg");
+    assert.equal(rows[0].discount_cents, 25000);
+    assert.equal(rows[0].lines, 2);
+  });
+
+  test("the bills carry their own figure, newest first", () => {
+    const bills = discountedSales(monthRange("2026-11"));
+    assert.deepEqual(bills.map((b) => b.discount_cents), [5000, 20000]);
+    assert.equal(bills[0].user_name, "Peter");
+    assert.equal(bills[1].user_name, "Grace");
+  });
+
+  test("a month with no haggling reports nothing rather than zero rows of noise", () => {
+    const d = discountSummary(monthRange("2026-10"));
+    assert.equal(d.discountCents, 0);
+    assert.equal(d.lines, 0);
+    assert.equal(d.pct, 0, "no divide-by-zero when nothing was sold");
+    assert.deepEqual(discountsByPerson(monthRange("2026-10")), []);
+  });
+
+  test("a voided sale takes its discount with it", () => {
+    const id = sale({
+      uuid: "disc-voided", atUtc: "2026-11-07 09:00:00", itemId: 1, name: "Ungerol — 20 kg",
+      units: 5, unitPriceCents: 50000, listPriceCents: 100000, lineCostCents: 380000,
+      cash: 250000, userId: 2,
+    });
+    run(`UPDATE sales SET status = 'voided' WHERE id = ?`, id);
+
+    // The 2,500 that sale would have added is not in the month's figure.
+    assert.equal(discountSummary(monthRange("2026-11")).discountCents, 25000);
+  });
+});
 
 describe("CSV escaping", () => {
   test("a field containing a comma is quoted", () => {

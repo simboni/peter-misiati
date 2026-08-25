@@ -88,7 +88,11 @@ export default async function QuotePage(props: { params: Promise<{ id: string }>
       <Card>
         <div className="divide-y divide-line">
           {lines.map((l) => {
-            const list = l.wholesale_cents > 0 ? l.wholesale_cents : l.retail_cents;
+            // The price the shop was asking when the quote was written, not the
+            // one on the shelf today. Re-reading today's would restate an old
+            // offer as a bigger or smaller concession than it ever was — and a
+            // quote is a document the customer is holding a copy of.
+            const list = l.list_price_cents;
             const cut = list > 0 && l.unit_price_cents < list;
             return (
               <div key={l.id} className="flex items-baseline gap-2 py-2">

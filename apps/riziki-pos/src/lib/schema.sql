@@ -325,6 +325,22 @@ END;
 --
 -- Keeping the rate rather than deriving it back out of amount ÷ quantity means
 -- a receipt reprinted next year still says "KES 50/kg" and not "KES 49.98/kg".
+--
+-- `list_price_cents` is what the shop was ASKING when the line was rung up, in
+-- the same terms as the price beside it — per pack, or per kilogram.
+--
+-- Haggling is normal here, so an attendant may sell Ungerol at 80 when the
+-- shelf says 100, and until this column existed the only trace of that was a
+-- sentence in the audit log. That is enough to catch somebody out and not
+-- enough to run a shop: the customer's receipt could not say what they had
+-- saved, and the owner could not ask what a month of discounting had cost him.
+-- The asking price is a fact about the moment of sale, so it is snapshotted
+-- here beside the price actually charged, and the difference is arithmetic
+-- anybody can check rather than a number somebody has to be trusted about.
+--
+-- Zero means "not recorded" — every line written before this column existed.
+-- Those lines are not discounts of the full amount, and every reader of this
+-- column has to treat zero as unknown rather than as a list price of nothing.
 CREATE TABLE IF NOT EXISTS sale_lines (
   id               INTEGER PRIMARY KEY,
   sale_id          INTEGER NOT NULL REFERENCES sales(id),
@@ -335,6 +351,7 @@ CREATE TABLE IF NOT EXISTS sale_lines (
   unit_price_cents INTEGER NOT NULL CHECK (unit_price_cents >= 0),
   line_total_cents INTEGER NOT NULL CHECK (line_total_cents >= 0),
   rate_cents       INTEGER NOT NULL DEFAULT 0 CHECK (rate_cents >= 0),
+  list_price_cents INTEGER NOT NULL DEFAULT 0 CHECK (list_price_cents >= 0),
   cost_cents       INTEGER NOT NULL DEFAULT 0,   -- owner-only in the UI
   is_kit           INTEGER NOT NULL DEFAULT 0 CHECK (is_kit IN (0, 1)),
   formula_version_id INTEGER REFERENCES formula_versions(id)
@@ -493,6 +510,10 @@ CREATE TABLE IF NOT EXISTS quote_lines (
   -- not for "8 × the biggest bag we happen to have a row for".
   qty_milli        INTEGER NOT NULL DEFAULT 0 CHECK (qty_milli >= 0),
   rate_cents       INTEGER NOT NULL DEFAULT 0 CHECK (rate_cents >= 0),
+  -- What the shop was asking when the quote was written, so the discount the
+  -- customer was offered stays true after the shelf price moves. Same meaning
+  -- and the same zero-is-unknown rule as `sale_lines.list_price_cents`.
+  list_price_cents INTEGER NOT NULL DEFAULT 0 CHECK (list_price_cents >= 0),
   sort_order       INTEGER NOT NULL DEFAULT 0
 );
 

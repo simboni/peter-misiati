@@ -33,6 +33,8 @@ const {
   listSales,
   saleLinesFor,
   topSellerItemIds,
+  lineDiscountCents,
+  amountAt,
   SaleError,
 } = await import("../src/lib/sales.ts");
 
@@ -110,6 +112,14 @@ const EIGHT_HUNDRED = makeItem({
   floor: 60000,
   openingUnits: 10,
 });
+
+/** A chemical priced per kilogram — the thing customers actually argue about. */
+const { lastInsertRowid: CAUSTIC } = run(
+  `INSERT INTO items (name, kind, canonical_unit, size_milli, unit_label, sellable,
+                      price_basis, retail_cents, wholesale_cents, floor_cents, cost_cents)
+   VALUES ('Test Caustic Soda', 'bulk', 'kg', 25000, 'bag', 1, 'unit', 10000, 9000, 7000, 6000)`,
+);
+postMovement({ itemId: CAUSTIC, deltaMilli: 500_000, reason: "opening", userId: OWNER });
 
 const { lastInsertRowid: CUSTOMER } = run(
   `INSERT INTO customers (name, phone, kind, credit_limit_cents) VALUES (?, '', 'wholesale', ?)`,
@@ -628,4 +638,182 @@ test("top sellers come from the shop's own day and fall back to the week", () =>
   assert.ok(top.length <= 6);
   assert.equal(top[0], SOAP, "the most-sold item leads the row");
   assert.ok(new Set(top).size === top.length, "no item appears twice");
+});
+
+
+// -------------------------------------------------------------- discounting
+
+/*
+  Haggling, and the paper trail it leaves.
+
+  Prices at this counter are negotiated, so an attendant coming down from 100 to
+  80 a kilo is the normal case and not an incident. What has to be true is that
+  the concession is a recorded number rather than a memory: on the line, on the
+  customer's receipt, and in a figure the owner can total at the end of a month.
+*/
+
+test("the asking price is snapshotted beside the price charged", () => {
+  const { saleId } = recordSale({
+    clientUuid: uuid(),
+    userId: STAFF,
+    tier: "retail",
+    // Asked 100 a kilo, agreed 80, for two kilos.
+    lines: [{ itemId: CAUSTIC, units: 1, qtyMilli: 2000, unitPriceCents: 8000 }],
+    tenders: [{ method: "cash", amountCents: 16000 }],
+  });
+
+  const line = get<{
+    units: number;
+    qty_milli: number;
+    rate_cents: number;
+    list_price_cents: number;
+    line_total_cents: number;
+  }>(`SELECT units, qty_milli, rate_cents, list_price_cents, line_total_cents
+        FROM sale_lines WHERE sale_id = ?`, saleId)!;
+
+  assert.equal(line.rate_cents, 8000, "what was charged");
+  assert.equal(line.list_price_cents, 10000, "what was asked");
+  assert.equal(line.line_total_cents, 16000, "2 kg at the agreed 80");
+  assert.equal(amountAt(line, line.list_price_cents), 20000, "2 kg at the asked 100");
+  assert.equal(lineDiscountCents(line), 4000, "KES 40 off, on the line itself");
+});
+
+test("a discount survives the shelf price moving afterwards", () => {
+  const { saleId } = recordSale({
+    clientUuid: uuid(),
+    userId: STAFF,
+    tier: "retail",
+    lines: [{ itemId: CAUSTIC, units: 1, qtyMilli: 1000, unitPriceCents: 8000 }],
+    tenders: [{ method: "cash", amountCents: 8000 }],
+  });
+
+  // The world moves. Caustic goes to 150 a kilo next week.
+  run(`UPDATE items SET retail_cents = 15000 WHERE id = ?`, CAUSTIC);
+
+  const line = get<{
+    units: number;
+    qty_milli: number;
+    rate_cents: number;
+    list_price_cents: number;
+    line_total_cents: number;
+  }>(`SELECT units, qty_milli, rate_cents, list_price_cents, line_total_cents
+        FROM sale_lines WHERE sale_id = ?`, saleId)!;
+
+  assert.equal(line.list_price_cents, 10000, "the asking price is frozen at the moment of sale");
+  assert.equal(
+    lineDiscountCents(line),
+    2000,
+    "the customer saved 20, not the 70 today's price would imply",
+  );
+  run(`UPDATE items SET retail_cents = 10000 WHERE id = ?`, CAUSTIC);
+});
+
+test("selling at the asking price is not a discount, and neither is selling above it", () => {
+  const atList = recordSale({
+    clientUuid: uuid(),
+    userId: STAFF,
+    tier: "retail",
+    lines: [{ itemId: CAUSTIC, units: 1, qtyMilli: 1000, unitPriceCents: 10000 }],
+    tenders: [{ method: "cash", amountCents: 10000 }],
+  });
+  const above = recordSale({
+    clientUuid: uuid(),
+    userId: STAFF,
+    tier: "retail",
+    lines: [{ itemId: CAUSTIC, units: 1, qtyMilli: 1000, unitPriceCents: 12000 }],
+    tenders: [{ method: "cash", amountCents: 12000 }],
+  });
+
+  for (const id of [atList.saleId, above.saleId]) {
+    const line = get<{
+      units: number;
+      qty_milli: number;
+      rate_cents: number;
+      list_price_cents: number;
+      line_total_cents: number;
+    }>(`SELECT units, qty_milli, rate_cents, list_price_cents, line_total_cents
+          FROM sale_lines WHERE sale_id = ?`, id)!;
+    assert.equal(lineDiscountCents(line), 0);
+  }
+});
+
+test("a line from before the asking price was recorded reads as no discount, not a total one", () => {
+  /*
+    Every sale_line written before this column existed carries a zero, and zero
+    has to mean "not recorded". Read as a list price of nothing, it would make
+    the discount negative on every historical line — clamped at zero that is
+    merely wrong, but it would also make `atListCents` collapse and the
+    percentage in the report meaningless.
+  */
+  assert.equal(
+    lineDiscountCents({ units: 2, qty_milli: 2000, rate_cents: 0, list_price_cents: 0, line_total_cents: 5000 }),
+    0,
+  );
+});
+
+test("a below-floor price still needs the owner, and still records what was asked", () => {
+  // The floor is 70 a kilo. An attendant offering 60 is refused by name.
+  assert.throws(
+    () =>
+      recordSale({
+        clientUuid: uuid(),
+        userId: STAFF,
+        tier: "retail",
+        lines: [{ itemId: CAUSTIC, units: 1, qtyMilli: 1000, unitPriceCents: 6000 }],
+        tenders: [{ method: "cash", amountCents: 6000 }],
+      }),
+    (e: unknown) => e instanceof SaleError && e.code === "below_floor",
+  );
+
+  // With the owner standing there it goes through — and is still a recorded
+  // 40-shilling concession rather than a price nobody can account for.
+  const { saleId } = recordSale({
+    clientUuid: uuid(),
+    userId: STAFF,
+    tier: "retail",
+    lines: [{ itemId: CAUSTIC, units: 1, qtyMilli: 1000, unitPriceCents: 6000 }],
+    tenders: [{ method: "cash", amountCents: 6000 }],
+    floorOverrideBy: OWNER,
+  });
+
+  const line = get<{
+    units: number;
+    qty_milli: number;
+    rate_cents: number;
+    list_price_cents: number;
+    line_total_cents: number;
+  }>(`SELECT units, qty_milli, rate_cents, list_price_cents, line_total_cents
+        FROM sale_lines WHERE sale_id = ?`, saleId)!;
+  assert.equal(lineDiscountCents(line), 4000);
+
+  // And the activity log names the owner who allowed it.
+  const entry = get<{ action: string; detail: string }>(
+    `SELECT action, detail FROM audit_log
+      WHERE action = 'price_override_below_floor' ORDER BY id DESC LIMIT 1`,
+  )!;
+  assert.match(entry.detail, /below floor/);
+});
+
+test("a whole-unit line discounts by the count, not by the quantity", () => {
+  const { saleId } = recordSale({
+    clientUuid: uuid(),
+    userId: STAFF,
+    tier: "retail",
+    // Three bottles asked at 100, agreed at 90.
+    lines: [{ itemId: SOAP, units: 3, unitPriceCents: 9000 }],
+    tenders: [{ method: "cash", amountCents: 27000 }],
+  });
+
+  const line = get<{
+    units: number;
+    qty_milli: number;
+    rate_cents: number;
+    list_price_cents: number;
+    line_total_cents: number;
+  }>(`SELECT units, qty_milli, rate_cents, list_price_cents, line_total_cents
+        FROM sale_lines WHERE sale_id = ?`, saleId)!;
+
+  assert.equal(line.rate_cents, 0, "nothing was weighed");
+  assert.equal(line.list_price_cents, 10000);
+  assert.equal(lineDiscountCents(line), 3000, "KES 10 off each of three bottles");
 });

@@ -103,6 +103,16 @@ const ADDED_COLUMNS: Array<{ table: string; column: string; definition: string }
     definition: "TEXT NOT NULL DEFAULT 'pack' CHECK (price_basis IN ('pack', 'unit'))",
   },
   { table: "sale_lines", column: "rate_cents", definition: "INTEGER NOT NULL DEFAULT 0 CHECK (rate_cents >= 0)" },
+  {
+    table: "sale_lines",
+    column: "list_price_cents",
+    definition: "INTEGER NOT NULL DEFAULT 0 CHECK (list_price_cents >= 0)",
+  },
+  {
+    table: "quote_lines",
+    column: "list_price_cents",
+    definition: "INTEGER NOT NULL DEFAULT 0 CHECK (list_price_cents >= 0)",
+  },
   { table: "quote_lines", column: "qty_milli", definition: "INTEGER NOT NULL DEFAULT 0 CHECK (qty_milli >= 0)" },
   { table: "quote_lines", column: "rate_cents", definition: "INTEGER NOT NULL DEFAULT 0 CHECK (rate_cents >= 0)" },
 ];

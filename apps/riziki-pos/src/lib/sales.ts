@@ -105,6 +105,51 @@ export function amountFor(rateCents: number, qtyMilli: number): number {
   return Math.round((rateCents * qtyMilli) / MILLI);
 }
 
+/**
+ * A line as anything that needs to price it sees it: how many, how much, and
+ * which of the two shapes it is.
+ *
+ * Deliberately the column names rather than camelCase — every caller reads
+ * these straight off a `sale_lines` or `quote_lines` row, and translating on
+ * the way in is one more place for the two shapes to be confused.
+ */
+export interface PricedLine {
+  units: number;
+  qty_milli: number;
+  /** > 0 means the line is a quantity at a rate; 0 means whole units. */
+  rate_cents: number;
+}
+
+/**
+ * What a line would come to at some price — the charged one, or the one the
+ * shop was asking.
+ *
+ * One function for both shapes and both prices, because a discount is the
+ * difference between two runs of the same arithmetic. Doing it two ways would
+ * eventually produce a "discount" that was really a rounding disagreement.
+ */
+export function amountAt(line: PricedLine, priceCents: number): number {
+  if (priceCents <= 0) return 0;
+  return line.rate_cents > 0
+    ? Math.round((priceCents * line.qty_milli) / MILLI)
+    : priceCents * line.units;
+}
+
+/**
+ * What the customer was let off, in cents.
+ *
+ * Zero when no asking price was recorded — every line written before the shop
+ * started keeping one. Zero, too, when the line was sold at or above list: a
+ * negative discount is not a thing anybody wants totalled into a report, and a
+ * price ABOVE the asking price is not a discount by any reading.
+ */
+export function lineDiscountCents(
+  line: PricedLine & { list_price_cents: number; line_total_cents: number },
+): number {
+  if (line.list_price_cents <= 0) return 0;
+  return Math.max(0, amountAt(line, line.list_price_cents) - line.line_total_cents);
+}
+
 export interface CartLine {
   /** Per whole unit, or — when `basis` is 'unit' — per kilogram / litre. */
   unitPriceCents: number;
@@ -265,9 +310,10 @@ export function recordSale(input: RecordSaleInput): RecordSaleResult {
     for (const l of lines) {
       run(
         `INSERT INTO sale_lines (sale_id, item_id, name_snapshot, units, qty_milli,
-                                 unit_price_cents, line_total_cents, rate_cents, cost_cents,
+                                 unit_price_cents, line_total_cents, rate_cents,
+                                 list_price_cents, cost_cents,
                                  is_kit, formula_version_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         saleId,
         l.item.id,
         l.item.name,
@@ -276,6 +322,12 @@ export function recordSale(input: RecordSaleInput): RecordSaleResult {
         l.unitPriceCents,
         l.lineTotalCents,
         l.rateCents,
+        // What the shop was asking, in the same terms as the price charged.
+        // Snapshotted rather than re-derived at read time: the shelf price
+        // moves weekly, and a receipt that recalculated the discount against
+        // today's price would tell a customer they saved a figure nobody ever
+        // quoted them.
+        l.listPriceCents,
         l.costCents,
         l.formulaVersionId ? 1 : 0,
         l.formulaVersionId,

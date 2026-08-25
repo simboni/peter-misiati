@@ -291,6 +291,15 @@ export interface ReceiptLine {
    */
   rateCents?: number | null;
   rateUnit?: string | null;
+  /**
+   * What the shop was asking, per pack or per kg — set only when the line was
+   * sold for less. The detail line then quotes the asking price and a second
+   * line carries the discount, so the customer can see the arithmetic they
+   * negotiated rather than a single figure they have to take on trust.
+   */
+  listPriceCents?: number | null;
+  /** What this line was let off, in cents. Zero or absent when it was not. */
+  discountCents?: number | null;
 }
 
 export interface ReceiptTender {
@@ -301,6 +310,16 @@ export interface ReceiptTender {
 }
 
 export interface Receipt {
+  /**
+   * The lines at the asking price, and what was taken off them.
+   *
+   * Printed as a Subtotal / Discount / TOTAL block, and only when there IS a
+   * discount: on an ordinary sale the receipt shows one TOTAL and no
+   * arithmetic. `subtotalCents - discountCents` must equal `totalCents`, which
+   * is what lets a customer add the line amounts up and arrive at the bottom.
+   */
+  subtotalCents?: number | null;
+  discountCents?: number | null;
   /** Shop name first, then address / phone / KRA PIN. */
   header: string[];
   /** "RECEIPT" when settled, "INVOICE" when money is still owed. */
@@ -387,16 +406,37 @@ export function renderReceipt(receipt: Receipt, opts: ReceiptOptions = {}): Rece
     pushMany(wrapText(line.name, w));
     // The detail line carries the arithmetic the customer checks — how many, at
     // what price — with the extension hard against the right margin.
+    /*
+      A discounted line prints at the price the shop was asking, with the
+      discount underneath as its own negative amount — so the two figures the
+      customer argued about are both on the paper, and the column still adds up
+      to the total at the bottom.
+
+      Printing the haggled price alone would be honest and useless: the customer
+      would have no way to see they got anything, which is the entire reason
+      they asked.
+    */
+    const discounted = (line.discountCents ?? 0) > 0 && (line.listPriceCents ?? 0) > 0;
+    const shownPrice = discounted ? line.listPriceCents! : line.rateCents || line.unitPriceCents;
+    const shownTotal = line.lineTotalCents + (discounted ? line.discountCents! : 0);
+
     const qty = line.qty ? ` (${toAscii(line.qty)})` : "";
     const detail =
       line.rateCents && line.rateCents > 0 && line.qty
-        ? `${toAscii(line.qty)} x ${money(line.rateCents)}/${toAscii(line.rateUnit ?? "")}`.trimEnd()
-        : `${line.units} x ${money(line.unitPriceCents)}${qty}`;
-    pushMany(indent(twoCol(detail, money(line.lineTotalCents), w - 2)));
+        ? `${toAscii(line.qty)} x ${money(shownPrice)}/${toAscii(line.rateUnit ?? "")}`.trimEnd()
+        : `${line.units} x ${money(shownPrice)}${qty}`;
+    pushMany(indent(twoCol(detail, money(shownTotal), w - 2)));
+    if (discounted) {
+      pushMany(indent(twoCol("Discount", "-" + money(line.discountCents!), w - 2)));
+    }
   }
   push(rule);
 
   // ------------------------------------------------------------- totals
+  if ((receipt.discountCents ?? 0) > 0) {
+    pushMany(twoCol("Subtotal", money(receipt.subtotalCents ?? 0), w));
+    pushMany(twoCol("Discount", "-" + money(receipt.discountCents!), w), { bold: true });
+  }
   pushMany(twoCol("TOTAL", money(receipt.totalCents), w), { bold: true, tall: true });
   pushMany(twoCol("Paid", money(receipt.paidCents), w));
   pushMany(twoCol(receipt.balanceCents > 0 ? "BALANCE DUE" : "Balance", money(receipt.balanceCents), w), {

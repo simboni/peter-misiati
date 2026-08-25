@@ -345,9 +345,15 @@ function receiptFromQueued(
       const item = byId.get(l.itemId);
       if (!item) return null;
       const weighed = item.basis === "unit";
-      const amount = weighed
-        ? Math.round((l.unitPriceCents * l.qtyMilli) / 1000)
-        : l.unitPriceCents * l.units;
+      const at = (price: number) =>
+        weighed ? Math.round((price * l.qtyMilli) / 1000) : price * l.units;
+      const amount = at(l.unitPriceCents);
+      // The asking price as the phone last saw it — this receipt is printed
+      // before the till has ever seen the sale, so there is nothing else to
+      // compare against. The till snapshots its own copy when the queue drains,
+      // and that one is the record; this is the customer's slip in the meantime.
+      const listCents = listPrice(item, q.tier);
+      const discountCents = Math.max(0, at(listCents) - amount);
       return {
         name: item.name,
         units: l.units,
@@ -356,6 +362,8 @@ function receiptFromQueued(
         qty: formatQty(l.qtyMilli, item.unit),
         rateCents: weighed ? l.unitPriceCents : 0,
         rateUnit: item.unit,
+        listPriceCents: listCents,
+        discountCents,
       };
     })
     .filter((l): l is ReceiptLine => l !== null);
@@ -369,6 +377,8 @@ function receiptFromQueued(
     dateTime: formatDateTime(q.queuedAt),
     customer: q.customerName,
     lines,
+    subtotalCents: q.totalCents + lines.reduce((sum, l) => sum + (l.discountCents ?? 0), 0),
+    discountCents: lines.reduce((sum, l) => sum + (l.discountCents ?? 0), 0),
     totalCents: q.totalCents,
     paidCents,
     balanceCents: q.totalCents - paidCents,
@@ -668,6 +678,21 @@ export default function SellClient({
 
   const lines = cart.map((l) => ({ line: l, item: byId.get(l.itemId)! })).filter((x) => x.item);
   const totalCents = lines.reduce((s, x) => s + lineCents(x.item, x.line), 0);
+  /*
+    What the bill would have been at today's asking price, and what has been
+    knocked off it.
+
+    Haggling is normal here, so this is not a warning — it is the number the
+    attendant is agreeing to out loud, shown before they take the money rather
+    than discovered by the owner at the end of the month. The same subtraction
+    is snapshotted onto the sale and totalled on the receipt, so what the
+    counter sees here is what the customer is handed.
+  */
+  const atListCents = lines.reduce(
+    (s, x) => s + lineCents(x.item, { ...x.line, priceCents: listPrice(x.item, tier) }),
+    0,
+  );
+  const discountCents = Math.max(0, atListCents - totalCents);
   // Lines, not units: a weighed line is one scoop however heavy it is, and
   // "3 items" beside a cart of three lines is the count anyone would check.
   const unitCount = cart.length;
@@ -1269,6 +1294,24 @@ export default function SellClient({
           </div>
         ) : null}
 
+        {/* Not styled as a warning. A discount here is a decision the attendant
+            is allowed to make; this is so they make it with the figure in front
+            of them, and so it is the same figure the customer's receipt will
+            carry. */}
+        {discountCents > 0 ? (
+          <div className="mt-2.5 flex items-baseline justify-between rounded-xl bg-good-soft px-3 py-2">
+            <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-good">
+              Discount given
+            </span>
+            <span className="text-sm font-extrabold text-good tnum">
+              −{formatKes(discountCents)}
+              <span className="ml-1.5 text-[11px] font-semibold text-muted">
+                was {formatKes(atListCents)}
+              </span>
+            </span>
+          </div>
+        ) : null}
+
     </>
   );
 
@@ -1284,6 +1327,12 @@ export default function SellClient({
               {formatKes(totalCents)}
             </span>
           </div>
+          {discountCents > 0 ? (
+            <div className="mt-1 flex items-baseline justify-between gap-3 text-[11px] font-semibold">
+              <span className="text-muted">Was {formatKes(atListCents)}</span>
+              <span className="text-good">−{formatKes(discountCents)} discount</span>
+            </div>
+          ) : null}
         </div>
 
         <label className="mt-3 block">
@@ -2628,10 +2677,18 @@ function CartRow({
               // Wrapping to a second line is the right failure here.
               className="mt-0.5 block text-[11px] font-semibold text-brand"
               aria-label={`Change the price of ${item.name}`}
+              title={`Tap to agree a different price for ${item.name}`}
             >
               {!weighed && size ? <span className="text-muted">{size} · </span> : null}
               <span className="underline decoration-brand/30 decoration-dotted underline-offset-2">
                 {weighed ? priceLabel(item, line.priceCents) : `${formatKes(line.priceCents)} each`}
+              </span>
+              {/* A pencil, once, small. The dotted underline alone was not
+                  enough for an attendant to know a price could be argued down
+                  here — the owner asked for this to be possible, and a thing
+                  nobody can find is not possible. */}
+              <span aria-hidden className="ml-1 text-[10px] text-brand/60">
+                ✎
               </span>
               {discounted ? (
                 <span className="ml-1.5 text-muted line-through">

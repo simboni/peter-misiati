@@ -25,7 +25,7 @@
  */
 
 import { all, get } from "./db.ts";
-import { businessDate } from "./units.ts";
+import { businessDate, pct } from "./units.ts";
 
 /** SQL modifier that turns a stored UTC timestamp into shop time. */
 export const SHOP_SHIFT = "+3 hours";
@@ -442,6 +442,196 @@ export function profitPerProduct(range: DateRange, limit = 20): ProductProfit[] 
       margin_pct: r.revenue_cents === 0 ? 0 : (profit / r.revenue_cents) * 100,
     };
   });
+}
+
+// ------------------------------------------------------------------ discounts
+
+/*
+  What haggling costs, and who is doing it.
+
+  Prices at this counter are negotiated — that is how the trade works here, and
+  an attendant who cannot come down loses the sale. So the point of these
+  figures is not to stop it. It is to make it a number the owner can look at:
+  KES 100 a kilo advertised, KES 80 agreed, and 20 a kilo is the difference
+  between a good month and a flat one when it happens fifty times.
+
+  Every one of these reads `sale_lines.list_price_cents` — the price the shop was
+  ASKING at the moment of sale, snapshotted on the line. Nothing here re-joins
+  to `items`, because the shelf price moves and last month's discount must not
+  move with it.
+
+  The SQL below is the same arithmetic as `lineDiscountCents` in sales.ts, said
+  in the other language: the difference between what a line would have come to
+  at the asking price and what it did come to, floored at zero, and zero for a
+  line written before an asking price was recorded.
+*/
+const DISCOUNT_SQL = `
+  MAX(0, CASE WHEN sl.list_price_cents <= 0 THEN 0
+              WHEN sl.rate_cents > 0
+              THEN CAST(ROUND(sl.list_price_cents * sl.qty_milli / 1000.0) AS INTEGER)
+                     - sl.line_total_cents
+              ELSE sl.list_price_cents * sl.units - sl.line_total_cents END)`;
+
+/** Lines where a price was recorded at all — the denominator worth quoting. */
+const PRICED_SQL = `sl.list_price_cents > 0`;
+
+export interface DiscountSummary {
+  /** Total let off across the range. */
+  discountCents: number;
+  /** What those sales would have come to at the asking price. */
+  atListCents: number;
+  /** Discount as a percentage of what was asked. */
+  pct: number;
+  /** How many lines were sold under the asking price. */
+  lines: number;
+  /** How many of those went below the floor, which needed an owner's PIN. */
+  belowFloorLines: number;
+}
+
+export function discountSummary(range: DateRange): DiscountSummary {
+  const row = get<{ discount: number; at_list: number; n: number; below: number }>(
+    `SELECT COALESCE(SUM(${DISCOUNT_SQL}), 0)                       AS discount,
+            COALESCE(SUM(CASE WHEN ${PRICED_SQL}
+                              THEN sl.line_total_cents + ${DISCOUNT_SQL}
+                              ELSE 0 END), 0)                       AS at_list,
+            COALESCE(SUM(CASE WHEN ${DISCOUNT_SQL} > 0 THEN 1 ELSE 0 END), 0) AS n,
+            COALESCE(SUM(CASE WHEN ${DISCOUNT_SQL} > 0
+                               AND i.floor_cents > 0
+                               AND COALESCE(NULLIF(sl.rate_cents, 0), sl.unit_price_cents) < i.floor_cents
+                              THEN 1 ELSE 0 END), 0)                AS below
+       FROM sale_lines sl
+       JOIN sales s ON s.id = sl.sale_id
+       LEFT JOIN items i ON i.id = sl.item_id
+      WHERE s.status = 'completed'
+        AND date(s.at, '+3 hours') BETWEEN ? AND ?`,
+    range.from,
+    range.to,
+  );
+
+  const discountCents = row?.discount ?? 0;
+  const atListCents = row?.at_list ?? 0;
+  return {
+    discountCents,
+    atListCents,
+    pct: pct(discountCents, atListCents),
+    lines: row?.n ?? 0,
+    belowFloorLines: row?.below ?? 0,
+  };
+}
+
+export interface DiscountByPerson {
+  user_id: number | null;
+  user_name: string | null;
+  discount_cents: number;
+  at_list_cents: number;
+  lines: number;
+  sales: number;
+}
+
+/**
+ * Who gave what away.
+ *
+ * Not a league table to punish anybody with — a good attendant discounts, and
+ * the one who never does may simply be losing the sale instead. It is the
+ * question "is this in the range I would have agreed to myself", asked of a
+ * number rather than of a memory, and it is the reason the asking price is
+ * snapshotted at all.
+ */
+export function discountsByPerson(range: DateRange): DiscountByPerson[] {
+  return all<DiscountByPerson>(
+    `SELECT s.user_id                                      AS user_id,
+            u.name                                         AS user_name,
+            COALESCE(SUM(${DISCOUNT_SQL}), 0)              AS discount_cents,
+            COALESCE(SUM(CASE WHEN ${PRICED_SQL}
+                              THEN sl.line_total_cents + ${DISCOUNT_SQL}
+                              ELSE 0 END), 0)              AS at_list_cents,
+            COALESCE(SUM(CASE WHEN ${DISCOUNT_SQL} > 0 THEN 1 ELSE 0 END), 0) AS lines,
+            COUNT(DISTINCT CASE WHEN ${DISCOUNT_SQL} > 0 THEN s.id END)       AS sales
+       FROM sale_lines sl
+       JOIN sales s ON s.id = sl.sale_id
+       LEFT JOIN users u ON u.id = s.user_id
+      WHERE s.status = 'completed'
+        AND date(s.at, '+3 hours') BETWEEN ? AND ?
+      GROUP BY s.user_id
+     HAVING discount_cents > 0
+      ORDER BY discount_cents DESC`,
+    range.from,
+    range.to,
+  );
+}
+
+export interface DiscountByItem {
+  item_id: number | null;
+  name: string;
+  discount_cents: number;
+  at_list_cents: number;
+  lines: number;
+}
+
+/**
+ * Which chemicals get argued down, and by how much.
+ *
+ * A line that is discounted on nearly every sale is usually not a haggling
+ * problem — it is a shelf price nobody believes, and the answer is to change
+ * the price rather than to keep overriding it.
+ */
+export function discountsByItem(range: DateRange, limit = 12): DiscountByItem[] {
+  return all<DiscountByItem>(
+    `SELECT sl.item_id                                     AS item_id,
+            sl.name_snapshot                               AS name,
+            COALESCE(SUM(${DISCOUNT_SQL}), 0)              AS discount_cents,
+            COALESCE(SUM(CASE WHEN ${PRICED_SQL}
+                              THEN sl.line_total_cents + ${DISCOUNT_SQL}
+                              ELSE 0 END), 0)              AS at_list_cents,
+            COALESCE(SUM(CASE WHEN ${DISCOUNT_SQL} > 0 THEN 1 ELSE 0 END), 0) AS lines
+       FROM sale_lines sl
+       JOIN sales s ON s.id = sl.sale_id
+      WHERE s.status = 'completed'
+        AND date(s.at, '+3 hours') BETWEEN ? AND ?
+      GROUP BY sl.item_id
+     HAVING discount_cents > 0
+      ORDER BY discount_cents DESC
+      LIMIT ?`,
+    range.from,
+    range.to,
+    limit,
+  );
+}
+
+export interface DiscountedSale {
+  sale_id: number;
+  at: string;
+  invoice_no: string | null;
+  user_name: string | null;
+  customer_name: string | null;
+  total_cents: number;
+  discount_cents: number;
+}
+
+/** The individual bills, newest first — where a figure above turns into a name. */
+export function discountedSales(range: DateRange, limit = 30): DiscountedSale[] {
+  return all<DiscountedSale>(
+    `SELECT s.id                                  AS sale_id,
+            s.at                                  AS at,
+            s.invoice_no                          AS invoice_no,
+            u.name                                AS user_name,
+            c.name                                AS customer_name,
+            s.total_cents                         AS total_cents,
+            COALESCE(SUM(${DISCOUNT_SQL}), 0)     AS discount_cents
+       FROM sale_lines sl
+       JOIN sales s ON s.id = sl.sale_id
+       LEFT JOIN users u ON u.id = s.user_id
+       LEFT JOIN customers c ON c.id = s.customer_id
+      WHERE s.status = 'completed'
+        AND date(s.at, '+3 hours') BETWEEN ? AND ?
+      GROUP BY s.id
+     HAVING discount_cents > 0
+      ORDER BY s.at DESC
+      LIMIT ?`,
+    range.from,
+    range.to,
+    limit,
+  );
 }
 
 // ------------------------------------------------------------- business lines

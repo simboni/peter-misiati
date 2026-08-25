@@ -26,6 +26,10 @@ import {
   monthlySales,
   profitPerProduct,
   businessLineSplit,
+  discountSummary,
+  discountsByPerson,
+  discountsByItem,
+  discountedSales,
   deadStock,
   shrinkageByMonth,
   EXPORT_TABLES,
@@ -63,6 +67,10 @@ export default async function ReportsPage() {
   const products = profitPerProduct(monthRange(ym));
   const losers = products.filter((p) => p.profit_cents < 0);
   const lines = businessLineSplit(monthRange(ym));
+  const discounts = discountSummary(monthRange(ym));
+  const byPerson = discountsByPerson(monthRange(ym));
+  const byItem = discountsByItem(monthRange(ym));
+  const discountedBills = discountedSales(monthRange(ym), 12);
   const dead = deadStock(60);
   const shrink = shrinkageByMonth(6, today);
 
@@ -210,6 +218,132 @@ export default async function ReportsPage() {
       ) : (
         <Card>
           <Empty>Nothing sold this month, so there is no split to show.</Empty>
+        </Card>
+      )}
+
+      </div>
+      </div>
+
+      {/*
+        Haggling, as a number.
+
+        Prices here are negotiated — an attendant who cannot come down loses the
+        sale — so none of this is here to stop it. It is here because twenty
+        shillings off a kilo, fifty times a month, is the difference between a
+        good month and a flat one, and until the asking price was recorded on
+        each line the only trace of it was a sentence in the activity log.
+
+        Every figure is the same subtraction: what the lines would have come to
+        at the price the shop was ASKING when they were rung up, less what was
+        actually charged. Nothing re-reads today's shelf price, so last month's
+        discount does not move when this week's price does.
+      */}
+      <div className="lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-4 xl:gap-x-5 2xl:gap-x-6">
+      <div className="lg:col-span-7">
+      <SectionLabel>Discounts given · {monthName}</SectionLabel>
+      {discounts.discountCents > 0 ? (
+        <>
+          <div className="grid grid-cols-2 gap-2.5 xl:grid-cols-4">
+            <Stat
+              label="Given away"
+              value={formatKes(discounts.discountCents)}
+              detail={`${discounts.pct.toFixed(1)}% of what was asked`}
+            />
+            <Stat
+              label="Asked"
+              value={formatKes(discounts.atListCents)}
+              detail="at the shelf price of the day"
+            />
+            <Stat
+              label="Lines cut"
+              value={String(discounts.lines)}
+              detail={`across ${discountedBills.length >= 12 ? "12+" : discountedBills.length} bills`}
+            />
+            {/* The one figure that is a control rather than a fact: below the
+                floor is the price the owner said nobody may go under without
+                him, so each of these is a moment he was asked and said yes. */}
+            <Stat
+              label="Below the floor"
+              value={String(discounts.belowFloorLines)}
+              detail={
+                discounts.belowFloorLines
+                  ? "each needed your PIN"
+                  : "none went under your minimum"
+              }
+            />
+          </div>
+
+          {byPerson.length ? (
+            <>
+              <p className="mb-1.5 mt-3 text-xs text-muted">
+                Who agreed them. A good attendant discounts — the one who never does may be
+                losing the sale instead.
+              </p>
+              <Card className="!py-2.5">
+                {byPerson.map((r) => (
+                  <ListRow
+                    key={r.user_id ?? "none"}
+                    title={r.user_name ?? "Not recorded"}
+                    value={formatKes(r.discount_cents)}
+                    valueTone="bad"
+                    meta={`${pct(r.discount_cents, r.at_list_cents).toFixed(1)}% off · ${r.lines} line${
+                      r.lines === 1 ? "" : "s"
+                    } on ${r.sales} bill${r.sales === 1 ? "" : "s"}`}
+                  />
+                ))}
+              </Card>
+            </>
+          ) : null}
+
+          {byItem.length ? (
+            <>
+              <p className="mb-1.5 mt-3 text-xs text-muted">
+                What gets argued down. A chemical discounted on nearly every sale is usually a
+                shelf price nobody believes — change the price rather than override it.
+              </p>
+              <Card className="!py-2.5">
+                {byItem.map((r) => (
+                  <ListRow
+                    key={r.item_id ?? r.name}
+                    title={r.name}
+                    value={formatKes(r.discount_cents)}
+                    valueTone="bad"
+                    meta={`${pct(r.discount_cents, r.at_list_cents).toFixed(1)}% off · ${r.lines} line${
+                      r.lines === 1 ? "" : "s"
+                    }`}
+                  />
+                ))}
+              </Card>
+            </>
+          ) : null}
+        </>
+      ) : (
+        <Card>
+          <Empty>Nothing was sold under its asking price this month.</Empty>
+        </Card>
+      )}
+
+      </div>
+      <div className="lg:col-span-5">
+      <SectionLabel>The bills those came off</SectionLabel>
+      {discountedBills.length ? (
+        <Card className="!py-2.5">
+          {discountedBills.map((b) => (
+            <ListRow
+              key={b.sale_id}
+              href={`/invoice/${b.sale_id}`}
+              title={b.invoice_no ?? `Sale #${b.sale_id}`}
+              value={formatKes(b.discount_cents)}
+              valueTone="bad"
+              meta={`${formatDate(b.at)} · ${b.customer_name ?? "Walk-in"} · ${
+                b.user_name ?? "not recorded"
+              } · bill ${formatKes(b.total_cents)}`}
+            />
+          ))}
+        </Card>
+      ) : (
+        <Card>
+          <Empty>No bill this month carries a discount.</Empty>
         </Card>
       )}
 

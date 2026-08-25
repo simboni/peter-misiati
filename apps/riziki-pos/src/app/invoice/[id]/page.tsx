@@ -3,6 +3,7 @@ import { redirect, notFound } from "next/navigation";
 import { currentUser } from "@/lib/auth";
 import { getInvoice, issueInvoiceNo, invoiceMessage, getBusiness } from "@/lib/credit";
 import { getPrintSettings, receiptFromInvoice } from "@/lib/print-settings";
+import { lineDiscountCents } from "@/lib/sales";
 import { formatKes, formatAmount, formatQty, formatDateTime } from "@/lib/units";
 import { ThermalPrint } from "@/components/thermal-print";
 import { PdfShareButton } from "@/components/pdf-share-button";
@@ -64,7 +65,11 @@ export default async function InvoicePage(props: {
     invoice = getInvoice(saleId)!;
   }
 
-  const { sale, lines, tenders, balanceCents } = invoice;
+  const { sale, lines, tenders, balanceCents, subtotalCents, discountCents } = invoice;
+
+  // Named once here rather than called four times inline: the same line feeds
+  // the price column, the amount column and the totals, and they must agree.
+  const discountOf = (l: (typeof lines)[number]) => lineDiscountCents(l);
   const business = getBusiness();
 
   // The thermal copy is built from the same snapshotted figures as the sheet
@@ -225,12 +230,34 @@ export default async function InvoicePage(props: {
                     : l.units}
                 </td>
                 <td className="row border-b border-line py-1.5 text-right align-top tnum">
-                  {l.rate_cents
-                    ? `${formatAmount(l.rate_cents)}/${l.canonical_unit}`
-                    : formatAmount(l.unit_price_cents)}
+                  {/* The asking price when the line was discounted, with what
+                      was charged beneath it. A document that showed only the
+                      haggled figure would give the customer no way to see the
+                      concession they negotiated. */}
+                  {(() => {
+                    const shown = discountOf(l) > 0 ? l.list_price_cents : l.rate_cents || l.unit_price_cents;
+                    const per = l.rate_cents ? `/${l.canonical_unit}` : "";
+                    return (
+                      <>
+                        {formatAmount(shown)}
+                        {per}
+                        {discountOf(l) > 0 ? (
+                          <span className="block text-[10px] font-semibold text-good">
+                            you pay {formatAmount(l.rate_cents || l.unit_price_cents)}
+                            {per}
+                          </span>
+                        ) : null}
+                      </>
+                    );
+                  })()}
                 </td>
                 <td className="row border-b border-line py-1.5 text-right align-top tnum font-semibold">
-                  {formatAmount(l.line_total_cents)}
+                  {formatAmount(l.line_total_cents + discountOf(l))}
+                  {discountOf(l) > 0 ? (
+                    <span className="block text-[10px] font-semibold text-good">
+                      −{formatAmount(discountOf(l))}
+                    </span>
+                  ) : null}
                 </td>
               </tr>
             ))}
@@ -246,6 +273,22 @@ export default async function InvoicePage(props: {
 
         {/* --------------------------------------------------------- totals */}
         <div className="mt-3 ml-auto w-full max-w-[62%] space-y-1">
+          {/* Subtotal and discount only when there was one. On an ordinary sale
+              the document shows a single Total and no arithmetic nobody asked
+              for; when there was haggling, the three rows reconcile, so the
+              customer can add the Amount column up and land on the Total. */}
+          {discountCents > 0 ? (
+            <>
+              <div className="flex justify-between text-muted">
+                <span>Subtotal</span>
+                <span className="tnum">{formatKes(subtotalCents)}</span>
+              </div>
+              <div className="flex justify-between font-bold text-good">
+                <span>Discount</span>
+                <span className="tnum">−{formatKes(discountCents)}</span>
+              </div>
+            </>
+          ) : null}
           <div className="flex justify-between font-extrabold">
             <span>Total</span>
             <span className="tnum">{formatKes(sale.total_cents)}</span>

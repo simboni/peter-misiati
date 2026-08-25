@@ -15,6 +15,7 @@
 
 import { all, get, run, audit, db } from "./db.ts";
 import { BUSINESS, type Invoice } from "./credit.ts";
+import { lineDiscountCents } from "./sales.ts";
 import { formatDateTime, formatQty } from "./units.ts";
 import { isPaperWidth, type PaperWidth, type Receipt, type ReceiptLine } from "./escpos.ts";
 
@@ -173,7 +174,7 @@ const METHOD_LABEL: Record<string, string> = {
  * price moves.
  */
 export function receiptFromInvoice(invoice: Invoice, settings: PrintSettings): Receipt {
-  const { sale, lines, tenders, balanceCents } = invoice;
+  const { sale, lines, tenders, balanceCents, subtotalCents, discountCents } = invoice;
 
   const items: ReceiptLine[] = lines.map((l) => ({
     name: l.name_snapshot,
@@ -183,6 +184,8 @@ export function receiptFromInvoice(invoice: Invoice, settings: PrintSettings): R
     qty: l.canonical_unit ? formatQty(l.qty_milli, l.canonical_unit) : null,
     rateCents: l.rate_cents ?? 0,
     rateUnit: l.canonical_unit ?? null,
+    listPriceCents: l.list_price_cents ?? 0,
+    discountCents: lineDiscountCents(l),
   }));
 
   return {
@@ -195,6 +198,8 @@ export function receiptFromInvoice(invoice: Invoice, settings: PrintSettings): R
     customer: sale.customer_name,
     servedBy: sale.user_name,
     lines: items,
+    subtotalCents,
+    discountCents,
     totalCents: sale.total_cents,
     paidCents: sale.paid_cents,
     balanceCents,
