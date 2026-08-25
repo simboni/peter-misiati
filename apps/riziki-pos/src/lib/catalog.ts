@@ -326,6 +326,24 @@ export function adoptUnitPricing(byUserId: number | null): AdoptionReport {
         chem.id,
       );
 
+      /*
+        The row stops calling itself a drum.
+
+        It was named "Ungerol — 170 kg drum" because that is what you bought and
+        what you sold: one drum. It is now the row a kilogram comes out of, and a
+        receipt for 1 kg that says "Ungerol — 170 kg drum" is a receipt the
+        customer will ask about. Past sales keep the name they were rung up under
+        — `sale_lines.name_snapshot` is frozen — so this only changes what is
+        printed from here on.
+
+        Outside the pricing branch, so that re-running this fixes a name even
+        when the price was already moved. Only the seeded "name — size unit"
+        shape is touched; anything the owner renamed by hand is left alone.
+      */
+      if (bulk.name.includes(" — ")) {
+        run(`UPDATE items SET name = ? WHERE id = ?`, chem.name, bulk.id);
+      }
+
       if (bulk.price_basis !== "unit") {
         /*
           Which pack sets the rate.

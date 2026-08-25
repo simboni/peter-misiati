@@ -2271,8 +2271,11 @@ function RecipeGrid({
             <div className="mt-0.5 text-[11px] font-semibold text-muted">
               {r.ingredientCount} chemical{r.ingredientCount === 1 ? "" : "s"}
             </div>
-            <div className="mt-auto whitespace-nowrap text-[13px] font-bold leading-none text-brand-deep">
-              Price up a batch →
+            {/* Short on purpose. Three tiles to a row on a 390px phone leaves
+                about ninety pixels here, and "Price up a batch →" was clipped
+                to "Price up a bat". */}
+            <div className="mt-auto whitespace-nowrap text-[12px] font-bold leading-none text-brand-deep">
+              Price it up →
             </div>
           </button>
         );
@@ -2531,7 +2534,7 @@ function CartRow({
           type="button"
           onClick={() => onStep(-1)}
           aria-label={`Less ${item.name}`}
-          className="h-8 w-7 rounded-l-lg text-base font-extrabold text-brand-dark hover:bg-wash"
+          className="h-8 w-6 rounded-l-lg text-base font-extrabold text-brand-dark hover:bg-wash"
         >
           −
         </button>
@@ -2546,7 +2549,7 @@ function CartRow({
         */}
         <input
           className={`bg-transparent text-center text-[13px] font-extrabold tnum outline-none ${
-            weighed ? "w-12" : "w-7"
+            weighed ? "w-11" : "w-7"
           }`}
           value={qtyDraft ?? shown}
           onChange={(e) =>
@@ -2572,13 +2575,13 @@ function CartRow({
           aria-label={weighed ? `How much ${item.name}, in ${item.unit}` : `How many ${item.name}`}
         />
         {weighed ? (
-          <span className="pr-1.5 text-[11px] font-bold text-muted">{item.unit}</span>
+          <span className="pr-1 text-[10px] font-bold text-muted">{item.unit}</span>
         ) : null}
         <button
           type="button"
           onClick={() => onStep(1)}
           aria-label={`More ${item.name}`}
-          className="h-8 w-7 rounded-r-lg text-base font-extrabold text-brand-dark hover:bg-wash"
+          className="h-8 w-6 rounded-r-lg text-base font-extrabold text-brand-dark hover:bg-wash"
         >
           +
         </button>
@@ -2619,7 +2622,11 @@ function CartRow({
                 setDraft(centsToInput(line.priceCents));
                 setEditing(true);
               }}
-              className="mt-0.5 block max-w-full truncate text-[11px] font-semibold text-brand"
+              // Not truncated. This line carries the rate — "KES 473/L" — and a
+              // weighed line's stepper is wide enough to squeeze the column to
+              // where an ellipsis ate exactly the digits the price consists of.
+              // Wrapping to a second line is the right failure here.
+              className="mt-0.5 block text-[11px] font-semibold text-brand"
               aria-label={`Change the price of ${item.name}`}
             >
               {!weighed && size ? <span className="text-muted">{size} · </span> : null}

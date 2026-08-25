@@ -176,7 +176,10 @@ export function StocktakeClient({
                       inputMode="decimal"
                       min="0"
                       step="any"
-                      placeholder={line.basis === "unit" ? line.unit : "count"}
+                      // No placeholder on a weighed row: the unit is already
+                      // printed against the box, and "kg" inside it as well
+                      // reads as a value that has been entered.
+                      placeholder={line.basis === "unit" ? "" : "count"}
                       aria-label={
                         line.basis === "unit"
                           ? `Weighed ${line.unit} of ${line.name}`

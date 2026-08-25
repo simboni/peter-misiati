@@ -37,10 +37,16 @@ const I = (d: string) => (
 const TABS: Tab[] = [
   { href: "/sell", label: "Sell", icon: I("M3 4h2l2.5 11.5h10L20 8H6 M9 20a1 1 0 1 0 0-2 1 1 0 0 0 0 2 M17 20a1 1 0 1 0 0-2 1 1 0 0 0 0 2") },
   { href: "/stock", label: "Stock", icon: I("M3 9l9-5 9 5v10l-9 5-9-5z M3 9l9 5 9-5 M12 14v10") },
-  // Recipes. The tab used to be "Batch" — mixing and bottling — and the shop
-  // does neither now: a recipe is a shopping list the counter bills out of, so
-  // this is the book of them. Owner-only, because a recipe is the business.
-  { href: "/formulas", label: "Recipes", icon: I("M10 3v6l-5.5 9a2 2 0 0 0 1.8 3h11.4a2 2 0 0 0 1.8-3L14 9V3 M8 3h8 M7 15h10"), ownerOnly: true },
+  /*
+    "Batch" used to be a tab here. It is gone, and Recipes has not taken its
+    place: the recipe book is a reference now, not a place work happens. A mix
+    is sold from the Products board on the till, so the owner opens /formulas to
+    correct a quantity, which is a monthly errand and belongs under More.
+
+    That also gives the phone's bottom bar back a slot. Seven tabs at 390px put
+    "Recipes" and "Wholesale" hard against each other with no gap between them;
+    six fit.
+  */
   // Quotes and wholesale invoices. A tab rather than a menu entry because it is
   // a place the shop works from, not something it configures — and because the
   // owner asked for it to be one tap from the till.

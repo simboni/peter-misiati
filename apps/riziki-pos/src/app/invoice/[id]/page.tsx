@@ -200,19 +200,34 @@ export default async function InvoicePage(props: {
             </tr>
           </thead>
           <tbody>
+            {/*
+              Two shapes of line, and the two middle columns say which.
+
+              Sold whole: "3" at "250.00" each. Weighed: "400 g" at "133.00/kg".
+              Putting a weighed line in the first shape reads as one of
+              something at 53.20 — a quantity of one, and the price of the
+              scoop where the price of a kilogram belongs. The customer checks
+              these two numbers against what they were told at the counter.
+            */}
             {lines.map((l) => (
               <tr key={l.id}>
                 <td className="row border-b border-line py-1.5 pr-2 align-top">
                   {l.name_snapshot}
-                  {l.canonical_unit ? (
+                  {l.canonical_unit && !l.rate_cents ? (
                     <span className="block text-[10px] text-muted">
                       {formatQty(l.qty_milli, l.canonical_unit)}
                     </span>
                   ) : null}
                 </td>
-                <td className="row border-b border-line py-1.5 text-right align-top tnum">{l.units}</td>
                 <td className="row border-b border-line py-1.5 text-right align-top tnum">
-                  {formatAmount(l.unit_price_cents)}
+                  {l.rate_cents && l.canonical_unit
+                    ? formatQty(l.qty_milli, l.canonical_unit)
+                    : l.units}
+                </td>
+                <td className="row border-b border-line py-1.5 text-right align-top tnum">
+                  {l.rate_cents
+                    ? `${formatAmount(l.rate_cents)}/${l.canonical_unit}`
+                    : formatAmount(l.unit_price_cents)}
                 </td>
                 <td className="row border-b border-line py-1.5 text-right align-top tnum font-semibold">
                   {formatAmount(l.line_total_cents)}
