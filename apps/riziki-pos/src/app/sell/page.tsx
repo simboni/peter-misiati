@@ -11,13 +11,13 @@ import {
   topSellerItemIds,
   SaleError,
 } from "@/lib/sales";
-import { buildKit, smallestKitBatch, listFormulas, outputItemsFor } from "@/lib/production";
+import { mixFor, listFormulas } from "@/lib/production";
 import { getPrintSettings } from "@/lib/print-settings";
 import { formatKes } from "@/lib/units";
 import { checkState } from "@/lib/pricing";
 import SellClient, {
-  type KitChoice,
-  type KitOffer,
+  type MixOffer,
+  type RecipeChoice,
   type RepeatOrder,
   type SalePayload,
   type SellCustomer,
@@ -33,8 +33,9 @@ export const dynamic = "force-dynamic";
  *
  * The counter sends prices, not the server's own list prices, because haggling
  * is normal here. Everything is re-validated: `recordSale` refuses a price
- * below the item's floor unless an owner PIN came with it, and refuses tenders
- * that overshoot the bill.
+ * below the item's floor unless an owner PIN came with it, refuses tenders
+ * that overshoot the bill, and refuses a weighed quantity larger than the
+ * ledger says is in the store.
  */
 async function sellAction(_prev: SellState, payload: SalePayload): Promise<SellState> {
   "use server";
@@ -65,7 +66,12 @@ async function sellAction(_prev: SellState, payload: SalePayload): Promise<SellS
     const customerId = payload.customerId ?? null;
     if (customerId && !approvedBy) {
       const totalCents = cartTotal(
-        payload.lines.map((l) => ({ unitPriceCents: l.unitPriceCents, units: l.units })),
+        payload.lines.map((l) => ({
+          unitPriceCents: l.unitPriceCents,
+          units: l.units,
+          basis: l.basis,
+          qtyMilli: l.qtyMilli,
+        })),
       );
       const paidCents = payload.tenders
         .filter((t) => t.method !== "credit")
@@ -133,42 +139,59 @@ async function lastOrderAction(customerId: number): Promise<RepeatOrder | null> 
 
   return {
     at: order.at,
-    lines: order.lines.map((l) => ({ itemId: l.itemId, name: l.name, units: l.units, available: l.available })),
+    lines: order.lines.map((l) => ({
+      itemId: l.itemId,
+      name: l.name,
+      units: l.units,
+      qtyMilli: l.qtyMilli,
+      weighed: l.weighed,
+      available: l.available,
+    })),
   };
 }
 
 /**
- * Build a mix kit: a recipe, at the size the customer wants, as whole packs.
+ * Price a recipe up as the chemicals that go into it.
  *
- * **Owner only, deliberately.** Every other door onto formula quantities in this
- * app is owner-only, and a kit picker that let an attendant dial any recipe to
- * any size would be the formula book with extra steps. Selling kits from a staff
- * login is a decision for the owner to make out loud, not one to leak through a
- * convenience feature — flip the guard here when he does.
+ * **Open to attendants, unlike the kit builder it replaces.** That was
+ * owner-only to keep recipe quantities off a staff screen, and there is no
+ * longer anything to keep: the shop sells the mix as its ingredients, so the
+ * quantities are printed on the customer's own receipt. A rule that hides a
+ * number from the person at the counter while handing it to whoever walks in is
+ * not protecting anything — it only stops the sale from being made.
+ *
+ * If the owner would rather this stayed his alone, the guard goes back here,
+ * and the Products board simply stops appearing for staff.
  */
-async function kitAction(versionId: number, targetMilli: number): Promise<KitOffer | null> {
+async function mixAction(
+  versionId: number,
+  targetMilli: number,
+  tier: "retail" | "wholesale",
+): Promise<MixOffer | null> {
   "use server";
 
-  const user = await requireUser();
-  if (user.role !== "owner") return null;
+  await requireUser();
+  if (!Number.isFinite(targetMilli) || targetMilli <= 0) return null;
 
-  const kit = buildKit(versionId, targetMilli);
-  // What batch size WOULD work, so a refusal comes with an answer attached.
-  const floor = smallestKitBatch(versionId);
+  const mix = mixFor(versionId, Math.round(targetMilli), tier);
   return {
-    formulaName: kit.formulaName,
-    targetMilli: kit.targetMilli,
-    floorMilli: floor.targetMilli,
-    floorBecause: floor.binding?.name ?? null,
-    unpackable: floor.unpackable,
-    ingredients: kit.ingredients.map((i) => ({
+    versionId: mix.versionId,
+    formulaName: mix.formulaName,
+    targetMilli: mix.targetMilli,
+    totalCents: mix.totalCents,
+    sellable: mix.sellable,
+    possibleMilli: mix.possibleMilli,
+    ingredients: mix.ingredients.map((i) => ({
+      itemId: i.itemId,
       chemicalName: i.chemicalName,
       unit: i.unit,
-      neededMilli: i.neededMilli,
-      suppliedMilli: i.suppliedMilli,
-      missing: i.missing,
-      oversized: i.oversized,
-      picks: i.picks.map((p) => ({ itemId: p.itemId, name: p.name, units: p.units })),
+      qtyMilli: i.qtyMilli,
+      rateCents: i.rateCents,
+      amountCents: i.amountCents,
+      availableMilli: i.availableMilli,
+      unlisted: i.unlisted,
+      unpriced: i.unpriced,
+      short: i.short,
     })),
   };
 }
@@ -177,6 +200,8 @@ interface ItemRow {
   id: number;
   name: string;
   kind: string;
+  price_basis: "pack" | "unit";
+  canonical_unit: "kg" | "L" | "pcs";
   unit_label: string;
   size_milli: number;
   retail_cents: number;
@@ -189,10 +214,10 @@ export default async function SellPage() {
   const user = await currentUser();
   if (!user) redirect("/login");
 
-  // `floor_cents` and `cost_cents` are deliberately not selected: for a repacked
-  // chemical the floor IS the cost price, and staff must never receive it.
+  // `floor_cents` and `cost_cents` are deliberately not selected: a chemical's
+  // floor sits close to its cost price, and staff must never receive cost.
   const rows = all<ItemRow>(
-    `SELECT i.id, i.name, i.kind, i.unit_label, i.size_milli,
+    `SELECT i.id, i.name, i.kind, i.price_basis, i.canonical_unit, i.unit_label, i.size_milli,
             i.retail_cents, i.wholesale_cents,
             COALESCE(SUM(m.delta_milli), 0) AS qty_milli,
             LOWER(i.name || ' ' || COALESCE(c.name, '') || ' ' || COALESCE(c.aliases, '')) AS search
@@ -206,8 +231,9 @@ export default async function SellPage() {
 
   const items: SellItem[] = rows.map((r) => ({
     id: r.id,
+    basis: r.price_basis === "unit" ? "unit" : "pack",
+    unit: r.canonical_unit,
     name: r.name,
-    kind: r.kind === "finished" ? "finished" : r.kind === "pack" ? "pack" : "other",
     unitLabel: r.unit_label,
     sizeMilli: r.size_milli,
     retailCents: r.retail_cents,
@@ -217,38 +243,21 @@ export default async function SellPage() {
   }));
 
   /**
-   * Which finished products the shop can also sell as their ingredients.
+   * The recipe board.
    *
-   * Keyed by the finished item, because that is what the counter taps. A
-   * product and its recipe share a name once the pack size is stripped —
-   * "Shampoo — 500 ml" is made by the "Shampoo" formula — which is the same
-   * join `outputItemsFor` uses when a batch is bottled.
-   *
-   * Owner only, and empty for staff, which is what keeps the recipe off their
-   * screen: with no entry here a tile renders as an ordinary product.
+   * A formula is not a thing on a shelf — it is a shopping list the counter can
+   * fill in one tap. Tapping one asks how much the customer is making and bills
+   * the chemicals for it, which is the whole of what the shop means by selling
+   * a product now.
    */
-  const makeable: Record<number, { versionId: number; refSizeMilli: number; formulaName: string }> =
-    user.role === "owner"
-      ? Object.fromEntries(
-          listFormulas().flatMap((f) =>
-            outputItemsFor(f.name)
-              .filter((o) => o.suggested)
-              .map((o) => [
-                o.id,
-                { versionId: f.version_id, refSizeMilli: f.ref_size_milli, formulaName: f.name },
-              ]),
-          ),
-        )
-      : {};
-
-  const kits: KitChoice[] =
-    user.role === "owner"
-      ? listFormulas().map((f) => ({
-          versionId: f.version_id,
-          name: f.name,
-          refSizeMilli: f.ref_size_milli,
-        }))
-      : [];
+  const recipes: RecipeChoice[] = listFormulas()
+    .filter((f) => f.ingredient_count > 0)
+    .map((f) => ({
+      versionId: f.version_id,
+      name: f.name,
+      refSizeMilli: f.ref_size_milli,
+      ingredientCount: f.ingredient_count,
+    }));
 
   const customers: SellCustomer[] = all<{
     id: number;
@@ -282,12 +291,9 @@ export default async function SellPage() {
       // sale can print or PDF a receipt entirely on the phone, with no
       // server to ask, before the till has ever seen the sale.
       printer={getPrintSettings()}
-      // The recipe list itself is owner-only, so staff are handed an empty one
-      // rather than a picker that would refuse them after the click.
-      kits={kits}
-      makeable={makeable}
+      recipes={recipes}
       onLastOrder={lastOrderAction}
-      onKit={kitAction}
+      onMix={mixAction}
       // The counter may still be looking at this page hours later, served from
       // the service worker cache with no network. Stamping the read means a
       // stale stock count can be labelled as stale instead of read as gospel.

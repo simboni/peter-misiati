@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS chemicals (
   active          INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1))
 );
 
--- A stock-keeping row: one (chemical, pack size) combination, or a finished
+-- A stock-keeping row: a chemical as it is delivered and stored, a finished
 -- product, or a packaging material.
 --
 --   kind = 'bulk'      a drum or bag as delivered      (Ungerol drum, 170 kg)
@@ -65,6 +65,25 @@ CREATE TABLE IF NOT EXISTS chemicals (
 -- Stock (in stock_movements) is always counted in milli of the canonical unit,
 -- NOT in unit count — so 15 packs of 20 kg is stored as 300000 (300 kg).
 -- Unit count for display = qty_milli / size_milli.
+--
+-- price_basis says what the price columns below MEAN, and it is the hinge the
+-- whole shop turns on:
+--
+--   'pack'  retail_cents is the price of ONE unit of this row — one bottle, one
+--           jerrican. You buy a whole one or you buy none.
+--   'unit'  retail_cents is the price of ONE canonical unit — one kilogram, one
+--           litre. The customer names a quantity and pays for exactly that, so
+--           1 kg of Ungerol at 50 makes half a kilo 25 and ten kilos 500.
+--
+-- 'unit' is how chemicals are actually sold across the counter, and it is what
+-- removed the need to pre-pack anything: a drum on the floor is stock in kg, and
+-- any quantity can come out of it. 'pack' remains right for things that only
+-- exist whole — a jerrican, a bottle of finished product.
+--
+-- kind = 'pack' rows are legacy. They existed only to say "this chemical, at
+-- this size, for this price", which is now one number on the bulk row. Nothing
+-- creates them any more; the ones already on file are retired, not deleted, so
+-- the sales that reference them still read correctly.
 CREATE TABLE IF NOT EXISTS items (
   id                  INTEGER PRIMARY KEY,
   chemical_id         INTEGER REFERENCES chemicals(id),
@@ -74,6 +93,7 @@ CREATE TABLE IF NOT EXISTS items (
   size_milli          INTEGER NOT NULL CHECK (size_milli > 0),
   unit_label          TEXT    NOT NULL DEFAULT 'unit',   -- drum, bag, pack, bottle, jerrican
   sellable            INTEGER NOT NULL DEFAULT 1 CHECK (sellable IN (0, 1)),
+  price_basis         TEXT    NOT NULL DEFAULT 'pack' CHECK (price_basis IN ('pack', 'unit')),
   retail_cents        INTEGER NOT NULL DEFAULT 0 CHECK (retail_cents >= 0),
   wholesale_cents     INTEGER NOT NULL DEFAULT 0 CHECK (wholesale_cents >= 0),
   floor_cents         INTEGER NOT NULL DEFAULT 0 CHECK (floor_cents >= 0), -- below this needs owner PIN
@@ -290,6 +310,21 @@ END;
 
 -- Prices are SNAPSHOT here. Reports must never re-join to items for price,
 -- or changing a price would rewrite history.
+--
+-- A line is one of two shapes, and `rate_cents` is what tells them apart:
+--
+--   rate_cents = 0   sold whole. `units` of them at `unit_price_cents` each,
+--                    and units × unit_price_cents = line_total_cents exactly.
+--
+--   rate_cents > 0   sold by quantity. `qty_milli` of the substance at
+--                    `rate_cents` per kg / L / pcs. `units` is 1 — a weighed
+--                    line is one scoop, not a count of anything — and both
+--                    unit_price_cents and line_total_cents hold the amount
+--                    charged, so every total in the system still comes out of
+--                    line_total_cents without knowing which shape it read.
+--
+-- Keeping the rate rather than deriving it back out of amount ÷ quantity means
+-- a receipt reprinted next year still says "KES 50/kg" and not "KES 49.98/kg".
 CREATE TABLE IF NOT EXISTS sale_lines (
   id               INTEGER PRIMARY KEY,
   sale_id          INTEGER NOT NULL REFERENCES sales(id),
@@ -299,6 +334,7 @@ CREATE TABLE IF NOT EXISTS sale_lines (
   qty_milli        INTEGER NOT NULL CHECK (qty_milli > 0),
   unit_price_cents INTEGER NOT NULL CHECK (unit_price_cents >= 0),
   line_total_cents INTEGER NOT NULL CHECK (line_total_cents >= 0),
+  rate_cents       INTEGER NOT NULL DEFAULT 0 CHECK (rate_cents >= 0),
   cost_cents       INTEGER NOT NULL DEFAULT 0,   -- owner-only in the UI
   is_kit           INTEGER NOT NULL DEFAULT 0 CHECK (is_kit IN (0, 1)),
   formula_version_id INTEGER REFERENCES formula_versions(id)
@@ -448,10 +484,15 @@ CREATE TABLE IF NOT EXISTS quote_lines (
   id               INTEGER PRIMARY KEY,
   quote_id         INTEGER NOT NULL REFERENCES quotes(id) ON DELETE CASCADE,
   item_id          INTEGER NOT NULL REFERENCES items(id),
-  -- Whole packs, as sold. Milli quantities are the ledger's business, not the
-  -- customer's: a quote says "3 drums", not "510000".
+  -- Whole units, as sold. A quote says "3 jerricans", not "15000".
   units            INTEGER NOT NULL CHECK (units > 0),
   unit_price_cents INTEGER NOT NULL CHECK (unit_price_cents >= 0),
+  -- The same two shapes as sale_lines: rate_cents > 0 means the line is a
+  -- quantity of substance (qty_milli) at a price per kg / L, and `units` is 1.
+  -- A wholesale buyer asking for 400 kg of caustic must be quotable for 400 kg,
+  -- not for "8 × the biggest bag we happen to have a row for".
+  qty_milli        INTEGER NOT NULL DEFAULT 0 CHECK (qty_milli >= 0),
+  rate_cents       INTEGER NOT NULL DEFAULT 0 CHECK (rate_cents >= 0),
   sort_order       INTEGER NOT NULL DEFAULT 0
 );
 

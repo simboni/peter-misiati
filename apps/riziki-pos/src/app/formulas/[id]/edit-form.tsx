@@ -5,7 +5,7 @@
  *
  * Saving never overwrites anything: the server action inserts a new version and
  * flips the old one out of `is_current`. The form says so plainly, because an
- * owner who thinks he is correcting a typo needs to know a batch mixed
+ * owner who thinks he is correcting a typo needs to know a sale billed
  * yesterday will still cost what it cost.
  */
 
@@ -38,7 +38,7 @@ export function EditFormulaForm({
   note,
   rows,
   cancelHref,
-  everMixed,
+  everSold,
 }: {
   action: (state: SaveState, formData: FormData) => Promise<SaveState>;
   formulaId: number;
@@ -48,8 +48,8 @@ export function EditFormulaForm({
   note: string;
   rows: EditRow[];
   cancelHref: string;
-  /** Whether any batch was mixed against the version being edited. */
-  everMixed: boolean;
+  /** Whether anything was ever sold against the version being edited. */
+  everSold: boolean;
 }) {
   const [state, formAction, pending] = useActionState(action, {} as SaveState);
 
@@ -78,8 +78,8 @@ export function EditFormulaForm({
 
       <Card className="space-y-3">
         <Field
-          label="Reference batch (litres)"
-          hint="The size the quantities below are written for. The calculator scales from here."
+          label="Recipe makes (litres)"
+          hint="The size the quantities below are written for. The counter scales from here."
         >
           <input
             className={inputClass}
@@ -172,14 +172,14 @@ export function EditFormulaForm({
       </Card>
 
       <Alert tone="neutral">
-        {everMixed
-          ? "Saving creates a new version. The old one stays exactly as it is, because every batch already mixed points at it."
-          : "This recipe has not been mixed yet, so saving corrects it where it stands — no new version and no history to keep. Once a batch is mixed against it, editing will start a new version instead."}
+        {everSold
+          ? "Saving creates a new version. The old one stays exactly as it is, because every sale already billed on it points at it."
+          : "Nothing has been sold on this recipe yet, so saving corrects it where it stands — no new version and no history to keep. Once a customer is charged for it, editing will start a new version instead."}
       </Alert>
 
       <div className="flex gap-2">
         <Button type="submit" disabled={pending} className="flex-1">
-          {pending ? "Saving…" : everMixed ? "Save as new version" : "Save corrections"}
+          {pending ? "Saving…" : everSold ? "Save as new version" : "Save corrections"}
         </Button>
         <a
           href={cancelHref}

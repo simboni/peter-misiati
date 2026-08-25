@@ -49,6 +49,11 @@ const NEW_CUSTOMER = "__new";
  * Products first because it is the shorter list and the commoner walk-in; the
  * chemical buyer knows what they came for and is one tap (or one swipe) away.
  * Search cuts across both, so nobody has to guess which board a thing is on.
+ *
+ * "Products" no longer means bottles on a shelf — the shop stopped mixing its
+ * own. It means the things a customer comes in to make: tap Carwash Shampoo,
+ * say how much, and the counter bills the chemicals that go into it. The board
+ * kept its name because that is what the customer asks for at the door.
  */
 type Board = "products" | "chemicals";
 const BOARDS: Array<{ key: Board; label: string }> = [
@@ -65,9 +70,18 @@ const SWIPE_MAX_Y = 40;
 export interface SellItem {
   id: number;
   name: string;
-  kind: "finished" | "pack" | "other";
+  /**
+   * 'unit' — priced per kilogram or litre, and the customer names the quantity.
+   * 'pack' — priced whole: a jerrican, a bottle. You buy one or you buy none.
+   */
+  basis: "pack" | "unit";
+  /** What a weighed quantity of this is counted in. */
+  unit: "kg" | "L" | "pcs";
+  /** drum, bag, jerrican — what one container is called. */
   unitLabel: string;
+  /** How much one container holds. Only a display fact for a weighed item. */
   sizeMilli: number;
+  /** Per container, or per kg / L when `basis` is 'unit'. */
   retailCents: number;
   wholesaleCents: number;
   qtyMilli: number;
@@ -86,46 +100,62 @@ export interface SellCustomer {
 /** A previous order, offered back as "same as last time". Quantities only. */
 export interface RepeatOrder {
   at: string;
-  lines: Array<{ itemId: number; name: string; units: number; available: boolean }>;
+  lines: Array<{
+    itemId: number;
+    name: string;
+    units: number;
+    qtyMilli: number;
+    weighed: boolean;
+    available: boolean;
+  }>;
 }
 
-/** One recipe the owner can sell as a kit. */
-export interface KitChoice {
+/** One recipe the counter can bill out as its ingredients. */
+export interface RecipeChoice {
   versionId: number;
   name: string;
+  /** The batch the quantities are written for — the sensible opening guess. */
   refSizeMilli: number;
+  ingredientCount: number;
 }
 
-/** A recipe worked out into whole packs, ready to drop into the cart. */
-export interface KitOffer {
+/** A recipe priced up at a given batch size, ready to drop into the cart. */
+export interface MixOffer {
+  versionId: number;
   formulaName: string;
   targetMilli: number;
-  /**
-   * The smallest batch at which every ingredient's smallest pack is within
-   * reach of what the recipe asks for. A kit is whole packs off the shelf, so a
-   * recipe wanting a pinch of something sold only in 5 kg tubs cannot be sold
-   * small — and saying so without saying what would work is the confusing part.
-   */
-  floorMilli: number;
-  /** The ingredient that sets that floor. */
-  floorBecause: string | null;
-  /** Chemicals with no sellable pack at all — no batch size fixes these. */
-  unpackable: string[];
+  totalCents: number;
+  /** True when every ingredient can be billed and handed over as it stands. */
+  sellable: boolean;
+  /** The biggest batch the store could supply today. Zero when nothing fixes it. */
+  possibleMilli: number;
   ingredients: Array<{
+    itemId: number | null;
     chemicalName: string;
     unit: string;
-    neededMilli: number;
-    suppliedMilli: number;
-    missing: boolean;
-    oversized: boolean;
-    picks: Array<{ itemId: number; name: string; units: number }>;
+    qtyMilli: number;
+    rateCents: number;
+    amountCents: number;
+    availableMilli: number;
+    /** Not on the price list at all. */
+    unlisted: boolean;
+    /** On the list, but at no price — billing it would give it away. */
+    unpriced: boolean;
+    /** Priced, but there is not enough of it in the store. */
+    short: boolean;
   }>;
 }
 
 export interface PayloadLine {
   itemId: number;
   units: number;
+  /** Per container, or per kg / L when `basis` is 'unit'. */
   unitPriceCents: number;
+  basis: "pack" | "unit";
+  /** How much substance, for a weighed line. */
+  qtyMilli: number;
+  /** Set when this line came out of a recipe, for the record. */
+  formulaVersionId?: number | null;
 }
 
 export interface PayloadTender {
@@ -311,14 +341,21 @@ function receiptFromQueued(
   printer: { header: string[]; footer: string },
 ): Receipt {
   const lines: ReceiptLine[] = q.lines
-    .map((l) => {
+    .map<ReceiptLine | null>((l) => {
       const item = byId.get(l.itemId);
       if (!item) return null;
+      const weighed = item.basis === "unit";
+      const amount = weighed
+        ? Math.round((l.unitPriceCents * l.qtyMilli) / 1000)
+        : l.unitPriceCents * l.units;
       return {
         name: item.name,
         units: l.units,
-        unitPriceCents: l.unitPriceCents,
-        lineTotalCents: l.unitPriceCents * l.units,
+        unitPriceCents: weighed ? amount : l.unitPriceCents,
+        lineTotalCents: amount,
+        qty: formatQty(l.qtyMilli, item.unit),
+        rateCents: weighed ? l.unitPriceCents : 0,
+        rateUnit: item.unit,
       };
     })
     .filter((l): l is ReceiptLine => l !== null);
@@ -363,6 +400,54 @@ function centsToInput(cents: number): string {
   return String(cents / 100);
 }
 
+/** 1500 -> "1.5". Trailing zeros trimmed, so a box shows "2" and not "2.000". */
+function milliToInput(milli: number): string {
+  return String(Number((milli / 1000).toFixed(3)));
+}
+
+/** "1.5" -> 1500. Blank or nonsense -> null, so a slip never becomes a zero. */
+function parseMilli(text: string): number | null {
+  const t = text.trim();
+  if (!t) return null;
+  const n = Number(t);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.round(n * 1000);
+}
+
+/**
+ * The price as the tile says it out loud: "KES 250" for a jerrican, "KES 50/kg"
+ * for anything weighed.
+ *
+ * The suffix is not decoration. The same tile used to read "KES 50" whether
+ * that bought a kilogram or a whole drum, and the whole point of pricing by
+ * weight is that the number on the tile is not what the customer pays — it is
+ * what one kilogram of it costs.
+ */
+function priceLabel(item: SellItem, cents: number): string {
+  return item.basis === "unit" ? `${formatKes(cents)}/${item.unit}` : formatKes(cents);
+}
+
+/**
+ * What is left, the way the shop counts it.
+ *
+ * Both numbers for a weighed chemical — "25 drums · 1,000 kg" — because the
+ * owner counts containers on the floor and the counter sells out of them by the
+ * kilogram, and neither number alone answers "can I sell this order".
+ */
+function stockLabel(item: SellItem): string {
+  if (item.qtyMilli <= 0) return "none left";
+  const quantity = formatQty(item.qtyMilli, item.unit);
+  if (item.basis !== "unit" || item.sizeMilli <= 0) {
+    return formatUnits(item.qtyMilli, item.sizeMilli, item.unitLabel);
+  }
+  return `${formatUnits(item.qtyMilli, item.sizeMilli, item.unitLabel)} · ${quantity}`;
+}
+
+/** How much one tap adds: one kilogram, one litre, one piece, or one container. */
+function stepMilli(item: SellItem): number {
+  return item.basis === "unit" ? 1000 : item.sizeMilli;
+}
+
 /**
  * Split "Carwash Shampoo 1 L" into the product and the pack size.
  *
@@ -399,8 +484,25 @@ function shelfOrder(a: SellItem, b: SellItem): number {
 
 interface CartLine {
   itemId: number;
+  /** Whole containers. Always 1 on a weighed line — `qtyMilli` is the order. */
   units: number;
+  /** How much substance, in milli. Only read when the item is priced per unit. */
+  qtyMilli: number;
+  /** Per container, or per kg / L. Editable: haggling is normal here. */
   priceCents: number;
+  /**
+   * The recipe this line was billed out of, if any. Carried through to the sale
+   * so the shop can see what its mixes are worth. It never changes the money —
+   * adding more of the same chemical by hand merges into this line and leaves
+   * the tag alone, because the tag says where the line started, not what it is.
+   */
+  formulaVersionId: number | null;
+}
+
+/** What one cart line comes to, whichever way it is priced. */
+function lineCents(item: SellItem, line: CartLine): number {
+  if (item.basis === "unit") return Math.round((line.priceCents * line.qtyMilli) / 1000);
+  return line.priceCents * line.units;
 }
 
 // ------------------------------------------------------------------- screen
@@ -413,10 +515,9 @@ export default function SellClient({
   stockAsOf,
   action,
   isOwner,
-  kits,
-  makeable,
+  recipes,
   onLastOrder,
-  onKit,
+  onMix,
   printer,
 }: {
   items: SellItem[];
@@ -428,12 +529,10 @@ export default function SellClient({
   stockAsOf: string;
   action: (prev: SellState, payload: SalePayload) => Promise<SellState>;
   isOwner: boolean;
-  /** Empty for staff: recipe quantities stay owner-only. */
-  kits: KitChoice[];
-  /** Finished item id -> the recipe that makes it. Empty for staff. */
-  makeable: Record<number, { versionId: number; refSizeMilli: number; formulaName: string }>;
+  /** The Products board: what a customer comes in to make. */
+  recipes: RecipeChoice[];
   onLastOrder: (customerId: number) => Promise<RepeatOrder | null>;
-  onKit: (versionId: number, targetMilli: number) => Promise<KitOffer | null>;
+  onMix: (versionId: number, targetMilli: number, tier: Tier) => Promise<MixOffer | null>;
   /** The shop's letterhead — nothing owner-sensitive — so a queued sale can
    *  build its own receipt on the phone with no server round trip. */
   printer: { paper: PaperWidth; header: string[]; footer: string; autoPrint: boolean };
@@ -494,11 +593,12 @@ export default function SellClient({
 
   /** The named customer's last order, once looked up. `null` = not looked up. */
   const [repeat, setRepeat] = useState<RepeatOrder | null>(null);
-  const [kitOpen, setKitOpen] = useState(false);
-  const [kitVersion, setKitVersion] = useState<number | null>(null);
-  const [kitSize, setKitSize] = useState("");
-  const [kitOffer, setKitOffer] = useState<KitOffer | null>(null);
-  const [kitBusy, setKitBusy] = useState(false);
+  /** The open recipe, if one is being priced up. */
+  const [mixOpen, setMixOpen] = useState(false);
+  const [mixVersion, setMixVersion] = useState<number | null>(null);
+  const [mixSize, setMixSize] = useState("");
+  const [mixOffer, setMixOffer] = useState<MixOffer | null>(null);
+  const [mixBusy, setMixBusy] = useState(false);
   const [receipt, setReceipt] = useState<Extract<
     SellState,
     { status: "done" } | { status: "queued" }
@@ -567,8 +667,10 @@ export default function SellClient({
   const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
 
   const lines = cart.map((l) => ({ line: l, item: byId.get(l.itemId)! })).filter((x) => x.item);
-  const totalCents = lines.reduce((s, x) => s + x.line.priceCents * x.line.units, 0);
-  const unitCount = cart.reduce((s, l) => s + l.units, 0);
+  const totalCents = lines.reduce((s, x) => s + lineCents(x.item, x.line), 0);
+  // Lines, not units: a weighed line is one scoop however heavy it is, and
+  // "3 items" beside a cart of three lines is the count anyone would check.
+  const unitCount = cart.length;
 
   // What is being handed over now, and therefore what goes on the account.
   const firstCents = payNow === null ? totalCents : (parseCents(payNow) ?? 0);
@@ -643,61 +745,73 @@ export default function SellClient({
     setCart(
       repeat.lines
         .filter((l) => l.available)
-        .map((l) => {
+        .map<CartLine | null>((l) => {
           const item = byId.get(l.itemId);
-          return item ? { itemId: item.id, units: l.units, priceCents: listPrice(item, tier) } : null;
+          if (!item) return null;
+          return {
+            itemId: item.id,
+            units: item.basis === "unit" ? 1 : l.units,
+            qtyMilli: item.basis === "unit" ? l.qtyMilli : item.sizeMilli * l.units,
+            priceCents: listPrice(item, tier),
+            formulaVersionId: null,
+          };
         })
         .filter((l): l is CartLine => l !== null),
     );
   }
 
-  /** Work the recipe out into packs, then show what it comes to before adding. */
-  async function previewKit(versionId: number | null = kitVersion, size: string = kitSize) {
+  /** Price the recipe up at this batch size, and show it before anything is added. */
+  async function previewMix(versionId: number | null = mixVersion, size: string = mixSize) {
     if (versionId === null) return;
     const litres = Number(size);
     if (!Number.isFinite(litres) || litres <= 0) return;
-    setKitBusy(true);
+    setMixBusy(true);
     try {
-      setKitOffer(await onKit(versionId, Math.round(litres * 1000)));
+      setMixOffer(await onMix(versionId, Math.round(litres * 1000), tier));
     } catch {
-      setKitOffer(null);
+      setMixOffer(null);
     } finally {
-      setKitBusy(false);
+      setMixBusy(false);
     }
   }
 
-  /** Drop the worked-out packs into the cart as ordinary lines. */
   /**
-   * Open the ingredient list for a product the shop makes.
+   * Open a recipe and ask how much of it the customer is making.
    *
-   * This is the whole merge: the counter picks a product it sells — Shampoo —
-   * and the recipe behind it is what gets priced up, at whatever batch size the
-   * customer wants. There is no separate list of recipes to choose from any
-   * more, because a recipe the shop does not sell as a product is not something
-   * to be selling the parts of.
+   * The opening guess is the size the recipe is written for — twenty litres of
+   * carwash shampoo — because that is the batch the sheet on the wall describes
+   * and the one most people ask for. Any other number is one field away, and
+   * unlike the pack-filling this replaced, there is no smallest one: half a
+   * litre scales as cleanly as five hundred.
    */
-  function openMake(item: SellItem) {
-    const recipe = makeable[item.id];
-    if (!recipe) return;
+  function openMix(recipe: RecipeChoice) {
     const litres = String(recipe.refSizeMilli / 1000);
-    setKitOffer(null);
-    setKitVersion(recipe.versionId);
-    setKitSize(litres);
-    setKitOpen(true);
-    void previewKit(recipe.versionId, litres);
+    setMixOffer(null);
+    setMixVersion(recipe.versionId);
+    setMixSize(litres);
+    setMixOpen(true);
+    void previewMix(recipe.versionId, litres);
   }
 
-  function addKitToCart() {
-    if (!kitOffer) return;
-    for (const ing of kitOffer.ingredients) {
-      if (ing.missing || ing.oversized) continue;
-      for (const pick of ing.picks) {
-        const item = byId.get(pick.itemId);
-        if (item) addUnits(item, pick.units);
-      }
+  /**
+   * Drop the priced-up recipe into the cart as ordinary weighed lines.
+   *
+   * Ordinary is the point. Once they are in the cart they are chemicals like
+   * any others — haggle one, take one out, add a kilo of something else — and
+   * the sale that follows knows nothing about recipes beyond the tag each line
+   * carries. Adding the same recipe twice adds the quantities together, which
+   * is what two batches of it actually needs.
+   */
+  function addMixToCart() {
+    if (!mixOffer) return;
+    for (const ing of mixOffer.ingredients) {
+      if (ing.itemId === null || ing.unpriced) continue;
+      const item = byId.get(ing.itemId);
+      if (!item) continue;
+      addQuantity(item, ing.qtyMilli, mixOffer.versionId);
     }
-    setKitOpen(false);
-    setKitOffer(null);
+    setMixOpen(false);
+    setMixOffer(null);
   }
 
   async function saveNewCustomer() {
@@ -731,13 +845,18 @@ export default function SellClient({
     }
   }
 
-  // Selling more than is on the shelf is allowed — the customer is holding the
-  // goods — but it must not be silent, or the stock count and the profit report
-  // quietly drift negative. Finished/pack items have a real count; "other" does
-  // not, so it is left alone.
-  const oversold = lines.filter(
-    (x) => x.item.kind !== "other" && x.item.sizeMilli > 0 && x.line.units * x.item.sizeMilli > x.item.qtyMilli,
-  );
+  /*
+    More than is in the store.
+
+    For anything sold whole this is a warning and nothing more: the customer is
+    holding the bottle, and refusing the sale would be the till arguing with the
+    shelf. For a weighed chemical it is a refusal, because nobody can pour 300 kg
+    out of a drum holding 90 — the till says so here so the counter finds out
+    while the number is still being typed, and `recordSale` refuses it again on
+    the server, which is the check that actually counts.
+  */
+  const oversold = lines.filter((x) => x.item.qtyMilli >= 0 && x.line.qtyMilli > x.item.qtyMilli);
+  const overdrawn = oversold.filter((x) => x.item.basis === "unit");
   /*
     The M-Pesa code is optional.
 
@@ -783,8 +902,8 @@ export default function SellClient({
     setSheet("none");
     setDeskPane("cart");
     setRepeat(null);
-    setKitOpen(false);
-    setKitOffer(null);
+    setMixOpen(false);
+    setMixOffer(null);
     setBoard("products");
     uuid.current = newUuid();
   }, [state]);
@@ -848,58 +967,95 @@ export default function SellClient({
 
   // --- cart ---------------------------------------------------------------
 
+  /**
+   * One tap adds one of the thing: one jerrican, or one kilogram.
+   *
+   * A weighed chemical has to start somewhere, and one kilogram is the number
+   * everybody in the shop already thinks in — the price on the tile is per
+   * kilogram, so tapping it once puts exactly that much money on the bill.
+   * Anything else is typed into the cart line, where the quantity is a box.
+   */
   function addItem(item: SellItem) {
-    setReceipt(null);
-    setCart((prev) => {
-      const at = prev.findIndex((l) => l.itemId === item.id);
-      if (at >= 0) {
-        const next = [...prev];
-        next[at] = { ...next[at], units: next[at].units + 1 };
-        return next;
-      }
-      return [...prev, { itemId: item.id, units: 1, priceCents: listPrice(item, tier) }];
-    });
+    addQuantity(item, stepMilli(item), null);
   }
 
+  /** Nudge a line by one container, or by one kilogram. */
   function changeUnits(itemId: number, delta: number) {
+    const item = byId.get(itemId);
+    if (!item) return;
     setCart((prev) =>
       prev
-        .map((l) => (l.itemId === itemId ? { ...l, units: l.units + delta } : l))
-        .filter((l) => l.units > 0),
+        .map((l) => {
+          if (l.itemId !== itemId) return l;
+          const qtyMilli = l.qtyMilli + delta * stepMilli(item);
+          return { ...l, qtyMilli, units: unitsFor(item, qtyMilli) };
+        })
+        .filter((l) => l.qtyMilli > 0),
     );
   }
 
   /**
    * Set a quantity outright.
    *
-   * Twenty of something used to be twenty taps. `recordSale` still insists on a
-   * whole number of units — that rule is what keeps stock, costing and the
-   * receipt honest — so this clamps to one rather than accepting anything else.
+   * Twenty of something used to be twenty taps. A container count is still
+   * whole — half a jerrican is not a thing anyone can hand over — but a weighed
+   * chemical takes any quantity down to the gram, which is the entire reason
+   * the shop stopped pre-packing: 250 g of caustic is now a number typed into a
+   * box, not a pack somebody has to have made up in advance.
    */
-  function setUnits(itemId: number, units: number) {
-    if (!Number.isFinite(units)) return;
-    const whole = Math.max(1, Math.min(9999, Math.floor(units)));
-    setCart((prev) => prev.map((l) => (l.itemId === itemId ? { ...l, units: whole } : l)));
+  function setQuantity(itemId: number, value: number) {
+    const item = byId.get(itemId);
+    if (!item || !Number.isFinite(value) || value <= 0) return;
+    const qtyMilli =
+      item.basis === "unit"
+        ? Math.min(9_999_000, Math.round(value * 1000))
+        : Math.max(1, Math.min(9999, Math.floor(value))) * item.sizeMilli;
+    setCart((prev) =>
+      prev.map((l) => (l.itemId === itemId ? { ...l, qtyMilli, units: unitsFor(item, qtyMilli) } : l)),
+    );
   }
 
   /**
-   * Put an item in the cart n times over.
+   * Put a quantity of something in the cart, on top of whatever is there.
    *
-   * Used by the search box ("20 laundry ⏎"), by "same as last time" and by the
-   * kit builder. Adding to whatever is already there is deliberate: two kits of
-   * the same recipe should come to two kits' worth of chemicals.
+   * Used by every route into the cart — a tap, the search box ("20 caustic ⏎"),
+   * "same as last time", and a recipe billed out as its chemicals. Adding to
+   * what is already there is deliberate: two batches of the same recipe should
+   * come to two batches' worth of chemicals, not one.
    */
-  function addUnits(item: SellItem, units: number) {
-    const n = Math.max(1, Math.floor(units));
+  function addQuantity(item: SellItem, qtyMilli: number, formulaVersionId: number | null) {
+    const add = Math.max(1, Math.round(qtyMilli));
+    setReceipt(null);
     setCart((prev) => {
       const at = prev.findIndex((l) => l.itemId === item.id);
       if (at >= 0) {
         const next = [...prev];
-        next[at] = { ...next[at], units: next[at].units + n };
+        const qty = next[at].qtyMilli + add;
+        next[at] = {
+          ...next[at],
+          qtyMilli: qty,
+          units: unitsFor(item, qty),
+          formulaVersionId: next[at].formulaVersionId ?? formulaVersionId,
+        };
         return next;
       }
-      return [...prev, { itemId: item.id, units: n, priceCents: listPrice(item, tier) }];
+      return [
+        ...prev,
+        {
+          itemId: item.id,
+          units: unitsFor(item, add),
+          qtyMilli: add,
+          priceCents: listPrice(item, tier),
+          formulaVersionId,
+        },
+      ];
     });
+  }
+
+  /** Containers a quantity works out to. Always 1 for a weighed line. */
+  function unitsFor(item: SellItem, qtyMilli: number): number {
+    if (item.basis === "unit") return 1;
+    return Math.max(1, Math.round(qtyMilli / Math.max(1, item.sizeMilli)));
   }
 
   function setLinePrice(itemId: number, cents: number) {
@@ -953,7 +1109,14 @@ export default function SellClient({
     const payload: SalePayload = {
       clientUuid: uuid.current,
       tier,
-      lines: cart.map((l) => ({ itemId: l.itemId, units: l.units, unitPriceCents: l.priceCents })),
+      lines: cart.map((l) => ({
+        itemId: l.itemId,
+        units: l.units,
+        unitPriceCents: l.priceCents,
+        basis: byId.get(l.itemId)?.basis ?? "pack",
+        qtyMilli: l.qtyMilli,
+        formulaVersionId: l.formulaVersionId,
+      })),
       tenders: buildTenders(),
       customerId,
       ownerPin: ownerPin.trim() || undefined,
@@ -972,18 +1135,23 @@ export default function SellClient({
    * turns the commonest wholesale line into one keystroke sequence. The number
    * is stripped before matching, so "20 laundry" still finds Laundry Soap.
    */
-  const countMatch = q.match(/^(\d{1,4})\s*[x*]?\s+(.*)$/);
-  const queryCount = countMatch ? Math.max(1, Number(countMatch[1])) : 1;
+  const countMatch = q.match(/^(\d{1,4}(?:\.\d{1,3})?)\s*[x*]?\s+(.*)$/);
+  const queryCount = countMatch ? Math.max(0.001, Number(countMatch[1])) : 1;
   const searchText = countMatch ? countMatch[2].trim() : q;
 
   const matches = searchText
     ? items.filter((i) => i.search.includes(searchText)).sort(shelfOrder)
     : [];
-  const finished = items.filter((i) => i.kind === "finished").sort(shelfOrder);
-  // Anything that is not something Riziki mixed is a chemical to the person
-  // buying it. Folding "other" in here rather than into its own section means a
-  // priced item can never end up on no board at all.
-  const chemicals = items.filter((i) => i.kind !== "finished").sort(shelfOrder);
+  /**
+   * Everything sellable is a chemical now.
+   *
+   * The Products board used to hold the bottles the shop mixed itself and this
+   * one held the rest. Nothing is mixed in-house any more, so what is on the
+   * shelf is chemicals and the containers to carry them in, and Products has
+   * become the recipe board instead — the list of things a customer walks in
+   * intending to make.
+   */
+  const chemicals = [...items].sort(shelfOrder);
   const top = topSellerIds.map((id) => byId.get(id)).filter((i): i is SellItem => Boolean(i));
 
   const wholesale = tier === "wholesale";
@@ -991,11 +1159,12 @@ export default function SellClient({
   /** Lines from the last order that can still be sold today. */
   const repeatUsable = repeat ? repeat.lines.filter((l) => l.available && byId.has(l.itemId)) : [];
 
-  /** Kit ingredients this shop cannot sell as packs, and how many it can. */
-  const kitLeftOut = (kitOffer?.ingredients ?? [])
-    .filter((i) => i.missing || i.oversized)
+  /** Ingredients this shop cannot bill at all, and how many it can. */
+  const mixLeftOut = (mixOffer?.ingredients ?? [])
+    .filter((i) => i.unlisted || i.unpriced)
     .map((i) => i.chemicalName);
-  const kitAddable = (kitOffer?.ingredients ?? []).filter((i) => !i.missing && !i.oversized).length;
+  const mixShort = (mixOffer?.ingredients ?? []).filter((i) => i.short && !i.unlisted && !i.unpriced);
+  const mixAddable = (mixOffer?.ingredients ?? []).filter((i) => !i.unlisted && !i.unpriced).length;
 
 
   // ---- shared render closures: one markup, two dressings (phone sheet /
@@ -1072,12 +1241,25 @@ export default function SellClient({
               item={item}
               line={line}
               tier={tier}
-              onUnits={(d) => changeUnits(line.itemId, d)}
+              onStep={(d) => changeUnits(line.itemId, d)}
+              onQuantity={(v) => setQuantity(line.itemId, v)}
               onPrice={(c) => setLinePrice(line.itemId, c)}
             />
           ))}
         </div>
-        {oversold.length ? (
+        {overdrawn.length ? (
+          <div className="mt-3">
+            <Alert tone="bad">
+              <span className="font-bold">
+                There is not enough{" "}
+                {overdrawn.length === 1 ? overdrawn[0].item.name : "of some chemicals"} in the store.
+              </span>{" "}
+              A quantity is weighed out of the drum, so this one cannot be sold until the delivery
+              is recorded — or, if the store really does have more than the book says, until a stock
+              take says so.
+            </Alert>
+          </div>
+        ) : oversold.length ? (
           <div className="mt-3">
             <Alert tone="warn">
               Selling more {oversold.length === 1 ? oversold[0].item.name : "of some items"} than the
@@ -1397,6 +1579,9 @@ export default function SellClient({
           pending ||
           !cart.length ||
           overpaidCents > 0 ||
+          // The till refuses this too. Stopping it here means the counter finds
+          // out before it asks the customer for money, not after.
+          overdrawn.length > 0 ||
           (needsCustomer && !customerId) ||
           (state.status === "pin" && !ownerPin.trim())
         }
@@ -1466,7 +1651,7 @@ export default function SellClient({
         >
           {BOARDS.map((b) => {
             const on = board === b.key && !q;
-            const count = (b.key === "products" ? finished : chemicals).length;
+            const count = (b.key === "products" ? recipes : chemicals).length;
             return (
               <button
                 key={b.key}
@@ -1499,7 +1684,13 @@ export default function SellClient({
             onKeyDown={(e) => {
               if (e.key !== "Enter" || !matches.length) return;
               e.preventDefault();
-              addUnits(matches.find((i) => i.qtyMilli > 0) ?? matches[0], queryCount);
+              {
+                const hit = matches.find((i) => i.qtyMilli > 0) ?? matches[0];
+                // "20 caustic" means twenty kilos of a weighed chemical and
+                // twenty jerricans of anything sold whole — the same sentence,
+                // read in the unit the thing is priced in.
+                addQuantity(hit, queryCount * stepMilli(hit), null);
+              }
               setQuery("");
             }}
             // 44px is a thumb on a phone and wasted height on a laptop with a
@@ -1591,7 +1782,7 @@ export default function SellClient({
           >
             {BOARDS.map((b) => {
               const on = board === b.key;
-              const count = (b.key === "products" ? finished : chemicals).length;
+              const count = (b.key === "products" ? recipes : chemicals).length;
               return (
                 <button
                   key={b.key}
@@ -1614,7 +1805,7 @@ export default function SellClient({
 
       {/* Two ways to fill a cart in one tap instead of thirty. Both are only
           offered when they would help: an empty cart, and something to offer. */}
-      {!cart.length && (repeatUsable.length > 0 || kits.length > 0) ? (
+      {!cart.length && repeatUsable.length > 0 ? (
         <div className="mt-3 flex flex-wrap gap-2">
           {repeatUsable.length > 0 ? (
             <button
@@ -1636,45 +1827,51 @@ export default function SellClient({
         </div>
       ) : null}
 
-      {kitOpen && kits.length > 0 ? (
+      {mixOpen ? (
         <div className="mt-3 rounded-2xl bg-white p-3.5 shadow-card ring-1 ring-ink/5">
           <div className="flex flex-wrap items-end gap-2">
             <div className="min-w-0 flex-1">
               <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
-                Making
+                Chemicals for
               </span>
               <p className="truncate text-sm font-bold text-brand-deep">
-                {kits.find((k) => k.versionId === kitVersion)?.name ?? "—"}
+                {recipes.find((r) => r.versionId === mixVersion)?.name ?? "—"}
               </p>
             </div>
             <label className="w-28">
               <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
-                Batch (L)
+                Making (L)
               </span>
               <input
                 className={`${inputClass} tnum`}
-                value={kitSize}
+                value={mixSize}
                 onChange={(e) => {
-                  setKitSize(e.target.value);
-                  setKitOffer(null);
+                  setMixSize(e.target.value);
+                  setMixOffer(null);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void previewMix();
+                  }
                 }}
                 inputMode="decimal"
-                aria-label="Batch size in litres"
+                aria-label="How much they are making, in litres"
               />
             </label>
             <Button
               variant="ghost"
               className="px-4 py-2.5 text-sm"
-              disabled={kitBusy || kitVersion === null || !kitSize.trim()}
-              onClick={() => previewKit()}
+              disabled={mixBusy || mixVersion === null || !mixSize.trim()}
+              onClick={() => previewMix()}
             >
-              {kitBusy ? "Working…" : "Update"}
+              {mixBusy ? "Working…" : "Update"}
             </Button>
             <button
               type="button"
               onClick={() => {
-                setKitOpen(false);
-                setKitOffer(null);
+                setMixOpen(false);
+                setMixOffer(null);
               }}
               aria-label="Close"
               className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-muted transition-colors hover:bg-wash hover:text-ink"
@@ -1685,111 +1882,106 @@ export default function SellClient({
             </button>
           </div>
 
-          {kitOffer ? (
+          {mixOffer ? (
             <div className="mt-3">
+              {/* Quantity, then rate, then money — the three things the customer
+                  asks about, in the order they ask. Weighed to the gram, so
+                  nothing here rounds up to a pack anybody has to be talked into. */}
               <div className="divide-y divide-line">
-                {kitOffer.ingredients.map((ing) => (
+                {mixOffer.ingredients.map((ing) => (
                   <div key={ing.chemicalName} className="flex items-baseline gap-2 py-1.5">
                     <span className="min-w-0 flex-1 truncate text-[13px] font-bold">
                       {ing.chemicalName}
                     </span>
-                    <span className="shrink-0 text-[11px] text-muted tnum">
-                      needs {formatQty(ing.neededMilli, ing.unit)}
+                    <span className="shrink-0 text-[12px] font-semibold text-muted tnum">
+                      {formatQty(ing.qtyMilli, ing.unit)}
                     </span>
-                    <span
-                      className={`shrink-0 text-[12px] font-bold tnum ${
-                        ing.missing ? "text-bad" : ing.oversized ? "text-warn" : "text-brand-dark"
-                      }`}
-                    >
-                      {ing.missing
-                        ? "no pack on sale"
-                        : ing.oversized
-                          ? `smallest is ${formatQty(ing.suppliedMilli, ing.unit)}`
-                          : ing.picks
-                              .map((p) => `${p.units} × ${splitName(p.name).size ?? p.name}`)
-                              .join(" + ")}
-                    </span>
+                    {ing.unlisted || ing.unpriced ? (
+                      <span className="shrink-0 text-[12px] font-bold text-bad">
+                        {ing.unlisted ? "not on the price list" : "no price set"}
+                      </span>
+                    ) : (
+                      <span
+                        className={`shrink-0 text-[12px] font-bold tnum ${
+                          ing.short ? "text-warn" : "text-brand-dark"
+                        }`}
+                      >
+                        {ing.short
+                          ? `only ${formatQty(Math.max(0, ing.availableMilli), ing.unit)} left`
+                          : formatKes(ing.amountCents)}
+                      </span>
+                    )}
                   </div>
                 ))}
               </div>
 
-              {/* Packs are lumpy. Say so here rather than at the till. */}
-              {kitOffer.ingredients.some(
-                (i) => !i.missing && !i.oversized && i.suppliedMilli > i.neededMilli,
-              ) ? (
-                <p className="mt-2 text-[11px] text-muted">
-                  Packs do not divide evenly, so some ingredients round up. The customer gets at
-                  least what the recipe needs — never less.
-                </p>
-              ) : null}
-              {/* The kit must not quietly bill someone for 5 kg of a chemical
-                  their recipe needs 25 g of. Those are left out and named. */}
+              <div className="mt-2 flex items-baseline justify-between border-t border-line pt-2">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
+                  {mixOffer.ingredients.length} chemical
+                  {mixOffer.ingredients.length === 1 ? "" : "s"}
+                </span>
+                <span className="text-base font-extrabold tnum">{formatKes(mixOffer.totalCents)}</span>
+              </div>
+
               {/*
                 A refusal with an answer attached.
 
-                "smallest is 1 kg" is true but leaves the counter stuck. A kit is
-                whole packs off the price list, so an ingredient the recipe wants
-                a pinch of has to be bought in whatever the smallest pack of it
-                is — and the way out is either a bigger batch or a smaller pack,
-                so both are named, with the numbers.
+                Two things can stop a mix, and they want different sentences. A
+                chemical with no price is a gap in the catalogue and no batch
+                size fixes it. A chemical the store has run low on is answered by
+                a number: how much they could make with what is actually here,
+                offered as a button so nobody has to work it out.
               */}
-              {kitLeftOut.length ? (
-                <div className="mt-2 space-y-2">
-                  <Alert tone="warn">
-                    <span className="font-bold">Left out of this kit: {kitLeftOut.join(", ")}.</span>{" "}
-                    A kit is made of packs the shop already sells, so an ingredient needed by the
-                    gram has to be bought as a whole pack. At {formatQty(kitOffer.targetMilli, "L")}{" "}
-                    those packs come to far more than the recipe calls for.
+              {mixLeftOut.length ? (
+                <div className="mt-2">
+                  <Alert tone="bad">
+                    <span className="font-bold">
+                      {mixLeftOut.join(", ")} cannot be billed.
+                    </span>{" "}
+                    Set a price for {mixLeftOut.length === 1 ? "it" : "them"} under Prices for
+                    today, then this recipe adds up in full. The rest can still go on the sale.
                   </Alert>
+                </div>
+              ) : null}
 
-                  {kitOffer.unpackable.length ? (
-                    <p className="text-[12px] leading-relaxed text-muted">
-                      <span className="font-bold text-ink">
-                        {kitOffer.unpackable.join(", ")}
-                      </span>{" "}
-                      {kitOffer.unpackable.length === 1 ? "has" : "have"} no pack on the price list
-                      at any size, so no batch size will include{" "}
-                      {kitOffer.unpackable.length === 1 ? "it" : "them"}. Add a pack size under
-                      Products &amp; prices, or weigh{" "}
-                      {kitOffer.unpackable.length === 1 ? "it" : "them"} out separately.
-                    </p>
-                  ) : null}
-
-                  {kitOffer.floorMilli > kitOffer.targetMilli ? (
-                    <div className="flex flex-wrap items-center gap-2 text-[12px] text-muted">
-                      <span>
-                        Everything fits from{" "}
-                        <span className="font-bold text-ink">
-                          {formatQty(kitOffer.floorMilli, "L")}
-                        </span>{" "}
-                        up
-                        {kitOffer.floorBecause ? ` — ${kitOffer.floorBecause} sets that` : ""}.
-                      </span>
-                      {/* One tap rather than working the number out and typing it. */}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const litres = String(kitOffer.floorMilli / 1000);
-                          setKitSize(litres);
-                          previewKit(kitVersion, litres);
-                        }}
-                        className="rounded-full bg-brand-soft px-3 py-1.5 text-[12px] font-bold text-brand-dark"
-                      >
-                        Try {formatQty(kitOffer.floorMilli, "L")}
-                      </button>
-                    </div>
+              {mixShort.length ? (
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <Alert tone="warn">
+                    <span className="font-bold">
+                      Not enough {mixShort.map((i) => i.chemicalName).join(", ")}.
+                    </span>{" "}
+                    {mixOffer.possibleMilli > 0
+                      ? `There is enough in the store for ${formatQty(mixOffer.possibleMilli, "L")}.`
+                      : "Record a delivery, or do a stock take if the store has more than the book says."}
+                  </Alert>
+                  {mixOffer.possibleMilli > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const litres = milliToInput(mixOffer.possibleMilli);
+                        setMixSize(litres);
+                        void previewMix(mixVersion, litres);
+                      }}
+                      className="rounded-full bg-brand-soft px-3 py-1.5 text-[12px] font-bold text-brand-dark"
+                    >
+                      Make {formatQty(mixOffer.possibleMilli, "L")} instead
+                    </button>
                   ) : null}
                 </div>
               ) : null}
 
               <Button
                 className="mt-3 w-full text-sm"
-                disabled={!kitAddable}
-                onClick={addKitToCart}
+                disabled={!mixAddable || mixShort.length > 0}
+                onClick={addMixToCart}
               >
-                {kitAddable
-                  ? `Add ${kitAddable} of ${kitOffer.ingredients.length} ingredients — ${kitOffer.formulaName}, ${formatQty(kitOffer.targetMilli, "L")}`
-                  : "Nothing here can be sold as packs"}
+                {!mixAddable
+                  ? "Nothing here can be billed"
+                  : mixShort.length > 0
+                    ? "Not enough in the store"
+                    : `Add ${mixAddable} chemical${mixAddable === 1 ? "" : "s"} — ${
+                        mixOffer.formulaName
+                      }, ${formatQty(mixOffer.targetMilli, "L")} · ${formatKes(mixOffer.totalCents)}`}
               </Button>
             </div>
           ) : null}
@@ -1805,7 +1997,7 @@ export default function SellClient({
           <Grid
             items={matches}
             tier={tier}
-            onAdd={(item) => addUnits(item, queryCount)}
+            onAdd={(item) => addQuantity(item, queryCount * stepMilli(item), null)}
             cart={cart}
             searching
           />
@@ -1886,18 +2078,11 @@ export default function SellClient({
             className="@container mt-3 lg:mt-0"
           >
             {board === "products" ? (
-              finished.length ? (
-                <Grid
-                  items={finished}
-                  tier={tier}
-                  onAdd={addItem}
-                  onMake={openMake}
-                  makeable={makeable}
-                  cart={cart}
-                />
+              recipes.length ? (
+                <RecipeGrid recipes={recipes} onOpen={openMix} openVersionId={mixOpen ? mixVersion : null} />
               ) : (
                 <p className="py-8 text-center text-sm text-muted">
-                  Nothing mixed and bottled is on the price list yet.
+                  No recipes are written down yet.
                 </p>
               )
             ) : chemicals.length ? (
@@ -2044,20 +2229,68 @@ export default function SellClient({
 
 // ------------------------------------------------------------------- parts
 
+/**
+ * The recipe board.
+ *
+ * Deliberately not the item grid with different data in it. A recipe has no
+ * price, no stock and no size — tapping one does not add anything to the cart,
+ * it asks a question ("how much are you making?") — so a tile that looked like
+ * a product tile would be promising three things it cannot deliver.
+ */
+function RecipeGrid({
+  recipes,
+  onOpen,
+  openVersionId,
+}: {
+  recipes: RecipeChoice[];
+  onOpen: (recipe: RecipeChoice) => void;
+  openVersionId: number | null;
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-2 @[22rem]:grid-cols-3 @[30rem]:grid-cols-4 @[30rem]:gap-2.5 @[44rem]:grid-cols-5 @[62rem]:grid-cols-6">
+      {recipes.map((r) => {
+        const sw = swatchFor(r.name);
+        const open = r.versionId === openVersionId;
+        return (
+          <button
+            key={r.versionId}
+            type="button"
+            onClick={() => onOpen(r)}
+            title={r.name}
+            className={`relative flex h-[6.75rem] w-full flex-col overflow-hidden rounded-2xl py-2.5 pl-3.5 pr-3 text-left shadow-card ring-1 transition-colors md:h-[6rem] lg:h-[5rem] xl:h-[4.75rem] xl:py-2 xl:pl-3 xl:pr-2.5 2xl:h-[5.5rem] 3xl:h-[6.75rem] ${
+              open ? "bg-brand-soft ring-brand/40" : "ring-ink/5 hover:ring-brand/30"
+            }`}
+            style={open ? undefined : { backgroundColor: sw.tint }}
+          >
+            <span
+              aria-hidden
+              className="absolute inset-y-0 left-0 w-[4px]"
+              style={{ backgroundColor: sw.bar }}
+            />
+            <div className={`truncate font-extrabold ${nameSize(r.name)}`}>{r.name}</div>
+            <div className="mt-0.5 text-[11px] font-semibold text-muted">
+              {r.ingredientCount} chemical{r.ingredientCount === 1 ? "" : "s"}
+            </div>
+            <div className="mt-auto whitespace-nowrap text-[13px] font-bold leading-none text-brand-deep">
+              Price up a batch →
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function Grid({
   items,
   tier,
   onAdd,
-  onMake,
-  makeable,
   cart,
   searching = false,
 }: {
   items: SellItem[];
   tier: Tier;
   onAdd: (item: SellItem) => void;
-  onMake?: (item: SellItem) => void;
-  makeable?: Record<number, unknown>;
   cart: CartLine[];
   searching?: boolean;
 }) {
@@ -2077,12 +2310,10 @@ function Grid({
     const out = item.qtyMilli <= 0;
     const unpriced = listPrice(item, tier) === 0;
     const { base, size } = splitName(item.name);
-    // A product the shop mixes itself can be sold two ways: the bottle, or what
-    // goes into it. The tile carries both, because they are the same product —
-    // asking the counter to remember a separate screen for the second one is
-    // how the second one stops being offered.
-    const canMake = Boolean(onMake && makeable && makeable[item.id]);
-    const stock = out ? "none left" : formatUnits(item.qtyMilli, item.sizeMilli, item.unitLabel);
+    // "25 drums · 1,000 kg". The owner counts containers on the floor; the
+    // counter sells out of them by the kilogram. Neither number on its own
+    // answers "can I sell this order", so a weighed item carries both.
+    const stock = stockLabel(item);
     // The item's own colour, and how large its name can be set. See lib/swatch.
     const sw = swatchFor(item.name);
     const body = (
@@ -2104,17 +2335,18 @@ function Grid({
         // least room to spare: everything above the grid competes with it, so
         // the tile is sized to its content there and nothing more.
         className={`relative flex h-[6.75rem] w-full flex-col overflow-hidden rounded-2xl py-2.5 pl-3.5 pr-3 text-left shadow-card ring-1 transition-colors md:h-[6rem] lg:h-[5rem] xl:h-[4.75rem] xl:py-2 xl:pl-3 xl:pr-2.5 2xl:h-[5.5rem] 3xl:h-[6.75rem] ${
-          canMake ? "rounded-b-none" : ""
-        } ${inCart ? "bg-brand-soft ring-brand/40" : "ring-ink/5 hover:ring-brand/30"} ${
-          out ? "opacity-70" : ""
-        }`}
+          inCart ? "bg-brand-soft ring-brand/40" : "ring-ink/5 hover:ring-brand/30"
+        } ${out ? "opacity-70" : ""}`}
         // The tint only when the tile is not already carrying the in-cart
         // highlight: two backgrounds fighting would lose the one that matters.
         style={inCart ? undefined : { backgroundColor: sw.tint }}
       >
+        {/* What is on the bill for this item, in the unit it is sold in: "3"
+            jerricans, or "1.5 kg". A weighed line showing "1" would be the one
+            number on the tile that means nothing. */}
         {inCart ? (
           <span className="absolute right-2 top-2 flex h-6 min-w-6 items-center justify-center rounded-full bg-brand px-1.5 text-xs font-extrabold text-white tnum">
-            {inCart.units}
+            {item.basis === "unit" ? formatQty(inCart.qtyMilli, item.unit) : inCart.units}
           </span>
         ) : null}
         {/* The chemical's own colour, down the leading edge. Four pixels is
@@ -2149,8 +2381,10 @@ function Grid({
             is the whole difference between them, and it was the smallest thing
             on the tile. */}
         <div className="mt-0.5 flex h-[1.05rem] items-baseline gap-1.5">
+          {/* For a weighed chemical the container size is not what is being
+              bought, so the line says what it IS sold by. */}
           <span className="shrink-0 text-[12.5px] font-bold" style={{ color: sw.bar }}>
-            {size ?? ""}
+            {item.basis === "unit" ? `per ${item.unit}` : (size ?? "")}
           </span>
           <span
             className={`ml-auto hidden min-w-0 truncate text-right text-[11px] font-semibold tnum md:block ${
@@ -2169,7 +2403,7 @@ function Grid({
                 : `text-[17px] ${tier === "wholesale" ? "text-warn" : "text-brand-deep"}`
             }`}
           >
-            {unpriced ? "No price set" : formatKes(listPrice(item, tier))}
+            {unpriced ? "No price set" : priceLabel(item, listPrice(item, tier))}
           </span>
           <span
             className={`truncate text-[11px] leading-none tnum md:hidden ${
@@ -2182,22 +2416,7 @@ function Grid({
       </button>
     );
 
-    if (!canMake) return <div key={item.id}>{body}</div>;
-
-    return (
-      <div key={item.id} className="flex flex-col">
-        {body}
-        <button
-          type="button"
-          onClick={() => onMake!(item)}
-          className="flex items-center justify-center gap-1.5 rounded-b-2xl bg-brand-soft py-1.5 text-[10.5px] font-bold text-brand-dark shadow-card ring-1 ring-ink/5 transition-colors hover:bg-brand hover:text-white lg:py-1"
-          aria-label={`Show the chemicals that make ${base}`}
-        >
-          Make it — chemicals
-          <span aria-hidden>▾</span>
-        </button>
-      </div>
-    );
+    return <div key={item.id}>{body}</div>;
   };
 
   // Measured against the column, not the window (see the @container above), and
@@ -2224,10 +2443,9 @@ function Grid({
             {outOfStock.length === 1 ? "" : "s"} shown below, at zero.
           </p>
           <p className="mt-1 text-xs text-muted">
-            Chemicals arrive by <Link href="/repack" className="font-semibold text-brand">Repack</Link> or{" "}
-            <Link href="/purchases" className="font-semibold text-brand">a delivery</Link>. Products come from{" "}
-            <Link href="/batch" className="font-semibold text-brand">Batch</Link>. Already have some on the
-            shelf that is not showing? Fix it with a{" "}
+            Stock arrives by{" "}
+            <Link href="/purchases" className="font-semibold text-brand">recording a delivery</Link>.
+            Already have some in the store that is not showing? Fix it with a{" "}
             <Link href="/stocktake" className="font-semibold text-brand">Stock take</Link>.
           </p>
         </div>
@@ -2259,13 +2477,17 @@ function CartRow({
   item,
   line,
   tier,
-  onUnits,
+  onStep,
+  onQuantity,
   onPrice,
 }: {
   item: SellItem;
   line: CartLine;
   tier: Tier;
-  onUnits: (delta: number) => void;
+  /** One more, or one fewer — one container, or one kilogram. */
+  onStep: (delta: number) => void;
+  /** A quantity typed outright, in containers or in kg / L. */
+  onQuantity: (value: number) => void;
   onPrice: (cents: number) => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -2274,6 +2496,10 @@ function CartRow({
   const [qtyDraft, setQtyDraft] = useState<string | null>(null);
   const list = listPrice(item, tier);
   const discounted = line.priceCents !== list;
+  const weighed = item.basis === "unit";
+  /** What the box shows: "3" jerricans, or "1.5" kilograms. */
+  const shown = weighed ? milliToInput(line.qtyMilli) : String(line.units);
+  const over = line.qtyMilli > item.qtyMilli;
 
   function commit() {
     const cents = parseCents(draft);
@@ -2303,24 +2529,36 @@ function CartRow({
       <div className="flex shrink-0 items-center rounded-lg bg-white ring-1 ring-inset ring-line">
         <button
           type="button"
-          onClick={() => onUnits(-1)}
-          aria-label={`One less ${item.name}`}
+          onClick={() => onStep(-1)}
+          aria-label={`Less ${item.name}`}
           className="h-8 w-7 rounded-l-lg text-base font-extrabold text-brand-dark hover:bg-wash"
         >
           −
         </button>
-        {/* Typing beats tapping: twenty of something was twenty taps. */}
+        {/*
+          Typing beats tapping: twenty of something was twenty taps.
+
+          A weighed chemical accepts a decimal point, and that box is the whole
+          of what replaced the repacking bench — 250 g of caustic used to mean
+          somebody having made up a 250 g pack in advance, and now it means
+          typing 0.25. So the filter lets a dot through, but only for things
+          actually sold by weight: half a jerrican is still not a thing.
+        */}
         <input
-          className="w-7 bg-transparent text-center text-[13px] font-extrabold tnum outline-none"
-          value={qtyDraft ?? String(line.units)}
-          onChange={(e) => setQtyDraft(e.target.value.replace(/[^\d]/g, ""))}
+          className={`bg-transparent text-center text-[13px] font-extrabold tnum outline-none ${
+            weighed ? "w-12" : "w-7"
+          }`}
+          value={qtyDraft ?? shown}
+          onChange={(e) =>
+            setQtyDraft(e.target.value.replace(weighed ? /[^\d.]/g : /[^\d]/g, ""))
+          }
           onFocus={(e) => {
-            setQtyDraft(String(line.units));
+            setQtyDraft(shown);
             e.currentTarget.select();
           }}
           onBlur={() => {
             const n = Number(qtyDraft);
-            if (qtyDraft !== null && qtyDraft !== "" && Number.isFinite(n)) onUnits(n - line.units);
+            if (qtyDraft !== null && qtyDraft !== "" && Number.isFinite(n) && n > 0) onQuantity(n);
             setQtyDraft(null);
           }}
           onKeyDown={(e) => {
@@ -2330,13 +2568,16 @@ function CartRow({
               e.currentTarget.blur();
             }
           }}
-          inputMode="numeric"
-          aria-label={`How many ${item.name}`}
+          inputMode={weighed ? "decimal" : "numeric"}
+          aria-label={weighed ? `How much ${item.name}, in ${item.unit}` : `How many ${item.name}`}
         />
+        {weighed ? (
+          <span className="pr-1.5 text-[11px] font-bold text-muted">{item.unit}</span>
+        ) : null}
         <button
           type="button"
-          onClick={() => onUnits(1)}
-          aria-label={`One more ${item.name}`}
+          onClick={() => onStep(1)}
+          aria-label={`More ${item.name}`}
           className="h-8 w-7 rounded-r-lg text-base font-extrabold text-brand-dark hover:bg-wash"
         >
           +
@@ -2381,17 +2622,27 @@ function CartRow({
               className="mt-0.5 block max-w-full truncate text-[11px] font-semibold text-brand"
               aria-label={`Change the price of ${item.name}`}
             >
-              {size ? <span className="text-muted">{size} · </span> : null}
+              {!weighed && size ? <span className="text-muted">{size} · </span> : null}
               <span className="underline decoration-brand/30 decoration-dotted underline-offset-2">
-                {formatKes(line.priceCents)} each
+                {weighed ? priceLabel(item, line.priceCents) : `${formatKes(line.priceCents)} each`}
               </span>
               {discounted ? (
-                <span className="ml-1.5 text-muted line-through">{formatKes(list)}</span>
+                <span className="ml-1.5 text-muted line-through">
+                  {weighed ? priceLabel(item, list) : formatKes(list)}
+                </span>
+              ) : null}
+              {/* Named on the line it belongs to, not only in the banner above:
+                  with six lines on the bill, "not enough stock" without a name
+                  is a hunt. */}
+              {over ? (
+                <span className="ml-1.5 font-bold text-warn">
+                  only {formatQty(Math.max(0, item.qtyMilli), item.unit)} left
+                </span>
               ) : null}
             </button>
           </div>
           <div className="shrink-0 text-right text-sm font-extrabold tnum">
-            {formatKes(line.priceCents * line.units)}
+            {formatKes(lineCents(item, line))}
           </div>
         </>
       )}

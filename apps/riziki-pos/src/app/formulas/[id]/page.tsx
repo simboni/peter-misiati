@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { currentUser, requireOwner } from "@/lib/auth";
 import {
-  batchesUsingVersion,
+  salesUsingVersion,
   formulaById,
   currentVersion,
   versionById,
@@ -150,7 +150,7 @@ export default async function FormulaDetailPage(props: {
             chemicalId: i.chemical_id,
             qty: String(fromMilli(i.qty_milli)),
           }))}
-          everMixed={batchesUsingVersion(shown.id) > 0}
+          everSold={salesUsingVersion(shown.id) > 0}
           cancelHref={`/formulas/${formulaId}`}
         />
       </div>
@@ -178,7 +178,7 @@ export default async function FormulaDetailPage(props: {
         <div className="mb-2.5">
           <Alert tone="warn">
             This is version {shown.version}, superseded by version {current?.version}. It is shown
-            because batches were mixed from it.{" "}
+            because it was sold against.{" "}
             <Link href={`/formulas/${formulaId}`} className="font-bold underline">
               Show the current version
             </Link>
@@ -247,7 +247,6 @@ export default async function FormulaDetailPage(props: {
         <LinkButton href={`/formulas/${formulaId}?edit=1${v ? `&v=${v}` : ""}`} variant="primary">
           Edit recipe
         </LinkButton>
-        <LinkButton href={`/batch?f=${formulaId}`}>Mix a batch</LinkButton>
       </div>
 
       <SectionLabel>Version history</SectionLabel>
@@ -259,14 +258,14 @@ export default async function FormulaDetailPage(props: {
                 <div className="text-sm font-bold">
                   Version {ver.version}{" "}
                   <span className="font-normal text-muted">
-                    · {formatQty(ver.ref_size_milli, "L")} batch
+                    · per {formatQty(ver.ref_size_milli, "L")}
                   </span>
                 </div>
                 <div className="mt-0.5 text-xs text-muted">
                   {formatDateTime(ver.created_at)} ·{" "}
-                  {ver.batch_count === 0
-                    ? "not yet mixed"
-                    : `${ver.batch_count} ${ver.batch_count === 1 ? "batch" : "batches"} mixed`}
+                  {ver.use_count === 0
+                    ? "never sold on"
+                    : `sold on ${ver.use_count} ${ver.use_count === 1 ? "time" : "times"}`}
                 </div>
               </div>
               <div className="flex shrink-0 flex-col items-end gap-1.5">
@@ -287,7 +286,7 @@ export default async function FormulaDetailPage(props: {
 
       <div className="mt-3">
         <Link href="/formulas" className="text-sm font-bold text-brand">
-          ← All formulas
+          ← All recipes
         </Link>
       </div>
     </div>

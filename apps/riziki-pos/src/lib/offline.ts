@@ -49,8 +49,24 @@ export const OUTBOX_EVENT = "riziki:outbox";
 export interface QueuedLine {
   itemId: number;
   units: number;
-  /** Integer cents, snapshotted at the counter. May be a haggled price. */
+  /**
+   * Integer cents, snapshotted at the counter. May be a haggled price.
+   * Per container, or per kg / L when the item is priced by quantity.
+   */
   unitPriceCents: number;
+  /**
+   * How much substance, in milli, for an item priced by quantity.
+   *
+   * Sent even though the till re-reads the item's own `price_basis` before it
+   * charges anything: the queue is a wire format that may sit on a phone for a
+   * day, and a line that arrives without its quantity is a sale that cannot be
+   * replayed at all. Optional on the wire because a sale queued before this
+   * existed has no quantity to send — such a line names an item that was sold
+   * whole, and the till refuses it by name rather than guessing a weight.
+   */
+  qtyMilli?: number;
+  /** Recorded against the line when it came out of a recipe. */
+  formulaVersionId?: number | null;
 }
 
 export interface QueuedTender {
@@ -164,7 +180,19 @@ export function parseQueuedSale(value: unknown): QueuedSalePayload {
     if (!isCents(l.unitPriceCents)) {
       throw new OutboxError("bad_price", "A queued line price is not a whole number of cents.");
     }
-    return { itemId: l.itemId, units: l.units, unitPriceCents: l.unitPriceCents };
+    if (l.qtyMilli !== undefined && !isCount(l.qtyMilli)) {
+      throw new OutboxError("bad_units", "A queued line has an unreadable quantity.");
+    }
+    if (l.formulaVersionId !== undefined && l.formulaVersionId !== null && !isCount(l.formulaVersionId)) {
+      throw new OutboxError("bad_request", "A queued line names an unreadable recipe.");
+    }
+    return {
+      itemId: l.itemId,
+      units: l.units,
+      unitPriceCents: l.unitPriceCents,
+      qtyMilli: l.qtyMilli as number | undefined,
+      formulaVersionId: (l.formulaVersionId ?? null) as number | null,
+    };
   });
 
   if (!Array.isArray(raw.tenders) || raw.tenders.length > 8) {

@@ -19,6 +19,13 @@ export interface User {
   active: number;
 }
 
+/**
+ * What an item's price columns mean. See the `items` table in schema.sql —
+ * 'unit' is a price per kilogram or litre and the customer names the quantity;
+ * 'pack' is a price for one whole thing.
+ */
+export type PriceBasis = "pack" | "unit";
+
 export interface Item {
   id: number;
   chemical_id: number | null;
@@ -28,6 +35,7 @@ export interface Item {
   size_milli: number;
   unit_label: string;
   sellable: number;
+  price_basis: PriceBasis;
   retail_cents: number;
   wholesale_cents: number;
   floor_cents: number;
@@ -68,9 +76,44 @@ export function db(): DatabaseSync {
 
   const schema = readFileSync(join(process.cwd(), "src", "lib", "schema.sql"), "utf8");
   conn.exec(schema);
+  migrate(conn);
 
   _db = conn;
   return conn;
+}
+
+/**
+ * Columns added to tables that already exist in the shop's file.
+ *
+ * `CREATE TABLE IF NOT EXISTS` builds a new database correctly and does exactly
+ * nothing to an old one, so a column added to schema.sql would be present on a
+ * developer's fresh copy and missing on the till — the worst possible split,
+ * because everything would work here and fail there. Each entry below is
+ * therefore stated twice: in schema.sql for a new file, and here for the file
+ * the shop has been trading on since March.
+ *
+ * Adding a column is the only migration this list may hold. Anything that
+ * rewrites existing rows belongs in a script the owner runs deliberately, not in
+ * a code path that opens the database.
+ */
+const ADDED_COLUMNS: Array<{ table: string; column: string; definition: string }> = [
+  {
+    table: "items",
+    column: "price_basis",
+    definition: "TEXT NOT NULL DEFAULT 'pack' CHECK (price_basis IN ('pack', 'unit'))",
+  },
+  { table: "sale_lines", column: "rate_cents", definition: "INTEGER NOT NULL DEFAULT 0 CHECK (rate_cents >= 0)" },
+  { table: "quote_lines", column: "qty_milli", definition: "INTEGER NOT NULL DEFAULT 0 CHECK (qty_milli >= 0)" },
+  { table: "quote_lines", column: "rate_cents", definition: "INTEGER NOT NULL DEFAULT 0 CHECK (rate_cents >= 0)" },
+];
+
+function migrate(conn: DatabaseSync): void {
+  for (const { table, column, definition } of ADDED_COLUMNS) {
+    const columns = conn.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+    if (!columns.length) continue; // table not created yet — schema.sql owns it
+    if (columns.some((c) => c.name === column)) continue;
+    conn.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
 }
 
 /** Reset the module-level handle — used by tests that swap the database file. */

@@ -181,6 +181,8 @@ export function receiptFromInvoice(invoice: Invoice, settings: PrintSettings): R
     unitPriceCents: l.unit_price_cents,
     lineTotalCents: l.line_total_cents,
     qty: l.canonical_unit ? formatQty(l.qty_milli, l.canonical_unit) : null,
+    rateCents: l.rate_cents ?? 0,
+    rateUnit: l.canonical_unit ?? null,
   }));
 
   return {

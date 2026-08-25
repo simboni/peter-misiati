@@ -37,8 +37,10 @@ const I = (d: string) => (
 const TABS: Tab[] = [
   { href: "/sell", label: "Sell", icon: I("M3 4h2l2.5 11.5h10L20 8H6 M9 20a1 1 0 1 0 0-2 1 1 0 0 0 0 2 M17 20a1 1 0 1 0 0-2 1 1 0 0 0 0 2") },
   { href: "/stock", label: "Stock", icon: I("M3 9l9-5 9 5v10l-9 5-9-5z M3 9l9 5 9-5 M12 14v10") },
-  // Production runs the secret recipe; owner-only, so the tab is too.
-  { href: "/batch", label: "Batch", icon: I("M10 3v6l-5.5 9a2 2 0 0 0 1.8 3h11.4a2 2 0 0 0 1.8-3L14 9V3 M8 3h8 M7 15h10"), ownerOnly: true },
+  // Recipes. The tab used to be "Batch" — mixing and bottling — and the shop
+  // does neither now: a recipe is a shopping list the counter bills out of, so
+  // this is the book of them. Owner-only, because a recipe is the business.
+  { href: "/formulas", label: "Recipes", icon: I("M10 3v6l-5.5 9a2 2 0 0 0 1.8 3h11.4a2 2 0 0 0 1.8-3L14 9V3 M8 3h8 M7 15h10"), ownerOnly: true },
   // Quotes and wholesale invoices. A tab rather than a menu entry because it is
   // a place the shop works from, not something it configures — and because the
   // owner asked for it to be one tap from the till.
@@ -52,9 +54,9 @@ const TABS: Tab[] = [
   { href: "/more", label: "More", icon: I("M4 6h16 M4 12h16 M4 18h16") },
 ];
 
-// Repack and stock take both read raw-reagent quantities off the shelf.
-// Those numbers are how a formula could be reverse-engineered, so both are
-// owner-only, alongside the rest of raw-chemical handling.
+// A stock take reads raw-reagent quantities off the shelf. Those numbers are
+// how a formula could be reverse-engineered, so it is owner-only, alongside the
+// rest of raw-chemical handling.
 const MORE_GROUPS: Array<{
   label: string;
   /**
@@ -79,11 +81,10 @@ const MORE_GROUPS: Array<{
     ],
   },
   {
-    label: "Stock & making",
+    label: "Stock & recipes",
     links: [
-      { href: "/repack", label: "Repack", owner: true },
       { href: "/stocktake", label: "Stock take", owner: true },
-      { href: "/formulas", label: "Formulas", owner: true },
+      { href: "/formulas", label: "Recipes", owner: true },
       { href: "/items", label: "Products & prices", owner: true },
     ],
   },

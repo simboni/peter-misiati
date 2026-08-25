@@ -653,6 +653,8 @@ export interface InvoiceLine {
   qty_milli: number;
   unit_price_cents: number;
   line_total_cents: number;
+  /** Per kg / L when the line was weighed; 0 when it was sold whole. */
+  rate_cents: number;
   canonical_unit: string | null;
 }
 
@@ -690,7 +692,7 @@ export function getInvoice(saleId: number): Invoice | undefined {
   // price.
   const lines = all<InvoiceLine>(
     `SELECT sl.id, sl.name_snapshot, sl.units, sl.qty_milli,
-            sl.unit_price_cents, sl.line_total_cents,
+            sl.unit_price_cents, sl.line_total_cents, sl.rate_cents,
             i.canonical_unit
        FROM sale_lines sl
        LEFT JOIN items i ON i.id = sl.item_id

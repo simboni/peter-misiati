@@ -474,12 +474,6 @@ export default async function ItemsPage(props: {
           <Field label="Bulk container" hint="drum, bag, jerrican…">
             <input className={inputClass} name="bulkLabel" defaultValue="drum" />
           </Field>
-          <Field
-            label="Repack sizes"
-            hint="Comma separated, in the unit above. e.g. 20, 5, 1, 0.5"
-          >
-            <input className={inputClass} name="packs" placeholder="20, 5, 1, 0.5" />
-          </Field>
           <Button type="submit" className="w-full">
             Add chemical
           </Button>

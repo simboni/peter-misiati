@@ -22,16 +22,12 @@ export default async function FormulasPage(props: {
     if (!(await currentUser())) redirect("/login");
     return (
       <div>
-        <PageTitle title="Formulas" />
+        <PageTitle title="Recipes" />
         <Alert tone="bad">
           The recipes are the owner&rsquo;s. Ask the owner to sign in on this phone.
         </Alert>
         <p className="mt-3 text-sm text-muted">
-          You can still mix from a formula without seeing it — open{" "}
-          <Link href="/batch" className="font-bold text-brand">
-            Batch
-          </Link>{" "}
-          and pick the product.
+          Selling a recipe at the counter does not need this screen — and does not show it.
         </p>
       </div>
     );

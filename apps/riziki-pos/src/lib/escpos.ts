@@ -281,6 +281,16 @@ export interface ReceiptLine {
   lineTotalCents: number;
   /** Pre-formatted quantity, e.g. "40 kg". Optional. */
   qty?: string | null;
+  /**
+   * `sale_lines.rate_cents` — the price per kg / L on a weighed line, and the
+   * unit it is per. Zero or absent on anything sold whole.
+   *
+   * A weighed line has no honest "how many": it is one scoop, so printing
+   * "1 x 25.00" states a quantity of one and hides the two numbers the customer
+   * actually checks — how much they got, and what a kilogram costs.
+   */
+  rateCents?: number | null;
+  rateUnit?: string | null;
 }
 
 export interface ReceiptTender {
@@ -378,7 +388,10 @@ export function renderReceipt(receipt: Receipt, opts: ReceiptOptions = {}): Rece
     // The detail line carries the arithmetic the customer checks — how many, at
     // what price — with the extension hard against the right margin.
     const qty = line.qty ? ` (${toAscii(line.qty)})` : "";
-    const detail = `${line.units} x ${money(line.unitPriceCents)}${qty}`;
+    const detail =
+      line.rateCents && line.rateCents > 0 && line.qty
+        ? `${toAscii(line.qty)} x ${money(line.rateCents)}/${toAscii(line.rateUnit ?? "")}`.trimEnd()
+        : `${line.units} x ${money(line.unitPriceCents)}${qty}`;
     pushMany(indent(twoCol(detail, money(line.lineTotalCents), w - 2)));
   }
   push(rule);

@@ -42,14 +42,8 @@ export default async function HomePage() {
       LIMIT 6`,
   );
 
-  // Two "you left something unfinished" states belong on the front door:
-  // mixed batches whose yield was never measured, and — each evening — a day
-  // that took money but was never closed.
-  const pendingYield = owner
-    ? (get<{ n: number }>(
-        `SELECT COUNT(*) AS n FROM batches WHERE actual_milli IS NULL AND status = 'completed'`,
-      )?.n ?? 0)
-    : 0;
+  // The one "you left something unfinished" state that belongs on the front
+  // door: an evening where money was taken and the day was never closed.
   const hour = Number(
     new Intl.DateTimeFormat("en-GB", { hour: "numeric", hour12: false, timeZone: "Africa/Nairobi" }).format(
       new Date(),
@@ -112,20 +106,6 @@ export default async function HomePage() {
             <Alert tone="warn">
               <strong>The day hasn&rsquo;t been closed.</strong> Count the drawer before locking
               up — tap to close the day.
-            </Alert>
-          </Link>
-        </div>
-      ) : null}
-
-      {pendingYield > 0 ? (
-        <div className="mt-3">
-          <Link href="/batch" className="block">
-            <Alert tone="warn">
-              <strong>
-                {pendingYield} {pendingYield === 1 ? "batch is" : "batches are"} waiting for the
-                actual litres.
-              </strong>{" "}
-              The stock and cost stay provisional until it&rsquo;s recorded — tap to finish.
             </Alert>
           </Link>
         </div>

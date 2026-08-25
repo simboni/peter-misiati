@@ -3,8 +3,8 @@
 /**
  * The stock list.
  *
- * Two numbers on every row on purpose: the owner counts packs, but the formulas
- * and the repack screen work in kg, and the shop has lost money before by reading
+ * Two numbers on every row on purpose: the owner counts drums, but the recipes
+ * and the counter both work in kg, and the shop has lost money before by reading
  * one as the other.
  *
  * Search filters in the browser because all 100-odd items are already on the
@@ -144,10 +144,10 @@ export function StockClient({
       <div className="lg:col-span-8 lg:flex lg:items-start lg:gap-2 xl:col-span-9 2xl:col-span-10">
       <div className="mb-3 grid grid-cols-2 gap-2 lg:mb-0 lg:shrink-0">
         <Link
-          href="/repack"
+          href="/purchases"
           className="flex min-h-11 items-center justify-center rounded-xl border border-line bg-white px-4 text-center text-sm font-bold hover:bg-wash xl:min-h-9"
         >
-          Repack
+          Delivery in
         </Link>
         <Link
           href="/stocktake"

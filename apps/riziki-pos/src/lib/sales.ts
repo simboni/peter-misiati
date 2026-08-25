@@ -20,15 +20,12 @@
  *     `items` for a price, so tomorrow's price rise cannot rewrite today's till.
  */
 
-import { all, get, run, tx, postMovement, audit, type Item } from "./db.ts";
+import { all, get, run, tx, postMovement, stockOf, audit, type Item, type PriceBasis } from "./db.ts";
 import { verifyPin } from "./pin.ts";
-import { formatKes } from "./units.ts";
+import { formatKes, formatQty, MILLI } from "./units.ts";
 
 export type Tier = "retail" | "wholesale";
 export type PayMethod = "cash" | "mpesa" | "credit";
-
-/** Kinds that move physical stock when sold. */
-const CARRIES_STOCK: ReadonlySet<Item["kind"]> = new Set<Item["kind"]>(["finished", "pack"]);
 
 export const SALES_PAGE_SIZE = 20;
 
@@ -38,6 +35,8 @@ export type SaleErrorCode =
   | "bad_request"
   | "empty_cart"
   | "bad_units"
+  | "bad_qty"
+  | "not_enough_stock"
   | "bad_price"
   | "unknown_item"
   | "below_floor"
@@ -76,19 +75,51 @@ export interface PricedItem {
  *
  * An item with no wholesale price set falls back to retail rather than to zero —
  * flipping the tier toggle must never hand goods over for free.
+ *
+ * For a `price_basis = 'unit'` item this is the rate per kilogram or litre, not
+ * the price of anything you can pick up; `amountFor` turns it into money.
  */
 export function priceFor(item: PricedItem, tier: Tier): number {
   if (tier === "wholesale" && item.wholesale_cents > 0) return item.wholesale_cents;
   return item.retail_cents;
 }
 
-export interface CartLine {
-  unitPriceCents: number;
-  units: number;
+/**
+ * What a quantity of a weighed item costs: `rate` per canonical unit, for
+ * `qtyMilli` thousandths of it.
+ *
+ * The rounding happens once, here, on the whole line. Rounding per gram would
+ * put a shilling of error into every kilogram — 50 KES/kg is 0.05 cents a gram,
+ * which is not a number of cents at all — so the multiplication is done in full
+ * and only the answer is rounded. Half a kilo at 50 is exactly 25.00, ten kilos
+ * exactly 500.00, and 250 g of something priced at 133/kg is 33.25 rather than
+ * 33.00 or 34.00.
+ */
+export function amountFor(rateCents: number, qtyMilli: number): number {
+  if (!Number.isInteger(rateCents) || rateCents < 0) {
+    throw new SaleError("bad_price", "A rate must be a whole number of cents.");
+  }
+  if (!Number.isInteger(qtyMilli) || qtyMilli <= 0) {
+    throw new SaleError("bad_qty", "A quantity must be more than zero.");
+  }
+  return Math.round((rateCents * qtyMilli) / MILLI);
 }
 
-/** `unit_price_cents × units`, in integer cents. */
+export interface CartLine {
+  /** Per whole unit, or — when `basis` is 'unit' — per kilogram / litre. */
+  unitPriceCents: number;
+  units: number;
+  /** Defaults to 'pack'. See the `items` table in schema.sql. */
+  basis?: PriceBasis;
+  /** Required when `basis` is 'unit': how much substance the customer asked for. */
+  qtyMilli?: number;
+}
+
+/** What one line comes to, in integer cents, whichever way it is priced. */
 export function lineTotal(line: CartLine): number {
+  if (line.basis === "unit") {
+    return amountFor(line.unitPriceCents, line.qtyMilli ?? 0);
+  }
   if (!Number.isInteger(line.units) || line.units <= 0) {
     throw new SaleError("bad_units", "A line must have a whole number of units.");
   }
@@ -107,9 +138,24 @@ export function cartTotal(lines: readonly CartLine[]): number {
 
 export interface SaleLineInput {
   itemId: number;
+  /** Whole units. Ignored for a weighed item, where the quantity is the price. */
   units: number;
-  /** Snapshotted as-is. May be below the list price after haggling. */
+  /**
+   * Snapshotted as-is. May be below the list price after haggling.
+   * For a weighed item this is the rate per kilogram / litre.
+   */
   unitPriceCents: number;
+  /**
+   * How much substance, in milli. Required for a weighed item; ignored for
+   * anything sold whole, where the quantity follows from the pack size.
+   */
+  qtyMilli?: number;
+  /**
+   * Which formula this line was billed out of, when the counter turned a recipe
+   * into its ingredients. Recorded so the shop can see what the mixes cost —
+   * it does not change how the line is priced.
+   */
+  formulaVersionId?: number | null;
 }
 
 export interface TenderInput {
@@ -145,8 +191,12 @@ interface ResolvedLine {
   units: number;
   unitPriceCents: number;
   qtyMilli: number;
+  /** Per canonical unit on a weighed line; 0 on anything sold whole. */
+  rateCents: number;
   lineTotalCents: number;
   listPriceCents: number;
+  costCents: number;
+  formulaVersionId: number | null;
 }
 
 export function recordSale(input: RecordSaleInput): RecordSaleResult {
@@ -172,7 +222,7 @@ export function recordSale(input: RecordSaleInput): RecordSaleResult {
     }
 
     const lines = resolveLines(input);
-    const totalCents = cartTotal(lines.map((l) => ({ unitPriceCents: l.unitPriceCents, units: l.units })));
+    const totalCents = lines.reduce((sum, l) => sum + l.lineTotalCents, 0);
 
     const tenders = normaliseTenders(input.tenders);
     const tenderedCents = tenders.reduce((s, t) => s + t.amountCents, 0);
@@ -215,8 +265,9 @@ export function recordSale(input: RecordSaleInput): RecordSaleResult {
     for (const l of lines) {
       run(
         `INSERT INTO sale_lines (sale_id, item_id, name_snapshot, units, qty_milli,
-                                 unit_price_cents, line_total_cents, cost_cents)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                                 unit_price_cents, line_total_cents, rate_cents, cost_cents,
+                                 is_kit, formula_version_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         saleId,
         l.item.id,
         l.item.name,
@@ -224,32 +275,44 @@ export function recordSale(input: RecordSaleInput): RecordSaleResult {
         l.qtyMilli,
         l.unitPriceCents,
         l.lineTotalCents,
-        l.item.cost_cents * l.units,
+        l.rateCents,
+        l.costCents,
+        l.formulaVersionId ? 1 : 0,
+        l.formulaVersionId,
       );
 
+      // Every sale moves stock now. It used to move only for packs and finished
+      // goods, because a drum was something you repacked rather than sold — and
+      // the day the drum itself became sellable, that exemption would have been
+      // a shop selling chemicals whose stock never went down.
+      //
       // Racing devices may both sell the last bottle. The customer is already
       // holding it, so the sale is allowed through — but the ledger records the
       // move either way, which is what turns a phantom into a visible negative.
-      if (CARRIES_STOCK.has(l.item.kind)) {
-        postMovement({
-          itemId: l.item.id,
-          deltaMilli: -l.qtyMilli,
-          reason: "sale",
-          refType: "sale",
-          refId: saleId,
-          userId: input.userId,
-          note: `${l.units} × ${l.item.unit_label}`,
-        });
-      }
+      postMovement({
+        itemId: l.item.id,
+        deltaMilli: -l.qtyMilli,
+        reason: "sale",
+        refType: "sale",
+        refId: saleId,
+        userId: input.userId,
+        note: l.rateCents
+          ? formatQty(l.qtyMilli, l.item.canonical_unit)
+          : `${l.units} × ${l.item.unit_label}`,
+      });
 
-      if (l.unitPriceCents !== l.listPriceCents) {
-        const belowFloor = l.unitPriceCents < l.item.floor_cents;
+      // Compare like with like: on a weighed line the haggling happened over
+      // the rate per kilogram, not over the amount the scoop came to.
+      const charged = l.rateCents || l.unitPriceCents;
+      if (charged !== l.listPriceCents) {
+        const belowFloor = charged < l.item.floor_cents;
+        const per = l.rateCents ? `/${l.item.canonical_unit}` : "";
         audit(
           input.userId,
           belowFloor ? "price_override_below_floor" : "price_discount",
           "sale_line",
           saleId,
-          `${l.item.name}: ${formatKes(l.listPriceCents)} → ${formatKes(l.unitPriceCents)}` +
+          `${l.item.name}: ${formatKes(l.listPriceCents)}${per} → ${formatKes(charged)}${per}` +
             (belowFloor ? ` (below floor, authorised by user ${input.floorOverrideBy})` : ""),
         );
       }
@@ -274,21 +337,34 @@ export function recordSale(input: RecordSaleInput): RecordSaleResult {
 }
 
 function resolveLines(input: RecordSaleInput): ResolvedLine[] {
+  /*
+    Weighed lines are checked against stock; whole ones are not.
+
+    A bottle can be in the customer's hand while the ledger still thinks it is
+    on the shelf, so refusing that sale would be the shop arguing with reality.
+    A quantity poured out of a drum is the opposite: nobody can decant 300 kg
+    from a drum holding 90, so a quantity past the ledger is a typed digit, not
+    a delivery — and letting it through would put the mistake into the day's
+    takings AND the stock count at once.
+
+    Counted per chemical, not per line, because a mix bills several ingredients
+    at once and two lines can reach for the same drum.
+  */
+  const claimed = new Map<number, number>();
+
   return input.lines.map((line) => {
     const item = get<Item>(`SELECT * FROM items WHERE id = ? AND active = 1`, line.itemId);
     if (!item) throw new SaleError("unknown_item", "That item is no longer on sale.");
     if (!item.sellable) throw new SaleError("unknown_item", `${item.name} is not sold over the counter.`);
 
-    if (!Number.isInteger(line.units) || line.units <= 0) {
-      throw new SaleError("bad_units", `How many ${item.unit_label}s of ${item.name}?`);
-    }
     if (!Number.isInteger(line.unitPriceCents) || line.unitPriceCents < 0) {
       throw new SaleError("bad_price", `The price for ${item.name} is not a valid amount.`);
     }
 
-    // The floor is never sent to the counter — for repacked chemicals it equals
+    // The floor is never sent to the counter — for a chemical it sits close to
     // the cost price, and staff must not see cost. The price is offered, the
-    // server refuses it, and only then is the owner's PIN asked for.
+    // server refuses it, and only then is the owner's PIN asked for. Both sides
+    // of the comparison are per the same thing: per pack, or per kilogram.
     if (line.unitPriceCents < item.floor_cents && !input.floorOverrideBy) {
       throw new SaleError(
         "below_floor",
@@ -296,13 +372,55 @@ function resolveLines(input: RecordSaleInput): ResolvedLine[] {
       );
     }
 
+    const listPriceCents = priceFor(item, input.tier);
+    const formulaVersionId = line.formulaVersionId ?? null;
+
+    if (item.price_basis === "unit") {
+      const qtyMilli = line.qtyMilli ?? 0;
+      if (!Number.isInteger(qtyMilli) || qtyMilli <= 0) {
+        throw new SaleError("bad_qty", `How much ${item.name}?`);
+      }
+
+      const taken = (claimed.get(item.id) ?? 0) + qtyMilli;
+      const onHand = stockOf(item.id);
+      if (taken > onHand) {
+        throw new SaleError(
+          "not_enough_stock",
+          `There is ${formatQty(Math.max(0, onHand), item.canonical_unit)} of ${item.name} left, ` +
+            `and this sale asks for ${formatQty(taken, item.canonical_unit)}. ` +
+            `If there is more in the store than the book says, do a stock take first.`,
+        );
+      }
+      claimed.set(item.id, taken);
+
+      return {
+        item,
+        // One scoop, not a count. See the sale_lines comment in schema.sql.
+        units: 1,
+        rateCents: line.unitPriceCents,
+        unitPriceCents: amountFor(line.unitPriceCents, qtyMilli),
+        qtyMilli,
+        lineTotalCents: amountFor(line.unitPriceCents, qtyMilli),
+        listPriceCents,
+        costCents: Math.round((item.cost_cents * qtyMilli) / item.size_milli),
+        formulaVersionId,
+      };
+    }
+
+    if (!Number.isInteger(line.units) || line.units <= 0) {
+      throw new SaleError("bad_units", `How many ${item.unit_label}s of ${item.name}?`);
+    }
+
     return {
       item,
       units: line.units,
+      rateCents: 0,
       unitPriceCents: line.unitPriceCents,
       qtyMilli: item.size_milli * line.units,
       lineTotalCents: line.unitPriceCents * line.units,
-      listPriceCents: priceFor(item, input.tier),
+      listPriceCents,
+      costCents: item.cost_cents * line.units,
+      formulaVersionId,
     };
   });
 }
@@ -566,8 +684,13 @@ export interface SaleLineRow {
   sale_id: number;
   name_snapshot: string;
   units: number;
+  qty_milli: number;
   unit_price_cents: number;
   line_total_cents: number;
+  /** Per kg / L when the line was weighed; 0 when it was sold whole. */
+  rate_cents: number;
+  /** The canonical unit `qty_milli` is counted in, for weighed lines. */
+  canonical_unit: "kg" | "L" | "pcs";
 }
 
 /** Lines for a whole page of sales in one query, rather than one query per row. */
@@ -575,10 +698,13 @@ export function saleLinesFor(saleIds: readonly number[]): SaleLineRow[] {
   if (!saleIds.length) return [];
   const marks = saleIds.map(() => "?").join(",");
   return all<SaleLineRow>(
-    `SELECT sale_id, name_snapshot, units, unit_price_cents, line_total_cents
-       FROM sale_lines
-      WHERE sale_id IN (${marks})
-      ORDER BY id`,
+    `SELECT l.sale_id, l.name_snapshot, l.units, l.qty_milli,
+            l.unit_price_cents, l.line_total_cents, l.rate_cents,
+            COALESCE(i.canonical_unit, 'kg') AS canonical_unit
+       FROM sale_lines l
+       LEFT JOIN items i ON i.id = l.item_id
+      WHERE l.sale_id IN (${marks})
+      ORDER BY l.id`,
     ...saleIds,
   );
 }
@@ -592,9 +718,13 @@ export function topSellerItemIds(limit = 6): number[] {
   // Nairobi is UTC+3 with no daylight saving, so the shop's day is the UTC
   // timestamp shifted three hours. Grouping by raw UTC would move the evening's
   // best sellers onto tomorrow's row.
+  // Ranked by how often a thing is sold, not by how much of it goes out. A
+  // weighed line counts once whether it was 200 g or 200 kg, which is right for
+  // a shortcut strip: the point is the tile the attendant reaches for most, and
+  // one drum of caustic must not push nine everyday sales off the row.
   const query = (clause: string) =>
     all<{ item_id: number }>(
-      `SELECT sl.item_id AS item_id, SUM(sl.units) AS n
+      `SELECT sl.item_id AS item_id, COUNT(*) AS n
          FROM sale_lines sl
          JOIN sales s ON s.id = sl.sale_id
         WHERE s.status = 'completed'
@@ -617,6 +747,10 @@ export interface LastOrderLine {
   /** The name as it was sold, so a renamed item is still recognisable. */
   name: string;
   units: number;
+  /** How much substance, for an item sold by weight. */
+  qtyMilli: number;
+  /** True when this item is priced per kg / L, so `qtyMilli` is the order. */
+  weighed: boolean;
   /** False if the item has since been retired or made unsellable. */
   available: boolean;
 }
@@ -653,11 +787,14 @@ export function lastOrderFor(customerId: number): LastOrder | null {
     item_id: number | null;
     name_snapshot: string;
     units: number;
+    qty_milli: number;
     active: number;
     sellable: number;
+    price_basis: PriceBasis | null;
   }>(
-    `SELECT sl.item_id, sl.name_snapshot, sl.units,
-            COALESCE(i.active, 0) AS active, COALESCE(i.sellable, 0) AS sellable
+    `SELECT sl.item_id, sl.name_snapshot, sl.units, sl.qty_milli,
+            COALESCE(i.active, 0) AS active, COALESCE(i.sellable, 0) AS sellable,
+            i.price_basis
        FROM sale_lines sl
        LEFT JOIN items i ON i.id = sl.item_id
       WHERE sl.sale_id = ?
@@ -674,6 +811,10 @@ export function lastOrderFor(customerId: number): LastOrder | null {
         itemId: r.item_id,
         name: r.name_snapshot,
         units: r.units,
+        qtyMilli: r.qty_milli,
+        // Read from the item as it stands today, not from the old line: what
+        // matters is how this thing would be re-ordered now.
+        weighed: r.price_basis === "unit",
         available: r.active === 1 && r.sellable === 1,
       })),
   };
