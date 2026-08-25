@@ -3,7 +3,8 @@ import { currentUser } from "@/lib/auth";
 import { all, get } from "@/lib/db";
 import { formatDateTime } from "@/lib/units";
 import { Card, Chip, Empty, PageTitle } from "@/components/ui";
-import { SectionNav, REPORT_SECTIONS, ListToolbar, Pager } from "@/components/section-nav";
+import { ListToolbar, Pager } from "@/components/section-nav";
+import { ExportButtons } from "@/components/export-buttons";
 
 export const dynamic = "force-dynamic";
 
@@ -226,7 +227,9 @@ export default async function ActivityPage(props: {
           total === 1 ? "entry" : "entries"
         }, none of them editable`}
       />
-      <SectionNav sections={REPORT_SECTIONS} current="/activity" label="Reports" />
+      <div className="mb-3">
+        <ExportButtons csv="activity" label="the activity log" />
+      </div>
 
       <ListToolbar
         action="/activity"
@@ -301,7 +304,7 @@ export default async function ActivityPage(props: {
         page={current}
         pages={pages}
         total={total}
-        noun="entry"
+        noun="entry" plural="entries"
         params={keep}
       />
 

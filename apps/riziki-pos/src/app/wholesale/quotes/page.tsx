@@ -143,7 +143,7 @@ export default async function QuotesPage(props: {
         page={current}
         pages={pages}
         total={total}
-        noun="quotes"
+        noun="quote"
         params={{ ...(q ? { q } : {}), ...(state !== "all" ? { state } : {}) }}
       />
     </div>

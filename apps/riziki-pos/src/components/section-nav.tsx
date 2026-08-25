@@ -36,58 +36,6 @@ export const WHOLESALE_SECTIONS: Section[] = [
   { href: "/customers", label: "Customers" },
 ];
 
-/**
- * Everything the shop holds, and everything it sells.
- *
- * "Stock" used to be a tab and, separately, three entries under More — Stock
- * take, Recipes, Products & prices — so the answer to "where do I change a
- * price" depended on which menu you happened to be looking at. They are one
- * section now, in the order the work actually happens: see what is there, count
- * it, price it, record what it makes, record what was bought in.
- */
-export const STOCK_SECTIONS: Section[] = [
-  { href: "/stock", label: "On the shelf", exact: true },
-  // A stock take reads raw-chemical quantities off the shelf, and those numbers
-  // are how a recipe could be worked out by subtraction — so it stays owner
-  // only, along with the rest of raw-chemical handling.
-  { href: "/stocktake", label: "Stock take", owner: true },
-  { href: "/items", label: "Products & prices", owner: true },
-  { href: "/formulas", label: "Recipes", owner: true },
-  { href: "/purchases", label: "Purchases" },
-];
-
-/**
- * The people who buy, and the money they owe.
- *
- * This was "Debts", which named a number rather than a person — and there were
- * two screens behind it, one listing debtors and one listing customers, showing
- * the same money from two angles. A debt is a fact about a customer, not a
- * separate thing, so the customer is the thing and the debt is a column on it.
- */
-export const CUSTOMER_SECTIONS: Section[] = [
-  { href: "/customers", label: "Everyone", exact: true },
-  { href: "/customers/owing", label: "Owing" },
-];
-
-/**
- * The books.
- *
- * Reports is the owner's reading of the shop, so the spine holds the analysis
- * and the three records it is read against — what was sold, what prices moved,
- * and who did what.
- *
- * Day close and Expenses are deliberately not here. They are daily jobs an
- * attendant does, not readings an owner takes, and Reports is owner-only — a
- * spine entry an attendant can never reach is a spine entry that should not
- * exist. They stay under More, where the person who needs them will find them.
- */
-export const REPORT_SECTIONS: Section[] = [
-  { href: "/reports", label: "Summary", exact: true },
-  { href: "/sales", label: "Sales history" },
-  { href: "/prices/history", label: "Price history" },
-  { href: "/activity", label: "Activity log" },
-];
-
 export function SectionNav({
   sections,
   current,
@@ -277,21 +225,53 @@ export function Pager({
   pages,
   total,
   noun,
+  plural,
   params,
+  param = "page",
+  order = "time",
+  anchor,
 }: {
   action: string;
   page: number;
   pages: number;
   total: number;
+  /**
+   * What one of the things is called, in the singular.
+   *
+   * Pluralised here rather than by every caller, because every caller getting
+   * it right is nine chances to ship "40 customer". `plural` covers the words
+   * English declines to be sensible about.
+   */
   noun: string;
+  plural?: string;
   params: Record<string, string>;
+  /**
+   * Which query parameter carries the page number.
+   *
+   * Defaulted, because almost every screen has one list on it. Suppliers &
+   * purchases has three, and three pagers all writing `?page=` would turn each
+   * other's pages over.
+   */
+  param?: string;
+  /**
+   * What the two steps are called. A list in date order goes newer → older; an
+   * alphabetical one goes back and forward, and "older" on a supplier list
+   * would be a claim about the supplier rather than about the page.
+   */
+  order?: "time" | "list";
+  /**
+   * An `#id` to land on. A pager halfway down a long page otherwise turns its
+   * page and drops the reader at the top of the screen, looking at something
+   * else entirely.
+   */
+  anchor?: string;
 }) {
   const to = (n: number) => {
     const p = new URLSearchParams(params);
-    if (n > 1) p.set("page", String(n));
-    else p.delete("page");
+    if (n > 1) p.set(param, String(n));
+    else p.delete(param);
     const s = p.toString();
-    return s ? `${action}?${s}` : action;
+    return (s ? `${action}?${s}` : action) + (anchor ?? "");
   };
 
   const step =
@@ -300,18 +280,18 @@ export function Pager({
   return (
     <div className="no-print mt-4 flex items-center gap-2">
       <span className="text-[12px] font-semibold text-muted tnum">
-        {total} {noun}
+        {total} {total === 1 ? noun : (plural ?? `${noun}s`)}
         {pages > 1 ? ` · page ${page} of ${pages}` : ""}
       </span>
       <div className="ml-auto flex gap-2">
         {page > 1 ? (
           <Link href={to(page - 1)} className={`${step} bg-white text-brand-dark ring-1 ring-inset ring-line`}>
-            ← Newer
+            {order === "time" ? "← Newer" : "← Back"}
           </Link>
         ) : null}
         {page < pages ? (
           <Link href={to(page + 1)} className={`${step} bg-white text-brand-dark ring-1 ring-inset ring-line`}>
-            Older →
+            {order === "time" ? "Older →" : "Next →"}
           </Link>
         ) : null}
       </div>

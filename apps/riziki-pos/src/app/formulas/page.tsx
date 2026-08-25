@@ -3,17 +3,19 @@ import { redirect } from "next/navigation";
 import { currentUser, requireOwner } from "@/lib/auth";
 import { listFormulas } from "@/lib/production";
 import { formatQty } from "@/lib/units";
-import { PageTitle, Card, Chip, Empty, inputClass, Button, Alert } from "@/components/ui";
-import { NewBanner } from "@/components/section-nav";
-import { SectionNav, STOCK_SECTIONS } from "@/components/section-nav";
+import { PageTitle, Card, Chip, Empty, inputClass, Button, Alert, TableWrap, Th, Td } from "@/components/ui";
+import { NewBanner, Pager } from "@/components/section-nav";
 
 export const dynamic = "force-dynamic";
 
+/** Recipes are read one at a time; twenty is more than anybody scans past. */
+const PER_PAGE = 20;
+
 export default async function FormulasPage(props: {
-  searchParams: Promise<{ q?: string }>;
+  searchParams: Promise<{ q?: string; page?: string }>;
 }) {
   // `searchParams` is a Promise in Next.js 16 — synchronous access was removed.
-  const { q } = await props.searchParams;
+  const { q, page: pageParam } = await props.searchParams;
 
   // The gate runs BEFORE anything is queried. The formulas are the business:
   // if a staff session ever reached the query, the recipe would already be in
@@ -39,6 +41,11 @@ export default async function FormulasPage(props: {
   const formulas = listFormulas(term);
   const unresolved = formulas.filter((f) => f.note.trim().length > 0).length;
 
+  const page = Math.max(1, Number(pageParam) || 1);
+  const pages = Math.max(1, Math.ceil(formulas.length / PER_PAGE));
+  const current = Math.min(page, pages);
+  const shown = formulas.slice((current - 1) * PER_PAGE, current * PER_PAGE);
+
   return (
     // No width cap: the body of this screen is a grid of cards, not prose, so
     // a wider screen should mean more formulas at once rather than more margin.
@@ -47,7 +54,6 @@ export default async function FormulasPage(props: {
         title="Recipes"
         subtitle="Owner only. Every edit is saved as a new version, never over the old one."
       />
-      <SectionNav sections={STOCK_SECTIONS} current="/formulas" label="Stock" />
 
       {/* The way in to a recipe the shop does not have yet. Large and first,
           because the book was read-only until now and nobody will go looking
@@ -94,25 +100,52 @@ export default async function FormulasPage(props: {
           {term ? "No formula uses that name or ingredient." : "No recipes yet — add the first one above."}
         </Empty>
       ) : (
-        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 3xl:grid-cols-5">
-          {formulas.map((f) => (
-            <Link key={f.id} href={`/formulas/${f.id}`} className="block">
-              <Card className="hover:bg-wash">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-bold">{f.name}</div>
-                    <div className="mt-0.5 text-xs text-muted">
-                      {f.ingredient_count} ingredients per{" "}
-                      {formatQty(f.ref_size_milli, "L")} · version {f.version}
-                    </div>
-                  </div>
+        /*
+          A list, not tiles. The question asked here is "which recipe" — you run
+          an eye down a column of names looking for one — and a grid of cards
+          makes that a search of the whole screen instead of one line.
+        */
+        <TableWrap>
+          <thead>
+            <tr>
+              <Th>Recipe</Th>
+              <Th align="right">Makes</Th>
+              <Th align="right">Ingredients</Th>
+              <Th align="right">Version</Th>
+              <Th>Standing</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map((f) => (
+              <tr key={f.id} className="hover:bg-wash/50">
+                <Td>
+                  <Link href={`/formulas/${f.id}`} className="font-bold text-ink">
+                    {f.name}
+                  </Link>
+                </Td>
+                <Td align="right">{formatQty(f.ref_size_milli, "L")}</Td>
+                <Td align="right">{f.ingredient_count}</Td>
+                <Td align="right" className="text-muted">
+                  v{f.version}
+                </Td>
+                <Td>
                   {f.note.trim() ? <Chip tone="warn">Check this</Chip> : <Chip tone="good">Confirmed</Chip>}
-                </div>
-              </Card>
-            </Link>
-          ))}
-        </div>
+                </Td>
+              </tr>
+            ))}
+          </tbody>
+        </TableWrap>
       )}
+
+      <Pager
+        action="/formulas"
+        order="list"
+        page={current}
+        pages={pages}
+        total={formulas.length}
+        noun="recipe"
+        params={term ? { q: term } : {}}
+      />
     </div>
   );
 }

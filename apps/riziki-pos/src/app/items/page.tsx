@@ -14,12 +14,24 @@ import {
 } from "@/lib/catalog";
 import { fromCents, formatKes, formatQty, SIZE_UNITS, type SizeUnit } from "@/lib/units";
 import { Alert, Button, Card, Chip, Field, PageTitle, inputClass } from "@/components/ui";
+import { ListToolbar, Pager } from "@/components/section-nav";
 import PriceForm from "./price-form";
 import DeleteProduct from "./delete-product";
-import { SectionNav, STOCK_SECTIONS } from "@/components/section-nav";
 
 // Prices and the catalogue change here; never serve a cached copy.
 export const dynamic = "force-dynamic";
+
+/**
+ * Rows per page.
+ *
+ * Twenty, not fifteen: every row here is a closed `<details>` one line high
+ * until it is opened, so twenty of them still fit a laptop screen, and pricing
+ * a delivery usually means touching several chemicals whose names sit near
+ * each other.
+ */
+const PER_PAGE = 20;
+
+type ItemFilter = "all" | "unpriced" | "hidden";
 
 async function guard(): Promise<number> {
   const owner = await requireOwner();
@@ -226,9 +238,17 @@ function ProductRow({ item }: { item: AdminItem }) {
 }
 
 export default async function ItemsPage(props: {
-  searchParams: Promise<{ err?: string; moved?: string; packs?: string; unpriced?: string }>;
+  searchParams: Promise<{
+    err?: string;
+    moved?: string;
+    packs?: string;
+    unpriced?: string;
+    q?: string;
+    state?: string;
+    page?: string;
+  }>;
 }) {
-  const { err, moved, packs, unpriced } = await props.searchParams;
+  const { err, moved, packs, unpriced, q = "", state, page: pageParam } = await props.searchParams;
   const me = await currentUser();
   if (!me) redirect("/login");
   // Prices, floors and the raw-chemical list all sit here; staff never see it.
@@ -238,13 +258,43 @@ export default async function ItemsPage(props: {
   const pending = pendingUnitPricing();
   const unpricedCount = products.filter((p) => p.active && p.price_cents === 0).length;
 
+  /*
+    Search and paging over the catalogue.
+
+    A hundred rows is a scroll, and pricing is not a job anybody does a hundred
+    rows at a time — it is done one chemical at a time, the one a supplier just
+    put a new price on. So the search box is the way in, and "No price yet" is
+    a filter because that is the one list the owner does work straight down.
+
+    The paging is by URL rather than in the browser: opening a row and saving a
+    price re-renders the page from the server, and a page number held in React
+    state would be lost every time a price was saved.
+  */
+  const filter: ItemFilter = (["unpriced", "hidden"] as const).includes(state as never)
+    ? (state as ItemFilter)
+    : "all";
+  const needle = q.trim().toLowerCase();
+  const matching = products
+    .filter((p) => !needle || `${p.name} ${p.aliases ?? ""}`.toLowerCase().includes(needle))
+    .filter((p) =>
+      filter === "unpriced"
+        ? p.active && p.price_cents === 0
+        : filter === "hidden"
+          ? !p.active
+          : true,
+    );
+
+  const pages = Math.max(1, Math.ceil(matching.length / PER_PAGE));
+  const page = Math.min(Math.max(1, Number(pageParam) || 1), pages);
+  const shown = matching.slice((page - 1) * PER_PAGE, page * PER_PAGE);
+  const listParams = { ...(q ? { q } : {}), ...(filter !== "all" ? { state: filter } : {}) };
+
   return (
     <div>
       <PageTitle
         title="Products & prices"
         subtitle="One price for each thing, and how far it may be argued. Changed here or at the till."
       />
-      <SectionNav sections={STOCK_SECTIONS} current="/items" label="Stock" />
 
       {err ? (
         <div className="mb-3 max-w-4xl">
@@ -338,19 +388,43 @@ export default async function ItemsPage(props: {
         </div>
       </div>
 
-      <h2 className="mb-2 mt-5 flex items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted after:h-px after:flex-1 after:bg-line after:content-['']">
-        {products.length} item{products.length === 1 ? "" : "s"}
-      </h2>
+      <div className="mt-5 max-w-4xl">
+        <ListToolbar
+          action="/items"
+          q={q}
+          placeholder="Search a product or chemical…"
+          current={filter}
+          filters={[
+            { key: "all", label: "Everything", count: products.length },
+            { key: "unpriced", label: "No price yet", count: unpricedCount },
+            { key: "hidden", label: "Hidden", count: products.filter((p) => !p.active).length },
+          ]}
+        />
+      </div>
 
       {/* One list. See `ProductRow` for why this is not a grid of cards. */}
       <div className="max-w-4xl overflow-hidden rounded-2xl bg-white shadow-card ring-1 ring-ink/5">
-        {products.length ? (
-          products.map((i) => <ProductRow key={i.id} item={i} />)
+        {shown.length ? (
+          shown.map((i) => <ProductRow key={i.id} item={i} />)
         ) : (
           <p className="px-3 py-6 text-center text-sm text-muted">
-            Nothing on the list yet. Add the first one below.
+            {needle || filter !== "all"
+              ? "Nothing matches that."
+              : "Nothing on the list yet. Add the first one below."}
           </p>
         )}
+      </div>
+
+      <div className="max-w-4xl">
+        <Pager
+          action="/items"
+          page={page}
+          pages={pages}
+          total={matching.length}
+          noun="item"
+          order="list"
+          params={listParams}
+        />
       </div>
 
       <h2 className="mb-2 mt-5 flex items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted after:h-px after:flex-1 after:bg-line after:content-['']">

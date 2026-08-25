@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { EXPORT_TABLES, describeRange, type DateRange } from "@/lib/reports";
-import { PrintButton } from "@/app/invoice/[id]/print-button";
+import { ExportButtons } from "@/components/export-buttons";
 
 /**
  * Taking the numbers out of the app.
@@ -31,10 +31,10 @@ export function ExportBar({ range }: { range: DateRange }) {
   return (
     <>
       <div className="no-print mb-3 flex flex-wrap items-center gap-2">
-        <PrintButton />
+        <ExportButtons csv="sales" label={`the report for ${describeRange(range)}`} />
         <span className="text-[13px] text-muted">
-          Prints the report as it stands — {describeRange(range)}. Choose “Save as PDF” in the
-          print dialog to send it as a file.
+          PDF takes the report as it stands — {describeRange(range)}. Excel takes every sale on
+          record, which is what an accountant needs.
         </span>
       </div>
 

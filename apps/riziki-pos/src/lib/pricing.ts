@@ -197,6 +197,46 @@ export interface HistoryRow {
   source: string;
 }
 
+/**
+ * One page of price history, and how many there are in all.
+ *
+ * `priceHistory` below takes a limit and hands back whatever fits, which is
+ * right for the strip of recent changes on the purchases screen but wrong for
+ * the history screen: a limit with no count cannot say whether anything was
+ * left behind, so the screen quietly stopped at 120 changes and looked
+ * complete. The count comes from the database rather than from the rows,
+ * because the whole point is to know about the rows that were not fetched.
+ */
+export function priceHistoryPage(
+  page: number,
+  perPage: number,
+  itemId?: number,
+): { rows: HistoryRow[]; total: number; pages: number } {
+  const where = itemId ? "WHERE p.item_id = ?" : "";
+  const args = itemId ? [itemId] : [];
+
+  const total =
+    get<{ n: number }>(`SELECT count(*) AS n FROM price_changes p ${where}`, ...args)?.n ?? 0;
+  const pages = Math.max(1, Math.ceil(total / perPage));
+  const current = Math.min(Math.max(1, page), pages);
+
+  const rows = all<HistoryRow>(
+    `SELECT p.at, i.name AS item_name, p.old_price, p.new_price,
+            u.name AS user_name, p.source
+       FROM price_changes p
+       JOIN items i ON i.id = p.item_id
+       LEFT JOIN users u ON u.id = p.user_id
+      ${where}
+      ORDER BY p.at DESC, p.id DESC
+      LIMIT ? OFFSET ?`,
+    ...args,
+    perPage,
+    (current - 1) * perPage,
+  );
+
+  return { rows, total, pages };
+}
+
 export function priceHistory(itemId?: number, limit = 60): HistoryRow[] {
   return all<HistoryRow>(
     `SELECT p.at, i.name AS item_name, p.old_price, p.new_price,

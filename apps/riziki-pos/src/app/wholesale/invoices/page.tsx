@@ -169,7 +169,7 @@ export default async function InvoicesPage(props: {
         page={current}
         pages={pages}
         total={total}
-        noun="invoices"
+        noun="invoice"
         params={{ ...(q ? { q } : {}), ...(state !== "all" ? { state } : {}) }}
       />
     </div>

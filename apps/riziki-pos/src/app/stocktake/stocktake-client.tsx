@@ -40,10 +40,13 @@ export function StocktakeClient({
   lines,
   owner,
   action,
+  heading = true,
 }: {
   lines: StockLine[];
   owner: boolean;
   action: (state: StocktakeState, formData: FormData) => Promise<StocktakeState>;
+  /** False when the Stock window supplies the title and the tabs above it. */
+  heading?: boolean;
 }) {
   const [state, formAction, pending] = useActionState(action, INITIAL);
   const [counts, setCounts] = useState<Record<number, string>>({});
@@ -107,7 +110,9 @@ export function StocktakeClient({
 
   return (
     <div>
-      <PageTitle title="Stock take" subtitle="Count the shelf, then post the difference" />
+      {heading === false ? null : (
+        <PageTitle title="Stock take" subtitle="Count the shelf, then post the difference" />
+      )}
 
       {state.error ? <Alert tone="bad">{state.error}</Alert> : null}
       {state.ok ? <Alert tone="good">{state.ok}</Alert> : null}

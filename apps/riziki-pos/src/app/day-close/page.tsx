@@ -22,6 +22,7 @@ import {
   VARIANCE_BAD_CENTS,
 } from "@/lib/reports";
 import { PageTitle, Card, SectionLabel, Stat, TableWrap, Th, Td, Empty, Chip, Alert } from "@/components/ui";
+import { ExportButtons } from "@/components/export-buttons";
 import { CloseForm, type CloseState } from "./close-form";
 
 export const dynamic = "force-dynamic";
@@ -98,6 +99,12 @@ export default async function DayClosePage() {
         title="Day close"
         subtitle={`${formatDate(noonOn(today))} · counted in Nairobi time, so evening sales are on today`}
       />
+
+      {/* The day close is what gets photographed and sent to the owner, or
+          filed. Both ways out sit at the top, where the errand starts. */}
+      <div className="mb-3">
+        <ExportButtons csv="sales" label={`the day close for ${formatDate(noonOn(today))}`} />
+      </div>
 
       <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4 xl:gap-3">
         <Stat

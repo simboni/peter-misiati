@@ -1,12 +1,16 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { currentUser } from "@/lib/auth";
-import { priceHistory } from "@/lib/pricing";
+import { priceHistoryPage } from "@/lib/pricing";
 import { formatKes, formatDateTime } from "@/lib/units";
 import { PageTitle, Card, Empty } from "@/components/ui";
-import { SectionNav, REPORT_SECTIONS } from "@/components/section-nav";
+import { Pager } from "@/components/section-nav";
+import { ExportButtons } from "@/components/export-buttons";
 
 export const dynamic = "force-dynamic";
+
+/** A screenful on a laptop, about two on the phone in the shop. */
+const PER_PAGE = 25;
 
 /**
  * What prices used to be.
@@ -17,11 +21,16 @@ export const dynamic = "force-dynamic";
  * owner what the counter has been doing with the freedom he handed over —
  * every change made at the till lands here, named.
  */
-export default async function PriceHistoryPage() {
+export default async function PriceHistoryPage(props: {
+  searchParams: Promise<{ page?: string }>;
+}) {
   const user = await currentUser();
   if (!user) redirect("/login");
 
-  const rows = priceHistory(undefined, 120);
+  const { page: pageParam } = await props.searchParams;
+  const requested = Math.max(1, Number(pageParam) || 1);
+  const { rows, total, pages } = priceHistoryPage(requested, PER_PAGE);
+  const page = Math.min(requested, pages);
 
   return (
     <div>
@@ -32,7 +41,9 @@ export default async function PriceHistoryPage() {
         <span aria-hidden>←</span> Back to selling
       </Link>
       <PageTitle title="Price history" subtitle="Every change, who made it, and what it was before" />
-      <SectionNav sections={REPORT_SECTIONS} current="/prices/history" label="Reports" />
+      <div className="mb-3">
+        <ExportButtons csv="price_changes" label="the price history" />
+      </div>
 
       {rows.length ? (
         <div className="overflow-hidden rounded-2xl bg-white shadow-card ring-1 ring-ink/5">
@@ -96,6 +107,15 @@ export default async function PriceHistoryPage() {
           <Empty>No price has been changed yet. The first change will appear here.</Empty>
         </Card>
       )}
+
+      <Pager
+        action="/prices/history"
+        page={page}
+        pages={pages}
+        total={total}
+        noun="change"
+        params={{}}
+      />
     </div>
   );
 }

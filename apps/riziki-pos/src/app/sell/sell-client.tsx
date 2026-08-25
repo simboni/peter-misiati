@@ -2540,7 +2540,7 @@ function Grid({
             Stock arrives by{" "}
             <Link href="/purchases" className="font-semibold text-brand">recording a delivery</Link>.
             Already have some in the store that is not showing? Fix it with a{" "}
-            <Link href="/stocktake" className="font-semibold text-brand">Stock take</Link>.
+            <Link href="/stock?panel=count" className="font-semibold text-brand">Stock take</Link>.
           </p>
         </div>
         <div className={`mt-3 ${cols}`}>{outOfStock.map(tile)}</div>

@@ -334,15 +334,25 @@ export interface SupplierSpendRow {
   id: number;
   name: string;
   phone: string;
+  note: string;
   deliveries: number;
   spend_cents: number;
   last_at: string | null;
 }
 
-/** Owner-only in the UI: what each supplier has been paid. */
+/**
+ * Every supplier, with what they have been paid.
+ *
+ * A LEFT JOIN rather than an inner one, so a supplier who has never delivered
+ * still appears — with zeroes. That is what lets this one list replace the two
+ * the screen used to carry: a plain roll of names to ring, and a spend table
+ * beside it holding the same names again in a different order.
+ *
+ * The money is owner-only in the UI; staff get the roll of names instead.
+ */
 export function supplierSpend(): SupplierSpendRow[] {
   return all<SupplierSpendRow>(
-    `SELECT s.id, s.name, s.phone,
+    `SELECT s.id, s.name, s.phone, s.note,
             COUNT(p.id)                          AS deliveries,
             COALESCE(SUM(p.total_cents), 0)      AS spend_cents,
             MAX(p.at)                            AS last_at

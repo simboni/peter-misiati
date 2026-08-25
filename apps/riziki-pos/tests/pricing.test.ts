@@ -23,6 +23,7 @@ const {
   applyPrices,
   setCounterPrice,
   priceHistory,
+  priceHistoryPage,
   PriceError,
 } = await import("../src/lib/pricing.ts");
 
@@ -252,4 +253,44 @@ test("keeping the price it already is changes nothing and records nothing", () =
 
   assert.equal(result.changed, false);
   assert.equal(priceHistory(CAUSTIC).length, before, "no row saying nothing happened");
+});
+
+/*
+  Paging the history.
+
+  The screen used to ask for a fixed 120 rows and draw whatever came back, so
+  the 121st change was invisible and nothing on the page said so. These are
+  about the count being real rather than inferred from the rows in hand.
+*/
+test("a page of history knows how many pages there are behind it", () => {
+  // Enough changes to need paging, alternating so none is a no-op.
+  for (let i = 0; i < 12; i++) {
+    setCounterPrice({ itemId: CAUSTIC, priceCents: toCents(230 + i), userId: STAFF });
+  }
+
+  const total = priceHistory(CAUSTIC, 1000).length;
+  assert.ok(total > 5, "there is enough history to page");
+
+  const first = priceHistoryPage(1, 5, CAUSTIC);
+  assert.equal(first.rows.length, 5, "a page holds what it was asked for");
+  assert.equal(first.total, total, "the count is every change, not the page");
+  assert.equal(first.pages, Math.ceil(total / 5));
+
+  const second = priceHistoryPage(2, 5, CAUSTIC);
+  assert.notEqual(second.rows[0].at + second.rows[0].new_price, first.rows[0].at + first.rows[0].new_price,
+    "page two is not page one again");
+});
+
+test("asking past the last page lands on the last page, not on nothing", () => {
+  const { pages } = priceHistoryPage(1, 5, CAUSTIC);
+  const past = priceHistoryPage(pages + 40, 5, CAUSTIC);
+
+  assert.ok(past.rows.length > 0, "a bad page number still shows history");
+  assert.equal(past.pages, pages);
+});
+
+test("with no item the history covers the whole shop", () => {
+  const one = priceHistoryPage(1, 5, CAUSTIC).total;
+  const all = priceHistoryPage(1, 5).total;
+  assert.ok(all >= one, "the shop-wide count includes this item's changes");
 });

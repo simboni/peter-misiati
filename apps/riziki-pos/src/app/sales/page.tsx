@@ -4,8 +4,9 @@ import { refresh } from "next/cache";
 import { currentUser, requireOwner } from "@/lib/auth";
 import { listSales, saleLinesFor, voidSale, SaleError, SALES_PAGE_SIZE } from "@/lib/sales";
 import { formatKes, formatDateTime } from "@/lib/units";
-import { Alert, Card, Chip, Empty, PageTitle, SectionLabel, inputClass } from "@/components/ui";
-import { SectionNav, REPORT_SECTIONS } from "@/components/section-nav";
+import { Alert, Chip, Empty, PageTitle, TableWrap, Th, Td, inputClass } from "@/components/ui";
+import { Pager } from "@/components/section-nav";
+import { ExportButtons } from "@/components/export-buttons";
 
 export const dynamic = "force-dynamic";
 
@@ -69,7 +70,9 @@ export default async function SalesPage(props: {
         title="Sales"
         subtitle={`${total} sale${total === 1 ? "" : "s"} · newest first`}
       />
-      <SectionNav sections={REPORT_SECTIONS} current="/sales" label="Reports" />
+      <div className="mb-3">
+        <ExportButtons csv="sales" label="the sales history" />
+      </div>
 
       {err ? (
         <div className="mb-3">
@@ -82,11 +85,24 @@ export default async function SalesPage(props: {
       ) : null}
 
       {/*
-        One sale per row wasted three quarters of a laptop screen. The card is
-        self-contained, so past `lg` it tiles: the list is read by scanning down
-        a column, and two or three columns simply means less scrolling.
+        A list, not tiles.
+
+        This was a grid of self-contained cards, two or three abreast. It read
+        as a wall: the totals never lined up under each other, so "what did we
+        take on the 14th" meant reading every tile instead of running an eye
+        down one column.
       */}
-      <div className="grid grid-cols-1 gap-2.5 lg:grid-cols-2 xl:gap-3 2xl:grid-cols-3 3xl:grid-cols-4">
+      <TableWrap>
+        <thead>
+          <tr>
+            <Th>When</Th>
+            <Th>Who</Th>
+            <Th>Standing</Th>
+            <Th align="right">Total</Th>
+            <Th align="right">Do</Th>
+          </tr>
+        </thead>
+        <tbody>
         {rows.map((s) => {
           const voided = s.status === "voided";
           const owing = s.total_cents - s.paid_cents;
@@ -97,129 +113,114 @@ export default async function SalesPage(props: {
           const mine = lines.filter((l) => l.sale_id === s.id);
 
           return (
-            <Card key={s.id} className={voided ? "opacity-70" : ""}>
-              <div className="flex items-start gap-3">
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-bold">
-                    {formatDateTime(s.at)}
-                    <span className="ml-1.5 font-normal text-muted">#{s.id}</span>
-                  </div>
-                  <div className="mt-0.5 text-xs text-muted">
-                    {s.user_name ?? "unknown"}
-                    {s.customer_name ? ` · ${s.customer_name}` : ""}
-                    {` · ${s.line_count} line${s.line_count === 1 ? "" : "s"}`}
-                  </div>
+            <tr key={s.id} className={voided ? "opacity-60" : "hover:bg-wash/50"}>
+              <Td className="whitespace-nowrap">
+                <div className="text-[13px] font-bold">{formatDateTime(s.at)}</div>
+                <div className="text-[11px] text-muted">
+                  #{s.id} · {s.user_name ?? "unknown"}
                 </div>
-                <div className="text-right">
-                  <div
-                    className={`text-lg font-extrabold tnum ${voided ? "text-muted line-through" : ""}`}
-                  >
-                    {formatKes(s.total_cents)}
-                  </div>
-                  <div className="mt-0.5 text-[11px] text-muted">
-                    {methods.length ? methods.join(" + ") : "no payment"}
-                  </div>
+              </Td>
+              <Td>
+                <div className="text-[13px]">
+                  {s.customer_name || <span className="text-muted">walk-in</span>}
                 </div>
-              </div>
-
-              <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                <Chip tone={s.tier === "wholesale" ? "warn" : "neutral"}>
-                  {s.tier === "wholesale" ? "Wholesale" : "Retail"}
-                </Chip>
+                <div className="text-[11px] text-muted">
+                  {s.line_count} line{s.line_count === 1 ? "" : "s"}
+                  {methods.length ? ` · ${methods.join(" + ")}` : " · no payment"}
+                </div>
+                {/* What was sold stays behind a fold: it is the answer to a
+                    question asked of one row in fifty, and unfolded it would
+                    turn a page of twenty sales into a page of four. */}
+                {mine.length ? (
+                  <details className="mt-1">
+                    <summary className="cursor-pointer text-[11px] font-bold text-brand">
+                      What was sold
+                    </summary>
+                    <ul className="mt-1 space-y-0.5">
+                      {mine.map((l, i) => (
+                        <li key={i} className="flex items-baseline justify-between gap-2 text-[11px]">
+                          <span className="min-w-0 flex-1 truncate">
+                            {l.units} × {l.name_snapshot}
+                          </span>
+                          <span className="text-muted tnum">{formatKes(l.line_total_cents)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                ) : null}
                 {voided ? (
-                  <Chip tone="bad">Voided</Chip>
-                ) : owing > 0 ? (
-                  <Chip tone="warn">{formatKes(owing)} unpaid</Chip>
-                ) : (
-                  <Chip tone="good">Paid</Chip>
-                )}
-                <Link
-                  href={`/invoice/${s.id}`}
-                  className="ml-auto text-xs font-bold text-brand-dark"
-                >
-                  Invoice →
-                </Link>
-              </div>
-
-              {voided ? (
-                <p className="mt-2 text-xs text-bad">
-                  Voided by {s.voided_by_name ?? "owner"}
-                  {s.voided_at ? ` on ${formatDateTime(s.voided_at)}` : ""} — {s.void_reason}
-                </p>
-              ) : null}
-
-              {mine.length ? (
-                <details className="mt-2">
-                  <summary className="cursor-pointer text-xs font-bold text-brand">
-                    What was sold
-                  </summary>
-                  <ul className="mt-1.5 space-y-1">
-                    {mine.map((l, i) => (
-                      <li key={i} className="flex items-baseline justify-between gap-2 text-xs">
-                        <span className="min-w-0 flex-1 truncate">
-                          {l.units} × {l.name_snapshot}
-                        </span>
-                        <span className="text-muted tnum">
-                          {formatKes(l.unit_price_cents)} → {formatKes(l.line_total_cents)}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </details>
-              ) : null}
-
-              {isOwner && !voided ? (
-                <details className="mt-2">
-                  <summary className="cursor-pointer text-xs font-semibold text-muted">Void this sale…</summary>
-                  <form action={voidAction} className="mt-2 space-y-2">
-                    <input type="hidden" name="saleId" value={s.id} />
-                    <input type="hidden" name="page" value={current} />
-                    <input
-                      className={inputClass}
-                      name="reason"
-                      placeholder="Why is it being voided?"
-                      aria-label={`Reason for voiding sale ${s.id}`}
-                      required
-                    />
-                    <button
-                      type="submit"
-                      className="flex min-h-11 w-full items-center justify-center rounded-xl bg-bad px-4 text-sm font-bold text-white xl:min-h-9"
-                    >
-                      Void {formatKes(s.total_cents)} and return the stock
-                    </button>
-                  </form>
-                </details>
-              ) : null}
-            </Card>
+                  <p className="mt-1 text-[11px] text-bad">
+                    Voided by {s.voided_by_name ?? "owner"}
+                    {s.voided_at ? ` on ${formatDateTime(s.voided_at)}` : ""} — {s.void_reason}
+                  </p>
+                ) : null}
+              </Td>
+              <Td>
+                <span className="flex flex-wrap gap-1.5">
+                  <Chip tone={s.tier === "wholesale" ? "warn" : "neutral"}>
+                    {s.tier === "wholesale" ? "Wholesale" : "Retail"}
+                  </Chip>
+                  {voided ? (
+                    <Chip tone="bad">Voided</Chip>
+                  ) : owing > 0 ? (
+                    <Chip tone="warn">{formatKes(owing)} unpaid</Chip>
+                  ) : (
+                    <Chip tone="good">Paid</Chip>
+                  )}
+                </span>
+              </Td>
+              <Td align="right">
+                <span className={`font-extrabold ${voided ? "text-muted line-through" : ""}`}>
+                  {formatKes(s.total_cents)}
+                </span>
+              </Td>
+              <Td align="right">
+                <span className="flex justify-end gap-1.5 whitespace-nowrap">
+                  <Link
+                    href={`/invoice/${s.id}`}
+                    className="rounded-lg border border-line px-2.5 py-1.5 text-[11px] font-bold hover:bg-wash"
+                  >
+                    Invoice
+                  </Link>
+                  {isOwner && !voided ? (
+                    <details className="relative">
+                      <summary className="cursor-pointer rounded-lg px-2.5 py-1.5 text-[11px] font-bold text-muted hover:bg-bad-soft hover:text-bad">
+                        Void
+                      </summary>
+                      {/* Anchored over the row rather than pushing it open: a
+                          void form that grows the row shoves the next twenty
+                          sales down the page mid-read. */}
+                      <form
+                        action={voidAction}
+                        className="absolute right-0 z-20 mt-1 w-64 space-y-2 rounded-xl border border-line bg-white p-2.5 text-left shadow-lift"
+                      >
+                        <input type="hidden" name="saleId" value={s.id} />
+                        <input type="hidden" name="page" value={current} />
+                        <input
+                          className={inputClass}
+                          name="reason"
+                          placeholder="Why is it being voided?"
+                          aria-label={`Reason for voiding sale ${s.id}`}
+                          required
+                        />
+                        <button
+                          type="submit"
+                          className="flex min-h-11 w-full items-center justify-center rounded-xl bg-bad px-3 text-[12px] font-bold text-white xl:min-h-9"
+                        >
+                          Void and return the stock
+                        </button>
+                      </form>
+                    </details>
+                  ) : null}
+                </span>
+              </Td>
+            </tr>
           );
         })}
-      </div>
+        </tbody>
+      </TableWrap>
 
-      {pages > 1 ? (
-        <>
-          <SectionLabel>
-            Page {current} of {pages}
-          </SectionLabel>
-          <div className="flex gap-2">
-            {current > 1 ? (
-              <Link
-                href={`/sales?page=${current - 1}`}
-                className="flex min-h-11 flex-1 items-center justify-center rounded-xl border border-line bg-white px-4 text-sm font-bold xl:min-h-9"
-              >
-                ← Newer
-              </Link>
-            ) : null}
-            {current < pages ? (
-              <Link
-                href={`/sales?page=${current + 1}`}
-                className="flex min-h-11 flex-1 items-center justify-center rounded-xl border border-line bg-white px-4 text-sm font-bold xl:min-h-9"
-              >
-                Older →
-              </Link>
-            ) : null}
-          </div>
-        </>
-      ) : null}
+      <Pager action="/sales" page={current} pages={pages} total={total} noun="sale" params={{}} />
     </div>
   );
 }

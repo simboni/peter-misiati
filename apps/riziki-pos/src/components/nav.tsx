@@ -66,16 +66,17 @@ const TABS: Tab[] = [
 ];
 
 /*
-  What is left over once every tab is a section.
+  Everything that is not one of the tabs.
 
-  Stock swallowed its own group — Stock take, Recipes, Products & prices and
-  Purchases live on the Stock spine now, because "where do I change a price"
-  should not depend on which of two menus you happened to be looking at.
-  Reports swallowed the day-to-day records for the same reason.
+  This is the sidebar on a laptop and the More grid on a phone, and it is where
+  a destination belongs unless it is one of the six things the counter reaches
+  for constantly.
 
-  What remains is genuinely other: the things you set up once and the handbook
-  you reach for when stuck. A More menu that holds a section's worth of work is
-  a sign the sections are wrong.
+  These were briefly folded into a strip of tabs inside the Stock and Reports
+  screens, and that was wrong twice over: Products & prices and Recipes are not
+  stock, and a strip inside a window whose every entry navigates somewhere else
+  is a second navigation competing with this one. Getting between windows is
+  this menu's job. A window's own controls stay inside it.
 */
 const MORE_GROUPS: Array<{
   label: string;
@@ -99,11 +100,23 @@ const MORE_GROUPS: Array<{
       // them change it safe.
       { href: "/prices/history", label: "Price history", short: "Prices", owner: false },
       { href: "/sales", label: "Sales history", owner: false },
+      { href: "/purchases", label: "Suppliers & purchases", short: "Purchases", owner: false },
     ],
   },
   {
-    label: "Setup",
+    // What the shop sells and what goes into it. Neither is stock: a price is
+    // not a quantity, and a recipe is a piece of writing. They sit beside Stock
+    // rather than inside it.
+    label: "Products & recipes",
     links: [
+      { href: "/items", label: "Products & prices", short: "Products", owner: true },
+      { href: "/formulas", label: "Recipes", owner: true },
+    ],
+  },
+  {
+    label: "Setup & records",
+    links: [
+      { href: "/activity", label: "Activity log", owner: true },
       { href: "/settings", label: "Users & settings", owner: true },
       { href: "/settings/printer", label: "Receipt printer", owner: true },
       // Owner-only, and the clear behind it needs a typed confirmation and the

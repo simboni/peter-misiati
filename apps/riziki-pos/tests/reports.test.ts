@@ -481,6 +481,35 @@ describe("CSV escaping", () => {
     assert.ok(csv.includes("cash") || csv.includes("mpesa"), "tenders are present");
   });
 
+  test("the price history exports both prices, not the difference", () => {
+    run(
+      `INSERT INTO price_changes (at, item_id, old_price, new_price, user_id, source, note)
+       VALUES ('2026-09-26 10:00:00', 1, 22000, 24000, 1, 'admin', 'supplier put it up')`,
+    );
+    const csv = csvText("price_changes");
+    const header = csv.split("\r\n")[0];
+    assert.ok(header.includes("old_price_kes"), "the price in force is exported");
+    assert.ok(header.includes("new_price_kes"), "the price it moved to is exported");
+    // 220 -> 240 is a 20 shilling rise. All three are present: an accountant
+    // asked what a thing cost in March needs the number, not the delta.
+    assert.ok(csv.includes(",220.00,240.00,20.00,"), csv);
+    assert.ok(csv.includes("supplier put it up"), "the reason survives");
+    assert.ok(csv.includes("admin"), "where it was changed survives");
+  });
+
+  test("the activity log exports with a name against every action", () => {
+    run(
+      `INSERT INTO audit_log (at, user_id, action, entity, entity_id, detail)
+       VALUES ('2026-09-26 10:00:00', 1, 'price_override_below_floor', 'sale', 7, 'sold at 180')`,
+    );
+    const csv = csvText("activity");
+    assert.match(csv, /^id,business_date,at_nairobi,who,action,about,about_id,detail\r\n/);
+    assert.ok(csv.includes("price_override_below_floor"), "the action survives");
+    assert.ok(csv.includes("sold at 180"), "the detail survives");
+    // Nairobi, not UTC — the same rule the rest of the exports follow.
+    assert.ok(csv.includes("2026-09-26,2026-09-26 13:00:00"), csv);
+  });
+
   test("the stock ledger exports with reasons and quantities in real units", () => {
     const csv = csvText("movements");
     assert.ok(csv.includes("opening"), "opening movements are present");

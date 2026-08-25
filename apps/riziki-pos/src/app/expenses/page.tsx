@@ -38,6 +38,7 @@ import {
   Alert,
   Stat,
 } from "@/components/ui";
+import { ExportButtons } from "@/components/export-buttons";
 
 export const dynamic = "force-dynamic";
 
@@ -108,6 +109,10 @@ export default async function ExpensesPage(props: {
   return (
     <div>
       <PageTitle title="Expenses" subtitle={`${monthName} · what the shop paid out`} />
+
+      <div className="mb-3">
+        <ExportButtons csv="expenses" label={`expenses for ${monthName}`} />
+      </div>
 
       {/*
         Entering an expense and totting the month up are both narrow tasks; the

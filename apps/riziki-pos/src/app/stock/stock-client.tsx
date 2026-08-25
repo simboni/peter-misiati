@@ -13,10 +13,9 @@
  */
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
 import { formatKes, formatQty, formatUnits } from "@/lib/units";
-import { Card, Chip, Empty, PageTitle, SectionLabel, Stat, inputClass } from "@/components/ui";
-import type { ReagentGroup, StockLine, StockStatus, StockView } from "@/lib/stock-service";
+import { Chip, Empty, Stat, TableWrap, Th, Td, inputClass } from "@/components/ui";
+import type { StockStatus, StockView } from "@/lib/stock-service";
 
 const LABEL: Record<StockStatus, string> = {
   in: "In stock",
@@ -30,54 +29,19 @@ function StatusChip({ status }: { status: StockStatus }) {
   return <Chip tone={TONE[status]}>{LABEL[status]}</Chip>;
 }
 
-function Row({ line, owner }: { line: StockLine; owner: boolean }) {
-  return (
-    <div className="flex items-start justify-between gap-3 border-t border-line py-2 first:border-t-0 break-inside-avoid">
-      <div className="min-w-0 flex-1">
-        <div className="text-sm font-semibold leading-snug">{line.name}</div>
-        <div className="mt-1 flex flex-wrap items-center gap-2">
-          <StatusChip status={line.status} />
-          {owner ? (
-            <span className="text-[11px] text-muted tnum">{formatKes(line.valueCents)} at cost</span>
-          ) : null}
-        </div>
-      </div>
-      <div className="shrink-0 text-right">
-        {/* the count he says out loud, then the amount the formulas need */}
-        <div className="text-sm font-bold tnum">
-          {formatUnits(line.qtyMilli, line.sizeMilli, line.unitLabel)}
-        </div>
-        <div className="text-[11px] text-muted tnum">{formatQty(line.qtyMilli, line.unit)}</div>
-      </div>
-    </div>
-  );
-}
-
-function Group({ group, owner }: { group: ReagentGroup; owner: boolean }) {
-  return (
-    <Card className="mb-3 break-inside-avoid xl:mb-4">
-      <div className="mb-1 flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h3 className="text-sm font-extrabold tracking-tight">{group.name}</h3>
-          {group.aliases ? (
-            <p className="truncate text-[11px] text-muted">{group.aliases.split(",").join(" · ")}</p>
-          ) : null}
-        </div>
-        <div className="shrink-0 text-right">
-          <div className="text-sm font-extrabold tnum">{formatQty(group.totalMilli, group.unit)}</div>
-          <div className="text-[11px] text-muted">all sizes</div>
-        </div>
-      </div>
-      {group.lines.map((l) => (
-        <Row key={l.id} line={l} owner={owner} />
-      ))}
-    </Card>
-  );
-}
-
 function matches(haystack: string, terms: string[]): boolean {
   return terms.every((t) => haystack.includes(t));
 }
+
+/** Enough to fill a laptop screen without the pager sliding out of reach. */
+const PER_PAGE = 25;
+
+const KIND_LABEL: Record<string, string> = {
+  bulk: "Chemical",
+  pack: "Pack",
+  finished: "Product",
+  packaging: "Container",
+};
 
 export function StockClient({
   view,
@@ -95,20 +59,21 @@ export function StockClient({
     [query],
   );
 
-  // A hit on the chemical (name or alias) keeps the whole block, so typing
-  // "SLES" shows the Ungerol drum and every pack size under it at once.
+  /*
+    A hit on the chemical keeps every line under it.
+
+    The reagents arrive grouped by chemical, and the search has to respect that
+    grouping even though the table no longer shows it: typing "SLES" should find
+    the Ungerol drum, which is named neither SLES nor Ungerol on its own row.
+    So the group's search text is tried first and, when it matches, the whole
+    block is taken; otherwise the lines are searched one by one. The groups are
+    flattened on the way out — they exist to carry the alias, not to be drawn.
+  */
   const reagents = useMemo(() => {
-    if (!terms.length) return view.reagents;
-    const out: ReagentGroup[] = [];
-    for (const g of view.reagents) {
-      if (matches(g.search, terms)) {
-        out.push(g);
-        continue;
-      }
-      const lines = g.lines.filter((l) => matches(l.search, terms));
-      if (lines.length) out.push({ ...g, lines });
-    }
-    return out;
+    if (!terms.length) return view.reagents.flatMap((g) => g.lines);
+    return view.reagents.flatMap((g) =>
+      matches(g.search, terms) ? g.lines : g.lines.filter((l) => matches(l.search, terms)),
+    );
   }, [view.reagents, terms]);
 
   const finished = useMemo(
@@ -122,10 +87,44 @@ export function StockClient({
 
   const nothing = !reagents.length && !finished.length && !packaging.length;
 
+  /*
+    Everything on one list.
+
+    A reagent, a finished product and a jerrican are the same question — what is
+    on the shelf and how much of it — so they are one table with a Kind column
+    rather than three sections that cannot be compared with each other.
+  */
+  const rows = useMemo(
+    () => [...reagents, ...finished, ...packaging],
+    [reagents, finished, packaging],
+  );
+
+  /*
+    The page, and the search it belongs to.
+
+    A new search is a new list, and staying on page four of the old one shows an
+    empty table that reads as "nothing matches". Resetting in an effect would
+    mean rendering that empty page first and then correcting it, so the query
+    the page was chosen under is remembered instead and a stale one simply
+    reads as page 1.
+  */
+  const [pageFor, setPageFor] = useState({ query: initialQuery, page: 1 });
+  const pages = Math.max(1, Math.ceil(rows.length / PER_PAGE));
+  const current = pageFor.query === query ? Math.min(pageFor.page, pages) : 1;
+  const shown = rows.slice((current - 1) * PER_PAGE, current * PER_PAGE);
+  const goTo = (n: number) => setPageFor({ query, page: Math.min(Math.max(1, n), pages) });
+
   return (
     <div>
-      <PageTitle title="Stock" subtitle={`${view.itemCount} items across the shop`} />
+      {/*
+        The value tile and the search box, side by side from lg.
 
+        There were two shortcut buttons here as well — "Delivery in" and "Stock
+        take". The stock take is a tab at the top of this window now, so that
+        one was a button that moved you to where you already were; and a
+        delivery belongs to Suppliers & purchases, which is a menu entry. Both
+        were chrome costing two rows of stock on a laptop.
+      */}
       <div className="lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-4 xl:gap-x-5">
       <div className="lg:col-span-4 xl:col-span-3 2xl:col-span-2">
       {owner ? (
@@ -139,26 +138,9 @@ export function StockClient({
       ) : null}
 
       </div>
-      {/* From lg the two shortcuts and the search box share one line: on a
-          laptop this block is chrome, and it was costing two rows of stock. */}
-      <div className="lg:col-span-8 lg:flex lg:items-start lg:gap-2 xl:col-span-9 2xl:col-span-10">
-      <div className="mb-3 grid grid-cols-2 gap-2 lg:mb-0 lg:shrink-0">
-        <Link
-          href="/purchases"
-          className="flex min-h-11 items-center justify-center rounded-xl border border-line bg-white px-4 text-center text-sm font-bold hover:bg-wash xl:min-h-9"
-        >
-          Delivery in
-        </Link>
-        <Link
-          href="/stocktake"
-          className="flex min-h-11 items-center justify-center rounded-xl border border-line bg-white px-4 text-center text-sm font-bold hover:bg-wash xl:min-h-9"
-        >
-          Stock take
-        </Link>
-      </div>
-
+      <div className="lg:col-span-8 xl:col-span-9 2xl:col-span-10">
       <input
-        className={`${inputClass} lg:min-w-0 lg:flex-1`}
+        className={`${inputClass} w-full`}
         type="search"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
@@ -172,38 +154,81 @@ export function StockClient({
 
       {nothing ? <Empty>Nothing matches “{query}”.</Empty> : null}
 
-      {reagents.length ? (
-        <>
-          <SectionLabel>Reagents</SectionLabel>
-          <div className="gap-3 md:columns-2 xl:columns-3 xl:gap-4 2xl:columns-4 3xl:columns-5">
-            {reagents.map((g) => (
-              <Group key={g.chemicalId} group={g} owner={owner} />
+      {/*
+        One table, not three columns of cards.
+
+        The reagents used to be a card per chemical with its pack sizes nested
+        inside, which made sense when a chemical was five rows. It is one row
+        now — one price, one quantity — so the nesting was a box drawn around a
+        single line, and the three sections could not be compared with each
+        other because none of their numbers lined up.
+      */}
+      {shown.length ? (
+        <TableWrap>
+          <thead>
+            <tr>
+              <Th>Item</Th>
+              <Th>Kind</Th>
+              <Th align="right">On the shelf</Th>
+              <Th align="right">Containers</Th>
+              {owner ? <Th align="right">At cost</Th> : null}
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map((l) => (
+              <tr key={l.id} className="hover:bg-wash/50">
+                <Td>
+                  <span className="font-bold">{l.name}</span>
+                  {l.chemicalName && l.chemicalName !== l.name ? (
+                    <span className="ml-1.5 text-[11px] text-muted">{l.chemicalName}</span>
+                  ) : null}
+                  <div className="mt-0.5">
+                    <StatusChip status={l.status} />
+                  </div>
+                </Td>
+                <Td className="text-[11px] uppercase tracking-wide text-muted">{KIND_LABEL[l.kind]}</Td>
+                <Td align="right">
+                  <span className="font-bold">{formatQty(l.qtyMilli, l.unit)}</span>
+                </Td>
+                <Td align="right" className="text-muted">
+                  {formatUnits(l.qtyMilli, l.sizeMilli, l.unitLabel)}
+                </Td>
+                {owner ? <Td align="right">{formatKes(l.valueCents)}</Td> : null}
+              </tr>
             ))}
-          </div>
-        </>
+          </tbody>
+        </TableWrap>
       ) : null}
 
-      {finished.length ? (
-        <>
-          <SectionLabel>Finished goods</SectionLabel>
-          <Card className="mb-3 gap-x-6 md:columns-2 xl:columns-3 2xl:columns-4 3xl:columns-5">
-            {finished.map((l) => (
-              <Row key={l.id} line={l} owner={owner} />
-            ))}
-          </Card>
-        </>
-      ) : null}
-
-      {packaging.length ? (
-        <>
-          <SectionLabel>Packaging</SectionLabel>
-          <Card className="mb-3 gap-x-6 md:columns-2 xl:columns-3 2xl:columns-4 3xl:columns-5">
-            {packaging.map((l) => (
-              <Row key={l.id} line={l} owner={owner} />
-            ))}
-          </Card>
-        </>
-      ) : null}
+      {/* Paging inside the window: the whole list is already in the browser, so
+          turning a page costs nothing and never leaves Stock. */}
+      {pages > 1 ? (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => goTo(current - 1)}
+            disabled={current <= 1}
+            className="flex min-h-11 items-center rounded-xl border border-line bg-white px-4 text-sm font-bold disabled:opacity-40 xl:min-h-9"
+          >
+            ← Back
+          </button>
+          <span className="text-[13px] font-semibold text-muted">
+            Page {current} of {pages} · {rows.length} items
+          </span>
+          <button
+            type="button"
+            onClick={() => goTo(current + 1)}
+            disabled={current >= pages}
+            className="flex min-h-11 items-center rounded-xl border border-line bg-white px-4 text-sm font-bold disabled:opacity-40 xl:min-h-9"
+          >
+            Next →
+          </button>
+        </div>
+      ) : (
+        <p className="mt-3 text-[13px] text-muted">
+          {rows.length} {rows.length === 1 ? "item" : "items"}
+        </p>
+      )}
     </div>
   );
 }

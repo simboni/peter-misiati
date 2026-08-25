@@ -93,7 +93,7 @@ export default async function CustomerPage(props: { params: Promise<{ id: string
           href={`/customers/${customerId}/statement`}
           className="rounded-full bg-brand-soft px-3 py-1 text-[11px] font-bold text-brand"
         >
-          Print statement
+          Statement
         </Link>
       </div>
 

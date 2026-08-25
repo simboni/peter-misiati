@@ -1,16 +1,24 @@
 import { redirect } from "next/navigation";
 import { currentUser } from "@/lib/auth";
-import { stockView } from "@/lib/stock-service";
-import { StockClient } from "./stock-client";
-import { SectionNav, STOCK_SECTIONS } from "@/components/section-nav";
+import { stockView, stockLines } from "@/lib/stock-service";
+import { StockWindow } from "./stock-window";
+import { submitStocktake } from "./actions";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * The Stock window: what is on the shelf, and counting it.
+ *
+ * Both panels are fetched here and swapped in the browser, so the switch costs
+ * nothing and a half-typed stock take survives a glance at what the book says.
+ * See `StockWindow`.
+ */
 export default async function StockPage(props: {
-  searchParams: Promise<{ q?: string }>;
+  searchParams: Promise<{ q?: string; panel?: string }>;
 }) {
-  // `q` lets the home screen's low-stock rows land here pre-searched.
-  const { q = "" } = await props.searchParams;
+  // `q` lets the home screen's low-stock rows land here pre-searched, and
+  // `panel` lets anything that used to link to /stocktake open on the count.
+  const { q = "", panel } = await props.searchParams;
   const user = await currentUser();
   if (!user) redirect("/login");
   const owner = user.role === "owner";
@@ -35,10 +43,18 @@ export default async function StockPage(props: {
         packaging: view.packaging.map((l) => ({ ...l, costCents: 0, valueCents: 0 })),
       };
 
+  // Same reasoning for the count sheet: an attendant never receives it at all,
+  // rather than receiving it and being shown no tab.
+  const countLines = owner ? stockLines() : [];
+
   return (
-    <>
-      <SectionNav sections={STOCK_SECTIONS} current="/stock" label="Stock" isOwner={owner} />
-      <StockClient view={safe} owner={owner} initialQuery={q} />
-    </>
+    <StockWindow
+      view={safe}
+      countLines={countLines}
+      owner={owner}
+      initialQuery={q}
+      stocktakeAction={submitStocktake}
+      initialPanel={panel === "count" ? "count" : "shelf"}
+    />
   );
 }

@@ -13,14 +13,22 @@ import {
   type AgeBand,
 } from "@/lib/credit";
 import { formatKes, formatDate } from "@/lib/units";
-import { Alert, Card, PageTitle, Chip, Stat, Empty } from "@/components/ui";
+import { Alert, Card, PageTitle, Chip, Stat, Empty, TableWrap, Th, Td } from "@/components/ui";
 import { ListToolbar, Pager } from "@/components/section-nav";
 import { CustomerForm } from "./forms";
 
 export const dynamic = "force-dynamic";
 
-/** How many customers fit on one page before it becomes a scroll to nowhere. */
-const PER_PAGE = 24;
+/**
+ * How many fit on one page.
+ *
+ * Small on purpose. A list of everybody who has ever bought is not read; it is
+ * searched. Fifteen rows plus the pager fit a laptop screen without scrolling
+ * and about a phone-and-a-half, which is the point at which somebody stops
+ * scrolling and starts typing in the search box — which is the faster way to
+ * what they wanted anyway.
+ */
+const PER_PAGE = 15;
 
 type Filter = "all" | "owing" | "overdue" | "settled";
 
@@ -180,75 +188,92 @@ export default async function CustomersPage(props: {
       </details>
 
       {shown.length ? (
-        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-3 xl:gap-3 3xl:grid-cols-4">
-          {shown.map((r) => {
-            const over = r.balanceCents > 0 && isOverLimit({ credit_limit_cents: r.creditLimitCents }, r.balanceCents);
-            return (
-              <Card key={r.id} className="space-y-2">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <Link
-                      href={`/customers/${r.id}`}
-                      className="-my-1 block truncate py-1 font-bold text-ink"
-                    >
+        /*
+          A list, not a grid of cards.
+
+          A card is for something you look at one of; this is a column of names
+          you run your eye down looking for one. Fifteen rows here occupy the
+          space five cards did, and the numbers line up under each other, which
+          is what makes "who owes the most" answerable at a glance rather than
+          by reading every tile.
+        */
+        <TableWrap>
+          <thead>
+            <tr>
+              <Th>Customer</Th>
+              <Th>Phone</Th>
+              <Th>Standing</Th>
+              <Th align="right">Owed</Th>
+              <Th align="right">Do</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map((r) => {
+              const over =
+                r.balanceCents > 0 &&
+                isOverLimit({ credit_limit_cents: r.creditLimitCents }, r.balanceCents);
+              return (
+                <tr key={r.id} className="hover:bg-wash/50">
+                  <Td>
+                    <Link href={`/customers/${r.id}`} className="font-bold text-ink">
                       {r.name}
                     </Link>
-                    <div className="mt-0.5 text-xs text-muted">
-                      {r.phone || "no phone"} ·{" "}
-                      {r.balanceCents > 0
-                        ? `${r.openSales} unpaid ${r.openSales === 1 ? "sale" : "sales"} · since ${formatDate(r.oldestAt)}`
-                        : r.kind === "wholesale"
-                          ? "wholesale · settled"
-                          : "settled"}
-                    </div>
-                  </div>
-                  <div className="shrink-0 text-right">
-                    <div
-                      className={`text-base font-extrabold tnum ${r.balanceCents > 0 ? "text-ink" : "text-muted"}`}
-                    >
-                      {r.balanceCents > 0 ? formatKes(r.balanceCents) : "—"}
-                    </div>
-                    {r.balanceCents > 0 ? (
-                      <div className="mt-1">
-                        <Chip tone={AGE_TONE[r.band]}>{AGE_LABEL[r.band]}</Chip>
+                    {r.kind === "wholesale" ? (
+                      <span className="ml-1.5 text-[10px] font-bold uppercase tracking-wide text-muted">
+                        wholesale
+                      </span>
+                    ) : null}
+                    {over ? (
+                      <div className="text-[11px] font-semibold text-bad">
+                        over the {formatKes(r.creditLimitCents)} limit
                       </div>
                     ) : null}
-                  </div>
-                </div>
-
-                {over ? (
-                  <p className="rounded-lg bg-bad-soft px-2.5 py-1.5 text-xs font-semibold text-bad">
-                    Over the {formatKes(r.creditLimitCents)} limit agreed with this customer.
-                  </p>
-                ) : null}
-
-                <div className="flex gap-2 pt-0.5">
-                  <Link
-                    href={`/customers/${r.id}`}
-                    className="flex min-h-11 flex-1 items-center justify-center rounded-xl border border-line px-3 text-xs font-bold hover:bg-wash xl:min-h-9"
-                  >
-                    {r.balanceCents > 0 ? "Record payment" : "Open"}
-                  </Link>
-                  {r.balanceCents > 0 ? (
-                    /*
-                      The shop already chases debts on WhatsApp, so the reminder
-                      is a pre-typed wa.me deep link rather than a message we
-                      send on the owner's behalf.
-                    */
-                    <a
-                      href={waLink(r.phone, reminderMessage(r.name, r.balanceCents, r.oldestAt))}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex min-h-11 flex-1 items-center justify-center rounded-xl bg-good-soft px-3 text-center text-xs font-bold text-good xl:min-h-9"
-                    >
-                      Remind on WhatsApp
-                    </a>
-                  ) : null}
-                </div>
-              </Card>
-            );
-          })}
-        </div>
+                  </Td>
+                  <Td className="whitespace-nowrap text-muted">{r.phone || "—"}</Td>
+                  <Td>
+                    {r.balanceCents > 0 ? (
+                      <span className="flex flex-wrap items-center gap-1.5">
+                        <Chip tone={AGE_TONE[r.band]}>{AGE_LABEL[r.band]}</Chip>
+                        <span className="text-[11px] text-muted">
+                          {r.openSales} unpaid · since {formatDate(r.oldestAt)}
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="text-[11px] text-muted">settled</span>
+                    )}
+                  </Td>
+                  <Td align="right">
+                    <span className={r.balanceCents > 0 ? "font-extrabold" : "text-muted"}>
+                      {r.balanceCents > 0 ? formatKes(r.balanceCents) : "—"}
+                    </span>
+                  </Td>
+                  <Td align="right">
+                    <span className="flex justify-end gap-1.5 whitespace-nowrap">
+                      <Link
+                        href={`/customers/${r.id}`}
+                        className="rounded-lg border border-line px-2.5 py-1.5 text-[11px] font-bold hover:bg-wash"
+                      >
+                        {r.balanceCents > 0 ? "Take payment" : "Open"}
+                      </Link>
+                      {r.balanceCents > 0 ? (
+                        /* The shop already chases on WhatsApp, so this is a
+                           pre-typed wa.me link rather than a message we send. */
+                        <a
+                          href={waLink(r.phone, reminderMessage(r.name, r.balanceCents, r.oldestAt))}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="rounded-lg bg-good-soft px-2.5 py-1.5 text-[11px] font-bold text-good"
+                        >
+                          Remind
+                        </a>
+                      ) : null}
+                    </span>
+                  </Td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </TableWrap>
       ) : (
         <Card>
           <Empty>
@@ -263,6 +288,7 @@ export default async function CustomersPage(props: {
 
       <Pager
         action="/customers"
+        order="list"
         page={page}
         pages={pages}
         total={filtered.length}

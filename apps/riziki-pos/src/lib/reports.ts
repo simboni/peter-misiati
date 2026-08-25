@@ -887,6 +887,11 @@ export const EXPORT_TABLES = [
   "batches",
   "customers",
   "expenses",
+  // The two audit trails. Both are append-only and both get asked for by name
+  // — "who dropped that price" and "who voided that sale" — so both leave the
+  // app as a spreadsheet rather than only as a printed page.
+  "price_changes",
+  "activity",
 ] as const;
 export type ExportTable = (typeof EXPORT_TABLES)[number];
 
@@ -1159,6 +1164,59 @@ const EXPORT_SPECS: Record<ExportTable, ExportSpec> = {
       ).map((r: Record<string, unknown>) => [
         r.id, r.business_date, r.at_nairobi, r.category,
         kes(r.amount_cents as number), r.method, r.note, r.entered_by,
+      ]),
+  },
+
+  // Every price that ever moved, with the name of whoever moved it and where
+  // they were standing. Both prices are carried, not the difference: an
+  // accountant asked "was this sold below cost in March" needs the number that
+  // was in force, and a delta cannot be turned back into one.
+  price_changes: {
+    header: [
+      "id", "business_date", "at_nairobi", "item", "old_price_kes", "new_price_kes",
+      "change_kes", "changed_by", "where", "note",
+    ],
+    page: (limit, offset) =>
+      all<Record<string, unknown>>(
+        `SELECT p.id,
+                date(p.at, '+3 hours')     AS business_date,
+                datetime(p.at, '+3 hours') AS at_nairobi,
+                i.name AS item, p.old_price, p.new_price,
+                u.name AS changed_by, p.source, p.note
+           FROM price_changes p
+           LEFT JOIN items i ON i.id = p.item_id
+           LEFT JOIN users u ON u.id = p.user_id
+          ORDER BY p.id
+          LIMIT ? OFFSET ?`,
+        limit,
+        offset,
+      ).map((r: Record<string, unknown>) => [
+        r.id, r.business_date, r.at_nairobi, r.item,
+        kes(r.old_price as number), kes(r.new_price as number),
+        kes((r.new_price as number) - (r.old_price as number)),
+        r.changed_by, r.source, r.note,
+      ]),
+  },
+
+  // The audit log. Named "activity" rather than "audit_log" because that is
+  // what the screen it comes from is called, and the file lands on somebody's
+  // desktop with no screen around it to explain the name.
+  activity: {
+    header: ["id", "business_date", "at_nairobi", "who", "action", "about", "about_id", "detail"],
+    page: (limit, offset) =>
+      all<Record<string, unknown>>(
+        `SELECT a.id,
+                date(a.at, '+3 hours')     AS business_date,
+                datetime(a.at, '+3 hours') AS at_nairobi,
+                u.name AS who, a.action, a.entity, a.entity_id, a.detail
+           FROM audit_log a
+           LEFT JOIN users u ON u.id = a.user_id
+          ORDER BY a.id
+          LIMIT ? OFFSET ?`,
+        limit,
+        offset,
+      ).map((r: Record<string, unknown>) => [
+        r.id, r.business_date, r.at_nairobi, r.who, r.action, r.entity, r.entity_id, r.detail,
       ]),
   },
 };

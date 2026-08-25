@@ -50,7 +50,7 @@ import {
   ListRow,
 } from "@/components/ui";
 import { SalesChart } from "./sales-chart";
-import { SectionNav, REPORT_SECTIONS } from "@/components/section-nav";
+
 import { PeriodPicker } from "./period-picker";
 import { ExportBar } from "./export-bar";
 
@@ -102,7 +102,6 @@ export default async function ReportsPage(props: {
   return (
     <div>
       <PageTitle title="Reports" subtitle="Owner only · costs and profit are never shown to staff" />
-      <SectionNav sections={REPORT_SECTIONS} current="/reports" label="Reports" />
       <PeriodPicker current={period} range={range} from={from} to={to} />
 
       <div className="lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-4 xl:gap-x-5 2xl:gap-x-6">
