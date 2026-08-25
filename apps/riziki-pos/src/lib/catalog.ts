@@ -169,6 +169,83 @@ export function setItemActive(itemId: number, active: boolean, byUserId: number)
   audit(byUserId, active ? "item_activated" : "item_retired", "item", itemId, item.name);
 }
 
+/**
+ * What is holding an item in the catalogue, if anything.
+ *
+ * Every table that points at `items(id)`, asked one at a time so the answer can
+ * name what it found. An item nothing points at is a mistake somebody typed and
+ * can be removed; an item with one sale against it is part of the books.
+ */
+function itemHistory(itemId: number): string[] {
+  const counts: Array<[string, string]> = [
+    [`SELECT COUNT(*) AS n FROM sale_lines WHERE item_id = ?`, "been sold"],
+    [`SELECT COUNT(*) AS n FROM stock_movements WHERE item_id = ?`, "stock recorded against it"],
+    [`SELECT COUNT(*) AS n FROM quote_lines WHERE item_id = ?`, "been quoted"],
+    [`SELECT COUNT(*) AS n FROM purchase_lines WHERE item_id = ?`, "been bought in"],
+    [`SELECT COUNT(*) AS n FROM price_changes WHERE item_id = ?`, "a price history"],
+  ];
+
+  const found = counts
+    .filter(([sql]) => (get<{ n: number }>(sql, itemId)?.n ?? 0) > 0)
+    .map(([, label]) => label);
+
+  // Either end of the pairing counts: a bottle is as attached to the product it
+  // holds as the product is to the bottle.
+  const paired = get<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM item_packaging WHERE item_id = ? OR packaging_item_id = ?`,
+    itemId,
+    itemId,
+  );
+  if ((paired?.n ?? 0) > 0) found.push("a container paired with it");
+
+  return found;
+}
+
+/** Whether this item may be deleted, and what stands in the way if not. */
+export function deletableReason(itemId: number): string | null {
+  const held = itemHistory(itemId);
+  if (!held.length) return null;
+  return held.join(", ");
+}
+
+/**
+ * Remove a product from the catalogue for good.
+ *
+ * Only ever a product nothing points at. The shop's books are append-only on
+ * purpose — a sale is voided, never deleted; stock moves by a correcting entry,
+ * never an edit — and deleting an item that has been sold would leave a line on
+ * a customer's invoice pointing at a row that no longer exists. So this refuses
+ * anything with history and says what the history is.
+ *
+ * That still leaves the case it is for: a product added with the name spelled
+ * wrong, or added twice, ten seconds ago. Without this the only remedy is to
+ * hide it, and the catalogue slowly fills with typos nobody can clear out.
+ *
+ * For anything that has traded, hiding it is the right answer and remains
+ * available — the counter stops offering it and the records stay whole.
+ */
+export function deleteProduct(itemId: number, byUserId: number): { name: string } {
+  return tx(() => {
+    const item = getItem(itemId);
+    if (!item) throw new CatalogError("That item no longer exists.");
+
+    const held = deletableReason(itemId);
+    if (held) {
+      throw new CatalogError(
+        `${item.name} cannot be deleted — it has ${held}. Hide it from the counter instead, ` +
+          `which keeps the records whole and stops it being sold.`,
+      );
+    }
+
+    run(`DELETE FROM items WHERE id = ?`, itemId);
+    // Audited before it is gone, with the name in the text: after the row is
+    // deleted the id in this entry points at nothing, and the name is the only
+    // thing that will still say what was removed.
+    audit(byUserId, "item_deleted", "item", itemId, item.name);
+    return { name: item.name };
+  });
+}
+
 // ------------------------------------------------------------- new products
 
 export interface ProductInput {

@@ -7,6 +7,7 @@ import { lineDiscountCents } from "@/lib/sales";
 import { formatKes, formatAmount, formatQty, formatDateTime } from "@/lib/units";
 import { ThermalPrint } from "@/components/thermal-print";
 import { PdfShareButton } from "@/components/pdf-share-button";
+import { Letterhead } from "@/components/letterhead";
 import { PrintButton } from "./print-button";
 import { PayInvoiceForm } from "./pay-form";
 
@@ -152,22 +153,13 @@ export default async function InvoicePage(props: {
 
       <div className="sheet mx-auto rounded-2xl border border-line bg-white p-5 text-[13px] leading-relaxed">
         {/* ---------------------------------------------------------- header */}
-        <div className="flex items-start justify-between gap-4 border-b border-line pb-3">
-          <div>
-            <div className="text-base font-extrabold tracking-tight">{business.name}</div>
-            <div className="text-[11px] text-muted">{business.address}</div>
-            {business.phone ? <div className="text-[11px] text-muted">{business.phone}</div> : null}
-            {business.kraPin ? (
-              <div className="text-[11px] text-muted">PIN {business.kraPin}</div>
-            ) : null}
-          </div>
-          <div className="shrink-0 text-right">
-            <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted">
-              {balanceCents > 0 ? "Invoice" : "Receipt"}
-            </div>
-            <div className="text-base font-extrabold tnum">{sale.invoice_no ?? `#${sale.id}`}</div>
-            <div className="text-[11px] text-muted">{formatDateTime(sale.at)}</div>
-          </div>
+        <div className="border-b border-line pb-3">
+          <Letterhead
+            business={business}
+            kind={balanceCents > 0 ? "Invoice" : "Receipt"}
+            reference={sale.invoice_no ?? `#${sale.id}`}
+            date={formatDateTime(sale.at)}
+          />
         </div>
 
         {sale.status === "voided" ? (

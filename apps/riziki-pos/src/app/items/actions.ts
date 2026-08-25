@@ -17,7 +17,8 @@
 
 import { revalidatePath } from "next/cache";
 import { requireOwner } from "@/lib/auth";
-import { updatePricing, CatalogError } from "@/lib/catalog";
+import { redirect } from "next/navigation";
+import { updatePricing, deleteProduct, CatalogError } from "@/lib/catalog";
 
 export interface PricingState {
   error?: string;
@@ -49,4 +50,26 @@ export async function savePricingAction(
   revalidatePath("/items");
   revalidatePath("/sell");
   return { savedAt: Date.now() };
+}
+
+/**
+ * Remove a product typed by mistake.
+ *
+ * Lives here rather than inline on the page because the button that calls it is
+ * a client component — it holds the "tap again" state — and a client component
+ * can only be handed an action from a module marked "use server".
+ *
+ * The rule itself is `deleteProduct`'s: anything with history is refused there,
+ * and the message says to hide it instead.
+ */
+export async function deleteProductAction(formData: FormData): Promise<void> {
+  const owner = await requireOwner();
+  try {
+    deleteProduct(Number(formData.get("itemId")), owner.id);
+  } catch (e) {
+    const message = e instanceof CatalogError ? e.message : "That could not be deleted.";
+    redirect(`/items?err=${encodeURIComponent(message)}`);
+  }
+  revalidatePath("/items");
+  revalidatePath("/sell");
 }

@@ -4,6 +4,7 @@ import { get } from "@/lib/db";
 import { getQuote, quoteLineCents, quoteLineQty, quoteLines } from "@/lib/quotes";
 import { formatKes, formatDate } from "@/lib/units";
 import { PrintButton } from "@/app/invoice/[id]/print-button";
+import { Letterhead } from "@/components/letterhead";
 
 export const dynamic = "force-dynamic";
 
@@ -50,19 +51,14 @@ export default async function QuotePrintPage(props: { params: Promise<{ id: stri
       </div>
 
       <div className="rounded-2xl bg-white p-6 shadow-card ring-1 ring-ink/5 print:rounded-none print:p-0 print:shadow-none print:ring-0">
-        <div className="flex items-start justify-between gap-4 border-b-2 border-brand-deep pb-3">
-          <div>
-            <h1 className="text-xl font-extrabold text-brand-deep">{shopName}</h1>
-            {shopPhone ? <p className="text-xs text-muted">{shopPhone}</p> : null}
-            {kraPin ? <p className="text-xs text-muted">KRA PIN: {kraPin}</p> : null}
-          </div>
-          <div className="text-right">
-            <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted">
-              Quotation
-            </div>
-            <div className="text-lg font-extrabold tnum">{quote.quote_no}</div>
-            <div className="text-xs text-muted">{formatDate(quote.created_at)}</div>
-          </div>
+        <div className="border-b-2 border-brand-deep pb-3">
+          <Letterhead
+            business={{ name: shopName, phone: shopPhone, kraPin }}
+            kind="Quotation"
+            reference={quote.quote_no}
+            date={formatDate(quote.created_at)}
+            size="large"
+          />
         </div>
 
         <div className="mt-4 grid gap-4 sm:grid-cols-2">

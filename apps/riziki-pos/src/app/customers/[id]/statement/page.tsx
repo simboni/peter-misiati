@@ -6,6 +6,7 @@ import { formatAmount, formatKes, formatDate } from "@/lib/units";
 import { Empty } from "@/components/ui";
 import { PrintButton } from "@/app/invoice/[id]/print-button";
 import { PdfShareButton } from "@/components/pdf-share-button";
+import { Letterhead } from "@/components/letterhead";
 
 export const dynamic = "force-dynamic";
 
@@ -62,19 +63,12 @@ export default async function StatementPage(props: { params: Promise<{ id: strin
       </div>
 
       <div className="sheet mx-auto rounded-2xl border border-line bg-white p-5">
-        <header className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-lg font-extrabold tracking-tight">{business.name}</h1>
-            {business.address ? <p className="text-xs text-muted">{business.address}</p> : null}
-            <p className="text-xs text-muted">{business.phone}</p>
-            {business.kraPin ? <p className="text-xs text-muted">KRA PIN {business.kraPin}</p> : null}
-          </div>
-          <div className="text-right">
-            <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted">
-              Statement of account
-            </div>
-            <div className="mt-0.5 text-xs text-muted">as at {formatDate(new Date().toISOString())}</div>
-          </div>
+        <header>
+          <Letterhead
+            business={business}
+            kind="Statement of account"
+            date={`as at ${formatDate(new Date().toISOString())}`}
+          />
         </header>
 
         <div className="row mt-4 border-t border-line pt-3">

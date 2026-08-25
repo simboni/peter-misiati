@@ -11,6 +11,7 @@
 import { requireUser } from "@/lib/auth";
 import { getCustomer, statement, balanceOf, renderStatementBlocks } from "@/lib/credit";
 import { blocksToPdf, pdfCharsPerLine } from "@/lib/pdf";
+import { printLogo } from "@/lib/brand";
 
 export const dynamic = "force-dynamic";
 
@@ -36,7 +37,7 @@ export async function GET(_request: Request, props: { params: Promise<{ id: stri
   }
 
   const blocks = renderStatementBlocks(customer, statement(customerId), balanceOf(customerId), pdfCharsPerLine());
-  const bytes = blocksToPdf(blocks);
+  const bytes = blocksToPdf(blocks, printLogo());
   const name = customer.name.replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "") || `customer-${customer.id}`;
 
   return new Response(Buffer.from(bytes), {

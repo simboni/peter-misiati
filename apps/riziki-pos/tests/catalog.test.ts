@@ -224,6 +224,75 @@ test("setItemActive: retires and restores an item", () => {
   assert.equal(cat.getItem(id)!.active, 1);
 });
 
+/*
+  Deleting a product.
+
+  The distinction being tested is the one the shop cares about: a row typed by
+  mistake is rubbish and should go, and a row that has traded is part of the
+  books and must not. Nothing in between.
+*/
+
+function throwaway(name: string): number {
+  return cat.createProduct({
+    name,
+    unit: "kg",
+    aliases: "",
+    containerValue: 25,
+    containerLabel: "bag",
+    price: 0,
+    floor: 0,
+    ceiling: 0,
+    byUserId: OWNER,
+  });
+}
+
+test("deleteProduct: a row nothing points at is removed outright", () => {
+  const id = throwaway("Test Typo Sodium");
+  assert.equal(cat.deletableReason(id), null, "nothing is holding it");
+
+  const result = cat.deleteProduct(id, OWNER);
+  assert.equal(result.name, "Test Typo Sodium");
+  assert.equal(cat.getItem(id), undefined, "gone, not hidden");
+  assert.ok(!cat.listProducts().some((i) => i.id === id));
+});
+
+test("deleteProduct: the name is on the audit entry, because the id will point at nothing", () => {
+  const id = throwaway("Test Deleted Trace");
+  cat.deleteProduct(id, OWNER);
+
+  const entry = get<{ action: string; detail: string }>(
+    `SELECT action, detail FROM audit_log WHERE action = 'item_deleted' ORDER BY id DESC LIMIT 1`,
+  );
+  assert.ok(entry, "a deletion is recorded");
+  assert.equal(entry!.detail, "Test Deleted Trace");
+});
+
+test("deleteProduct: anything that has traded is refused, and says what holds it", () => {
+  const id = throwaway("Test Sold Once");
+  // A price is history in its own right — the owner set a number and that is
+  // recorded — so this alone should be enough to hold the row.
+  cat.updatePricing({ itemId: id, price: 250, floor: 0, ceiling: 0, reorderUnits: 0, byUserId: OWNER });
+
+  const held = cat.deletableReason(id);
+  assert.ok(held, "the row is held");
+  assert.match(held!, /price history/);
+
+  assert.throws(
+    () => cat.deleteProduct(id, OWNER),
+    (e: unknown) => e instanceof cat.CatalogError && /Hide it from the counter instead/.test((e as Error).message),
+  );
+  assert.ok(cat.getItem(id), "still there — a refused delete removes nothing");
+});
+
+test("deleteProduct: a seeded chemical with stock behind it cannot be deleted", () => {
+  const stocked = cat.listProducts().find((i) => i.price_basis === "unit" && i.kind === "bulk");
+  assert.ok(stocked, "the seed stocks chemicals");
+
+  const held = cat.deletableReason(stocked!.id);
+  assert.ok(held, `${stocked!.name} has history: ${held}`);
+  assert.throws(() => cat.deleteProduct(stocked!.id, OWNER), cat.CatalogError);
+});
+
 test("every catalog change is written to the audit log", () => {
   const id = cat.createProduct({
     name: "Test Audited",

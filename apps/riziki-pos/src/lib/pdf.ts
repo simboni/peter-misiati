@@ -41,6 +41,34 @@ const TALL_LINE_HEIGHT = LINE_HEIGHT * 2;
 const FOOTER_RESERVE = 16;
 
 /**
+ * The letterhead band on the first page.
+ *
+ * How wide the logo is drawn, and the air under it before the first line of
+ * text. Only the first page carries it — a customer wants the mark at the top
+ * of the document, not repeated over every page of a long statement — which is
+ * why pagination has to know that page one has less room than the rest.
+ */
+const LOGO_W = 132;
+const LOGO_GAP = 10;
+
+/**
+ * The shop's mark, ready to embed.
+ *
+ * Passed in rather than read from disk, because this file also runs in the
+ * browser: the till builds a receipt PDF itself when it is offline, and a
+ * `node:fs` import anywhere in this module's reach puts `node:fs` in the client
+ * bundle and fails the build. The server routes read the file (see
+ * `printLogo` in `brand.ts`) and hand the bytes over; the offline till passes
+ * nothing and gets the same document without a letterhead.
+ */
+export interface PdfLogo {
+  /** JPEG bytes, embedded untouched — see the DCTDecode note in `assemblePdf`. */
+  bytes: Uint8Array;
+  width: number;
+  height: number;
+}
+
+/**
  * Courier's advance width is exactly 0.6 em for every glyph, in every weight,
  * in the standard 14 fonts — the one metric this file can rely on without a
  * font metrics table. `Tz` (horizontal scaling) is what makes a "tall" line
@@ -94,18 +122,27 @@ function place(blocks: ReceiptBlock[]): Placed[] {
   return blocks.map((block) => ({ block, height: block.tall ? TALL_LINE_HEIGHT : LINE_HEIGHT }));
 }
 
-/** Split laid-out lines into pages, each within the printable height. */
-function paginate(lines: Placed[]): Placed[][] {
+/**
+ * Split laid-out lines into pages, each within the printable height.
+ *
+ * `firstInset` is the letterhead's band. It has to be taken off the first
+ * page's budget and no other, or a long statement overruns its last line onto
+ * a page of its own — which is how a document ends with a lone "Page 2 of 2"
+ * and nothing above it.
+ */
+function paginate(lines: Placed[], firstInset = 0): Placed[][] {
   const usable = PAGE_H - 2 * MARGIN - FOOTER_RESERVE;
   const pages: Placed[][] = [];
   let page: Placed[] = [];
   let used = 0;
+  let room = usable - firstInset;
 
   for (const line of lines) {
-    if (used + line.height > usable && page.length) {
+    if (used + line.height > room && page.length) {
       pages.push(page);
       page = [];
       used = 0;
+      room = usable;
     }
     page.push(line);
     used += line.height;
@@ -122,9 +159,34 @@ function xFor(align: ReceiptBlock["align"], textLength: number, width: number): 
   return MARGIN;
 }
 
-function pageContent(lines: Placed[], pageNo: number, pageCount: number, width: number): string {
-  const ops: string[] = ["BT"];
-  let y = PAGE_H - MARGIN - FONT_SIZE;
+function pageContent(
+  lines: Placed[],
+  pageNo: number,
+  pageCount: number,
+  width: number,
+  /** Height of the letterhead band on this page; zero on every page but the first. */
+  logoBand = 0,
+  /** What the image is drawn at, once `logoBand` has said there is one. */
+  logoHeight = 0,
+): string {
+  const ops: string[] = [];
+
+  // The image goes down before the text block opens: `Do` is a page operator
+  // and is illegal between BT and ET. `cm` scales the unit square the image is
+  // painted into, so the width and height here are the drawn size in points,
+  // not pixels — and `q`/`Q` keep that scaling off everything drawn after it.
+  if (logoBand > 0) {
+    const y0 = PAGE_H - MARGIN - logoHeight;
+    ops.push(
+      "q",
+      `${LOGO_W} 0 0 ${logoHeight.toFixed(2)} ${MARGIN} ${y0.toFixed(2)} cm`,
+      "/Im1 Do",
+      "Q",
+    );
+  }
+
+  ops.push("BT");
+  let y = PAGE_H - MARGIN - logoBand - FONT_SIZE;
   let font: "F1" | "F2" | null = null;
   let scale: 100 | 50 | null = null;
   let size: number | null = null;
@@ -148,7 +210,23 @@ function pageContent(lines: Placed[], pageNo: number, pageCount: number, width: 
 
     const text = block.text ?? "";
     const x = xFor(block.align, text.length, width);
-    ops.push(`1 0 0 1 ${x.toFixed(2)} ${y.toFixed(2)} Tm`);
+
+    /*
+      A tall line's extra height belongs above its baseline, not below it.
+
+      Text is drawn upward from the baseline, so a line set at twice the size
+      reaches about eleven points higher than an ordinary one — and the line
+      before it only ever reserved twelve points of gap. Drawn at the plain
+      baseline, TOTAL's capitals struck clean through the line above, which on
+      this invoice is the discount: "Discount  -4,130" came out looking crossed
+      off the bill.
+
+      So the baseline drops by whatever height this block claimed beyond a
+      normal one before anything is drawn. The block still advances by its full
+      height, so pagination counts exactly what it counted before.
+    */
+    const baseline = y - (height - LINE_HEIGHT);
+    ops.push(`1 0 0 1 ${x.toFixed(2)} ${baseline.toFixed(2)} Tm`);
     ops.push(`(${pdfString(text)}) Tj`);
 
     y -= height;
@@ -179,11 +257,12 @@ function pageContent(lines: Placed[], pageNo: number, pageCount: number, width: 
  * table. This half of the file knows nothing about invoices — it only knows
  * how to be a PDF.
  */
-function assemblePdf(pageContents: string[]): Uint8Array {
+function assemblePdf(pageContents: string[], logo?: { bytes: Uint8Array; width: number; height: number } | null): Uint8Array {
   const pageCount = pageContents.length;
   const fontRegularId = 3 + pageCount * 2;
   const fontBoldId = fontRegularId + 1;
-  const objectCount = fontBoldId; // ids 1..fontBoldId, all used
+  const imageId = logo ? fontBoldId + 1 : 0;
+  const objectCount = logo ? imageId : fontBoldId; // ids 1..objectCount, all used
 
   const chunks: Uint8Array[] = [];
   const offsets: number[] = new Array(objectCount + 1).fill(0);
@@ -210,7 +289,13 @@ function assemblePdf(pageContents: string[]): Uint8Array {
     pushObj(
       pageId,
       `${pageId} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_W} ${PAGE_H}] ` +
-        `/Resources << /Font << /F1 ${fontRegularId} 0 R /F2 ${fontBoldId} 0 R >> >> ` +
+        `/Resources << /Font << /F1 ${fontRegularId} 0 R /F2 ${fontBoldId} 0 R >>` +
+        // Declared on every page even though only the first draws it. A reader
+        // is entitled to refuse a page whose content stream names a resource
+        // its dictionary does not, and one shared declaration is cheaper than
+        // two page dictionaries that have to be kept in step.
+        (logo ? ` /XObject << /Im1 ${imageId} 0 R >>` : "") +
+        ` >> ` +
         `/Contents ${contentId} 0 R >>\nendobj\n`,
     );
     const body = ascii(content);
@@ -224,6 +309,19 @@ function assemblePdf(pageContents: string[]): Uint8Array {
 
   pushObj(fontRegularId, `${fontRegularId} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>\nendobj\n`);
   pushObj(fontBoldId, `${fontBoldId} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Courier-Bold >>\nendobj\n`);
+
+  // The logo, as its own bytes. `DCTDecode` means "this stream is a JPEG" —
+  // the reader's decoder does the work, so nothing here has to understand the
+  // image beyond how wide and tall it is.
+  if (logo) {
+    pushObj(
+      imageId,
+      `${imageId} 0 obj\n<< /Type /XObject /Subtype /Image /Width ${logo.width} /Height ${logo.height} ` +
+        `/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${logo.bytes.length} >>\nstream\n`,
+    );
+    push(logo.bytes);
+    push(ascii(`\nendstream\nendobj\n`));
+  }
 
   // -------------------------------------------------------------- xref
   //
@@ -250,19 +348,38 @@ function assemblePdf(pageContents: string[]): Uint8Array {
  * A receipt or invoice as a PDF, laid out with the same `renderReceipt()` used
  * for the till printer — so the two documents can never disagree.
  */
-export function receiptToPdf(receipt: Receipt): Uint8Array {
+export function receiptToPdf(receipt: Receipt, logo?: PdfLogo | null): Uint8Array {
   const width = pdfCharsPerLine();
   const blocks = renderReceipt(receipt, { width });
-  const pages = paginate(place(blocks));
-  const contents = pages.map((page, i) => pageContent(page, i + 1, pages.length, width));
-  return assemblePdf(contents);
+  return withLetterhead(place(blocks), width, logo);
 }
 
 /** A plain page of `ReceiptBlock`s — used for the customer statement, which
  *  has no thermal-printer form and so never goes through `renderReceipt`. */
-export function blocksToPdf(blocks: ReceiptBlock[]): Uint8Array {
-  const pages = paginate(place(blocks));
-  const width = pdfCharsPerLine();
-  const contents = pages.map((page, i) => pageContent(page, i + 1, pages.length, width));
-  return assemblePdf(contents);
+export function blocksToPdf(blocks: ReceiptBlock[], logo?: PdfLogo | null): Uint8Array {
+  return withLetterhead(place(blocks), pdfCharsPerLine(), logo);
+}
+
+/**
+ * Paginate and assemble, with the shop's mark at the top of the first page.
+ *
+ * Both entry points do the same three things in the same order, and the logo
+ * has to be taken into account at every one of them — the band comes off the
+ * first page's budget, the first page's text starts below it, and the image
+ * object has to reach the file. Doing that twice is how the invoice ends up
+ * with a letterhead and the statement quietly does not.
+ *
+ * No logo means no band, no image object, and a PDF byte-for-byte like the one
+ * this wrote before there was a logo at all — which is what the till falls back
+ * to when it makes a receipt offline, with no server to read the file for it.
+ */
+function withLetterhead(lines: Placed[], width: number, logo?: PdfLogo | null): Uint8Array {
+  const drawnHeight = logo ? (LOGO_W * logo.height) / logo.width : 0;
+  const band = logo ? drawnHeight + LOGO_GAP : 0;
+
+  const pages = paginate(lines, band);
+  const contents = pages.map((page, i) =>
+    pageContent(page, i + 1, pages.length, width, i === 0 ? band : 0, drawnHeight),
+  );
+  return assemblePdf(contents, logo);
 }

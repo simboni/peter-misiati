@@ -5,6 +5,7 @@ import { currentUser, requireOwner } from "@/lib/auth";
 import {
   listProducts,
   setItemActive,
+  deletableReason,
   createProduct,
   adoptUnitPricing,
   pendingUnitPricing,
@@ -14,6 +15,7 @@ import {
 import { fromCents, formatKes, formatQty, SIZE_UNITS, type SizeUnit } from "@/lib/units";
 import { Alert, Button, Card, Chip, Field, PageTitle, inputClass } from "@/components/ui";
 import PriceForm from "./price-form";
+import DeleteProduct from "./delete-product";
 
 // Prices and the catalogue change here; never serve a cached copy.
 export const dynamic = "force-dynamic";
@@ -196,13 +198,22 @@ function ProductRow({ item }: { item: AdminItem }) {
 
         {/* Hiding is a twice-a-year act; it lives inside the editor, in quiet
             ghost dress — red is for the moment of destruction, not the menu. */}
-        <form action={toggleActive} className="mt-2">
-          <input type="hidden" name="itemId" value={item.id} />
-          <input type="hidden" name="active" value={item.active ? "0" : "1"} />
-          <Button type="submit" variant="ghost">
-            {item.active ? "Hide from the counter" : "Show on the counter"}
-          </Button>
-        </form>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <form action={toggleActive}>
+            <input type="hidden" name="itemId" value={item.id} />
+            <input type="hidden" name="active" value={item.active ? "0" : "1"} />
+            <Button type="submit" variant="ghost">
+              {item.active ? "Hide from the counter" : "Show on the counter"}
+            </Button>
+          </form>
+
+          {/* Offered only where it is actually possible. A Delete that is going
+              to be refused is worse than no Delete: it invites the owner to
+              press it, then explains why they should not have. `deletableReason`
+              asks the same question the service will ask, so the button and the
+              rule can never disagree. */}
+          <DeleteProduct itemId={item.id} name={item.name} held={deletableReason(item.id)} />
+        </div>
 
         <p className="mt-2 text-[11px] text-muted">
           Arrives as {formatQty(item.size_milli, item.canonical_unit)} {item.unit_label}s

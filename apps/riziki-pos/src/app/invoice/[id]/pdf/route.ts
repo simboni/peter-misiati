@@ -15,6 +15,7 @@ import { requireUser } from "@/lib/auth";
 import { getInvoice } from "@/lib/credit";
 import { getPrintSettings, receiptFromInvoice } from "@/lib/print-settings";
 import { receiptToPdf } from "@/lib/pdf";
+import { printLogo } from "@/lib/brand";
 
 export const dynamic = "force-dynamic";
 
@@ -40,7 +41,7 @@ export async function GET(_request: Request, props: { params: Promise<{ id: stri
   }
 
   const receipt = receiptFromInvoice(invoice, getPrintSettings());
-  const bytes = receiptToPdf(receipt);
+  const bytes = receiptToPdf(receipt, printLogo());
   const name = invoice.sale.invoice_no ?? `sale-${invoice.sale.id}`;
 
   return new Response(Buffer.from(bytes), {
