@@ -36,6 +36,8 @@ export interface PriceRow {
   id: number;
   name: string;
   kind: string;
+  /** 'unit' — the prices below are per kilogram / litre, not per container. */
+  price_basis: "pack" | "unit";
   unit_label: string;
   size_milli: number;
   canonical_unit: string;
@@ -51,8 +53,8 @@ export interface PriceRow {
 /**
  * Everything sellable, cheapest-to-scan order.
  *
- * Chemicals first because they are the ones that move — a finished product's
- * price is the shop's own decision and changes when the owner decides, whereas
+ * Chemicals first because they are the ones that move — what a jerrican costs
+ * is the shop's own decision and changes when the owner decides, whereas
  * caustic soda changes when the world does.
  */
 export function priceList(q = ""): PriceRow[] {
@@ -60,7 +62,7 @@ export function priceList(q = ""): PriceRow[] {
   const searching = q.trim().length > 0;
 
   return all<PriceRow>(
-    `SELECT i.id, i.name, i.kind, i.unit_label, i.size_milli, i.canonical_unit,
+    `SELECT i.id, i.name, i.kind, i.price_basis, i.unit_label, i.size_milli, i.canonical_unit,
             i.retail_cents, i.wholesale_cents, i.floor_cents, i.cost_cents,
             (SELECT p.at FROM price_changes p WHERE p.item_id = i.id ORDER BY p.at DESC LIMIT 1)
               AS changed_at,

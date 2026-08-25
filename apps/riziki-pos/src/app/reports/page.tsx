@@ -262,7 +262,7 @@ export default async function ReportsPage() {
 
       </div>
       <div className="lg:col-span-5">
-      <SectionLabel>Shrinkage · stock take and repack loss</SectionLabel>
+      <SectionLabel>Shrinkage · what the count says the book missed</SectionLabel>
       {shrink.some((s) => s.milli !== 0 || s.value_cents !== 0) ? (
         <>
           <Card className="!py-2.5">
@@ -279,8 +279,8 @@ export default async function ReportsPage() {
               ))}
           </Card>
           <p className="mt-1.5 text-xs text-muted">
-            Repack loss of roughly 1.5% is expected. A stock-take gap that grows month on month
-            is not.
+            A small gap is ordinary — spillage, a scale that reads a little light. One that grows
+            month on month is not.
           </p>
         </>
       ) : (

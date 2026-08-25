@@ -4,13 +4,13 @@
  * `src/content/handbook.html` is one self-contained document: its own styles,
  * its own script, and every screenshot inlined as a data URI. It is deliberately
  * NOT in `public/`. A file in `public/` is world-readable, and this document
- * carries pictures of the Formulas and Batch screens — the recipes are the
- * business. Serving it through a route handler means the session decides who
- * sees what, the same way every other screen in this app does.
+ * carries pictures of the Formulas screens — the recipes are the business.
+ * Serving it through a route handler means the session decides who sees what,
+ * the same way every other screen in this app does.
  *
  * Two variants come out of the one source:
  *
- *   - `owner` — the document exactly as authored, all 24 screens.
+ *   - `owner` — the document exactly as authored, every screen.
  *   - `staff` — the owner-only screens physically removed.
  *
  * "Physically removed" is the point. The document ships with an audience filter

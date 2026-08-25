@@ -26,10 +26,17 @@ export interface StockLine {
   unit: "kg" | "L" | "pcs";
   sizeMilli: number;
   unitLabel: string;
+  /** 'unit' — counted, priced and sold by the kilogram rather than the container. */
+  basis: "pack" | "unit";
   costCents: number;
   reorderMilli: number;
   qtyMilli: number;
-  /** units on hand, e.g. 19 packs — the number the owner actually counts */
+  /**
+   * What the shop counts: containers for something sold whole, kilograms or
+   * litres for a chemical. The two are different questions — "how many
+   * jerricans" and "how many kilos" — and this is the answer to whichever one
+   * applies to this row.
+   */
   units: number;
   status: StockStatus;
   valueCents: number;
@@ -68,6 +75,7 @@ interface StockRowRaw {
   canonical_unit: "kg" | "L" | "pcs";
   size_milli: number;
   unit_label: string;
+  price_basis: "pack" | "unit";
   cost_cents: number;
   reorder_level_milli: number;
   qty_milli: number;
@@ -92,7 +100,8 @@ export function valueAtCost(qtyMilli: number, sizeMilli: number, costCents: numb
 }
 
 function toLine(r: StockRowRaw): StockLine {
-  const units = r.size_milli > 0 ? r.qty_milli / r.size_milli : 0;
+  const perCount = r.price_basis === "unit" ? 1000 : r.size_milli;
+  const units = perCount > 0 ? r.qty_milli / perCount : 0;
   return {
     id: r.id,
     chemicalId: r.chemical_id,
@@ -101,7 +110,8 @@ function toLine(r: StockRowRaw): StockLine {
     kind: r.kind,
     unit: r.canonical_unit,
     sizeMilli: r.size_milli,
-    unitLabel: r.unit_label,
+    unitLabel: r.price_basis === "unit" ? r.canonical_unit : r.unit_label,
+    basis: r.price_basis === "unit" ? "unit" : "pack",
     costCents: r.cost_cents,
     reorderMilli: r.reorder_level_milli,
     qtyMilli: r.qty_milli,
@@ -116,7 +126,7 @@ export function stockLines(): StockLine[] {
   // Bulk before packs, then biggest pack first — the order the shelf is stacked.
   const rows = all<StockRowRaw>(
     `SELECT i.id, i.chemical_id, i.name, i.kind, i.canonical_unit, i.size_milli,
-            i.unit_label, i.cost_cents, i.reorder_level_milli,
+            i.unit_label, i.price_basis, i.cost_cents, i.reorder_level_milli,
             c.name AS chemical_name, c.aliases AS chemical_aliases,
             COALESCE(SUM(m.delta_milli), 0) AS qty_milli
        FROM items i

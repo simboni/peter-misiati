@@ -27,9 +27,10 @@ const OWNER_ONLY = [
   "reports", // profit
   "activity",
   "settings",
-  "batch", // a batch run lists the formula's chemicals
-  "repack", // raw-reagent quantities off the shelf
-  "stocktake", // same
+  // Batch and Repack used to sit here. Both screens are gone — the shop
+  // neither mixes nor pre-packs any more — and their sections were cut from
+  // the document rather than left describing buttons that no longer exist.
+  "stocktake", // raw-reagent quantities off the shelf
   "printer", // lives under Settings
 ];
 
@@ -85,7 +86,9 @@ test("the staff copy is still a whole document, screenshots and all", () => {
   const count = (s: string, re: RegExp) => (s.match(re) ?? []).length;
 
   assert.equal(count(staff, /^<section id="/gm), count(staff, /^<\/section>$/gm), "sections left unbalanced");
-  assert.equal(count(staff, /^<section id="/gm), 24 - OWNER_ONLY.length);
+  // 22 screens: the twenty-four the document was authored with, less Batch and
+  // Repack, which the shop no longer has.
+  assert.equal(count(staff, /^<section id="/gm), 22 - OWNER_ONLY.length);
   // Every screenshot that belongs to a surviving screen is still inlined, so
   // the copy works with no network behind it.
   assert.ok(count(staff, /src="data:image\/webp;base64,/g) > 20, "screenshots went missing");

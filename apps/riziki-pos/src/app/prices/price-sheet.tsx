@@ -26,6 +26,9 @@ export interface SheetRow {
   id: number;
   name: string;
   kind: string;
+  /** 'unit' — every price on this row is per `unit`, not per container. */
+  basis: "pack" | "unit";
+  unit: string;
   retail_cents: number;
   wholesale_cents: number;
   floor_cents: number;
@@ -155,7 +158,15 @@ export function PriceSheet({ rows, staleDays }: { rows: SheetRow[]; staleDays: n
                 }`}
               >
                 <div className="min-w-0 basis-full sm:flex-1 sm:basis-auto">
-                  <span className="block font-bold leading-tight">{r.name}</span>
+                  <span className="block font-bold leading-tight">
+                    {r.name}
+                    {/* Said on the row, not in the header: the sheet mixes
+                        chemicals priced by the kilogram with jerricans priced
+                        whole, and a column heading cannot tell them apart. */}
+                    {r.basis === "unit" ? (
+                      <span className="ml-1.5 text-[11px] font-semibold text-brand">per {r.unit}</span>
+                    ) : null}
+                  </span>
                   <span className="text-[11px] text-muted">
                     {r.floor_cents > 0 ? `floor ${formatKes(r.floor_cents)}` : "no floor set"}
                     <span className="sm:hidden">

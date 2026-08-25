@@ -256,7 +256,6 @@ const FORMULAS: FormulaSpec[] = [
   },
 ];
 
-// Finished products bottled from the formulas above.
 // Containers and sundries the shop sells alongside the chemicals.
 const PACKAGING: Array<{ name: string; cost: number; qty: number }> = [
   { name: "500 ml bottle", cost: 15, qty: 400 },

@@ -119,13 +119,13 @@ before(() => {
   run(
     `INSERT INTO items (id, name, kind, canonical_unit, size_milli, unit_label,
                         sellable, retail_cents, wholesale_cents, floor_cents, cost_cents)
-     VALUES (2, 'Laundry Soap 1 L', 'finished', 'L', 1000, 'bottle', 1, 12000, 9000, 8000, 6000)`,
+     VALUES (2, '1 L bottle', 'packaging', 'pcs', 1000, 'bottle', 1, 12000, 9000, 8000, 6000)`,
   );
   // Never sold, still on the shelf — dead stock.
   run(
     `INSERT INTO items (id, name, kind, canonical_unit, size_milli, unit_label,
                         sellable, retail_cents, wholesale_cents, floor_cents, cost_cents)
-     VALUES (3, 'Jik 1 L', 'finished', 'L', 1000, 'bottle', 1, 13000, 10000, 9000, 8000)`,
+     VALUES (3, '5 L jerrican', 'packaging', 'pcs', 1000, 'jerrican', 1, 13000, 10000, 9000, 8000)`,
   );
   run(
     `INSERT INTO stock_movements (item_id, at, delta_milli, reason, user_id)
@@ -250,16 +250,16 @@ describe("net profit = sales − COGS − expenses", () => {
     assert.equal(e.count, 2);
   });
 
-  test("the business-line split separates repacks from finished goods", () => {
+  test("the business-line split separates the chemicals from what they are carried in", () => {
     const split = businessLineSplit(monthRange("2026-09"));
-    const repack = split.find((s) => s.line === "Repacked chemicals");
-    const finished = split.find((s) => s.line === "Finished products");
-    assert.ok(repack && finished);
-    assert.equal(repack.revenue_cents, 300000);
-    assert.equal(repack.profit_cents, 72000);
-    assert.equal(finished.revenue_cents, 120000);
-    assert.equal(finished.profit_cents, 60000);
-    assert.equal(Math.round(finished.margin_pct), 50);
+    const chemicals = split.find((s) => s.line === "Chemicals");
+    const containers = split.find((s) => s.line === "Containers");
+    assert.ok(chemicals && containers);
+    assert.equal(chemicals.revenue_cents, 300000);
+    assert.equal(chemicals.profit_cents, 72000);
+    assert.equal(containers.revenue_cents, 120000);
+    assert.equal(containers.profit_cents, 60000);
+    assert.equal(Math.round(containers.margin_pct), 50);
   });
 
   test("day close only counts cash, never M-Pesa or credit", () => {
@@ -440,14 +440,14 @@ describe("saving a day close", () => {
 describe("supporting helpers", () => {
   test("dead stock finds items with stock and no recent sale, valued at cost", () => {
     const rows = deadStock(60);
-    const jik = rows.find((r) => r.name === "Jik 1 L");
-    assert.ok(jik, "an item never sold but still in stock is dead stock");
-    assert.equal(jik.qty_milli, 10000);
-    assert.equal(jik.value_cents, 80000, "10 bottles at KES 80 cost");
-    assert.equal(jik.last_sold_at, null);
+    const jerrican = rows.find((r) => r.name === "5 L jerrican");
+    assert.ok(jerrican, "an item never sold but still in stock is dead stock");
+    assert.equal(jerrican.qty_milli, 10000);
+    assert.equal(jerrican.value_cents, 80000, "10 jerricans at KES 80 cost");
+    assert.equal(jerrican.last_sold_at, null);
   });
 
-  test("shrinkage values stock-take and repack loss at cost, by Nairobi month", () => {
+  test("shrinkage values what the count missed, at cost, by Nairobi month", () => {
     run(
       `INSERT INTO stock_movements (item_id, at, delta_milli, reason, user_id, note)
        VALUES (1, '2026-09-30 21:30:00', -20000, 'stocktake', 1, 'count short by one pack')`,

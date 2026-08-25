@@ -446,7 +446,7 @@ export function profitPerProduct(range: DateRange, limit = 20): ProductProfit[] 
 
 // ------------------------------------------------------------- business lines
 
-export type BusinessLine = "Repacked chemicals" | "Finished products" | "Other";
+export type BusinessLine = "Chemicals" | "Containers" | "Other";
 
 export interface LineSplit {
   line: BusinessLine;
@@ -458,14 +458,20 @@ export interface LineSplit {
 
 /** `items.kind` is not money-in-history, so joining for it is safe. */
 function lineOfKind(kind: string | null): BusinessLine {
-  if (kind === "bulk" || kind === "pack") return "Repacked chemicals";
-  if (kind === "finished") return "Finished products";
+  if (kind === "bulk" || kind === "pack") return "Chemicals";
+  if (kind === "packaging") return "Containers";
   return "Other";
 }
 
 /**
- * Repacking chemicals versus mixing finished products: two different
- * businesses sharing one till. The owner needs to know which one pays.
+ * The chemicals against everything else sold beside them.
+ *
+ * This used to split repacked chemicals from products the shop mixed and
+ * bottled — two businesses sharing one till, and the owner needed to know
+ * which one paid. The second business is closed: what sits beside the
+ * chemicals now is the containers people carry them home in, and the question
+ * is whether those are worth the shelf space. "Other" holds the last of the
+ * bottled stock as it sells out.
  */
 export function businessLineSplit(range: DateRange): LineSplit[] {
   const rows = all<{ kind: string | null; revenue_cents: number; cost_cents: number }>(
@@ -557,9 +563,13 @@ export interface ShrinkageRow {
 }
 
 /**
- * Stock that left without being sold: stock-take corrections and repack loss.
- * Negative values are losses. Repack loss on Ungerol runs about 1.5% and is
- * expected; a stock-take gap that grows month on month is not.
+ * Stock that left without being sold.
+ *
+ * Stock-take corrections, and the repack losses booked while the shop still
+ * broke drums down into packs. Negative values are losses. Weighing straight
+ * out of the drum has no repacking step to lose anything at, so what shows here
+ * from now on is the count against the book — and a gap that grows month on
+ * month is the thing this report exists to catch.
  */
 export function shrinkageByMonth(months = 6, from: string = businessDate()): ShrinkageRow[] {
   const keys = lastMonths(months, from);

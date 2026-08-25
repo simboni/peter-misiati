@@ -4,8 +4,13 @@
  * Physical count against the ledger — the shop's main anti-theft control.
  *
  * The variance is shown three ways because each answers a different question:
- * units ("four packs are missing"), substance ("that is 4 kg") and, for the owner
- * only, shillings ("that is KES 1,040 walking out of the door").
+ * how much ("four kilos short"), what it is ("that is 4 kg of caustic") and, for
+ * the owner only, shillings ("that is KES 1,040 walking out of the door").
+ *
+ * What is counted depends on the row. A jerrican is counted: there are eleven of
+ * them or there are not. A chemical is weighed, because once the shop sells by
+ * the kilogram a half-empty drum is not a countable number of anything — so the
+ * box asks for kilograms and says so.
  */
 
 import { useActionState, useEffect, useMemo, useState } from "react";
@@ -67,14 +72,17 @@ export function StocktakeClient({
       if (raw === undefined || raw.trim() === "") continue;
       const countedUnits = Number(raw);
       if (!Number.isFinite(countedUnits)) continue;
-      const countedMilli = Math.round(countedUnits * line.sizeMilli);
+      // What one counted unit is worth: a container, or one kilogram. Mirrors
+      // `planStocktake`, which is what actually posts the movement.
+      const perCount = line.basis === "unit" ? 1000 : line.sizeMilli;
+      const countedMilli = Math.round(countedUnits * perCount);
       const deltaMilli = countedMilli - line.qtyMilli;
       out.push({
         line,
         countedUnits,
         countedMilli,
         deltaMilli,
-        deltaUnits: line.sizeMilli > 0 ? deltaMilli / line.sizeMilli : 0,
+        deltaUnits: perCount > 0 ? deltaMilli / perCount : 0,
         deltaCents:
           line.sizeMilli > 0 ? Math.round((deltaMilli / line.sizeMilli) * line.costCents) : 0,
       });
@@ -148,21 +156,39 @@ export function StocktakeClient({
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-semibold leading-snug">{line.name}</div>
                     <div className="text-[11px] text-muted tnum">
-                      system {formatUnits(line.qtyMilli, line.sizeMilli, line.unitLabel)} ·{" "}
-                      {formatQty(line.qtyMilli, line.unit)}
+                      {line.basis === "unit" ? (
+                        <>
+                          system {formatQty(line.qtyMilli, line.unit)} ·{" "}
+                          {formatUnits(line.qtyMilli, line.sizeMilli, line.unitLabel === line.unit ? "container" : line.unitLabel)}
+                        </>
+                      ) : (
+                        <>
+                          system {formatUnits(line.qtyMilli, line.sizeMilli, line.unitLabel)} ·{" "}
+                          {formatQty(line.qtyMilli, line.unit)}
+                        </>
+                      )}
                     </div>
                   </div>
-                  <input
-                    className={`${inputClassBase} w-24 shrink-0 text-right tnum xl:!px-3 xl:!py-2`}
-                    type="number"
-                    inputMode="decimal"
-                    min="0"
-                    step="any"
-                    placeholder="count"
-                    aria-label={`Counted ${line.unitLabel}s of ${line.name}`}
-                    value={counts[line.id] ?? ""}
-                    onChange={(e) => setCounts((prev) => ({ ...prev, [line.id]: e.target.value }))}
-                  />
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <input
+                      className={`${inputClassBase} w-24 text-right tnum xl:!px-3 xl:!py-2`}
+                      type="number"
+                      inputMode="decimal"
+                      min="0"
+                      step="any"
+                      placeholder={line.basis === "unit" ? line.unit : "count"}
+                      aria-label={
+                        line.basis === "unit"
+                          ? `Weighed ${line.unit} of ${line.name}`
+                          : `Counted ${line.unitLabel}s of ${line.name}`
+                      }
+                      value={counts[line.id] ?? ""}
+                      onChange={(e) => setCounts((prev) => ({ ...prev, [line.id]: e.target.value }))}
+                    />
+                    {line.basis === "unit" ? (
+                      <span className="w-6 text-[11px] font-bold text-muted">{line.unit}</span>
+                    ) : null}
+                  </div>
                 </div>
 
                 {c && c.deltaMilli !== 0 ? (
@@ -170,7 +196,9 @@ export function StocktakeClient({
                     <Chip tone={c.deltaMilli < 0 ? "bad" : "warn"}>
                       {c.deltaUnits > 0 ? "+" : ""}
                       {Number(c.deltaUnits.toFixed(2))} {line.unitLabel}
-                      {Math.abs(Number(c.deltaUnits.toFixed(2))) === 1 ? "" : "s"}
+                      {line.basis === "unit" || Math.abs(Number(c.deltaUnits.toFixed(2))) === 1
+                        ? ""
+                        : "s"}
                     </Chip>
                     <span className="text-[11px] text-muted tnum">
                       {c.deltaMilli > 0 ? "+" : ""}

@@ -31,6 +31,8 @@ export default async function PricesPage(props: {
       id: r.id,
       name: r.name,
       kind: r.kind,
+      basis: r.price_basis === "unit" ? ("unit" as const) : ("pack" as const),
+      unit: r.canonical_unit,
       retail_cents: r.retail_cents,
       wholesale_cents: r.wholesale_cents,
       floor_cents: r.floor_cents,
