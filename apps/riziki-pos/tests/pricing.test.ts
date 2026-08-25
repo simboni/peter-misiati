@@ -21,10 +21,8 @@ const { get, all, run } = await import("../src/lib/db.ts");
 const { toCents, toMilli } = await import("../src/lib/units.ts");
 const {
   applyPrices,
-  priceList,
+  setCounterPrice,
   priceHistory,
-  checkState,
-  ageOfPrice,
   PriceError,
 } = await import("../src/lib/pricing.ts");
 
@@ -154,49 +152,6 @@ test("history is append-only", () => {
   assert.throws(() => run(`DELETE FROM price_changes WHERE id = ?`, id), /append-only/);
 });
 
-test("the list carries when each price last moved, and by whom", () => {
-  const rows = priceList();
-  const caustic = rows.find((r) => r.id === CAUSTIC)!;
-  assert.ok(caustic.changed_at, "a price that has been changed knows when");
-  assert.equal(caustic.changed_by, "Amina");
-  assert.equal(ageOfPrice(caustic.changed_at), 0, "changed just now reads as today");
-  assert.equal(ageOfPrice(null), null, "never changed is not the same as changed long ago");
-});
-
-test("the shop can see whether prices were looked at today", () => {
-  const s = checkState();
-  assert.equal(s.doneToday, true);
-  assert.equal(s.lastBy, "Amina");
-
-  // Backdate everything and the answer must flip — this is what the till's
-  // reminder reads, and it must not say "checked" because it once was.
-  run(`DROP TRIGGER IF EXISTS price_changes_no_update`);
-  run(`UPDATE price_changes SET at = datetime('now', '-3 days')`);
-  assert.equal(checkState().doneToday, false);
-  assert.ok(checkState().lastAt, "but the last change is still known");
-});
-
-test("search narrows the sheet", () => {
-  assert.equal(priceList("caustic").length, 1);
-  assert.equal(priceList("nothing like this").length, 0);
-  assert.ok(priceList().length >= 3);
-});
-
-test("only sellable, active items appear — the sheet is what the shop charges for", () => {
-  const hidden = item("Retired Reagent — 1 kg", 90, 80, 0);
-  run(`UPDATE items SET active = 0 WHERE id = ?`, hidden);
-  assert.equal(
-    priceList().some((r) => r.id === hidden),
-    false,
-  );
-
-  const notForSale = item("Bottle cap — 1 pcs", 5, 4, 0);
-  run(`UPDATE items SET sellable = 0 WHERE id = ?`, notForSale);
-  assert.equal(
-    priceList().some((r) => r.id === notForSale),
-    false,
-  );
-});
 
 test("a negative price is refused before it reaches the database", () => {
   assert.throws(
@@ -204,4 +159,86 @@ test("a negative price is refused before it reaches the database", () => {
     (e: unknown) => e instanceof PriceError && /zero or more/.test((e as Error).message),
   );
   assert.equal(all(`SELECT id FROM items WHERE retail_cents < 0`).length, 0);
+});
+
+
+// ----------------------------------------------- prices agreed at the counter
+
+/*
+  The morning price sheet is gone. A price is changed where it is argued about —
+  on the line at the till — so the guard that used to live on that screen has to
+  live here instead, and be the same guard.
+*/
+
+test("a price kept at the counter moves the shelf price and writes the history", () => {
+  const before = priceHistory(CAUSTIC).length;
+
+  const result = setCounterPrice({
+    itemId: CAUSTIC,
+    tier: "retail",
+    priceCents: 22000,
+    userId: STAFF,
+  });
+
+  assert.equal(result.changed, true);
+  assert.equal(result.newCents, 22000);
+  assert.equal(get<{ retail_cents: number }>(`SELECT retail_cents FROM items WHERE id = ?`, CAUSTIC)!.retail_cents, 22000);
+
+  const rows = priceHistory(CAUSTIC);
+  assert.equal(rows.length, before + 1, "the change is on the record");
+  assert.equal(rows[0].new_retail, 22000);
+  assert.equal(rows[0].user_name, "Amina");
+});
+
+test("keeping a retail price leaves the wholesale one alone", () => {
+  const wholesaleBefore = get<{ wholesale_cents: number }>(
+    `SELECT wholesale_cents FROM items WHERE id = ?`,
+    CAUSTIC,
+  )!.wholesale_cents;
+
+  setCounterPrice({ itemId: CAUSTIC, tier: "retail", priceCents: 23000, userId: STAFF });
+
+  assert.equal(
+    get<{ wholesale_cents: number }>(`SELECT wholesale_cents FROM items WHERE id = ?`, CAUSTIC)!
+      .wholesale_cents,
+    wholesaleBefore,
+    "a trade price nobody discussed must not move",
+  );
+});
+
+test("the floor still holds at the counter, and the owner can still overrule it", () => {
+  const floor = get<{ floor_cents: number }>(`SELECT floor_cents FROM items WHERE id = ?`, CAUSTIC)!
+    .floor_cents;
+  assert.ok(floor > 0, "this item has a floor to test against");
+
+  assert.throws(
+    () => setCounterPrice({ itemId: CAUSTIC, tier: "retail", priceCents: floor - 100, userId: STAFF }),
+    /floor/i,
+  );
+
+  // Unchanged: a refused price must not have half-applied.
+  assert.notEqual(
+    get<{ retail_cents: number }>(`SELECT retail_cents FROM items WHERE id = ?`, CAUSTIC)!.retail_cents,
+    floor - 100,
+  );
+
+  const result = setCounterPrice({
+    itemId: CAUSTIC,
+    tier: "retail",
+    priceCents: floor - 100,
+    userId: STAFF,
+    allowBelowFloor: true,
+  });
+  assert.equal(result.changed, true);
+});
+
+test("keeping the price it already is changes nothing and records nothing", () => {
+  const current = get<{ retail_cents: number }>(`SELECT retail_cents FROM items WHERE id = ?`, CAUSTIC)!
+    .retail_cents;
+  const before = priceHistory(CAUSTIC).length;
+
+  const result = setCounterPrice({ itemId: CAUSTIC, tier: "retail", priceCents: current, userId: STAFF });
+
+  assert.equal(result.changed, false);
+  assert.equal(priceHistory(CAUSTIC).length, before, "no row saying nothing happened");
 });

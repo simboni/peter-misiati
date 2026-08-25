@@ -139,6 +139,8 @@ export interface MixOffer {
     availableMilli: number;
     /** Not on the price list at all. */
     unlisted: boolean;
+    /** Stocked and sold, but still by the pack — so there is no rate to bill. */
+    legacyPackPriced: boolean;
     /** On the list, but at no price — billing it would give it away. */
     unpriced: boolean;
     /** Priced, but there is not enough of it in the store. */
@@ -438,19 +440,31 @@ function priceLabel(item: SellItem, cents: number): string {
 }
 
 /**
- * What is left, the way the shop counts it.
+ * What is left, the way the shop counts it — and the way it sells it.
  *
- * Both numbers for a weighed chemical — "25 drums · 1,000 kg" — because the
- * owner counts containers on the floor and the counter sells out of them by the
- * kilogram, and neither number alone answers "can I sell this order".
+ * Both numbers on every card that has two: "25 drums · 1,000 kg". The owner
+ * counts containers on the floor, the counter sells out of them by the
+ * kilogram, and neither number on its own answers "can I sell this order".
+ * "18 packs" alone was the count of a thing nobody buys whole any more.
+ *
+ * The second is dropped where it would only repeat the first: a jerrican is
+ * measured in pieces, so "20 pieces · 20 pcs" says one fact twice.
  */
 function stockLabel(item: SellItem): string {
   if (item.qtyMilli <= 0) return "none left";
-  const quantity = formatQty(item.qtyMilli, item.unit);
-  if (item.basis !== "unit" || item.sizeMilli <= 0) {
-    return formatUnits(item.qtyMilli, item.sizeMilli, item.unitLabel);
-  }
-  return `${formatUnits(item.qtyMilli, item.sizeMilli, item.unitLabel)} · ${quantity}`;
+
+  const containers = formatUnits(item.qtyMilli, item.sizeMilli, item.unitLabel);
+  if (item.unit === "pcs" || item.sizeMilli <= 0) return containers;
+
+  /*
+    Quantity first, containers second.
+
+    Six tiles to a row leaves about ninety pixels for this, and whichever half
+    is second gets an ellipsis. The shop sells by the kilogram, so the kilogram
+    is the half that has to survive: "1,755 kg · 35.1 b…" still answers "can I
+    sell this order", where "35.1 bags · 1,7…" does not.
+  */
+  return `${formatQty(item.qtyMilli, item.unit)} · ${containers}`;
 }
 
 /** How much one tap adds: one kilogram, one litre, one piece, or one container. */
@@ -520,7 +534,6 @@ function lineCents(item: SellItem, line: CartLine): number {
 export default function SellClient({
   items,
   topSellerIds,
-  pricesCheckedToday,
   customers,
   stockAsOf,
   action,
@@ -528,12 +541,11 @@ export default function SellClient({
   recipes,
   onLastOrder,
   onMix,
+  onKeepPrice,
   printer,
 }: {
   items: SellItem[];
   topSellerIds: number[];
-  /** False until somebody has changed a price today. Drives one banner. */
-  pricesCheckedToday: boolean;
   customers: SellCustomer[];
   /** When the server read these stock counts. Shown whenever they may be stale. */
   stockAsOf: string;
@@ -543,6 +555,20 @@ export default function SellClient({
   recipes: RecipeChoice[];
   onLastOrder: (customerId: number) => Promise<RepeatOrder | null>;
   onMix: (versionId: number, targetMilli: number, tier: Tier) => Promise<MixOffer | null>;
+  /**
+   * Keep a price agreed here as the shop's price from now on.
+   *
+   * The counter has always let a price be argued down for the sale in front of
+   * you, and that is all it did — which is right for haggling and wrong for the
+   * other half of what happens at a counter: the supplier moved, this is the
+   * real number, and it should be the shelf price from the next customer on.
+   */
+  onKeepPrice: (
+    itemId: number,
+    priceCents: number,
+    tier: Tier,
+    ownerPin?: string,
+  ) => Promise<{ ok: true; message: string } | { ok: false; error: string; needsPin: boolean }>;
   /** The shop's letterhead — nothing owner-sensitive — so a queued sale can
    *  build its own receipt on the phone with no server round trip. */
   printer: { paper: PaperWidth; header: string[]; footer: string; autoPrint: boolean };
@@ -574,9 +600,6 @@ export default function SellClient({
    * the cart changes without an effect to re-sync it.
    */
   const [payNow, setPayNow] = useState<string | null>(null);
-  // Dismissed for this visit only. A reminder that cannot be silenced becomes
-  // furniture, and furniture is not read.
-  const [priceNoteHidden, setPriceNoteHidden] = useState(false);
   const [payMethod, setPayMethod] = useState<"cash" | "mpesa">("cash");
   const [payCode, setPayCode] = useState("");
   /** The rare real case: part cash, part M-Pesa, on the same bill. */
@@ -1188,8 +1211,21 @@ export default function SellClient({
   const mixLeftOut = (mixOffer?.ingredients ?? [])
     .filter((i) => i.unlisted || i.unpriced)
     .map((i) => i.chemicalName);
+  /*
+    Stocked, sold, and still priced by the pack.
+
+    Its own message because it has its own fix, and because the alternative is
+    an attendant staring at a shelf full of Ungerol while the till insists it is
+    "not on the price list" — which reads as the till being broken, not as a
+    step nobody has taken yet.
+  */
+  const mixLegacy = (mixOffer?.ingredients ?? [])
+    .filter((i) => i.legacyPackPriced)
+    .map((i) => i.chemicalName);
   const mixShort = (mixOffer?.ingredients ?? []).filter((i) => i.short && !i.unlisted && !i.unpriced);
-  const mixAddable = (mixOffer?.ingredients ?? []).filter((i) => !i.unlisted && !i.unpriced).length;
+  const mixAddable = (mixOffer?.ingredients ?? []).filter(
+    (i) => !i.unlisted && !i.legacyPackPriced && !i.unpriced,
+  ).length;
 
 
   // ---- shared render closures: one markup, two dressings (phone sheet /
@@ -1269,6 +1305,7 @@ export default function SellClient({
               onStep={(d) => changeUnits(line.itemId, d)}
               onQuantity={(v) => setQuantity(line.itemId, v)}
               onPrice={(c) => setLinePrice(line.itemId, c)}
+              onKeepPrice={(pin) => onKeepPrice(line.itemId, line.priceCents, tier, pin)}
             />
           ))}
         </div>
@@ -1759,31 +1796,10 @@ export default function SellClient({
       </div>
 
       {/*
-        One line, once, and only when it is true and nothing is being sold.
-
-        Chemical prices move with the supplier and the shop can spend a whole
-        morning selling at last week's. This is the nudge to the screen that
-        fixes it — but it is a strip, not a banner, because the items are what
-        this screen is for and a reminder must not push them down the page.
+        The morning price check used to live on a screen of its own, and this is
+        where it was advertised. Both are gone: a price is changed where it is
+        argued about, which is here, on the line — see `onKeepPrice`.
       */}
-      {!pricesCheckedToday && !cart.length && !priceNoteHidden ? (
-        <div className="mb-2.5 flex items-center gap-2 rounded-xl bg-warn-soft px-3 py-1.5 text-[12px] font-semibold text-warn ring-1 ring-inset ring-warn/25">
-          <span className="min-w-0 flex-1 truncate">
-            Prices have not been checked today.
-          </span>
-          <Link href="/prices" className="shrink-0 font-bold underline">
-            Check prices
-          </Link>
-          <button
-            type="button"
-            onClick={() => setPriceNoteHidden(true)}
-            aria-label="Hide this reminder"
-            className="shrink-0 rounded px-1 text-warn/70 hover:text-warn"
-          >
-            ✕
-          </button>
-        </div>
-      ) : null}
 
       {receipt ? <div className="mb-3 lg:hidden">{renderReceipt()}</div> : null}
 
@@ -1945,9 +1961,13 @@ export default function SellClient({
                     <span className="shrink-0 text-[12px] font-semibold text-muted tnum">
                       {formatQty(ing.qtyMilli, ing.unit)}
                     </span>
-                    {ing.unlisted || ing.unpriced ? (
+                    {ing.unlisted || ing.legacyPackPriced || ing.unpriced ? (
                       <span className="shrink-0 text-[12px] font-bold text-bad">
-                        {ing.unlisted ? "not on the price list" : "no price set"}
+                        {ing.legacyPackPriced
+                          ? "still priced by the pack"
+                          : ing.unlisted
+                            ? "not on the price list"
+                            : "no price set"}
                       </span>
                     ) : (
                       <span
@@ -1981,14 +2001,47 @@ export default function SellClient({
                 a number: how much they could make with what is actually here,
                 offered as a button so nobody has to work it out.
               */}
+              {mixLegacy.length ? (
+                <div className="mt-2">
+                  <Alert tone="warn">
+                    <span className="font-bold">
+                      {mixLegacy.length === mixOffer.ingredients.length
+                        ? "These chemicals are"
+                        : `${mixLegacy.join(", ")} ${mixLegacy.length === 1 ? "is" : "are"}`}{" "}
+                      still priced by the pack.
+                    </span>{" "}
+                    They are in the store and they sell — but with no price per kilogram there is
+                    nothing to bill a recipe&rsquo;s few grams against.{" "}
+                    {isOwner ? (
+                      <>
+                        Open{" "}
+                        <Link href="/items" className="font-bold underline">
+                          Products &amp; prices
+                        </Link>{" "}
+                        and press &ldquo;Move to per-kilogram pricing&rdquo; — once, and this
+                        recipe adds up from then on.
+                      </>
+                    ) : (
+                      "Ask the owner to move the catalogue to per-kilogram pricing; it is one button on Products & prices."
+                    )}
+                  </Alert>
+                </div>
+              ) : null}
+
               {mixLeftOut.length ? (
                 <div className="mt-2">
                   <Alert tone="bad">
                     <span className="font-bold">
                       {mixLeftOut.join(", ")} cannot be billed.
                     </span>{" "}
-                    Set a price for {mixLeftOut.length === 1 ? "it" : "them"} under Prices for
-                    today, then this recipe adds up in full. The rest can still go on the sale.
+                    {/* The space is explicit. JSX drops the one between an
+                        expression and the text that follows it when that text
+                        wraps to the next source line, and "Tap iton the
+                        Chemicals board" is what reached the screen. */}
+                    Tap {mixLeftOut.length === 1 ? "it" : "them"}{" "}
+                    on the Chemicals board, set a price, and take &ldquo;Keep as the new
+                    price&rdquo; — then this recipe adds up in full. The rest can still go on the
+                    sale.
                   </Alert>
                 </div>
               ) : null}
@@ -2455,7 +2508,20 @@ function Grid({
                 : `text-[17px] ${tier === "wholesale" ? "text-warn" : "text-brand-deep"}`
             }`}
           >
-            {unpriced ? "No price set" : priceLabel(item, listPrice(item, tier))}
+            {/* The unit is set smaller than the money. Three tiles to a row on
+                a 390px phone leaves about ninety pixels, and "KES 810/kg" at
+                the price's own size lost its last character to the ellipsis —
+                which is the one thing on this tile that must never be wrong. */}
+            {unpriced ? (
+              "No price set"
+            ) : (
+              <>
+                {formatKes(listPrice(item, tier))}
+                {item.basis === "unit" ? (
+                  <span className="text-[11px] font-bold opacity-70">/{item.unit}</span>
+                ) : null}
+              </>
+            )}
           </span>
           <span
             className={`truncate text-[11px] leading-none tnum md:hidden ${
@@ -2532,6 +2598,7 @@ function CartRow({
   onStep,
   onQuantity,
   onPrice,
+  onKeepPrice,
 }: {
   item: SellItem;
   line: CartLine;
@@ -2541,6 +2608,10 @@ function CartRow({
   /** A quantity typed outright, in containers or in kg / L. */
   onQuantity: (value: number) => void;
   onPrice: (cents: number) => void;
+  /** Make the price on this line the shop's price from now on. */
+  onKeepPrice: (
+    ownerPin?: string,
+  ) => Promise<{ ok: true; message: string } | { ok: false; error: string; needsPin: boolean }>;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(() => centsToInput(line.priceCents));
@@ -2552,6 +2623,39 @@ function CartRow({
   /** What the box shows: "3" jerricans, or "1.5" kilograms. */
   const shown = weighed ? milliToInput(line.qtyMilli) : String(line.units);
   const over = line.qtyMilli > item.qtyMilli;
+
+  /*
+    Keeping the price.
+
+    Two different things happen when an attendant changes a price here, and only
+    the person standing there knows which: this customer talked them down (one
+    sale), or the supplier's price moved and this is the real number from now on
+    (every sale). Guessing would be wrong either way, so the second is an
+    explicit second tap — offered only once the price actually differs, and gone
+    again the moment it is taken.
+  */
+  const [keepState, setKeepState] = useState<"idle" | "busy" | "pin" | "done">("idle");
+  const [keepPin, setKeepPin] = useState("");
+  const [keepNote, setKeepNote] = useState<string | null>(null);
+
+  async function keep(pin?: string) {
+    setKeepState("busy");
+    setKeepNote(null);
+    try {
+      const result = await onKeepPrice(pin);
+      if (result.ok) {
+        setKeepState("done");
+        setKeepNote(result.message);
+        setKeepPin("");
+      } else {
+        setKeepState(result.needsPin ? "pin" : "idle");
+        setKeepNote(result.error);
+      }
+    } catch {
+      setKeepState("idle");
+      setKeepNote("Could not reach the till. The sale is unaffected.");
+    }
+  }
 
   function commit() {
     const cents = parseCents(draft);
@@ -2577,7 +2681,8 @@ function CartRow({
    * instruction is gone — the price is styled as the link it is.
    */
   return (
-    <div className="flex items-center gap-2.5 py-2">
+    <div className="py-2">
+    <div className="flex items-center gap-2.5">
       <div className="flex shrink-0 items-center rounded-lg bg-white ring-1 ring-inset ring-line">
         <button
           type="button"
@@ -2710,6 +2815,56 @@ function CartRow({
           </div>
         </>
       )}
+    </div>
+
+    {/*
+      Offered only once the price differs from the shop's, because until then
+      there is nothing to keep. A second tap, not a side effect of the first:
+      most price changes here are one customer haggling, and quietly moving the
+      shelf price every time somebody argued would be a catalogue written by
+      whoever pushed hardest.
+    */}
+    {discounted && !editing ? (
+      <div className="mt-1.5 flex flex-wrap items-center gap-2">
+        {keepState === "done" ? (
+          <span className="text-[11px] font-bold text-good">✓ {keepNote}</span>
+        ) : keepState === "pin" ? (
+          <>
+            <input
+              className="min-h-8 w-24 rounded-lg border border-warn/40 bg-white px-2 text-[12px] font-bold tnum"
+              value={keepPin}
+              onChange={(e) => setKeepPin(e.target.value)}
+              type="password"
+              inputMode="numeric"
+              autoComplete="off"
+              placeholder="Owner PIN"
+              aria-label={`Owner's PIN to set ${item.name} below its floor`}
+            />
+            <button
+              type="button"
+              onClick={() => keep(keepPin.trim())}
+              disabled={!keepPin.trim()}
+              className="rounded-full bg-warn px-3 py-1 text-[11px] font-bold text-white disabled:opacity-50"
+            >
+              Approve
+            </button>
+            {keepNote ? <span className="text-[11px] font-semibold text-warn">{keepNote}</span> : null}
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={() => keep()}
+              disabled={keepState === "busy"}
+              className="rounded-full bg-brand-soft px-3 py-1 text-[11px] font-bold text-brand-dark hover:bg-brand hover:text-white disabled:opacity-50"
+            >
+              {keepState === "busy" ? "Saving…" : "Keep as the new price"}
+            </button>
+            {keepNote ? <span className="text-[11px] font-semibold text-bad">{keepNote}</span> : null}
+          </>
+        )}
+      </div>
+    ) : null}
     </div>
   );
 }

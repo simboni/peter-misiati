@@ -23,7 +23,8 @@ const SOURCE = readFileSync(join(process.cwd(), "src", "content", "handbook.html
  */
 const OWNER_ONLY = [
   "formulas", // the recipes themselves
-  "prices", // cost prices sit on this screen
+  // "prices" was here — the morning price sheet. The screen is gone; prices are
+  // changed on the line at the till now, and the chapter went with it.
   "reports", // profit
   "activity",
   "settings",
@@ -86,9 +87,9 @@ test("the staff copy is still a whole document, screenshots and all", () => {
   const count = (s: string, re: RegExp) => (s.match(re) ?? []).length;
 
   assert.equal(count(staff, /^<section id="/gm), count(staff, /^<\/section>$/gm), "sections left unbalanced");
-  // 22 screens: the twenty-four the document was authored with, less Batch and
-  // Repack, which the shop no longer has.
-  assert.equal(count(staff, /^<section id="/gm), 22 - OWNER_ONLY.length);
+  // 21 screens: the twenty-four the document was authored with, less Batch,
+  // Repack and Prices for today, none of which the shop has any more.
+  assert.equal(count(staff, /^<section id="/gm), 21 - OWNER_ONLY.length);
   // Every screenshot that belongs to a surviving screen is still inlined, so
   // the copy works with no network behind it.
   assert.ok(count(staff, /src="data:image\/webp;base64,/g) > 20, "screenshots went missing");

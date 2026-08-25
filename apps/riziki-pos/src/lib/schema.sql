@@ -546,8 +546,10 @@ CREATE TABLE IF NOT EXISTS price_changes (
   old_wholesale  INTEGER NOT NULL,
   new_wholesale  INTEGER NOT NULL,
   user_id        INTEGER REFERENCES users(id),
-  -- 'check' = the start-of-day sweep, 'admin' = the owner's catalogue screen.
-  source         TEXT    NOT NULL DEFAULT 'check' CHECK (source IN ('check', 'admin')),
+  -- Where the change was made: 'counter' = agreed with a customer at the till
+  -- and kept, 'admin' = the owner's catalogue screen, 'check' = the start-of-day
+  -- sweep that used to have a screen of its own.
+  source         TEXT    NOT NULL DEFAULT 'check' CHECK (source IN ('check', 'admin', 'counter')),
   note           TEXT    NOT NULL DEFAULT ''
 );
 

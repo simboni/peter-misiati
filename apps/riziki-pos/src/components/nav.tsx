@@ -79,7 +79,12 @@ const MORE_GROUPS: Array<{
       // Open to attendants on purpose: the person who opens the shop is the
       // person who gets asked the price, and the floor price is what makes
       // letting them change it safe.
-      { href: "/prices", label: "Prices for today", short: "Prices", owner: false },
+      //
+      // "Prices for today" used to sit here — a sheet of every price, swept
+      // once each morning. A price is now changed where it is argued about,
+      // on the line at the till, so what is left worth opening is the record
+      // of what has been changed.
+      { href: "/prices/history", label: "Price history", short: "Prices", owner: false },
       { href: "/sales", label: "Sales history", owner: false },
       { href: "/day-close", label: "Day close", owner: false },
       { href: "/expenses", label: "Expenses", owner: false },

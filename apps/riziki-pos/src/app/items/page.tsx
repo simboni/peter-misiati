@@ -10,6 +10,8 @@ import {
   setItemActive,
   createFinished,
   createChemical,
+  adoptUnitPricing,
+  pendingUnitPricing,
   CatalogError,
   type AdminItem,
 } from "@/lib/catalog";
@@ -113,6 +115,37 @@ async function addChemical(formData: FormData): Promise<void> {
     redirectWith(e);
   }
   revalidatePath("/items");
+}
+
+/**
+ * Move the catalogue onto per-kilogram pricing.
+ *
+ * This used to be a script somebody had to run in a terminal, which is a fine
+ * thing to ask of a developer and no thing at all to ask of a shop. Until it has
+ * run, no chemical has a price per kilogram, so the counter refuses every recipe
+ * with "cannot be billed" and nobody on the floor can tell why. It is a button
+ * now, on the screen where prices live, with the numbers stated before it is
+ * pressed.
+ *
+ * Still deliberate, still owner-only, and still safe to press twice: it prices
+ * what is unpriced, pours pack stock back into the container it came out of as
+ * a matching pair of ledger movements, and retires the pack rows without
+ * deleting the sales that point at them.
+ */
+async function adoptPricing(): Promise<void> {
+  "use server";
+  const by = await guard();
+  try {
+    const report = adoptUnitPricing(by);
+    revalidatePath("/items");
+    revalidatePath("/sell");
+    redirect(
+      `/items?moved=${report.priced.length}&packs=${report.packsRetired}` +
+        `&unpriced=${encodeURIComponent(report.unpriced.join(", "))}`,
+    );
+  } catch (e) {
+    redirectWith(e);
+  }
 }
 
 // -------------------------------------------------------------------- views
@@ -258,9 +291,9 @@ function ItemCard({ item, sizeText }: { item: AdminItem; sizeText: string }) {
 }
 
 export default async function ItemsPage(props: {
-  searchParams: Promise<{ err?: string }>;
+  searchParams: Promise<{ err?: string; moved?: string; packs?: string; unpriced?: string }>;
 }) {
-  const { err } = await props.searchParams;
+  const { err, moved, packs, unpriced } = await props.searchParams;
   const me = await currentUser();
   if (!me) redirect("/login");
   // Prices, floors and the raw-chemical list all sit here; staff never see it.
@@ -269,17 +302,74 @@ export default async function ItemsPage(props: {
   const finished = listFinished();
   const packaging = listPackaging();
   const chemicals = listChemicals();
+  const pending = pendingUnitPricing();
 
   return (
     <div>
       <PageTitle
         title="What the shop sells"
-        subtitle="Add a chemical or a product here. For a price that has just moved, use Prices for today."
+        subtitle="Add a chemical or a product here. A price that has just moved is changed at the till."
       />
 
       {err ? (
         <div className="mb-3">
           <Alert tone="bad">{err}</Alert>
+        </div>
+      ) : null}
+
+      {moved ? (
+        <div className="mb-3 max-w-4xl">
+          <Alert tone="good">
+            <strong>
+              {moved} chemical{moved === "1" ? "" : "s"} now priced per kilogram
+            </strong>
+            {packs && packs !== "0" ? `, ${packs} pack sizes retired` : ""}. The counter can sell
+            any quantity of them, and a recipe adds up in full.
+            {unpriced ? (
+              <span className="mt-1 block font-semibold">
+                No price could be worked out for {unpriced} — there was no priced pack to go on.
+                Set those at the till, or below, before selling them.
+              </span>
+            ) : null}
+          </Alert>
+        </div>
+      ) : null}
+
+      {/*
+        The one thing on this screen that has to be done before anything else
+        works. Shown only while there is something to do, and gone for good once
+        it is done.
+      */}
+      {pending.chemicals > 0 ? (
+        <div className="mb-3 max-w-4xl rounded-2xl bg-warn-soft p-4 ring-1 ring-inset ring-warn/30">
+          <p className="text-sm font-bold text-warn">
+            {pending.chemicals} chemical{pending.chemicals === 1 ? " is" : "s are"} still priced by
+            the pack.
+          </p>
+          <p className="mt-1.5 text-sm leading-relaxed">
+            The counter sells chemicals by the kilogram now — any quantity, weighed out of the
+            container. Until these move across they have no price per kilogram, so the till says
+            &ldquo;cannot be billed&rdquo; when a recipe asks for them.
+          </p>
+          <p className="mt-2 text-sm leading-relaxed text-muted">
+            Pressing this works each price out from the pack you were already selling nearest one
+            kilogram, pours the{" "}
+            <span className="font-bold text-ink">{formatQty(pending.stockMilli, "kg")}</span> sitting
+            in {pending.packRows} pack sizes back into the containers it came from, and hides those
+            pack sizes. Nothing is deleted and no stock is created or lost — past sales still read
+            exactly as they did.
+            {pending.unpriceable.length ? (
+              <span className="mt-1 block">
+                <span className="font-bold text-ink">{pending.unpriceable.join(", ")}</span> ha
+                {pending.unpriceable.length === 1 ? "s" : "ve"} no priced pack to work from, so
+                {pending.unpriceable.length === 1 ? " it" : " they"} will come across at no price
+                and need one setting.
+              </span>
+            ) : null}
+          </p>
+          <form action={adoptPricing} className="mt-3">
+            <Button type="submit">Move {pending.chemicals} chemicals to per-kilogram pricing</Button>
+          </form>
         </div>
       ) : null}
 
@@ -300,12 +390,13 @@ export default async function ItemsPage(props: {
             hiding something you no longer sell.
           </p>
           <p className="mt-2 text-sm leading-relaxed text-muted">
-            To change a price that has moved, use{" "}
-            <Link href="/prices" className="font-bold text-brand">
-              Prices for today
-            </Link>
-            . It is one list, one box per price, and an attendant can do it. The prices here are
-            for setting up something new.
+            To change a price that has moved, change it at the till: tap the price on the line,
+            type the new one, and take &ldquo;Keep as the new price&rdquo;. An attendant can do
+            that, and every change lands in{" "}
+            <Link href="/prices/history" className="font-bold text-brand">
+              Price history
+            </Link>{" "}
+            with their name on it. The prices here are for setting up something new.
           </p>
           <p className="mt-2 text-sm leading-relaxed text-muted">
             You never type what a chemical <em>cost</em> you. That comes from what you actually

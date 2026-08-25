@@ -14,7 +14,7 @@ import {
 import { mixFor, listFormulas } from "@/lib/production";
 import { getPrintSettings } from "@/lib/print-settings";
 import { formatKes } from "@/lib/units";
-import { checkState } from "@/lib/pricing";
+import { setCounterPrice, PriceError } from "@/lib/pricing";
 import SellClient, {
   type MixOffer,
   type RecipeChoice,
@@ -190,10 +190,64 @@ async function mixAction(
       amountCents: i.amountCents,
       availableMilli: i.availableMilli,
       unlisted: i.unlisted,
+      legacyPackPriced: i.legacyPackPriced,
       unpriced: i.unpriced,
       short: i.short,
     })),
   };
+}
+
+/**
+ * Keep a price agreed at the counter as the shop's price from now on.
+ *
+ * Open to attendants, like the price screen it replaces. The person who opens
+ * the shop is the person the supplier's new price reaches first, and the floor
+ * is what makes handing them this safe: they can raise anything and lower
+ * nothing past the minimum the owner set without his PIN.
+ */
+async function keepPriceAction(
+  itemId: number,
+  priceCents: number,
+  tier: "retail" | "wholesale",
+  ownerPin?: string,
+): Promise<{ ok: true; message: string } | { ok: false; error: string; needsPin: boolean }> {
+  "use server";
+
+  const user = await requireUser();
+
+  let approvedBy: number | null = null;
+  if (ownerPin) {
+    approvedBy = authoriseOwnerPin(ownerPin);
+    if (!approvedBy) {
+      return { ok: false, error: "That is not an owner's PIN.", needsPin: true };
+    }
+  }
+
+  try {
+    const result = setCounterPrice({
+      itemId,
+      tier,
+      priceCents,
+      userId: user.id,
+      allowBelowFloor: approvedBy !== null,
+    });
+
+    // The grid and the top-sellers strip both quote the list price; without
+    // this the tile would still show the old one until the next navigation,
+    // and the attendant would reasonably conclude nothing had happened.
+    refresh();
+
+    return {
+      ok: true,
+      message: result.changed
+        ? `${result.name} is now ${formatKes(result.newCents)}${tier === "wholesale" ? " wholesale" : ""}.`
+        : `${result.name} was already that price.`,
+    };
+  } catch (err) {
+    const message = err instanceof PriceError ? err.message : "Could not change that price.";
+    // Below the floor is the one refusal an owner standing here can overrule.
+    return { ok: false, error: message, needsPin: /floor/i.test(message) };
+  }
 }
 
 interface ItemRow {
@@ -294,15 +348,11 @@ export default async function SellPage() {
       recipes={recipes}
       onLastOrder={lastOrderAction}
       onMix={mixAction}
+      onKeepPrice={keepPriceAction}
       // The counter may still be looking at this page hours later, served from
       // the service worker cache with no network. Stamping the read means a
       // stale stock count can be labelled as stale instead of read as gospel.
       stockAsOf={new Date().toISOString()}
-      // Whether anyone has looked at prices today. Chemical prices move with
-      // the supplier, and selling all morning on last week's is how the shop
-      // loses money quietly — so the till says so once, at the top, and links
-      // to the one screen that fixes it.
-      pricesCheckedToday={checkState().doneToday}
       action={sellAction}
     />
   );

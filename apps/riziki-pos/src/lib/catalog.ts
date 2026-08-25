@@ -306,6 +306,53 @@ export interface AdoptionReport {
   movedMilli: number;
 }
 
+/**
+ * What the move to per-kilogram pricing would do, without doing it.
+ *
+ * The counter is useless until this has run — every chemical still priced by
+ * the pack has no per-kilogram rate, so a recipe reports it "cannot be billed"
+ * and the attendant has no way to know why. So the owner is shown the state of
+ * it on the catalogue screen, with the numbers, rather than being expected to
+ * know a script exists.
+ */
+export interface PendingAdoption {
+  /** Chemicals still priced by the pack rather than by the kilogram. */
+  chemicals: number;
+  /** Pack rows that would be retired. */
+  packRows: number;
+  /** Stock sitting on those rows, which moves back to the container. */
+  stockMilli: number;
+  /** Chemicals with no priced pack to work a rate out from. */
+  unpriceable: string[];
+}
+
+export function pendingUnitPricing(): PendingAdoption {
+  const rows = all<{ id: number; name: string; priced: number }>(
+    `SELECT c.id, c.name,
+            (SELECT COUNT(*) FROM items p
+              WHERE p.chemical_id = c.id AND p.kind = 'pack' AND p.retail_cents > 0) AS priced
+       FROM chemicals c
+       JOIN items b ON b.chemical_id = c.id AND b.kind = 'bulk' AND b.price_basis <> 'unit'
+      ORDER BY c.name`,
+  );
+
+  const packs = get<{ n: number; milli: number }>(
+    `SELECT COUNT(*) AS n,
+            COALESCE((SELECT SUM(m.delta_milli)
+                        FROM stock_movements m
+                        JOIN items p2 ON p2.id = m.item_id
+                       WHERE p2.kind = 'pack'), 0) AS milli
+       FROM items p WHERE p.kind = 'pack' AND p.active = 1`,
+  );
+
+  return {
+    chemicals: rows.length,
+    packRows: packs?.n ?? 0,
+    stockMilli: Math.max(0, packs?.milli ?? 0),
+    unpriceable: rows.filter((r) => r.priced === 0).map((r) => r.name),
+  };
+}
+
 export function adoptUnitPricing(byUserId: number | null): AdoptionReport {
   return tx(() => {
     const report: AdoptionReport = { priced: [], unpriced: [], packsRetired: 0, movedMilli: 0 };

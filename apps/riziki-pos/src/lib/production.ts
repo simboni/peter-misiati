@@ -383,6 +383,16 @@ export interface MixIngredient {
   availableMilli: number;
   /** No sellable row for this chemical at all — the catalogue is incomplete. */
   unlisted: boolean;
+  /**
+   * The shop stocks and sells this chemical, but still by the pack rather than
+   * by the kilogram — so there is no rate to bill a recipe's 125 g against.
+   *
+   * A different thing from `unlisted`, and worth its own flag because the fix is
+   * different and specific: one press of "move to per-kilogram pricing" on the
+   * catalogue screen. Told it was "not on the price list", an attendant looking
+   * at a shelf full of the stuff would reasonably conclude the till was broken.
+   */
+  legacyPackPriced: boolean;
   /** Listed but priced at zero: billing it would give it away. */
   unpriced: boolean;
   /** Listed and priced, but there is not enough of it in the store. */
@@ -440,6 +450,16 @@ export function mixFor(versionId: number, targetMilli: number, tier: Tier): Mix 
 
     if (!source) {
       possibleMilli = 0;
+      // Sold by the pack, or not sold at all? The counter cannot act on the
+      // first without being told which it is.
+      const legacy = Boolean(
+        get(
+          `SELECT 1 FROM items
+            WHERE chemical_id = ? AND sellable = 1 AND active = 1 AND price_basis <> 'unit'
+            LIMIT 1`,
+          line.chemicalId,
+        ),
+      );
       return {
         chemicalId: line.chemicalId,
         chemicalName: line.chemicalName,
@@ -450,7 +470,8 @@ export function mixFor(versionId: number, targetMilli: number, tier: Tier): Mix 
         rateCents: 0,
         amountCents: 0,
         availableMilli: 0,
-        unlisted: true,
+        unlisted: !legacy,
+        legacyPackPriced: legacy,
         unpriced: false,
         short: false,
       };
@@ -479,6 +500,7 @@ export function mixFor(versionId: number, targetMilli: number, tier: Tier): Mix 
       amountCents: rateCents > 0 ? amountFor(rateCents, line.neededMilli) : 0,
       availableMilli: source.qty_milli,
       unlisted: false,
+      legacyPackPriced: false,
       unpriced: rateCents <= 0,
       short,
     };
@@ -492,7 +514,8 @@ export function mixFor(versionId: number, targetMilli: number, tier: Tier): Mix 
     ingredients,
     totalCents: ingredients.reduce((s, i) => s + i.amountCents, 0),
     sellable:
-      ingredients.length > 0 && ingredients.every((i) => !i.unlisted && !i.unpriced && !i.short),
+      ingredients.length > 0 &&
+      ingredients.every((i) => !i.unlisted && !i.legacyPackPriced && !i.unpriced && !i.short),
     possibleMilli: Number.isFinite(possibleMilli) ? possibleMilli : 0,
   };
 }

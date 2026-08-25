@@ -25,58 +25,12 @@
  */
 
 import { all, get, run, tx, audit } from "./db.ts";
-import { formatKes, toCents } from "./units.ts";
+import { formatKes, fromCents, toCents } from "./units.ts";
 
 export class PriceError extends Error {}
 
 /** Prices set before this many days ago are worth a second look. */
 export const STALE_DAYS = 14;
-
-export interface PriceRow {
-  id: number;
-  name: string;
-  kind: string;
-  /** 'unit' — the prices below are per kilogram / litre, not per container. */
-  price_basis: "pack" | "unit";
-  unit_label: string;
-  size_milli: number;
-  canonical_unit: string;
-  retail_cents: number;
-  wholesale_cents: number;
-  floor_cents: number;
-  cost_cents: number;
-  /** Null when the price has never been changed since the shop was set up. */
-  changed_at: string | null;
-  changed_by: string | null;
-}
-
-/**
- * Everything sellable, cheapest-to-scan order.
- *
- * Chemicals first because they are the ones that move — what a jerrican costs
- * is the shop's own decision and changes when the owner decides, whereas
- * caustic soda changes when the world does.
- */
-export function priceList(q = ""): PriceRow[] {
-  const like = `%${q.trim().toLowerCase()}%`;
-  const searching = q.trim().length > 0;
-
-  return all<PriceRow>(
-    `SELECT i.id, i.name, i.kind, i.price_basis, i.unit_label, i.size_milli, i.canonical_unit,
-            i.retail_cents, i.wholesale_cents, i.floor_cents, i.cost_cents,
-            (SELECT p.at FROM price_changes p WHERE p.item_id = i.id ORDER BY p.at DESC LIMIT 1)
-              AS changed_at,
-            (SELECT u.name FROM price_changes p LEFT JOIN users u ON u.id = p.user_id
-              WHERE p.item_id = i.id ORDER BY p.at DESC LIMIT 1)
-              AS changed_by
-       FROM items i
-      WHERE i.active = 1 AND i.sellable = 1
-        ${searching ? "AND LOWER(i.name) LIKE ?" : ""}
-      ORDER BY CASE i.kind WHEN 'bulk' THEN 0 WHEN 'pack' THEN 0 ELSE 1 END,
-               i.name COLLATE NOCASE, i.size_milli`,
-    ...(searching ? [like] : []),
-  );
-}
 
 export interface PriceEdit {
   itemId: number;
@@ -105,7 +59,7 @@ export interface PriceResult {
 export function applyPrices(
   edits: PriceEdit[],
   userId: number,
-  opts: { allowBelowFloor?: boolean; source?: "check" | "admin" } = {},
+  opts: { allowBelowFloor?: boolean; source?: "check" | "admin" | "counter" } = {},
 ): PriceResult {
   if (!edits.length) return { changed: 0, skipped: 0, lines: [] };
 
@@ -185,6 +139,61 @@ export function applyPrices(
   });
 }
 
+/**
+ * Keep a price agreed at the counter as the shop's new price.
+ *
+ * The counter has always let an attendant come down on a price, but only for
+ * the sale in front of them — which is right for haggling and wrong for the
+ * other half of what happens at a counter: the supplier's price moved, the
+ * attendant learns the real number from the first customer of the day, and it
+ * should be the shelf price from then on. Without this, that fact lived in one
+ * person's head until somebody opened a separate screen to type it in again.
+ *
+ * Only the tier being sold on is touched. Changing the retail price because a
+ * trade buyer negotiated a wholesale one would move a number nobody discussed.
+ *
+ * Everything else is the same guard the price sheet had: the floor still holds
+ * unless an owner authorised going under it, and the change is written to the
+ * append-only history with the name of whoever made it.
+ */
+export function setCounterPrice(input: {
+  itemId: number;
+  tier: "retail" | "wholesale";
+  priceCents: number;
+  userId: number;
+  allowBelowFloor?: boolean;
+}): { name: string; oldCents: number; newCents: number; changed: boolean } {
+  const item = get<{ id: number; name: string; retail_cents: number; wholesale_cents: number }>(
+    `SELECT id, name, retail_cents, wholesale_cents FROM items WHERE id = ?`,
+    input.itemId,
+  );
+  if (!item) throw new PriceError("That item is no longer on the price list.");
+
+  const oldCents = input.tier === "wholesale" ? item.wholesale_cents : item.retail_cents;
+
+  /*
+    Delegated rather than reimplemented.
+
+    `applyPrices` owns the floor check, the history row and the transaction, and
+    a second copy of that logic here would be a second place for the floor to
+    stop being enforced. It takes shillings because that is what the forms hand
+    it; `money()` rounds back to the same integer cents on the way in.
+  */
+  const result = applyPrices(
+    [
+      {
+        itemId: item.id,
+        retail: fromCents(input.tier === "retail" ? input.priceCents : item.retail_cents),
+        wholesale: fromCents(input.tier === "wholesale" ? input.priceCents : item.wholesale_cents),
+      },
+    ],
+    input.userId,
+    { allowBelowFloor: input.allowBelowFloor, source: "counter" },
+  );
+
+  return { name: item.name, oldCents, newCents: input.priceCents, changed: result.changed > 0 };
+}
+
 function money(shillings: number, label: string): number {
   if (!Number.isFinite(shillings) || shillings < 0) {
     throw new PriceError(`${label} must be a number, zero or more.`);
@@ -192,66 +201,7 @@ function money(shillings: number, label: string): number {
   return toCents(shillings);
 }
 
-// ------------------------------------------------------------------ the ritual
-
-export interface CheckState {
-  /** Nairobi date of the last check, "YYYY-MM-DD", or null if never. */
-  lastAt: string | null;
-  lastBy: string | null;
-  doneToday: boolean;
-  /** Sellable prices not touched in STALE_DAYS — the ones worth looking at. */
-  staleCount: number;
-}
-
-/**
- * Has anyone looked at prices today, and how much is going stale?
- *
- * The shop keeps Nairobi time (UTC+3) and SQLite stores UTC, so "today" has to
- * be asked for in the shop's day, not the server's — otherwise a check at 8am
- * would read as yesterday's for the first three hours of every morning.
- */
-export function checkState(): CheckState {
-  const last = get<{ at: string; name: string | null }>(
-    `SELECT p.at, u.name
-       FROM price_changes p LEFT JOIN users u ON u.id = p.user_id
-      ORDER BY p.at DESC LIMIT 1`,
-  );
-
-  const today = get<{ n: number }>(
-    `SELECT COUNT(*) AS n FROM price_changes
-      WHERE date(at, '+3 hours') = date('now', '+3 hours')`,
-  );
-
-  const stale = get<{ n: number }>(
-    `SELECT COUNT(*) AS n FROM items i
-      WHERE i.active = 1 AND i.sellable = 1 AND i.retail_cents > 0
-        AND COALESCE(
-              (SELECT p.at FROM price_changes p WHERE p.item_id = i.id ORDER BY p.at DESC LIMIT 1),
-              '0000-00-00'
-            ) < datetime('now', ?)`,
-    `-${STALE_DAYS} days`,
-  );
-
-  return {
-    lastAt: last?.at ?? null,
-    lastBy: last?.name ?? null,
-    doneToday: (today?.n ?? 0) > 0,
-    staleCount: stale?.n ?? 0,
-  };
-}
-
-/**
- * Whole days since a price last moved, or null if it never has.
- *
- * Never-changed is not the same as changed-long-ago: a price that came in with
- * the shop's opening stock has no history at all, and saying "9,371 days" of it
- * would be nonsense.
- */
-export function ageOfPrice(changedAt: string | null, now: Date = new Date()): number | null {
-  if (!changedAt) return null;
-  const at = new Date(changedAt.includes("T") ? changedAt : changedAt.replace(" ", "T") + "Z");
-  return Math.max(0, Math.floor((now.getTime() - at.getTime()) / 86_400_000));
-}
+// -------------------------------------------------------------- the record
 
 export interface HistoryRow {
   at: string;

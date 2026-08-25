@@ -10,10 +10,11 @@ export const dynamic = "force-dynamic";
 /**
  * What prices used to be.
  *
- * The reason the price check writes history rather than just overwriting a
+ * The reason a price change writes history rather than just overwriting a
  * column: a customer says "last week it was nine hundred", and somebody has to
  * be able to answer that with a record instead of a memory. It also shows the
- * owner what the counter has been doing with the freedom he just handed over.
+ * owner what the counter has been doing with the freedom he handed over —
+ * every change made at the till lands here, named.
  */
 export default async function PriceHistoryPage() {
   const user = await currentUser();
@@ -24,10 +25,10 @@ export default async function PriceHistoryPage() {
   return (
     <div>
       <Link
-        href="/prices"
+        href="/sell"
         className="mb-2 inline-flex min-h-11 items-center gap-1.5 text-sm font-bold text-brand hover:underline xl:min-h-9"
       >
-        <span aria-hidden>←</span> Prices
+        <span aria-hidden>←</span> Back to selling
       </Link>
       <PageTitle title="Price history" subtitle="Every change, who made it, and what it was before" />
 
