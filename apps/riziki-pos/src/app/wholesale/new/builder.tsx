@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Alert, Button, Card, SectionLabel, inputClass } from "@/components/ui";
 import { formatKes } from "@/lib/units";
@@ -24,6 +24,69 @@ export interface DraftLine {
   unitPriceCents: number;
   /** How much substance, in milli, for an item priced per kilogram. */
   qtyMilli: number;
+}
+
+/**
+ * A box you can actually type a decimal into.
+ *
+ * Both of these boxes used to be controlled straight off the number: the value
+ * shown was `cents / 100`, and every keystroke was parsed and echoed back. That
+ * works until somebody types a dot. "95." parses to 95, 95 renders as "95", and
+ * the dot is gone — so the next key lands in the shillings and 95.50 is entered
+ * as 9550. On a quotation that is a hundredfold error nobody sees until the
+ * customer does. A leading zero disappeared the same way, which put 0.25 kg of
+ * caustic in as 25 kg.
+ *
+ * So while somebody is typing, what they typed is the truth. The number is
+ * parsed out of it for the totals, and the text is only normalised on the way
+ * out, or when the value is changed from elsewhere — picking a different item,
+ * or loading a quote's lines.
+ */
+function DecimalInput({
+  value,
+  onValue,
+  label,
+  className,
+}: {
+  /** The canonical value in the caller's own unit — 95.5 shillings, 0.25 kg. */
+  value: number;
+  onValue: (n: number) => void;
+  label: string;
+  className?: string;
+}) {
+  const [text, setText] = useState(() => decimalText(value));
+  const [typing, setTyping] = useState(false);
+
+  useEffect(() => {
+    if (!typing) setText(decimalText(value));
+  }, [value, typing]);
+
+  return (
+    <input
+      className={className}
+      inputMode="decimal"
+      value={text}
+      onFocus={() => setTyping(true)}
+      onBlur={() => {
+        setTyping(false);
+        setText(decimalText(value));
+      }}
+      onChange={(e) => {
+        const raw = e.target.value;
+        // Digits and at most one dot. Anything else is refused outright rather
+        // than silently reinterpreted, so a stray letter cannot become a price.
+        if (!/^\d*\.?\d*$/.test(raw)) return;
+        setText(raw);
+        onValue(raw === "" || raw === "." ? 0 : Number(raw));
+      }}
+      aria-label={label}
+    />
+  );
+}
+
+/** Blank for nothing, and no trailing zeroes on anything else. */
+function decimalText(n: number): string {
+  return n ? String(Number(n.toFixed(3))) : "";
 }
 
 /** What one draft line comes to. Matches `quoteLineCents` on the server. */
@@ -298,23 +361,18 @@ export default function Builder({
                   <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">
                     {item?.basis === "unit" ? item.canonicalUnit : "Units"}
                   </span>
-                  <input
+                  <DecimalInput
                     className={`${inputClass} tnum`}
-                    inputMode={item?.basis === "unit" ? "decimal" : "numeric"}
-                    value={
-                      item?.basis === "unit"
-                        ? String(Number((l.qtyMilli / 1000).toFixed(3)))
-                        : l.units
-                    }
-                    onChange={(e) =>
+                    value={item?.basis === "unit" ? l.qtyMilli / 1000 : l.units}
+                    onValue={(n) =>
                       setLine(
                         i,
                         item?.basis === "unit"
-                          ? { qtyMilli: Math.max(0, Math.round(Number(e.target.value) * 1000 || 0)) }
-                          : { units: Math.max(0, Math.trunc(Number(e.target.value) || 0)) },
+                          ? { qtyMilli: Math.max(0, Math.round(n * 1000)) }
+                          : { units: Math.max(0, Math.trunc(n)) },
                       )
                     }
-                    aria-label={
+                    label={
                       item?.basis === "unit"
                         ? `How much on line ${i + 1}, in ${item.canonicalUnit}`
                         : `Units on line ${i + 1}`
@@ -326,14 +384,11 @@ export default function Builder({
                   <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">
                     {item?.basis === "unit" ? `Price per ${item.canonicalUnit}` : "Price each"}
                   </span>
-                  <input
+                  <DecimalInput
                     className={`${inputClass} tnum ${cut ? "text-warn" : ""}`}
-                    inputMode="decimal"
-                    value={l.unitPriceCents ? (l.unitPriceCents / 100).toString() : ""}
-                    onChange={(e) =>
-                      setLine(i, { unitPriceCents: Math.max(0, Math.round(Number(e.target.value || 0) * 100)) })
-                    }
-                    aria-label={`Price on line ${i + 1}`}
+                    value={l.unitPriceCents / 100}
+                    onValue={(n) => setLine(i, { unitPriceCents: Math.max(0, Math.round(n * 100)) })}
+                    label={`Price on line ${i + 1}`}
                   />
                 </label>
 
