@@ -104,7 +104,7 @@ export default async function HomePage() {
         <div className="mt-3">
           <Link href="/day-close" className="block">
             <Alert tone="warn">
-              <strong>The day hasn&rsquo;t been closed.</strong> Count the drawer before locking
+              <strong>The day hasn’t been closed.</strong> Count the drawer before locking
               up — tap to close the day.
             </Alert>
           </Link>

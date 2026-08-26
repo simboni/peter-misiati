@@ -70,7 +70,7 @@ export default async function NewFormulaPage() {
     return (
       <div>
         <PageTitle title="New recipe" />
-        <Alert tone="bad">The recipes are the owner&rsquo;s. Ask the owner to sign in on this phone.</Alert>
+        <Alert tone="bad">The recipes are the owner’s. Ask the owner to sign in on this phone.</Alert>
       </div>
     );
   }
@@ -82,7 +82,7 @@ export default async function NewFormulaPage() {
       <div>
         <PageTitle title="New recipe" />
         <Alert tone="warn">
-          There are no chemicals to build a recipe out of yet. Add them on Products &amp; prices
+          There are no chemicals to build a recipe out of yet. Add them on Products & prices
           first — a recipe is a list of things the shop already stocks.
         </Alert>
       </div>

@@ -152,9 +152,9 @@ export default async function DayClosePage() {
       {totals.expectedCashCents < 0 ? (
         <div className="mt-2.5">
           <Alert tone="warn">
-            Expected cash is below zero — today&rsquo;s cash expenses were more than the cash
-            taken. That usually means the drawer started with a float that isn&rsquo;t set up:
-            check the float in Users &amp; settings, or the expense entries above.
+            Expected cash is below zero — today’s cash expenses were more than the cash
+            taken. That usually means the drawer started with a float that isn’t set up:
+            check the float in Users & settings, or the expense entries above.
           </Alert>
         </div>
       ) : null}

@@ -99,7 +99,7 @@ export default async function FormulaDetailPage(props: {
     return (
       <div>
         <PageTitle title="Formula" />
-        <Alert tone="bad">The recipes are the owner&rsquo;s.</Alert>
+        <Alert tone="bad">The recipes are the owner’s.</Alert>
       </div>
     );
   }

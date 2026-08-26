@@ -76,16 +76,16 @@ export default async function PrinterSettingsPage() {
           <span className="font-semibold text-ink">Pick the printer, not the pairing.</span> Choose the
           device whose name matches the printer (often <span className="font-mono">Printer001</span> or{" "}
           <span className="font-mono">BlueTooth Printer</span>) rather than anything already paired in
-          Android&rsquo;s own Bluetooth settings.
+          Android’s own Bluetooth settings.
         </li>
         <li>
-          <span className="font-semibold text-ink">Characters look wrong?</span> Set the printer&rsquo;s own
+          <span className="font-semibold text-ink">Characters look wrong?</span> Set the printer’s own
           code page to CP437 or CP850 in its self-test menu.
         </li>
       </ul>
 
       <div className="mt-4 text-sm font-bold text-brand">
-        <Link href="/settings">← Users &amp; settings</Link>
+        <Link href="/settings">← Users & settings</Link>
       </div>
     </div>
   );

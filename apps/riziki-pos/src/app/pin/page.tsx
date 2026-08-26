@@ -81,7 +81,7 @@ export default async function PinPage(props: { searchParams: Promise<{ err?: str
       </Card>
 
       <p className="mt-4 text-xs text-muted">
-        Forgotten your PIN entirely? The owner can reset it from Users &amp; settings.
+        Forgotten your PIN entirely? The owner can reset it from Users & settings.
       </p>
     </div>
   );

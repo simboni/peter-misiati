@@ -133,7 +133,7 @@ export default async function SettingsPage(props: {
   if (me.role !== "owner") {
     return (
       <div>
-        <PageTitle title="Users &amp; settings" />
+        <PageTitle title="Users & settings" />
         <Alert tone="bad">
           Only the owner can manage accounts. Ask the owner to sign in on this phone.
         </Alert>
@@ -158,7 +158,7 @@ export default async function SettingsPage(props: {
     // fits beside itself. The cap widens; the columns inside it do not.
     <div className="lg:max-w-3xl xl:max-w-5xl 2xl:max-w-6xl">
       <PageTitle
-        title="Users &amp; settings"
+        title="Users & settings"
         subtitle="Who can use the system, and the details that appear on an invoice"
       />
 
@@ -321,7 +321,7 @@ export default async function SettingsPage(props: {
           </Field>
           <p className="text-xs text-muted">
             Currently expecting {formatKes(floatCents)}{" "}
-            in the drawer before the day&rsquo;s takings.
+            in the drawer before the day’s takings.
           </p>
           <Button type="submit" className="w-full">
             Save

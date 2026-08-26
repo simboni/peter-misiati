@@ -31,14 +31,23 @@ export function SalesChart({ data }: { data: MonthPoint[] }) {
   const [asTable, setAsTable] = useState(false);
   const tableId = useId();
 
-  const max = Math.max(1, ...data.map((d) => d.salesCents));
+  /*
+    The tallest month, and the number the bars are drawn against.
+
+    They are not the same number. The heights need a denominator that is never
+    zero, but that guard used to be the label too, so a shop that had not sold
+    anything yet was told its best month was one cent. The peak is the truth and
+    goes on the label; the scale is arithmetic and stays out of sight.
+  */
+  const peak = Math.max(0, ...data.map((d) => d.salesCents));
+  const scale = Math.max(1, peak);
   const summary = data.map((d) => `${d.label} ${formatKes(d.salesCents)}`).join(", ");
 
   return (
     <div>
       <div className="mb-2 flex items-center justify-between gap-3">
         <p className="text-xs text-muted">
-          Sales per month · highest {formatKes(max)}
+          Sales per month · {peak > 0 ? `highest ${formatKes(peak)}` : "nothing sold yet"}
         </p>
         <button
           type="button"
@@ -102,7 +111,7 @@ export function SalesChart({ data }: { data: MonthPoint[] }) {
                 const current = i === data.length - 1;
                 // A month with no sales still gets a sliver, so the gap reads as
                 // "nothing sold" rather than "no data".
-                const height = Math.max(1.5, (d.salesCents / max) * 100);
+                const height = Math.max(1.5, (d.salesCents / scale) * 100);
                 return (
                   <div key={d.ym} className="relative flex h-full flex-1 items-end">
                     <div

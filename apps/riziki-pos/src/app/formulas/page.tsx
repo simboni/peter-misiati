@@ -28,7 +28,7 @@ export default async function FormulasPage(props: {
       <div>
         <PageTitle title="Recipes" />
         <Alert tone="bad">
-          The recipes are the owner&rsquo;s. Ask the owner to sign in on this phone.
+          The recipes are the owner’s. Ask the owner to sign in on this phone.
         </Alert>
         <p className="mt-3 text-sm text-muted">
           Selling a recipe at the counter does not need this screen — and does not show it.

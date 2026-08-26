@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { requireOwner } from "@/lib/auth";
+import { currentUser, requireOwner } from "@/lib/auth";
 import { loadDemoData, clearTradingData, tradingCounts, DemoError } from "@/lib/demo";
 import { authoriseOwnerPin } from "@/lib/sales";
 import { PageTitle, Card, SectionLabel, Alert } from "@/components/ui";
@@ -74,7 +74,28 @@ async function clear(formData: FormData): Promise<void> {
 export default async function DemoDataPage(props: {
   searchParams: Promise<{ ok?: string; err?: string }>;
 }) {
-  await requireOwner();
+  /*
+    Refuse an attendant in words, not with a crash.
+
+    `requireOwner()` reports by throwing, which in a page component becomes a
+    500 and an error digest with no message in it — so an attendant who tapped
+    through from Settings got a broken screen rather than an answer. Every
+    other owner-only screen already says who this is for; this one is the last
+    that did not. The gate still runs before a single count is read.
+  */
+  const me = await currentUser();
+  if (!me) redirect("/login");
+  if (me.role !== "owner") {
+    return (
+      <div>
+        <PageTitle title="Demo data" />
+        <Alert tone="bad">
+          Only the owner can load or clear demo data. Ask the owner to sign in on this phone.
+        </Alert>
+      </div>
+    );
+  }
+
   const { ok, err } = await props.searchParams;
   const counts = tradingCounts();
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
@@ -111,7 +132,7 @@ export default async function DemoDataPage(props: {
       <Card>
         <p className="text-sm leading-relaxed text-muted">
           Adds twelve customers, three suppliers, six deliveries, about ninety sales — some paid,
-          some part paid, some on account — a handful of quotes in every state, the month&rsquo;s
+          some part paid, some on account — a handful of quotes in every state, the month’s
           expenses and a few price changes. It is written the same way real trading is, so stock,
           costs, debts and reports all add up.
         </p>
@@ -158,7 +179,7 @@ export default async function DemoDataPage(props: {
           </label>
           <label className="block">
             <span className="mb-1 block text-[11px] font-bold uppercase tracking-[0.12em] text-muted">
-              Owner&rsquo;s PIN
+              Owner’s PIN
             </span>
             <input
               name="pin"

@@ -1575,7 +1575,7 @@ export default function SellClient({
                   </Button>
                 </div>
                 <p className="mt-2 text-[11px] text-muted">
-                  New customers start with no credit limit, so anything they owe needs the owner&apos;s
+                  New customers start with no credit limit, so anything they owe needs the owner’s
                   PIN until he sets one.
                 </p>
               </div>
@@ -1996,12 +1996,12 @@ export default function SellClient({
                       still priced by the pack.
                     </span>{" "}
                     They are in the store and they sell — but with no price per kilogram there is
-                    nothing to bill a recipe&rsquo;s few grams against.{" "}
+                    nothing to bill a recipe’s few grams against.{" "}
                     {isOwner ? (
                       <>
                         Open{" "}
                         <Link href="/items" className="font-bold underline">
-                          Products &amp; prices
+                          Products & prices
                         </Link>{" "}
                         and press “Move to per-kilogram pricing” — once, and this
                         recipe adds up from then on.

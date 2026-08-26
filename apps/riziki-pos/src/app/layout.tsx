@@ -13,6 +13,22 @@ import { markSrc } from "@/lib/brand";
 export const metadata: Metadata = {
   title: "Riziki POS",
   description: "Riziki Industrial Chemicals — mixing, stock and point of sale",
+
+  /*
+    Say where the tab icon is, rather than letting the browser guess.
+
+    Both PNGs have been sitting in `public/` all along, and `RegisterSW` already
+    points iOS and the manifest at them — but nothing ever declared a plain
+    `rel="icon"`, so every page load ended in a blind guess at `/favicon.ico`
+    and a 404 in the console. The apple-touch and manifest links stay where they
+    are; declaring them here as well would only emit each of them twice.
+  */
+  icons: {
+    icon: [
+      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+  },
 };
 
 export const viewport: Viewport = {
