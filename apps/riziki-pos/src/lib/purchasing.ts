@@ -79,6 +79,11 @@ export function updateSupplier(id: number, input: SupplierInput, userId?: number
 // --------------------------------------------------------------- proration
 
 export interface PurchaseLineInput {
+  /**
+   * What ONE container on this delivery held, in milli. Zero or absent falls
+   * back to the item's usual size — see the note in `schema.sql`.
+   */
+  sizeMilli?: number;
   itemId: number;
   /** Whole containers delivered: 3 drums, 20 bags. */
   units: number;
@@ -179,22 +184,39 @@ export function recordPurchase(input: PurchaseInput): PurchaseResult {
       );
       if (!item) throw new Error(`unknown item ${line.itemId}`);
 
+      /*
+        How big one container on THIS delivery was.
+
+        Taken from the line, falling back to the item's usual size. Ufacid comes
+        in 250 kg drums and in 200 kg drums; with only the item's size to go on,
+        three drums of the smaller kind were booked as 750 kg and the shop's
+        stock was 50 kg out with nothing on any screen to say why.
+      */
+      const sizeMilli = line.sizeMilli && line.sizeMilli > 0 ? line.sizeMilli : item.size_milli;
+      if (!(sizeMilli > 0)) {
+        throw new Error(`${item.name} has no container size — say what one holds.`);
+      }
+      const arrivedMilli = line.units * sizeMilli;
+
       // Order matters — see the file header. Average cost first, ledger second.
-      updateAverageCost(line.itemId, line.units, line.landedCents);
+      // In milli, because the cost being averaged is the cost of a kilogram and
+      // not of a drum: two drum sizes have no shared "cost of a drum".
+      updateAverageCost(line.itemId, arrivedMilli, line.landedCents);
 
       run(
-        `INSERT INTO purchase_lines (purchase_id, item_id, units, qty_milli, cost_cents)
-         VALUES (?, ?, ?, ?, ?)`,
+        `INSERT INTO purchase_lines (purchase_id, item_id, units, size_milli, qty_milli, cost_cents)
+         VALUES (?, ?, ?, ?, ?, ?)`,
         purchaseId,
         line.itemId,
         line.units,
-        line.units * item.size_milli,
+        sizeMilli,
+        arrivedMilli,
         line.landedCents, // landed, so the lines reconcile to purchases.total_cents
       );
 
       postMovement({
         itemId: line.itemId,
-        deltaMilli: line.units * item.size_milli,
+        deltaMilli: arrivedMilli,
         reason: "purchase",
         refType: "purchase",
         refId: purchaseId,
@@ -256,8 +278,13 @@ export interface PurchaseLineRow {
 
 export function purchaseLines(purchaseId: number): PurchaseLineRow[] {
   return all<PurchaseLineRow>(
+    // The line's own container size, falling back to the item's for deliveries
+    // recorded before the size was kept per line. A past delivery has to read
+    // as what actually came off the lorry, not as what the drum size happens to
+    // be today.
     `SELECT pl.id, pl.item_id, pl.units, pl.qty_milli, pl.cost_cents,
-            i.name AS item_name, i.canonical_unit, i.unit_label, i.size_milli
+            i.name AS item_name, i.canonical_unit, i.unit_label,
+            CASE WHEN pl.size_milli > 0 THEN pl.size_milli ELSE i.size_milli END AS size_milli
        FROM purchase_lines pl
        JOIN items i ON i.id = pl.item_id
       WHERE pl.purchase_id = ?
@@ -273,7 +300,17 @@ export interface PriceHistoryRow {
   supplier_name: string | null;
   units: number;
   cost_cents: number;
-  /** Landed cost of ONE container — the number that tells him prices moved. */
+  /** What one container on that delivery held, in milli. */
+  size_milli: number;
+  /**
+   * Landed cost of ONE KILOGRAM, litre or piece — the number that tells him
+   * prices moved.
+   *
+   * Per unit of measure rather than per container, because a chemical that
+   * arrives in 250 kg drums one month and 200 kg drums the next would otherwise
+   * show a 20% "price drop" that is nothing but a smaller drum. A kilogram is
+   * comparable with last month's kilogram; a drum is not.
+   */
   unit_cost_cents: number;
 }
 
@@ -285,8 +322,9 @@ export interface PriceHistoryRow {
 export function priceHistory(itemId: number, limit = 24): PriceHistoryRow[] {
   return all<PriceHistoryRow>(
     `SELECT p.id AS purchase_id, p.at, p.ref, s.name AS supplier_name,
-            pl.units, pl.cost_cents,
-            CAST(pl.cost_cents / pl.units AS INTEGER) AS unit_cost_cents
+            pl.units, pl.cost_cents, pl.size_milli,
+            CAST(ROUND(1000.0 * pl.cost_cents / NULLIF(pl.qty_milli, 0)) AS INTEGER)
+              AS unit_cost_cents
        FROM purchase_lines pl
        JOIN purchases p     ON p.id = pl.purchase_id
        LEFT JOIN suppliers s ON s.id = p.supplier_id
@@ -299,9 +337,16 @@ export function priceHistory(itemId: number, limit = 24): PriceHistoryRow[] {
 }
 
 /** Items that have ever been bought in — the useful shortlist for price history. */
-export function purchasedItems(): Array<{ id: number; name: string; deliveries: number }> {
-  return all<{ id: number; name: string; deliveries: number }>(
-    `SELECT i.id, i.name, COUNT(DISTINCT pl.purchase_id) AS deliveries
+export function purchasedItems(): Array<{
+  id: number;
+  name: string;
+  canonical_unit: string;
+  deliveries: number;
+}> {
+  return all<{ id: number; name: string; canonical_unit: string; deliveries: number }>(
+    // The unit comes along because the price history is now quoted per kilogram
+    // rather than per drum, and the column has to say which.
+    `SELECT i.id, i.name, i.canonical_unit, COUNT(DISTINCT pl.purchase_id) AS deliveries
        FROM purchase_lines pl
        JOIN items i ON i.id = pl.item_id
       GROUP BY i.id

@@ -64,6 +64,135 @@ export interface ItemChoice {
   kind: string;
   unit_label: string;
   cost_cents: number;
+  /** kg, L or pcs — what a quantity of it is counted in. */
+  canonical_unit: string;
+  /** The usual container, in milli. Pre-fills a delivery line; never binds it. */
+  size_milli: number;
+}
+
+/**
+ * One line of a delivery: what came, how many, how big each one was.
+ *
+ * The container size is asked for HERE rather than taken from the item, and
+ * that is the whole point of this component. Ufacid comes in 250 kg drums and
+ * in 200 kg drums; with only the item's single size to multiply by, three of
+ * the smaller drums were booked as 750 kg and the shop's stock was 50 kg out
+ * with nothing on any screen to say why. The item's usual size pre-fills the
+ * box, so an ordinary delivery is still three keystrokes.
+ *
+ * The weight is spelled out under the row as it is typed, because that number —
+ * not the number of drums — is what the ledger is about to be moved by, and it
+ * is the one an owner can check against the delivery note in his hand.
+ */
+function PurchaseLine({ items, groups }: { items: ItemChoice[]; groups: string[] }) {
+  const [itemId, setItemId] = useState("");
+  const [units, setUnits] = useState("");
+  const [size, setSize] = useState("");
+  const [cost, setCost] = useState("");
+
+  const chosen = items.find((i) => String(i.id) === itemId);
+  const unit = chosen?.canonical_unit ?? "kg";
+  // Typed, or the item's usual container. Blank posts nothing and the server
+  // falls back the same way, so the two can never disagree.
+  const each = Number(size) || (chosen ? chosen.size_milli / 1000 : 0);
+  const count = Number(units) || 0;
+  const arrived = each > 0 && count > 0 ? each * count : 0;
+  const costCents = Math.round((Number(cost) || 0) * 100);
+  const perUnit = arrived > 0 && costCents > 0 ? Math.round(costCents / arrived) : 0;
+
+  return (
+    <>
+      <select
+        className={`${inputClass} mb-2`}
+        name="item_id"
+        value={itemId}
+        onChange={(e) => {
+          setItemId(e.target.value);
+          setSize(""); // back to the new item's usual container
+        }}
+      >
+        <option value="">Choose an item…</option>
+        {groups.map((kind) => (
+          <optgroup key={kind} label={KIND_GROUP[kind]}>
+            {items
+              .filter((it) => it.kind === kind)
+              .map((it) => (
+                <option key={it.id} value={it.id}>
+                  {it.name}
+                  {it.cost_cents
+                    ? ` — last ${formatKes(it.cost_cents)}/${it.canonical_unit}`
+                    : ""}
+                </option>
+              ))}
+          </optgroup>
+        ))}
+      </select>
+
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="How many">
+          <input
+            className={inputClass}
+            name="units"
+            type="number"
+            min={1}
+            step={1}
+            inputMode="numeric"
+            placeholder="3"
+            autoComplete="off"
+            value={units}
+            onChange={(e) => setUnits(e.target.value)}
+          />
+        </Field>
+        <Field
+          label={`Each holding (${unit})`}
+          hint={chosen ? `Usually ${chosen.size_milli / 1000} ${unit}.` : "Set on the product."}
+        >
+          <input
+            className={`${inputClass} tnum`}
+            name="size"
+            inputMode="decimal"
+            autoComplete="off"
+            placeholder={chosen ? String(chosen.size_milli / 1000) : ""}
+            value={size}
+            onChange={(e) => {
+              const raw = e.target.value;
+              if (!/^\d*\.?\d*$/.test(raw)) return;
+              setSize(raw);
+            }}
+          />
+        </Field>
+      </div>
+
+      <div className="mt-2">
+        <Field label="Line cost (KES)">
+          <input
+            className={inputClass}
+            name="cost"
+            type="text"
+            inputMode="decimal"
+            placeholder="193800"
+            autoComplete="off"
+            value={cost}
+            onChange={(e) => setCost(e.target.value)}
+          />
+        </Field>
+      </div>
+
+      {arrived > 0 ? (
+        <p className="mt-1.5 text-[11px] tnum">
+          <span className="font-bold text-brand-dark">
+            {count} × {each} {unit} = {arrived.toLocaleString()} {unit}
+          </span>
+          {perUnit > 0 ? (
+            <span className="text-muted">
+              {" · "}
+              {formatKes(perUnit)}/{unit} landed
+            </span>
+          ) : null}
+        </p>
+      ) : null}
+    </>
+  );
 }
 
 const KIND_GROUP: Record<string, string> = {
@@ -130,46 +259,7 @@ export function PurchaseForm({
               ) : null}
             </div>
 
-            <select className={`${inputClass} mb-2`} name="item_id" defaultValue="">
-              <option value="">Choose an item…</option>
-              {groups.map((kind) => (
-                <optgroup key={kind} label={KIND_GROUP[kind]}>
-                  {items
-                    .filter((it) => it.kind === kind)
-                    .map((it) => (
-                      <option key={it.id} value={it.id}>
-                        {it.name}
-                        {it.cost_cents ? ` — last ${formatKes(it.cost_cents)}/${it.unit_label}` : ""}
-                      </option>
-                    ))}
-                </optgroup>
-              ))}
-            </select>
-
-            <div className="grid grid-cols-2 gap-2">
-              <Field label="Units">
-                <input
-                  className={inputClass}
-                  name="units"
-                  type="number"
-                  min={1}
-                  step={1}
-                  inputMode="numeric"
-                  placeholder="3"
-                  autoComplete="off"
-                />
-              </Field>
-              <Field label="Line cost (KES)">
-                <input
-                  className={inputClass}
-                  name="cost"
-                  type="text"
-                  inputMode="decimal"
-                  placeholder="193800"
-                  autoComplete="off"
-                />
-              </Field>
-            </div>
+            <PurchaseLine items={items} groups={groups} />
           </div>
         ))}
       </div>

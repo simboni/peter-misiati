@@ -813,7 +813,7 @@ export function deadStock(days = 60, limit = 25): DeadStockRow[] {
       GROUP BY i.id
      HAVING qty_milli > 0
         AND (last_sold_at IS NULL OR last_sold_at < datetime('now', ?))
-      ORDER BY (qty_milli * i.cost_cents) / i.size_milli DESC
+      ORDER BY qty_milli * i.cost_cents DESC
       LIMIT ?`,
     `-${days} days`,
     limit,
@@ -822,7 +822,8 @@ export function deadStock(days = 60, limit = 25): DeadStockRow[] {
   return rows.map((r) => ({
     ...r,
     // Cost is per ONE unit; stock is milli of substance. Round once, at the end.
-    value_cents: r.size_milli > 0 ? Math.round((r.qty_milli * r.cost_cents) / r.size_milli) : 0,
+    // Cost is per kilogram, litre or piece — see `valueAtCost`.
+    value_cents: Math.round((r.qty_milli * r.cost_cents) / 1000),
   }));
 }
 
@@ -849,7 +850,7 @@ export function shrinkageByMonth(months = 6, from: string = businessDate()): Shr
   const rows = all<{ ym: string; milli: number; value_cents: number }>(
     `SELECT strftime('%Y-%m', m.at, '+3 hours') AS ym,
             COALESCE(SUM(m.delta_milli), 0)     AS milli,
-            COALESCE(SUM(CAST(ROUND(1.0 * m.delta_milli * i.cost_cents / i.size_milli) AS INTEGER)), 0)
+            COALESCE(SUM(CAST(ROUND(1.0 * m.delta_milli * i.cost_cents / 1000) AS INTEGER)), 0)
                                                 AS value_cents
        FROM stock_movements m
        JOIN items i ON i.id = m.item_id

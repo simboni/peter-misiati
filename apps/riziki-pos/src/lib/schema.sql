@@ -477,6 +477,12 @@ CREATE TABLE IF NOT EXISTS purchase_lines (
   purchase_id INTEGER NOT NULL REFERENCES purchases(id),
   item_id     INTEGER NOT NULL REFERENCES items(id),
   units       INTEGER NOT NULL CHECK (units > 0),
+  -- What ONE container on this delivery held. Ufacid comes in 250 kg drums and
+  -- in 200 kg drums, so this is a fact about the delivery, not about the
+  -- substance: multiplying units by the item's single container size booked the
+  -- wrong weight the moment a different drum turned up. The item still carries a
+  -- usual size, and it is what pre-fills this.
+  size_milli  INTEGER NOT NULL DEFAULT 0 CHECK (size_milli >= 0),
   qty_milli   INTEGER NOT NULL CHECK (qty_milli > 0),
   cost_cents  INTEGER NOT NULL CHECK (cost_cents >= 0)   -- total for the line
 );

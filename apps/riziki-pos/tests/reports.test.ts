@@ -124,7 +124,10 @@ before(() => {
   run(
     `INSERT INTO items (id, chemical_id, name, kind, canonical_unit, size_milli, unit_label,
                         sellable, price_cents, floor_cents, cost_cents)
-     VALUES (1, 1, 'Ungerol — 20 kg', 'pack', 'kg', 20000, 'pack', 1, 100000, 85000, 76000)`,
+     -- cost_cents is per KILOGRAM: KES 760 for the 20 kg pack is KES 38 a kilo.
+     -- It used to be the cost of one container, which stopped being answerable
+     -- once a chemical could arrive in two different drum sizes.
+     VALUES (1, 1, 'Ungerol — 20 kg', 'pack', 'kg', 20000, 'pack', 1, 100000, 85000, 3800)`,
   );
   run(
     `INSERT INTO items (id, name, kind, canonical_unit, size_milli, unit_label,

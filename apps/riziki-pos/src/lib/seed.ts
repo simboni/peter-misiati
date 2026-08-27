@@ -331,6 +331,9 @@ export function seed(
     const bulkSize = c.bulk ?? 1;
     const bulkCostCents = toCents(c.bulkCost ?? 0);
     const perUnitCents = bulkSize > 0 ? Math.round(bulkCostCents / bulkSize) : 0;
+    // Same figure, named for what it is where it is used as a cost rather than
+    // as the basis of a selling price.
+    const landedPerUnitCents = perUnitCents;
 
     /*
       One row per chemical, priced per kilogram.
@@ -364,7 +367,10 @@ export function seed(
       price,
       perUnitCents,
       ceiling,
-      bulkCostCents,
+      // Cost per KILOGRAM, not per drum. `cost_cents` is a cost per unit of
+      // measure everywhere now, because a chemical that arrives in 250 kg and
+      // 200 kg drums has no single "cost of a drum" to average.
+      landedPerUnitCents,
       toMilli(50),
     );
     itemIds[`${c.key}:bulk`] = bid;

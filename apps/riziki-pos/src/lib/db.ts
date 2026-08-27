@@ -9,6 +9,8 @@
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
+// `units.ts` imports nothing, so this cannot become a cycle.
+import { MILLI } from "./units.ts";
 
 export type Role = "owner" | "staff";
 
@@ -159,6 +161,8 @@ const ADDED_COLUMNS: Array<{ table: string; column: string; definition: string }
     nothing deletes a bundle, it is only ever switched off.
   */
   { table: "sale_lines", column: "bundle_id", definition: "INTEGER" },
+  // What one drum on that delivery held — see the note in schema.sql.
+  { table: "purchase_lines", column: "size_milli", definition: "INTEGER NOT NULL DEFAULT 0" },
   { table: "quote_lines", column: "bundle_id", definition: "INTEGER" },
 ];
 
@@ -346,22 +350,39 @@ export function audit(
 // ------------------------------------------------------------------ costing
 
 /**
- * Weighted-average cost, recalculated whenever stock is bought.
+ * Weighted-average cost per kilogram, litre or piece, recalculated on every
+ * delivery.
  *
  * Chosen over FIFO layers deliberately: with imported chemicals repricing every
  * few weeks, an always-current average keeps selling prices honest, and it is one
  * column rather than a layer table.
+ *
+ * Per UNIT OF MEASURE, not per container, and that distinction is the whole of
+ * this function. It used to average the cost of a drum and divide by the item's
+ * one container size wherever a cost per kilogram was wanted. That works only
+ * while every drum is the same size, and Ufacid arrives in 250 kg drums and in
+ * 200 kg drums: averaging "cost of a drum" across two different drums produces
+ * a number that is the cost of nothing, and every margin computed from it is
+ * wrong. A kilogram is a kilogram whatever it came in.
  */
-export function updateAverageCost(itemId: number, incomingUnits: number, incomingCostCents: number): void {
+export function updateAverageCost(
+  itemId: number,
+  incomingMilli: number,
+  incomingCostCents: number,
+): void {
   const item = get<Item>(`SELECT * FROM items WHERE id = ?`, itemId);
   if (!item) throw new Error(`unknown item ${itemId}`);
 
-  const onHandMilli = stockOf(itemId);
-  const onHandUnits = item.size_milli > 0 ? onHandMilli / item.size_milli : 0;
+  // Stock read BEFORE the arriving quantity is posted — see the note at the top
+  // of `purchasing.ts`. Counting it on both sides would halve the new average.
+  const onHandMilli = Math.max(0, stockOf(itemId));
 
-  const existingValue = Math.round(onHandUnits * item.cost_cents);
-  const totalUnits = onHandUnits + incomingUnits;
-  const newCost = totalUnits > 0 ? Math.round((existingValue + incomingCostCents) / totalUnits) : item.cost_cents;
+  const existingValue = Math.round((onHandMilli * item.cost_cents) / MILLI);
+  const totalMilli = onHandMilli + incomingMilli;
+  const newCost =
+    totalMilli > 0
+      ? Math.round(((existingValue + incomingCostCents) * MILLI) / totalMilli)
+      : item.cost_cents;
 
   run(`UPDATE items SET cost_cents = ? WHERE id = ?`, newCost, itemId);
 }

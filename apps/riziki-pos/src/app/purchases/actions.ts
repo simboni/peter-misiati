@@ -66,6 +66,7 @@ export async function recordPurchaseAction(_prev: FormState, formData: FormData)
     // document order and the three arrays line up row for row.
     const itemIds = formData.getAll("item_id");
     const unitList = formData.getAll("units");
+    const sizeList = formData.getAll("size");
     const costList = formData.getAll("cost");
 
     const lines: PurchaseLineInput[] = [];
@@ -78,7 +79,28 @@ export async function recordPurchaseAction(_prev: FormState, formData: FormData)
       if (!Number.isInteger(units) || units <= 0) {
         throw new Error("Units must be a whole number of containers, greater than zero.");
       }
-      lines.push({ itemId, units, costCents: centsFromField(costList[i] ?? null, "The line cost") });
+      /*
+        What one container on THIS delivery held.
+
+        Ufacid comes in 250 kg drums and in 200 kg drums. The item carries a
+        usual size and that is what pre-fills the box, but the weight that
+        actually arrived is a fact about the lorry, not about the substance —
+        booking three of the smaller drums against the larger size put the shop
+        50 kg out with nothing on any screen to say why. Blank falls back to the
+        item's usual size, which is what an unchanged row means.
+      */
+      const sizeText = String(sizeList[i] ?? "").trim();
+      const size = sizeText ? Number(sizeText) : 0;
+      if (sizeText && !(size > 0)) {
+        throw new Error("What one container holds has to be more than nothing.");
+      }
+
+      lines.push({
+        itemId,
+        units,
+        sizeMilli: size > 0 ? Math.round(size * 1000) : undefined,
+        costCents: centsFromField(costList[i] ?? null, "The line cost"),
+      });
     }
 
     if (!lines.length) return { error: "Add at least one line before saving the delivery." };

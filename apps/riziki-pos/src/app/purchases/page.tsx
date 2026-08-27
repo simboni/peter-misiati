@@ -9,7 +9,7 @@ import {
   buyableItems,
   supplierSpend,
 } from "@/lib/purchasing";
-import { formatKes, formatDate, formatDateTime, formatUnits, pct } from "@/lib/units";
+import { formatKes, formatDate, formatDateTime, formatUnits, formatQty, pct } from "@/lib/units";
 import { Card, PageTitle, SectionLabel, Chip, Stat, Empty, TableWrap, Th, Td, Alert } from "@/components/ui";
 import { Pager } from "@/components/section-nav";
 import { ExportButtons } from "@/components/export-buttons";
@@ -160,7 +160,7 @@ export default async function PurchasesPage(props: {
                     <Th>When</Th>
                     <Th>Supplier</Th>
                     <Th align="right">Units</Th>
-                    <Th align="right">Each</Th>
+                    <Th align="right">Per {watched.canonical_unit}</Th>
                   </tr>
                 </thead>
                 <tbody>
@@ -168,7 +168,15 @@ export default async function PurchasesPage(props: {
                     <tr key={h.purchase_id + "-" + h.at}>
                       <Td>{formatDate(h.at)}</Td>
                       <Td>{h.supplier_name ?? "—"}</Td>
-                      <Td align="right">{h.units}</Td>
+                      <Td align="right">
+                        {h.units}
+                        {h.size_milli > 0 ? (
+                          <span className="text-muted">
+                            {" × "}
+                            {formatQty(h.size_milli, watched.canonical_unit)}
+                          </span>
+                        ) : null}
+                      </Td>
                       <Td align="right" className="font-semibold">
                         {formatKes(h.unit_cost_cents)}
                       </Td>
@@ -177,7 +185,14 @@ export default async function PurchasesPage(props: {
                 </tbody>
               </TableWrap>
               <p className="text-xs text-muted">
-                Landed cost per container — the invoice price plus that line’s share of transport.
+                {/* The explicit {" "} is not optional: this compiler drops the
+                    leading whitespace of a text chunk that follows an
+                    expression across a line break, and "Per kgand not per drum"
+                    is what reaches the owner. See AGENTS.md. */}
+                Landed cost per {watched.canonical_unit} — the invoice price plus that line’s
+                share of transport, over the weight that actually arrived. Per{" "}
+                {watched.canonical_unit} and not per drum, so a smaller drum does not read as a
+                cheaper delivery.
               </p>
             </>
           ) : (
@@ -224,8 +239,15 @@ export default async function PurchasesPage(props: {
                     <ul className="mt-1 space-y-0.5 text-[11px] text-muted">
                       {purchaseLines(p.id).map((l) => (
                         <li key={l.id}>
-                          {l.item_name} · {formatUnits(l.qty_milli, l.size_milli, l.unit_label)} ·{" "}
-                          {formatKes(l.cost_cents)}
+                          {/* The drum, not just the count. Ufacid comes in 250 kg
+                              and 200 kg drums, so "3 drums" on its own does not
+                              say what arrived — and this line is what gets
+                              checked against the delivery note months later. */}
+                          {l.item_name} · {formatUnits(l.qty_milli, l.size_milli, l.unit_label)}
+                          {l.size_milli > 0
+                            ? ` of ${formatQty(l.size_milli, l.canonical_unit)} · ${formatQty(l.qty_milli, l.canonical_unit)}`
+                            : ""}{" "}
+                          · {formatKes(l.cost_cents)}
                         </li>
                       ))}
                     </ul>

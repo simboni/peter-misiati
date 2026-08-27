@@ -11,6 +11,7 @@
  */
 
 import { all, get, run, tx, postMovement, stockOf, audit } from "./db.ts";
+import { MILLI } from "./units.ts";
 
 // ---------------------------------------------------------------- reading
 
@@ -93,10 +94,15 @@ export function stockStatus(qtyMilli: number, reorderMilli: number): StockStatus
   return "in";
 }
 
-/** Value of a holding at weighted-average cost. Cost is per ONE unit, not per kg. */
-export function valueAtCost(qtyMilli: number, sizeMilli: number, costCents: number): number {
-  if (sizeMilli <= 0) return 0;
-  return Math.round((qtyMilli / sizeMilli) * costCents);
+/** Value of a holding at weighted-average cost, which is a cost per kg / L / pcs. */
+export function valueAtCost(qtyMilli: number, _sizeMilli: number, costCents: number): number {
+  // `costCents` is the cost of ONE kilogram, litre or piece — not of a drum.
+  // It went through the container size while a chemical had exactly one drum
+  // size; Ufacid arrives in 250 kg and 200 kg drums, so that division valued
+  // the store against a container that may never have existed. The size
+  // parameter is kept so every call site reads the same, and ignored.
+  void _sizeMilli;
+  return Math.round((qtyMilli * costCents) / MILLI);
 }
 
 function toLine(r: StockRowRaw): StockLine {
