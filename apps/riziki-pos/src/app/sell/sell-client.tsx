@@ -1907,6 +1907,25 @@ export default function SellClient({
                   : `Take ${formatKes(totalCents)} — done`}
       </Button>
 
+      {/*
+        Why the button is dead.
+
+        Every other reason this button greys out says so underneath it; a short
+        shelf did not, and it is the one that happens most. The warning was on
+        the cart sheet — a screen the counter has just left to take the money —
+        so on a phone the effect was a dead button and no explanation, with a
+        customer waiting. It names the chemical and what is actually left.
+      */}
+      {overdrawn.length ? (
+        <p className="mt-2 text-xs font-semibold text-bad">
+          {overdrawn.length === 1
+            ? `There is only ${formatQty(Math.max(0, overdrawn[0].item.qtyMilli), overdrawn[0].item.unit)} of ${overdrawn[0].item.name} left. ` +
+              `Change the quantity, or record the delivery first.`
+            : `Some chemicals on this bill are short: ${overdrawn
+                .map((x) => x.item.name)
+                .join(", ")}. Change the quantities, or record the delivery first.`}
+        </p>
+      ) : null}
       {mpesaMissingCode ? (
         <p className="mt-2 text-xs font-semibold text-muted">
           No M-Pesa code — the sale still records. Add it later from the sale if the SMS turns up.
