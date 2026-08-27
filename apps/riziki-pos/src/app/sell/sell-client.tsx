@@ -134,6 +134,8 @@ export interface RecipeChoice {
   name: string;
   /** The batch the quantities are written for — the sensible opening guess. */
   refSizeMilli: number;
+  /** kg or L — what this product's batch is measured in. */
+  refUnit: string;
   ingredientCount: number;
   /**
    * The sizes this mix is sold in, each at a price of its own.
@@ -150,6 +152,8 @@ export interface RecipeChoice {
 export interface MixOffer {
   versionId: number;
   formulaName: string;
+  /** kg or L — what this product's batch is measured in. */
+  unit: string;
   targetMilli: number;
   totalCents: number;
   /** True when every ingredient can be billed and handed over as it stands. */
@@ -1425,6 +1429,10 @@ export default function SellClient({
   const repeatUsable = repeat ? repeat.lines.filter((l) => l.available && byId.has(l.itemId)) : [];
 
   /** Ingredients this shop cannot bill at all, and how many it can. */
+  // Litres unless the recipe says otherwise — a diluted hypochlorite is made
+  // and sold by the kilogram, and "there is enough for 46 L" of something
+  // weighed is the panel disagreeing with the shelf.
+  const mixUnit = mixOffer?.unit ?? "L";
   const mixLeftOut = (mixOffer?.ingredients ?? [])
     .filter((i) => i.unlisted || i.unpriced)
     .map((i) => i.chemicalName);
@@ -2283,7 +2291,7 @@ export default function SellClient({
                       Not enough {mixShort.map((i) => i.chemicalName).join(", ")}.
                     </span>{" "}
                     {mixOffer.possibleMilli > 0
-                      ? `There is enough in the store for ${formatQty(mixOffer.possibleMilli, "L")}.`
+                      ? `There is enough in the store for ${formatQty(mixOffer.possibleMilli, mixUnit)}.`
                       : "Record a delivery, or do a stock take if the store has more than the book says."}
                   </Alert>
                   {mixOffer.possibleMilli > 0 ? (
@@ -2296,7 +2304,7 @@ export default function SellClient({
                       }}
                       className="rounded-full bg-brand-soft px-3 py-1.5 text-[12px] font-bold text-brand-dark"
                     >
-                      Make {formatQty(mixOffer.possibleMilli, "L")} instead
+                      Make {formatQty(mixOffer.possibleMilli, mixUnit)} instead
                     </button>
                   ) : null}
                 </div>
@@ -2313,7 +2321,7 @@ export default function SellClient({
                     ? "Not enough in the store"
                     : `Add ${mixAddable} chemical${mixAddable === 1 ? "" : "s"} — ${
                         mixOffer.formulaName
-                      }, ${formatQty(mixOffer.targetMilli, "L")} · ${formatKes(mixOffer.totalCents)}`}
+                      }, ${formatQty(mixOffer.targetMilli, mixUnit)} · ${formatKes(mixOffer.totalCents)}`}
               </Button>
             </div>
           ) : null}
@@ -3438,7 +3446,7 @@ function RecipeSizePicker({
     lines.find((l) => l.bundleId === bundleId)?.units ?? 0;
   const billCents = lines.reduce((sum, l) => sum + l.priceCents * l.units, 0);
   const onBill = lines
-    .map((l) => `${l.units} × ${formatQty(l.bundleSizeMilli, "L")}`)
+    .map((l) => `${l.units} × ${formatQty(l.bundleSizeMilli, recipe.refUnit)}`)
     .join(", ");
 
   return (
@@ -3472,9 +3480,11 @@ function RecipeSizePicker({
         {recipe.bundles.map((b) => (
           <SizeChip
             key={b.id}
-            size={formatQty(b.sizeMilli, "L")}
+            size={formatQty(b.sizeMilli, recipe.refUnit)}
             price={formatKes(b.priceCents)}
-            per={`${formatKes(b.sizeMilli > 0 ? Math.round((b.priceCents * 1000) / b.sizeMilli) : 0)}/L`}
+            per={`${formatKes(
+              b.sizeMilli > 0 ? Math.round((b.priceCents * 1000) / b.sizeMilli) : 0,
+            )}/${recipe.refUnit}`}
             inCart={countOf(b.id)}
             onPick={() => onBundle(b)}
           />

@@ -80,6 +80,7 @@ async function saveFormula(_prev: SaveState, formData: FormData): Promise<SaveSt
     outcome = createFormulaVersion({
       formulaId,
       refSizeMilli: toMilli(refLitres),
+      refUnit: formData.get("batchUnit") === "kg" ? "kg" : "L",
       steps: String(formData.get("steps") ?? "").trim(),
       note: String(formData.get("note") ?? "").trim(),
       items,
@@ -168,6 +169,7 @@ export default async function FormulaDetailPage(props: {
           action={saveFormula}
           formulaId={formulaId}
           name={formula.name}
+          batchUnit={shown.ref_unit}
           // Seeded from the size that matches the batch, so the box under the
           // quantity shows the price it is already selling at rather than blank.
           batchPrice={(() => {
@@ -197,7 +199,7 @@ export default async function FormulaDetailPage(props: {
     <div>
       <PageTitle
         title={formula.name}
-        subtitle={`Version ${shown.version} · quantities per ${formatQty(shown.ref_size_milli, "L")}`}
+        subtitle={`Version ${shown.version} · quantities per ${formatQty(shown.ref_size_milli, shown.ref_unit)}`}
       />
 
       {/* What the save actually did, rather than one sentence for all three
@@ -245,6 +247,7 @@ export default async function FormulaDetailPage(props: {
             <Card className="mt-2">
               <BundleForm
                 formulaId={formulaId}
+                unit={shown.ref_unit}
                 bundles={bundles.map((b) => ({
                   size: String(b.sizeMilli / 1000),
                   price: String(b.priceCents / 100),
@@ -273,7 +276,7 @@ export default async function FormulaDetailPage(props: {
           rather than pushing the steps a screen below the quantities. */}
       <div className="lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-4 xl:gap-x-5 2xl:gap-x-6">
         <div className="lg:col-span-6 xl:col-span-5">
-          <SectionLabel>Ingredients per {formatQty(shown.ref_size_milli, "L")}</SectionLabel>
+          <SectionLabel>Ingredients per {formatQty(shown.ref_size_milli, shown.ref_unit)}</SectionLabel>
           {items.length ? (
             <TableWrap>
               <thead>
@@ -329,7 +332,7 @@ export default async function FormulaDetailPage(props: {
                 <div className="text-sm font-bold">
                   Version {ver.version}{" "}
                   <span className="font-normal text-muted">
-                    · per {formatQty(ver.ref_size_milli, "L")}
+                    · per {formatQty(ver.ref_size_milli, ver.ref_unit)}
                   </span>
                 </div>
                 <div className="mt-0.5 text-xs text-muted">

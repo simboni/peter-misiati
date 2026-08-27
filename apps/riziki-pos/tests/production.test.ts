@@ -613,3 +613,62 @@ test("saving a recipe that HAS changed still forks once it has been sold on", ()
 
   assert.equal(versionsOf(f.id).length, before + 1);
 });
+
+// ------------------------------------------- a recipe that is weighed, not poured
+
+test("a recipe can state its batch in kilograms", () => {
+  /*
+    The shop's two dilutions are one-ingredient recipes: 12 kg of hypochlorite
+    concentrate makes 23 kg of the diluted, and 1.5 kg of perfume concentrate
+    makes 20 L. Until a batch could be weighed, the first of those could only be
+    written as "makes 23 litres" of something the shop sells by the kilogram —
+    a book disagreeing with the shelf.
+
+    The unit is a label only: `ref_size_milli` is thousandths either way, which
+    is why a recipe can take a weighed ingredient and yield a poured product.
+  */
+  const { formulaId } = createFormula({
+    name: "Test Weighed Dilution",
+    refSizeMilli: toMilli(23),
+    refUnit: "kg",
+    steps: "",
+    note: "",
+    items: [{ chemicalId: 1, qtyMilli: toMilli(12) }],
+    userId: OWNER,
+  });
+
+  const v = currentVersion(formulaId)!;
+  assert.equal(v.ref_unit, "kg");
+  assert.equal(v.ref_size_milli, 23_000);
+
+  // Scaling is untouched by the label: half a batch is half of every ingredient.
+  const half = scaleFormula(v.id, toMilli(11.5));
+  assert.equal(half[0].neededMilli, 6_000);
+});
+
+test("a recipe left unsaid is still in litres", () => {
+  const { formulaId } = createFormula({
+    name: "Test Poured Dilution",
+    refSizeMilli: toMilli(20),
+    steps: "",
+    note: "",
+    items: [{ chemicalId: 1, qtyMilli: toMilli(1.5) }],
+    userId: OWNER,
+  });
+  assert.equal(currentVersion(formulaId)!.ref_unit, "L", "most of the book is liquid");
+});
+
+test("changing only the batch unit is a change, and is kept", () => {
+  const f = formula("Test Poured Dilution");
+  const v = currentVersion(f.id)!;
+  createFormulaVersion({
+    formulaId: f.id,
+    refSizeMilli: v.ref_size_milli,
+    refUnit: "kg",
+    steps: v.steps,
+    note: v.note,
+    items: formulaItems(v.id).map((i) => ({ chemicalId: i.chemical_id, qtyMilli: i.qty_milli })),
+    userId: OWNER,
+  });
+  assert.equal(currentVersion(f.id)!.ref_unit, "kg", "the no-op check must notice the unit");
+});

@@ -44,11 +44,15 @@ export interface FormulaRow {
   active: number;
 }
 
+export type BatchUnit = "kg" | "L";
+
 export interface FormulaVersionRow {
   id: number;
   formula_id: number;
   version: number;
   ref_size_milli: number;
+  /** What the batch is measured in. Litres unless the product is weighed. */
+  ref_unit: BatchUnit;
   steps: string;
   note: string;
   is_current: number;
@@ -76,6 +80,7 @@ export interface FormulaListRow {
   version_id: number;
   version: number;
   ref_size_milli: number;
+  ref_unit: BatchUnit;
   note: string;
   ingredient_count: number;
 }
@@ -102,6 +107,7 @@ export function listFormulas(q?: string): FormulaListRow[] {
            v.id             AS version_id,
            v.version        AS version,
            v.ref_size_milli AS ref_size_milli,
+           v.ref_unit       AS ref_unit,
            v.note           AS note,
            (SELECT COUNT(*) FROM formula_items fi WHERE fi.formula_version_id = v.id) AS ingredient_count
       FROM formulas f
@@ -223,6 +229,8 @@ export function minimumTargetMilli(versionId: number): number {
 export interface FormulaVersionInput {
   formulaId: number;
   refSizeMilli: number;
+  /** kg or L. Defaults to litres, which is what most of the book is in. */
+  refUnit?: BatchUnit;
   steps: string;
   note: string;
   items: Array<{ chemicalId: number; qtyMilli: number }>;
@@ -320,14 +328,17 @@ function writeVersion(
     // forking. Without this, a shop fixing the placeholder recipes it was
     // delivered with walks its way to "version 6" of a product it has not made
     // once, and the version number stops meaning anything.
+    const unit: BatchUnit = input.refUnit === "kg" ? "kg" : "L";
+
     const current = get<{
       id: number;
       version: number;
       ref_size_milli: number;
+      ref_unit: BatchUnit;
       steps: string;
       note: string;
     }>(
-      `SELECT id, version, ref_size_milli, steps, note
+      `SELECT id, version, ref_size_milli, ref_unit, steps, note
          FROM formula_versions WHERE formula_id = ? AND is_current = 1`,
       input.formulaId,
     );
@@ -355,6 +366,7 @@ function writeVersion(
       );
       const same =
         current.ref_size_milli === input.refSizeMilli &&
+        current.ref_unit === unit &&
         current.steps === input.steps &&
         current.note === input.note &&
         was.length === items.length &&
@@ -377,9 +389,11 @@ function writeVersion(
       version = current.version;
       run(
         `UPDATE formula_versions
-            SET ref_size_milli = ?, steps = ?, note = ?, created_by = ?, created_at = datetime('now')
+            SET ref_size_milli = ?, ref_unit = ?, steps = ?, note = ?, created_by = ?,
+                created_at = datetime('now')
           WHERE id = ?`,
         input.refSizeMilli,
+        unit,
         input.steps,
         input.note,
         input.userId,
@@ -400,11 +414,13 @@ function writeVersion(
       run(`UPDATE formula_versions SET is_current = 0 WHERE formula_id = ?`, input.formulaId);
 
       versionId = run(
-        `INSERT INTO formula_versions (formula_id, version, ref_size_milli, steps, note, is_current, created_by)
-         VALUES (?, ?, ?, ?, ?, 1, ?)`,
+        `INSERT INTO formula_versions (formula_id, version, ref_size_milli, ref_unit,
+                                       steps, note, is_current, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, 1, ?)`,
         input.formulaId,
         version,
         input.refSizeMilli,
+        unit,
         input.steps,
         input.note,
         input.userId,
@@ -482,6 +498,7 @@ export interface NewFormulaInput {
   /** What the shop calls the product — "Carwash Shampoo". */
   name: string;
   refSizeMilli: number;
+  refUnit?: BatchUnit;
   steps: string;
   note: string;
   items: Array<{ chemicalId: number; qtyMilli: number }>;
@@ -569,6 +586,8 @@ export interface Mix {
   formulaId: number;
   versionId: number;
   formulaName: string;
+  /** kg or L — what this product's batch is measured in. */
+  unit: BatchUnit;
   /** Batch size, in milli of the unit the formula's reference size is stated in. */
   targetMilli: number;
   ingredients: MixIngredient[];
@@ -680,6 +699,7 @@ export function mixFor(versionId: number, targetMilli: number): Mix {
     formulaId: version.formula_id,
     versionId,
     formulaName: formula?.name ?? "Mix",
+    unit: version.ref_unit === "kg" ? "kg" : "L",
     targetMilli,
     ingredients,
     totalCents: ingredients.reduce((s, i) => s + i.amountCents, 0),

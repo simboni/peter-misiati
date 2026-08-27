@@ -503,14 +503,14 @@ function resolveFormulaBundle(
   }
 
   /*
-    A batch is measured in litres, always.
+    The batch's own unit, not the first ingredient's.
 
-    `formula_versions.ref_size_milli` is declared as "litres the quantities are
-    stated for", and the rest of the app reads it that way. Borrowing the first
-    ingredient's unit instead produced "Carwash Shampoo — 5 kg bundle" whenever
-    a recipe happened to start with a powder.
+    Borrowing the first ingredient's unit produced "Carwash Shampoo — 5 kg
+    bundle" whenever a recipe happened to start with a powder. Hardcoding
+    litres instead was right until a recipe could be weighed: a diluted
+    hypochlorite made and sold by the kilogram would have read as litres.
   */
-  const label = `${mix.formulaName} — ${formatQty(bundle.sizeMilli, "L")} bundle`;
+  const label = `${mix.formulaName} — ${formatQty(bundle.sizeMilli, mix.unit)} bundle`;
 
   const parent: ResolvedLine = {
     item: null,

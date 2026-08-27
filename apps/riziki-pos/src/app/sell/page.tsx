@@ -174,6 +174,7 @@ async function mixAction(versionId: number, targetMilli: number): Promise<MixOff
   return {
     versionId: mix.versionId,
     formulaName: mix.formulaName,
+    unit: mix.unit,
     targetMilli: mix.targetMilli,
     totalCents: mix.totalCents,
     sellable: mix.sellable,
@@ -322,6 +323,7 @@ export default async function SellPage() {
       formulaId: f.id,
       name: f.name,
       refSizeMilli: f.ref_size_milli,
+      refUnit: f.ref_unit,
       ingredientCount: f.ingredient_count,
       bundles: (recipeBundles.get(f.id) ?? []).map((b) => ({
         id: b.id,

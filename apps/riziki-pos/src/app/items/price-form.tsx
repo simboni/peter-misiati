@@ -38,13 +38,6 @@ const UNITS: Array<{ key: string; label: string }> = [
   { key: "pcs", label: "the piece (pcs)" },
 ];
 
-export interface MadeFrom {
-  /** Zero when this product is bought rather than made. */
-  fromItemId: number;
-  inQty: string;
-  outQty: string;
-}
-
 export default function PriceForm({
   itemId,
   name,
@@ -59,8 +52,6 @@ export default function PriceForm({
   reorder,
   onHandMilli,
   bundles,
-  madeFrom,
-  sources,
 }: {
   itemId: number;
   name: string;
@@ -82,10 +73,6 @@ export default function PriceForm({
   onHandMilli: number;
   /** The sizes this is also sold in, as they stand. */
   bundles: BundleRow[];
-  /** What this is made out of, as it stands. */
-  madeFrom: MadeFrom;
-  /** Everything else on the list, as candidates to be made from. */
-  sources: Array<{ id: number; name: string; unit: string }>;
 }) {
   const [state, action, pending] = useActionState(savePricingAction, EMPTY);
 
@@ -101,9 +88,6 @@ export default function PriceForm({
   const [ceilingText, setCeilingText] = useState(num(ceiling));
   const [reorderText, setReorderText] = useState(num(reorder));
   const [bundleRows, setBundleRows] = useState<BundleRow[]>(bundles);
-  const [fromId, setFromId] = useState(String(madeFrom.fromItemId || ""));
-  const [inQty, setInQty] = useState(madeFrom.inQty);
-  const [outQty, setOutQty] = useState(madeFrom.outQty);
 
   // Changing the unit relabels what is already on the books rather than
   // converting it, and an owner who thinks otherwise would quietly halve or
@@ -219,79 +203,6 @@ export default function PriceForm({
           unit={unitKey}
           unitPriceCents={Math.round((Number(priceText) || 0) * 100)}
         />
-      </details>
-
-      {/*
-        What it is made out of.
-
-        Two products in this shop are not bought in the form they are sold in:
-        perfume arrives concentrated and is let down with water, and
-        hypochlorite arrives at 24 kg of concentrate that is diluted twelve at a
-        time. Both ends are sold, both have their own price and sizes, and the
-        only thing that is special about them is how the stock gets from one to
-        the other. Folded away because for every other row on this screen the
-        honest answer is "it is bought".
-      */}
-      <details open={fromId !== ""}>
-        <summary className="cursor-pointer text-[13px] font-bold text-brand-dark">
-          Made from something else{fromId ? " ✓" : ""} ▾
-        </summary>
-        <p className="mb-2 mt-1.5 text-[11px] leading-relaxed text-muted">
-          For a product the shop dilutes or works up out of another one. Say what
-          goes in and what comes out, and Stock gets a Make button for it. The
-          concentrate comes off the shelf and this goes on, with its share of the
-          money — so what you make is never free.
-        </p>
-
-        <div className="space-y-2 rounded-xl bg-wash p-2.5 ring-1 ring-inset ring-line">
-          <Field label="Made from" hint="Leave as “Bought, not made” for everything else.">
-            <select
-              className={inputClass}
-              name="madeFrom"
-              aria-label="Made from"
-              value={fromId}
-              onChange={(e) => setFromId(e.target.value)}
-            >
-              <option value="">Bought, not made</option>
-              {sources.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.name} (per {o.unit})
-                </option>
-              ))}
-            </select>
-          </Field>
-
-          {fromId ? (
-            <div className="grid grid-cols-2 gap-2.5">
-              <Field
-                label={`How much goes in (${sources.find((o) => String(o.id) === fromId)?.unit ?? ""})`}
-                hint="12"
-              >
-                <Money name="madeIn" label="How much goes in" value={inQty} onValue={setInQty} />
-              </Field>
-              <Field label={`What that makes (${unitKey})`} hint="23">
-                <Money name="madeOut" label="What that makes" value={outQty} onValue={setOutQty} />
-              </Field>
-            </div>
-          ) : (
-            <>
-              <input type="hidden" name="madeIn" value="" />
-              <input type="hidden" name="madeOut" value="" />
-            </>
-          )}
-
-          {fromId && Number(inQty) > 0 && Number(outQty) > 0 ? (
-            <p className="text-[11px] tnum">
-              <span className="font-bold text-brand-dark">
-                {inQty} {sources.find((o) => String(o.id) === fromId)?.unit} makes {outQty}{" "}
-                {unitKey}
-              </span>
-              <span className="text-muted">
-                {" · "}the shop can type over both when the jug says otherwise
-              </span>
-            </p>
-          ) : null}
-        </div>
       </details>
 
       {state.error ? <Alert tone="bad">{state.error}</Alert> : null}

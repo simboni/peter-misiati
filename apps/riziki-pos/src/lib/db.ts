@@ -163,6 +163,8 @@ const ADDED_COLUMNS: Array<{ table: string; column: string; definition: string }
   { table: "sale_lines", column: "bundle_id", definition: "INTEGER" },
   // What one drum on that delivery held — see the note in schema.sql.
   { table: "purchase_lines", column: "size_milli", definition: "INTEGER NOT NULL DEFAULT 0" },
+  // What a recipe's batch is measured in — see the note in schema.sql.
+  { table: "formula_versions", column: "ref_unit", definition: "TEXT NOT NULL DEFAULT 'L'" },
   { table: "quote_lines", column: "bundle_id", definition: "INTEGER" },
 ];
 

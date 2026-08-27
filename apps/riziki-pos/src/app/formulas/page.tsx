@@ -123,7 +123,7 @@ export default async function FormulasPage(props: {
                     {f.name}
                   </Link>
                 </Td>
-                <Td align="right">{formatQty(f.ref_size_milli, "L")}</Td>
+                <Td align="right">{formatQty(f.ref_size_milli, f.ref_unit)}</Td>
                 <Td align="right">{f.ingredient_count}</Td>
                 <Td align="right" className="text-muted">
                   v{f.version}

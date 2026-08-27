@@ -21,7 +21,6 @@ import { requireOwner } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { updateProduct, deleteProduct, CatalogError, type Unit } from "@/lib/catalog";
 import { saveBundles, BundleError } from "@/lib/bundles";
-import { saveConversion, MakeError } from "@/lib/making";
 import { parseBundleRows } from "@/lib/bundle-input";
 
 export interface PricingState {
@@ -66,26 +65,10 @@ export async function savePricingAction(
       should not be stopped by the empty row they left open.
     */
     saveBundles({ itemId }, parseBundleRows(formData.get("bundles")));
-
-    /*
-      And what it is made out of, if anything.
-
-      Same button as the price for the same reason the sizes share it: "this is
-      the diluted hypochlorite, it costs KES 60 a kilo, and twelve kilos of the
-      concentrate makes twenty-three of it" is one thought about one product.
-      An empty box means bought rather than made, and clears it.
-    */
-    const madeFrom = Number(formData.get("madeFrom") ?? 0);
-    saveConversion({
-      toItemId: itemId,
-      fromItemId: madeFrom > 0 ? madeFrom : null,
-      inQty: Number(formData.get("madeIn") ?? 0),
-      outQty: Number(formData.get("madeOut") ?? 0),
-    });
   } catch (e) {
     return {
       error:
-        e instanceof CatalogError || e instanceof BundleError || e instanceof MakeError
+        e instanceof CatalogError || e instanceof BundleError
           ? e.message
           : "That did not save. Please try again.",
     };

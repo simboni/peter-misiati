@@ -50,6 +50,7 @@ export function EditFormulaForm({
   action,
   formulaId,
   name: nameInitial = "",
+  batchUnit: batchUnitInitial = "L",
   batchPrice: batchPriceInitial = "",
   chemicals,
   refLitres: refLitresInitial,
@@ -64,6 +65,8 @@ export function EditFormulaForm({
   formulaId: number;
   /** What the shop calls the product now. Empty for a recipe being invented. */
   name?: string;
+  /** kg or L — what a batch of this product is measured in. */
+  batchUnit?: string;
   /** What a whole batch of it sells for, in shillings. Empty if never priced. */
   batchPrice?: string;
   chemicals: ChemicalOption[];
@@ -84,6 +87,7 @@ export function EditFormulaForm({
 
   const [name, setName] = useState(nameInitial);
   const [refLitres, setRefLitres] = useState(refLitresInitial);
+  const [batchUnit, setBatchUnit] = useState(batchUnitInitial);
   const [batchPrice, setBatchPrice] = useState(batchPriceInitial);
   const [complaint, setComplaint] = useState<string | null>(null);
 
@@ -94,7 +98,7 @@ export function EditFormulaForm({
      shop's own words next to the boxes that caused it. */
   function problem(): string | null {
     if (name.trim().length < 2) return "Give the product a name.";
-    if (!(Number(refLitres) > 0)) return "Say how many litres the recipe makes.";
+    if (!(Number(refLitres) > 0)) return `Say how many ${batchUnit} the recipe makes.`;
     if (!lines.some((l) => Number(l.qty) > 0)) {
       return "Give at least one ingredient a quantity above zero.";
     }
@@ -116,9 +120,9 @@ export function EditFormulaForm({
   // to measure a saving against — what a litre costs is the chemicals that went
   // into it, and that moves with every delivery — so the rate is all this can
   // honestly show, and it is still the number a customer argues about.
-  const litres = Number(refLitres) || 0;
+  const batchQty = Number(refLitres) || 0;
   const priceCents = Math.round((Number(batchPrice) || 0) * 100);
-  const perLitre = litres > 0 && priceCents > 0 ? Math.round(priceCents / litres) : 0;
+  const perUnit = batchQty > 0 && priceCents > 0 ? Math.round(priceCents / batchQty) : 0;
 
   function update(key: number, patch: Partial<EditRow>) {
     setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)));
@@ -166,29 +170,47 @@ export function EditFormulaForm({
           />
         </Field>
 
-        <Field
-          label="Recipe makes (litres)"
-          hint="The size the quantities below are written for. The counter scales from here."
-        >
-          <input
-            className={inputClass}
-            type="number"
-            name="refLitres"
-            value={refLitres}
-            onChange={(e) => setRefLitres(e.target.value)}
-            min="0.001"
-            step="0.001"
-            inputMode="decimal"
-            required={!isNew}
-          />
-        </Field>
+        {/* The unit sits beside the number because a recipe is not always a
+            liquid. A diluted hypochlorite is made and sold by the kilogram, and
+            a book that could only say "makes 23 litres" of something weighed
+            was a book disagreeing with the shelf. */}
+        <div className="grid grid-cols-[1fr_auto] gap-2.5">
+          <Field
+            label="Recipe makes"
+            hint="The size the quantities below are written for. The counter scales from here."
+          >
+            <input
+              className={inputClass}
+              type="number"
+              name="refLitres"
+              value={refLitres}
+              onChange={(e) => setRefLitres(e.target.value)}
+              min="0.001"
+              step="0.001"
+              inputMode="decimal"
+              required={!isNew}
+            />
+          </Field>
+          <Field label="Measured in" hint="&nbsp;">
+            <select
+              className={inputClass}
+              name="batchUnit"
+              aria-label="Measured in"
+              value={batchUnit}
+              onChange={(e) => setBatchUnit(e.target.value)}
+            >
+              <option value="L">litres (L)</option>
+              <option value="kg">kilograms (kg)</option>
+            </select>
+          </Field>
+        </div>
 
         {/* Under the quantity, because it is a price FOR that quantity. The
             counter charges this for a batch and takes the chemicals off the
             shelf in the amounts below, which appear on the receipt as amounts
             with no money against them. */}
         <Field
-          label={litres > 0 ? `Price for ${refLitres} L` : "Price for a batch"}
+          label={batchQty > 0 ? `Price for ${refLitres} ${batchUnit}` : "Price for a batch"}
           hint="What the shop charges for a whole batch of it. Leave empty if this one is only ever mixed to order."
         >
           <input
@@ -206,9 +228,9 @@ export function EditFormulaForm({
           />
         </Field>
 
-        {perLitre > 0 ? (
+        {perUnit > 0 ? (
           <p className="-mt-1 text-[12px] font-bold text-brand-dark tnum">
-            {formatKes(perLitre)} per litre
+            {formatKes(perUnit)} per {batchUnit}
           </p>
         ) : null}
       </Card>

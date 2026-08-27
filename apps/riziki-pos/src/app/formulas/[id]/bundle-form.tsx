@@ -23,10 +23,13 @@ const EMPTY: BundleFormState = {};
 
 export default function BundleForm({
   formulaId,
+  unit,
   bundles,
   action,
 }: {
   formulaId: number;
+  /** kg or L — whatever the recipe says its batch is measured in. */
+  unit: string;
   bundles: BundleRow[];
   action: (prev: BundleFormState, formData: FormData) => Promise<BundleFormState>;
 }) {
@@ -44,8 +47,9 @@ export default function BundleForm({
       </p>
 
       {/* No per-unit price to measure a saving against: a mixed product has no
-          "loose" rate, so the rate per litre is all this can honestly show. */}
-      <BundleRows rows={rows} onRows={setRows} unit="L" unitPriceCents={0} />
+          "loose" rate, so the rate per kilogram or litre is all this can
+          honestly show. */}
+      <BundleRows rows={rows} onRows={setRows} unit={unit} unitPriceCents={0} />
 
       {state.error ? <Alert tone="bad">{state.error}</Alert> : null}
 

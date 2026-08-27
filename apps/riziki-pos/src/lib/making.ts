@@ -26,6 +26,31 @@
  *   report infinite profit, and quietly tell the owner his real earner was the
  *   thing he barely sells.
  *
+ * ---------------------------------------------------------------------------
+ * NOTHING CALLS THIS. No screen reaches it, and that is deliberate.
+ *
+ * It was built, and then not used, because the shop tried the workflow and did
+ * not want it. Making a batch here means a step somebody has to remember before
+ * the till will sell the thing they have already poured — forget it once and
+ * the counter says "no Hypochlorite" with twenty-three kilograms sitting on the
+ * shelf. Both dilutions are one-ingredient RECIPES instead: the concentrate
+ * comes off at the moment of sale, at the ratio, with its cost, and there is
+ * nothing to forget.
+ *
+ * The two are the standard pair — a manufacturing order against a kit, in the
+ * words the trade uses. A manufacturing order tracks stock of the made thing
+ * and needs the production step; a kit holds no stock of the parent and takes
+ * its components at the sale. A kit is right here because the question "how
+ * much diluted hypo is on the shelf" is answered by looking at the shelf, and
+ * the reorder that matters is on the concentrate, which is what the shop buys.
+ *
+ * Kept rather than deleted because the day the shop wants the diluted form
+ * counted separately at a stock take, this is what it needs, and the `conversions`
+ * table it reads is already in `schema.sql`. It costs nothing sitting here, and
+ * `tests/making.test.ts` keeps it honest. To bring it back: a picker on the
+ * product for the ratio, and a panel wherever the batch gets made.
+ * ---------------------------------------------------------------------------
+ *
  * Nothing here imports from `next/*`, so it runs under plain Node in tests.
  */
 

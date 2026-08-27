@@ -231,7 +231,12 @@ CREATE TABLE IF NOT EXISTS formula_versions (
   id             INTEGER PRIMARY KEY,
   formula_id     INTEGER NOT NULL REFERENCES formulas(id),
   version        INTEGER NOT NULL,
-  ref_size_milli INTEGER NOT NULL CHECK (ref_size_milli > 0),  -- litres the quantities are stated for
+  ref_size_milli INTEGER NOT NULL CHECK (ref_size_milli > 0),  -- how much the quantities are stated for
+  -- What that batch is measured in. Litres for a liquid the shop mixes, but a
+  -- diluted powder is made and sold by the kilogram, and a recipe that could
+  -- only say "makes 23 litres" of something weighed was a recipe lying about
+  -- the shelf. Only ever a label — `ref_size_milli` is thousandths either way.
+  ref_unit       TEXT    NOT NULL DEFAULT 'L' CHECK (ref_unit IN ('kg', 'L')),
   steps          TEXT    NOT NULL DEFAULT '',
   note           TEXT    NOT NULL DEFAULT '',
   is_current     INTEGER NOT NULL DEFAULT 1 CHECK (is_current IN (0, 1)),

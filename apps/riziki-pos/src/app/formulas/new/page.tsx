@@ -53,6 +53,7 @@ async function saveNewFormula(_prev: SaveState, formData: FormData): Promise<Sav
     ({ formulaId } = createFormula({
       name: String(formData.get("name") ?? ""),
       refSizeMilli: toMilli(refLitres),
+      refUnit: formData.get("batchUnit") === "kg" ? "kg" : "L",
       steps: String(formData.get("steps") ?? "").trim(),
       note: String(formData.get("note") ?? "").trim(),
       items,
