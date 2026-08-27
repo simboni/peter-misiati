@@ -39,3 +39,37 @@ export function parseBundleRows(raw: FormDataEntryValue | null): BundleInput[] {
     // empty one they left open.
     .filter((b) => b.sizeMilli > 0 && b.priceCents > 0);
 }
+
+/**
+ * The price a recipe screen asks for, folded in beside the sizes it already has.
+ *
+ * A recipe states how much it makes and, directly under that, what a batch of
+ * it costs. Those two are one size at one price — so the batch quantity IS the
+ * size, and asking for it twice was the second step this screen used to have.
+ *
+ * Merged rather than replacing, and that is the whole point of this function:
+ * `saveBundles` is set-replace, so handing it the batch row alone would switch
+ * off a 5 L and a 10 L somebody had set on the recipe's own Sizes form. A blank
+ * price box means "not priced here", never "remove the sizes" — a size is
+ * removed with the Remove button that put it there.
+ */
+export function batchSizes(
+  existing: Array<{ sizeMilli: number; priceCents: number; floorCents: number }>,
+  refLitres: number,
+  raw: FormDataEntryValue | null,
+): BundleInput[] {
+  const kept = existing.map((b) => ({
+    sizeMilli: b.sizeMilli,
+    priceCents: b.priceCents,
+    floorCents: b.floorCents,
+  }));
+
+  const sizeMilli = Math.round((Number(refLitres) || 0) * 1000);
+  const priceCents = Math.round((Number(raw) || 0) * 100);
+  if (sizeMilli <= 0 || priceCents <= 0) return kept;
+
+  const at = kept.findIndex((b) => b.sizeMilli === sizeMilli);
+  if (at >= 0) kept[at] = { ...kept[at], priceCents };
+  else kept.push({ sizeMilli, priceCents, floorCents: 0 });
+  return kept;
+}

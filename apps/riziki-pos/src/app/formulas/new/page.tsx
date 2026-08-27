@@ -4,7 +4,7 @@ import { currentUser, requireOwner } from "@/lib/auth";
 import { createFormula, listChemicals } from "@/lib/production";
 import { toMilli } from "@/lib/units";
 import { saveBundles, BundleError } from "@/lib/bundles";
-import { parseBundleRows } from "@/lib/bundle-input";
+import { batchSizes } from "@/lib/bundle-input";
 import { PageTitle, Alert } from "@/components/ui";
 import { EditFormulaForm, type SaveState } from "../[id]/edit-form";
 
@@ -20,10 +20,10 @@ export const dynamic = "force-dynamic";
  * The form is the editor's, told it is making something new — see
  * `EditFormulaForm`. Same ingredient rows, same rules, one screen to keep right.
  *
- * It comes in two steps, and the second one is the sizes the product is sold
- * in. They are saved with the recipe rather than after it because a mixed
- * product with no sizes can only be billed by adding up its chemicals, and the
- * shop sells Carwash Shampoo as a 20 L, not as a sum.
+ * The price for a batch is asked for on the same screen, under the quantity it
+ * is a price for, and saved with the recipe. A mixed product with no price can
+ * only be billed by adding up its chemicals, and the shop sells Carwash Shampoo
+ * as a 20 L for a round number, not as a sum.
  */
 async function saveNewFormula(_prev: SaveState, formData: FormData): Promise<SaveState> {
   "use server";
@@ -60,9 +60,9 @@ async function saveNewFormula(_prev: SaveState, formData: FormData): Promise<Sav
     }));
 
     // A separate transaction on purpose: `tx` does not nest, and a recipe
-    // without its sizes is recoverable — the recipe's own Sizes form sets them
-    // — whereas a size with no recipe is not.
-    saveBundles({ formulaId }, parseBundleRows(formData.get("bundles")));
+    // without its price is recoverable — the recipe's own Sizes form sets it —
+    // whereas a price with no recipe is not.
+    saveBundles({ formulaId }, batchSizes([], refLitres, formData.get("batchPrice")));
   } catch (err) {
     if (err instanceof BundleError) return { error: err.message };
     return { error: err instanceof Error ? err.message : "The recipe could not be saved." };

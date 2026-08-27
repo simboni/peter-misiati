@@ -26,7 +26,8 @@ import {
   LinkButton,
   Empty,
 } from "@/components/ui";
-import { formulaBundles } from "@/lib/bundles";
+import { formulaBundles, saveBundles, BundleError } from "@/lib/bundles";
+import { batchSizes } from "@/lib/bundle-input";
 import { EditFormulaForm, type SaveState } from "./edit-form";
 import BundleForm from "./bundle-form";
 import { saveFormulaBundles } from "./bundle-action";
@@ -84,7 +85,15 @@ async function saveFormula(_prev: SaveState, formData: FormData): Promise<SaveSt
       items,
       userId: owner.id,
     });
+
+    // The batch price, from the box under the quantity it is a price for.
+    // Merged with any other sizes rather than replacing them — see `batchSizes`.
+    saveBundles(
+      { formulaId },
+      batchSizes(formulaBundles(formulaId), refLitres, formData.get("batchPrice")),
+    );
   } catch (err) {
+    if (err instanceof BundleError) return { error: err.message };
     return { error: err instanceof Error ? err.message : "Could not save the formula." };
   }
 
@@ -159,6 +168,14 @@ export default async function FormulaDetailPage(props: {
           action={saveFormula}
           formulaId={formulaId}
           name={formula.name}
+          // Seeded from the size that matches the batch, so the box under the
+          // quantity shows the price it is already selling at rather than blank.
+          batchPrice={(() => {
+            const at = formulaBundles(formulaId).find(
+              (b) => b.sizeMilli === shown.ref_size_milli,
+            );
+            return at ? String(at.priceCents / 100) : "";
+          })()}
           chemicals={listChemicals()}
           refLitres={String(fromMilli(shown.ref_size_milli))}
           steps={shown.steps}
