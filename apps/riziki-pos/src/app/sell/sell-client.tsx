@@ -2547,21 +2547,31 @@ export default function SellClient({
       {/* Outside the phone-only block on purpose: choosing a size is picking an
           item, not working the cart, and the laptop at the counter needs it as
           much as the phone does. */}
+      {/*
+        The window stays open while sizes are tapped.
+
+        Closing on each pick would make "three of the 5 kg" three round trips
+        through the tile, which is exactly the rhythm the counter had before
+        bundles existed and the thing worth protecting. Done, the ✕ and the
+        backdrop all close it.
+      */}
       {sizeFor ? (
-        <SizeSheet
+        <SizePicker
           item={sizeFor}
+          lines={cart.filter((l) => !l.mixKey && l.itemId === sizeFor.id)}
           onLoose={(qtyMilli) => addQuantity(sizeFor, qtyMilli, null)}
           onBundle={(b) => addBundle(sizeFor, b)}
           onClose={() => setSizeFor(null)}
         />
       ) : null}
 
-      {/* The same sheet for a mixed product. It has no loose option: a recipe
-          is mixed to a size, and "any weight of Carwash Shampoo" is the batch
-          pricer, which is what a recipe with no sizes still opens. */}
+      {/* The same window for a mixed product. Its odd-quantity route is the
+          batch pricer rather than a weight box, because a recipe is mixed to a
+          size and "any weight of Carwash Shampoo" is a batch to be made. */}
       {recipeSizeFor ? (
-        <RecipeSizeSheet
+        <RecipeSizePicker
           recipe={recipeSizeFor}
+          lines={cart.filter((l) => l.mixKey?.startsWith(`f${recipeSizeFor.formulaId}:`))}
           onBundle={(b) => addRecipeBundle(recipeSizeFor, b)}
           onBatch={() => {
             const r = recipeSizeFor;
@@ -3138,210 +3148,367 @@ function CartRow({
 
 
 /**
- * How much of it? — the sheet that opens when a tile with bundles is tapped.
+ * A window in the middle of the screen.
  *
- * The design decision worth recording. The obvious placement for a size picker
- * is a dropdown on the tile itself, and it is wrong for three reasons:
+ * The size picker was a sheet rising from the bottom, and on the counter phone
+ * the last row of it sat under the cart bar and the navigation — the 20 kg was
+ * off the screen. A bottom sheet is right for the cart, which is a long list
+ * read downwards; it is wrong for a short grid of choices, which wants to be
+ * in the middle where the thumb and the eye already are.
  *
- *  1. The grid is a picking surface. A select inside every tile roughly doubles
- *     tile height, which halves how many items are on screen, and most of the
- *     catalogue has no bundles at all — so the majority of tiles would carry a
- *     control with nothing in it.
- *  2. It puts the decision before the item. What actually happens at the
- *     counter is "twenty kilos of Ungerol" — the size IS the quantity, so it
- *     belongs at the quantity step, not next to the name.
- *  3. Two ways to say the same thing. With a size on the tile and a quantity
- *     box in the cart, "20 kg" could be entered two ways at two different
- *     prices, which is a pricing argument waiting to happen.
- *
- * So the sizes live here, one tap from the tile, beside the loose option they
- * compete with. Each chip carries the price AND what that works out at per
- * kilogram, because the per-kilogram rate is the thing the customer is really
- * buying and the thing that makes the right chip obvious.
- *
- * An item with no bundles never opens this — its tile still adds one unit on a
- * single tap, exactly as before.
+ * Centred, capped at 85% of the viewport, and it scrolls inside itself, so
+ * nothing can be pushed off the bottom however many sizes a chemical has.
  */
-function SizeSheet({
+function Modal({
+  title,
+  subtitle,
+  onClose,
+  children,
+  footer,
+}: {
+  title: string;
+  subtitle?: string;
+  onClose: () => void;
+  children: React.ReactNode;
+  footer?: React.ReactNode;
+}) {
+  return (
+    <div
+      className="no-print fixed inset-0 z-40 flex items-center justify-center bg-black/45 p-3"
+      role="dialog"
+      aria-modal="true"
+    >
+      {/* The backdrop closes it. A full-size button rather than a click handler
+          on the div so a keyboard and a screen reader can both reach it. */}
+      <button type="button" className="absolute inset-0" aria-label="Close" onClick={onClose} />
+
+      <div className="relative flex max-h-[85dvh] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
+        <div className="flex items-start gap-2 border-b border-line px-4 py-3">
+          <div className="min-w-0">
+            <h2 className="truncate text-base font-extrabold">{title}</h2>
+            {subtitle ? <p className="text-[12px] text-muted">{subtitle}</p> : null}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="ml-auto -mr-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-lg font-bold text-muted hover:bg-wash"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* The only part that scrolls. */}
+        <div className="min-h-0 flex-1 overflow-y-auto p-3">{children}</div>
+
+        {footer ? (
+          <div className="border-t border-line bg-wash/60 px-4 py-3">{footer}</div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * One tappable size.
+ *
+ * The whole design rests on this staying a plain button that adds one of the
+ * thing. The counter's rhythm is tap-tap-tap — three jerricans is three taps on
+ * the same square, exactly as it was before bundles existed — so a tap adds and
+ * the window stays open. The badge is what makes that safe: it says how many
+ * are already on the bill, so nobody has to count their own taps.
+ */
+function SizeChip({
+  size,
+  price,
+  per,
+  inCart,
+  onPick,
+}: {
+  size: string;
+  price: string;
+  per?: string | null;
+  inCart: number;
+  onPick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onPick}
+      /*
+        Said properly for a screen reader.
+
+        The badge sits in the corner visually but comes first in the reading
+        order, so without this the chip announced itself as "times two, twenty
+        kilogrammes, KES 8,800" — the count before the thing it counts. This
+        says what the tap will do, then what is already on the bill.
+      */
+      aria-label={
+        `Add ${size} for ${price}` + (inCart > 0 ? ` — ${inCart} already on the bill` : "")
+      }
+      className={`relative flex min-h-[4.5rem] flex-col items-start justify-center rounded-2xl px-3 py-2 text-left ring-1 ring-inset transition-colors ${
+        inCart > 0
+          ? "bg-brand text-white ring-brand"
+          : "bg-brand-soft text-brand-deep ring-brand/25 hover:ring-brand/60"
+      }`}
+    >
+      {inCart > 0 ? (
+        <span
+          className="absolute right-1.5 top-1.5 min-w-[1.25rem] rounded-full bg-white px-1 text-center text-[11px] font-extrabold text-brand-deep tnum"
+          aria-label={`${inCart} on the bill`}
+        >
+          ×{inCart}
+        </span>
+      ) : null}
+      <span className="text-[15px] font-extrabold">{size}</span>
+      <span className={`mt-0.5 text-[14px] font-bold tnum ${inCart > 0 ? "" : "text-ink"}`}>
+        {price}
+      </span>
+      {per ? (
+        <span className={`text-[11px] tnum ${inCart > 0 ? "text-white/75" : "text-muted"}`}>
+          {per}
+        </span>
+      ) : null}
+    </button>
+  );
+}
+
+/**
+ * How much of it? — the window that opens when a tile with sizes is tapped.
+ *
+ * The basic unit is the FIRST chip, always, and it behaves exactly as the tile
+ * did before any of this existed: one tap, one kilogram, the price goes up by
+ * one kilogram's worth. The bundles sit beside it as further choices, each
+ * adding one of itself at its own price. Nothing about the counter's habit
+ * changes; there are simply more squares to tap.
+ *
+ * A dropdown on the tile was the other candidate and is worse three ways: it
+ * doubles tile height so half as many items fit, most of the catalogue has no
+ * bundles so the majority of tiles would carry an empty control, and a size on
+ * the tile plus a quantity in the cart gives "20 kg" two meanings at two
+ * prices.
+ */
+function SizePicker({
   item,
+  lines,
   onLoose,
   onBundle,
   onClose,
 }: {
   item: SellItem;
+  /** This item's lines as they stand, for the badges and the running total. */
+  lines: CartLine[];
   onLoose: (qtyMilli: number) => void;
   onBundle: (bundle: BundleChoice) => void;
   onClose: () => void;
 }) {
-  const [loose, setLoose] = useState("");
+  const [typed, setTyped] = useState("");
   const list = listPrice(item);
   const weighed = item.basis === "unit";
-  const typed = parseMilli(loose);
-  const looseCents = typed && list > 0 ? Math.round((list * typed) / 1000) : 0;
+  const step = stepMilli(item);
 
-  const take = () => {
-    if (!typed || typed <= 0) return;
-    onLoose(typed);
-    onClose();
+  const looseLine = lines.find((l) => l.bundleId === null);
+  const countOf = (bundleId: number) =>
+    lines.find((l) => l.bundleId === bundleId)?.units ?? 0;
+
+  /*
+    What the basic unit says on its chip.
+
+    For a weighed chemical it is one kilogram at the per-kilogram price — the
+    number already on the tile. For anything sold whole it is one of whatever
+    the container is called.
+  */
+  const baseSize = weighed ? formatQty(step, item.unit) : `1 ${item.unitLabel}`;
+  const baseInCart = weighed
+    ? looseLine
+      ? Math.round(looseLine.qtyMilli / step)
+      : 0
+    : (looseLine?.units ?? 0);
+
+  const billCents = lines.reduce((sum, l) => sum + lineCents(item, l), 0);
+  const onBill = lines
+    .map((l) =>
+      l.bundleId === null
+        ? weighed
+          ? formatQty(l.qtyMilli, item.unit)
+          : `${l.units} × ${item.unitLabel}`
+        : `${l.units} × ${formatQty(l.bundleSizeMilli, item.unit)}`,
+    )
+    .join(", ");
+
+  const addTyped = () => {
+    const milli = parseMilli(typed);
+    if (!milli || milli <= 0) return;
+    onLoose(weighed ? milli : Math.max(1, Math.round(milli / 1000)) * item.sizeMilli);
+    setTyped("");
   };
 
   return (
-    <Sheet title={item.name} onClose={onClose}>
-      <p className="-mt-2 mb-3 text-[13px] text-muted">{stockLabel(item)}</p>
-
-      {/*
-        One chip per size. Two columns on a phone so a thumb has a target it
-        cannot miss, three once there is room — the sizes are read across, and a
-        single column would make comparing the per-kg rates a scroll.
-      */}
+    <Modal title={item.name} subtitle={stockLabel(item)} onClose={onClose} footer={
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="min-w-0 flex-1">
+          {lines.length ? (
+            <>
+              <p className="truncate text-[12px] text-muted">{onBill}</p>
+              <p className="text-[15px] font-extrabold tnum">{formatKes(billCents)}</p>
+            </>
+          ) : (
+            <p className="text-[12px] text-muted">Tap a size to put it on the bill.</p>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="flex min-h-11 items-center rounded-xl bg-brand px-5 text-sm font-bold text-white xl:min-h-10"
+        >
+          Done
+        </button>
+      </div>
+    }>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        {/* The basic unit, first and always — this is the tile's old behaviour,
+            kept where the hand already expects it. */}
+        {list > 0 ? (
+          <SizeChip
+            size={baseSize}
+            price={formatKes(list)}
+            per={weighed ? `per ${item.unit}` : null}
+            inCart={baseInCart}
+            onPick={() => onLoose(step)}
+          />
+        ) : null}
+
         {item.bundles.map((b) => {
           const rate = b.sizeMilli > 0 ? Math.round((b.priceCents * 1000) / b.sizeMilli) : 0;
-          const saving = list > 0 ? Math.max(0, Math.round((list * b.sizeMilli) / 1000) - b.priceCents) : 0;
           return (
-            <button
+            <SizeChip
               key={b.id}
-              type="button"
-              onClick={() => {
-                onBundle(b);
-                onClose();
-              }}
-              className="flex min-h-[5.5rem] flex-col items-start justify-center rounded-2xl bg-brand-soft px-3 py-2.5 text-left ring-1 ring-inset ring-brand/25 transition-colors hover:ring-brand/60"
-            >
-              <span className="text-[15px] font-extrabold text-brand-deep">
-                {formatQty(b.sizeMilli, item.unit)}
-              </span>
-              <span className="mt-0.5 text-[15px] font-bold tnum">{formatKes(b.priceCents)}</span>
-              {/* The number the customer is actually comparing. */}
-              <span className="text-[11px] text-muted tnum">
-                {formatKes(rate)}/{item.unit}
-              </span>
-              {saving > 0 ? (
-                <span className="mt-0.5 text-[11px] font-bold text-good tnum">
-                  saves {formatKes(saving)}
-                </span>
-              ) : null}
-            </button>
+              size={formatQty(b.sizeMilli, item.unit)}
+              price={formatKes(b.priceCents)}
+              per={`${formatKes(rate)}/${item.unit}`}
+              inCart={countOf(b.id)}
+              onPick={() => onBundle(b)}
+            />
           );
         })}
       </div>
 
-      {/*
-        Loose, underneath, so the sizes are what the eye lands on but the shop
-        never loses the ability to sell four and a half kilos of something.
-      */}
+      {/* An odd quantity — 2.4 kg, half a jerrican's worth. Kept small and
+          last: it is the exception, and the sizes above are the day's work. */}
       {list > 0 ? (
-        <div className="mt-3 rounded-2xl bg-wash p-3 ring-1 ring-inset ring-line">
-          <div className="flex items-center gap-2">
-            <label className="text-[13px] font-bold" htmlFor="loose-qty">
-              {weighed ? "Any weight" : "How many"}
-            </label>
-            <input
-              id="loose-qty"
-              className={`${inputClass} ml-auto w-24 text-right`}
-              inputMode="decimal"
-              autoComplete="off"
-              value={loose}
-              onChange={(e) => setLoose(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") take();
-              }}
-              placeholder={weighed ? "2.5" : "1"}
-              aria-label={`How much ${item.name}, in ${weighed ? item.unit : item.unitLabel + "s"}`}
-            />
-            <span className="w-8 text-[13px] font-semibold text-muted">
-              {weighed ? item.unit : ""}
-            </span>
-          </div>
-          <div className="mt-2 flex items-center gap-2">
-            <span className="text-[13px] text-muted tnum">
-              {looseCents > 0
-                ? `${formatKes(looseCents)} at ${formatKes(list)}/${weighed ? item.unit : item.unitLabel}`
-                : `${formatKes(list)} per ${weighed ? item.unit : item.unitLabel}`}
-            </span>
-            <button
-              type="button"
-              onClick={take}
-              disabled={!typed || typed <= 0}
-              className="ml-auto flex min-h-11 items-center rounded-xl bg-brand px-4 text-sm font-bold text-white disabled:opacity-40 xl:min-h-10"
-            >
-              Add
-            </button>
-          </div>
+        <div className="mt-3 flex items-center gap-2 rounded-xl bg-wash p-2.5 ring-1 ring-inset ring-line">
+          <label className="text-[12px] font-bold text-muted" htmlFor="odd-qty">
+            {weighed ? "Another weight" : "How many"}
+          </label>
+          <input
+            id="odd-qty"
+            className={`${inputClass} ml-auto w-20 text-right`}
+            inputMode="decimal"
+            autoComplete="off"
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") addTyped();
+            }}
+            placeholder={weighed ? "2.5" : "3"}
+            aria-label={`Another quantity of ${item.name}, in ${weighed ? item.unit : item.unitLabel + "s"}`}
+          />
+          <span className="w-6 text-[12px] font-semibold text-muted">
+            {weighed ? item.unit : ""}
+          </span>
+          {/* Dimmed until something is typed. The placeholder reads like a
+              value at a glance, and an Add that looks live but does nothing is
+              the counter tapping twice and wondering which one took. */}
+          <button
+            type="button"
+            onClick={addTyped}
+            disabled={!parseMilli(typed)}
+            className="flex min-h-11 items-center rounded-xl border border-line bg-white px-3 text-sm font-bold text-brand-dark disabled:opacity-40 xl:min-h-9"
+          >
+            Add
+          </button>
         </div>
       ) : null}
-    </Sheet>
+    </Modal>
   );
 }
 
-
 /**
- * How much of a mixed product? — the sizes a recipe is sold in.
+ * The same window for a mixed product.
  *
- * The same shape as the chemical size sheet, and deliberately so: the counter
- * should not have to learn two ways of answering "how much". What differs is
- * the bottom row. A chemical has a loose price, so it offers any weight; a
- * recipe does not — it is mixed to a size — so the way out is the batch pricer
- * the shop already had, which bills the chemicals for a quantity typed in.
- *
- * No saving is shown against the sizes. There is no loose rate for a mix to be
- * cheaper than, and inventing one out of the ingredient costs would be quoting
- * the customer a number the shop has never asked for.
+ * The difference is the bottom row. A chemical has a per-kilogram price, so its
+ * first chip is one kilogram; a recipe does not — it is mixed to a size — so
+ * the way to an odd quantity is the batch pricer the shop already had, which
+ * bills the chemicals for a volume typed in.
  */
-function RecipeSizeSheet({
+function RecipeSizePicker({
   recipe,
+  lines,
   onBundle,
   onBatch,
   onClose,
 }: {
   recipe: RecipeChoice;
+  lines: CartLine[];
   onBundle: (bundle: BundleChoice) => void;
   onBatch: () => void;
   onClose: () => void;
 }) {
-  return (
-    <Sheet title={recipe.name} onClose={onClose}>
-      <p className="-mt-2 mb-3 text-[13px] text-muted">
-        Mixed to order from {recipe.ingredientCount} chemical
-        {recipe.ingredientCount === 1 ? "" : "s"}
-      </p>
+  const countOf = (bundleId: number) =>
+    lines.find((l) => l.bundleId === bundleId)?.units ?? 0;
+  const billCents = lines.reduce((sum, l) => sum + l.priceCents * l.units, 0);
+  const onBill = lines
+    .map((l) => `${l.units} × ${formatQty(l.bundleSizeMilli, "L")}`)
+    .join(", ");
 
+  return (
+    <Modal
+      title={recipe.name}
+      subtitle={`Mixed to order from ${recipe.ingredientCount} chemical${recipe.ingredientCount === 1 ? "" : "s"}`}
+      onClose={onClose}
+      footer={
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="min-w-0 flex-1">
+            {lines.length ? (
+              <>
+                <p className="truncate text-[12px] text-muted">{onBill}</p>
+                <p className="text-[15px] font-extrabold tnum">{formatKes(billCents)}</p>
+              </>
+            ) : (
+              <p className="text-[12px] text-muted">Tap a size to put it on the bill.</p>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex min-h-11 items-center rounded-xl bg-brand px-5 text-sm font-bold text-white xl:min-h-10"
+          >
+            Done
+          </button>
+        </div>
+      }
+    >
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
         {recipe.bundles.map((b) => (
-          <button
+          <SizeChip
             key={b.id}
-            type="button"
-            onClick={() => {
-              onBundle(b);
-              onClose();
-            }}
-            className="flex min-h-[4.75rem] flex-col items-start justify-center rounded-2xl bg-brand-soft px-3 py-2.5 text-left ring-1 ring-inset ring-brand/25 transition-colors hover:ring-brand/60"
-          >
-            <span className="text-[15px] font-extrabold text-brand-deep">
-              {formatQty(b.sizeMilli, "L")}
-            </span>
-            <span className="mt-0.5 text-[15px] font-bold tnum">{formatKes(b.priceCents)}</span>
-            <span className="text-[11px] text-muted tnum">
-              {formatKes(b.sizeMilli > 0 ? Math.round((b.priceCents * 1000) / b.sizeMilli) : 0)}/L
-            </span>
-          </button>
+            size={formatQty(b.sizeMilli, "L")}
+            price={formatKes(b.priceCents)}
+            per={`${formatKes(b.sizeMilli > 0 ? Math.round((b.priceCents * 1000) / b.sizeMilli) : 0)}/L`}
+            inCart={countOf(b.id)}
+            onPick={() => onBundle(b)}
+          />
         ))}
       </div>
 
-      <div className="mt-3 rounded-2xl bg-wash p-3 ring-1 ring-inset ring-line">
-        <p className="text-[12px] leading-relaxed text-muted">
-          Another quantity? Price a batch up from the chemicals instead — the
-          bill is then what the ingredients come to.
-        </p>
-        <button
-          type="button"
-          onClick={onBatch}
-          className="mt-2 flex min-h-11 w-full items-center justify-center rounded-xl border border-line bg-white px-4 text-sm font-bold text-brand-dark hover:bg-wash xl:min-h-10"
-        >
-          Price up a batch →
-        </button>
-      </div>
-    </Sheet>
+      <button
+        type="button"
+        onClick={onBatch}
+        className="mt-3 flex min-h-11 w-full items-center justify-center rounded-xl border border-line bg-white px-4 text-sm font-bold text-brand-dark hover:bg-wash xl:min-h-10"
+      >
+        Another quantity — price up a batch →
+      </button>
+    </Modal>
   );
 }
 
