@@ -333,6 +333,32 @@ function clearOwnRecords(itemId: number): void {
   run(`DELETE FROM item_packaging WHERE item_id = ? OR packaging_item_id = ?`, itemId, itemId);
 
   /*
+    Batches this item took part in, at either end.
+
+    The shop briefly had a screen for diluting a concentrate into another
+    product, and every batch it made left a `repacks` row pointing at the
+    concentrate and a `repack_lines` row pointing at what came out. The screen
+    is gone; the rows are not, and they hold BOTH products by foreign key with
+    nothing on screen to say so — Delete is offered, pressed, and refused by the
+    database.
+
+    A batch is an internal working record, not a document anybody holds, so it
+    goes. The whole event goes rather than half of it: a repack with its lines
+    removed and its row left behind is a batch that made nothing.
+  */
+  const batches = all<{ id: number }>(
+    `SELECT id FROM repacks WHERE from_item_id = ?
+     UNION
+     SELECT repack_id AS id FROM repack_lines WHERE item_id = ?`,
+    itemId,
+    itemId,
+  ).map((r) => r.id);
+  for (const id of batches) {
+    run(`DELETE FROM repack_lines WHERE repack_id = ?`, id);
+    run(`DELETE FROM repacks WHERE id = ?`, id);
+  }
+
+  /*
     Two of these tables are append-only at the database, by trigger, and both
     guards come off around this one delete and go straight back on.
 

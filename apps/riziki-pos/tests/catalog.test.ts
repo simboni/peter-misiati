@@ -6,7 +6,7 @@ process.env.RIZIKI_DB = join(mkdtempSync(join(tmpdir(), "cat-")), "t.db");
 import test from "node:test";
 import assert from "node:assert/strict";
 const { seed } = await import("../src/lib/seed.ts");
-const { get, all, run } = await import("../src/lib/db.ts");
+const { get, all, run, closeDb } = await import("../src/lib/db.ts");
 const cat = await import("../src/lib/catalog.ts");
 const { saveBundles } = await import("../src/lib/bundles.ts");
 
@@ -660,4 +660,88 @@ test("a refused delete leaves the guards on", () => {
   assert.ok(
     get(`SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name = 'stock_movements_no_delete'`),
   );
+});
+
+test("deleteProduct: a batch made by the old Make screen does not hold a product", () => {
+  /*
+    The residue of a feature that was built and then removed.
+
+    While the shop had a screen for diluting a concentrate into another product,
+    every batch wrote a `repacks` row against the concentrate and a
+    `repack_lines` row against what came out. Both point at items by foreign
+    key. Nothing cleared them and nothing listed them as history, so Delete was
+    offered, pressed, and refused by the database with "that did not work" — on
+    BOTH products, which is exactly the pair the shop then wanted gone.
+  */
+  const conc = throwaway("Test Old Concentrate");
+  const made = throwaway("Test Old Dilution");
+
+  const { lastInsertRowid: repackId } = run(
+    `INSERT INTO repacks (from_item_id, in_milli, out_milli, loss_milli, user_id)
+     VALUES (?, 12000, 23000, 0, ?)`,
+    conc,
+    OWNER,
+  );
+  run(
+    `INSERT INTO repack_lines (repack_id, item_id, units, qty_milli) VALUES (?, ?, 1, 23000)`,
+    Number(repackId),
+    made,
+  );
+
+  assert.equal(cat.deletableReason(made), null, "a batch is not somebody's document");
+  cat.deleteProduct(made, OWNER);
+  assert.equal(cat.getItem(made), undefined, "the dilution goes");
+
+  // The whole batch went with it, rather than a row with no lines behind it.
+  assert.equal(get(`SELECT 1 FROM repack_lines WHERE repack_id = ?`, Number(repackId)), undefined);
+  assert.equal(get(`SELECT 1 FROM repacks WHERE id = ?`, Number(repackId)), undefined);
+
+  // And the concentrate, held by the same batch from the other end, goes too.
+  cat.deleteProduct(conc, OWNER);
+  assert.equal(cat.getItem(conc), undefined, "the concentrate goes");
+});
+
+test("a table from a retired feature is dropped, not left to block deletes", () => {
+  /*
+    The failure this is for was invisible from every screen.
+
+    `conversions` shipped for one version, behind a screen for diluting a
+    concentrate into another product. Its rows point at items by foreign key, so
+    a database that ran that version refused to delete either end — the Delete
+    button appeared, because nothing listed the table as history, and pressing it
+    produced "that did not work" with no way forward.
+  */
+  assert.equal(
+    get(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'conversions'`),
+    undefined,
+    "boot drops it",
+  );
+
+  // And a database that still has it survives the next boot: put it back, with a
+  // row holding a product, and check the product can be deleted afterwards.
+  const from = throwaway("Test Retired From");
+  const to = throwaway("Test Retired To");
+  run(`CREATE TABLE conversions (
+         id INTEGER PRIMARY KEY,
+         to_item_id INTEGER NOT NULL REFERENCES items(id),
+         from_item_id INTEGER NOT NULL REFERENCES items(id),
+         in_milli INTEGER NOT NULL,
+         out_milli INTEGER NOT NULL,
+         active INTEGER NOT NULL DEFAULT 1)`);
+  run(
+    `INSERT INTO conversions (to_item_id, from_item_id, in_milli, out_milli) VALUES (?, ?, 1, 2)`,
+    to,
+    from,
+  );
+  assert.throws(() => cat.deleteProduct(to, OWNER), /FOREIGN KEY/, "held, as the shop found");
+
+  // A reboot: closing the handle means the next query reopens and migrates.
+  closeDb();
+  assert.equal(
+    get(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'conversions'`),
+    undefined,
+    "and the next boot clears it",
+  );
+  cat.deleteProduct(to, OWNER);
+  assert.equal(cat.getItem(to), undefined);
 });

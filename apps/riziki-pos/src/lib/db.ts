@@ -124,6 +124,21 @@ const DROPPED_COLUMNS: Array<{ table: string; column: string }> = [
   { table: "price_changes", column: "new_wholesale" },
 ];
 
+/**
+ * Tables from features that shipped and were taken out again.
+ *
+ * `conversions` held the ratio behind a screen for diluting a concentrate into
+ * another product. The shop tried that workflow, did not want it, and both
+ * dilutions are one-ingredient recipes now — but a database that ran the version
+ * in between still has the table, with rows pointing at items by foreign key.
+ * That is not merely untidy: it silently refused to let those products be
+ * deleted, offering the button and then failing with "that did not work".
+ *
+ * Dropped rather than left, because a table nobody reads is one the next person
+ * has to work out the meaning of, and this one bites while they do.
+ */
+const RETIRED_TABLES = ["conversions"];
+
 const ADDED_COLUMNS: Array<{ table: string; column: string; definition: string }> = [
   {
     table: "items",
@@ -193,6 +208,11 @@ function migrate(conn: DatabaseSync): void {
     if (!columns.length) continue;
     if (!columns.includes(column)) continue;
     conn.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
+  }
+
+  // Last, so a table being dropped cannot be one the steps above still need.
+  for (const table of RETIRED_TABLES) {
+    if (columnsOf(table).length) conn.exec(`DROP TABLE ${table}`);
   }
 }
 
