@@ -18,6 +18,7 @@
 import { useActionState, useState } from "react";
 import { Alert, Button, Field, inputClass } from "@/components/ui";
 import { savePricingAction, type PricingState } from "./actions";
+import { BundleRows, type BundleRow } from "./bundle-rows";
 
 const EMPTY: PricingState = {};
 
@@ -29,6 +30,8 @@ export default function PriceForm({
   floor,
   ceiling,
   reorder,
+  unit,
+  bundles,
 }: {
   itemId: number;
   /** "per kg", or "each" — what the price is the price of. */
@@ -38,6 +41,10 @@ export default function PriceForm({
   floor: number;
   ceiling: number;
   reorder: number;
+  /** kg, L or pcs — what a bundle's size is counted in. */
+  unit: string;
+  /** The sizes this is also sold in, as they stand. */
+  bundles: BundleRow[];
 }) {
   const [state, action, pending] = useActionState(savePricingAction, EMPTY);
 
@@ -47,6 +54,7 @@ export default function PriceForm({
   const [floorText, setFloorText] = useState(num(floor));
   const [ceilingText, setCeilingText] = useState(num(ceiling));
   const [reorderText, setReorderText] = useState(num(reorder));
+  const [bundleRows, setBundleRows] = useState<BundleRow[]>(bundles);
 
   return (
     <form action={action} className="space-y-2.5">
@@ -65,6 +73,31 @@ export default function PriceForm({
           <Money name="reorder" label="Warn me at" value={reorderText} onValue={setReorderText} />
         </Field>
       </div>
+
+      {/*
+        The sizes, under the price they are measured against.
+
+        Folded away by default: most of the catalogue has no bundles, and an
+        empty editor open on every row would make a hundred-row screen twice as
+        long for nothing. Open already when there are some, because then it is
+        the thing being looked for.
+      */}
+      <details open={bundleRows.length > 0}>
+        <summary className="cursor-pointer text-[13px] font-bold text-brand-dark">
+          Bundles{bundleRows.length ? ` (${bundleRows.length})` : ""} ▾
+        </summary>
+        <p className="mb-2 mt-1.5 text-[11px] leading-relaxed text-muted">
+          Sizes sold whole, at a price of their own — a 20 kg for a round number
+          rather than twenty times the price above. Stock comes off the same
+          place either way; this is a price, not a second shelf.
+        </p>
+        <BundleRows
+          rows={bundleRows}
+          onRows={setBundleRows}
+          unit={unit}
+          unitPriceCents={Math.round((Number(priceText) || 0) * 100)}
+        />
+      </details>
 
       {state.error ? <Alert tone="bad">{state.error}</Alert> : null}
 

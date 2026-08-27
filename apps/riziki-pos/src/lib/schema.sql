@@ -122,6 +122,45 @@ CREATE TABLE IF NOT EXISTS items (
 CREATE INDEX IF NOT EXISTS idx_items_chemical ON items(chemical_id);
 CREATE INDEX IF NOT EXISTS idx_items_kind ON items(kind);
 
+-- ---------------------------------------------------------------------- bundles
+
+-- A size the shop sells something in, at a price of its own.
+--
+-- Ungerol is priced per kilogram and weighed out to whatever the customer asks
+-- for. It is ALSO sold as a 5 kg, a 10 kg and a 20 kg — and those are cheaper
+-- per kilogram, which is the entire point: the bundle is a bulk price, not a
+-- convenience.
+--
+-- This is deliberately NOT a row in `items`. The catalogue used to hold a
+-- separate item per pack size, each with its own stock, and it was retired
+-- because stock kept splitting between the drum and the packs and had to be
+-- moved across by hand. A bundle is a PRICE ON THE PARENT, nothing more:
+-- selling a 20 kg bundle of Ungerol takes 20 kg off the one Ungerol drum, and
+-- there is never a second pile to reconcile.
+--
+-- Owned by an item or by a formula, never both and never neither — the CHECK
+-- says so. An item bundle is a size of a thing on the shelf; a formula bundle
+-- is a size of something mixed to order, where the ingredients are what
+-- actually leave the store.
+CREATE TABLE IF NOT EXISTS bundles (
+  id          INTEGER PRIMARY KEY,
+  item_id     INTEGER REFERENCES items(id),
+  formula_id  INTEGER REFERENCES formulas(id),
+  size_milli  INTEGER NOT NULL CHECK (size_milli > 0),
+  price_cents INTEGER NOT NULL CHECK (price_cents >= 0),
+  -- Never below, without the owner's PIN — the same promise the per-unit price
+  -- carries, made separately because a bundle is already a discounted rate and
+  -- the item's floor would be the wrong line to hold it to.
+  floor_cents INTEGER NOT NULL DEFAULT 0 CHECK (floor_cents >= 0),
+  sort_order  INTEGER NOT NULL DEFAULT 0,
+  active      INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+  CHECK ((item_id IS NULL) <> (formula_id IS NULL))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_bundles_item ON bundles(item_id, size_milli)
+  WHERE item_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_bundles_formula ON bundles(formula_id, size_milli)
+  WHERE formula_id IS NOT NULL;
+
 -- ------------------------------------------------------------------ stock ledger
 
 -- APPEND ONLY. delta_milli is positive for stock in, negative for stock out.
@@ -372,7 +411,12 @@ CREATE TABLE IF NOT EXISTS sale_lines (
   list_price_cents INTEGER NOT NULL DEFAULT 0 CHECK (list_price_cents >= 0),
   cost_cents       INTEGER NOT NULL DEFAULT 0,   -- owner-only in the UI
   is_kit           INTEGER NOT NULL DEFAULT 0 CHECK (is_kit IN (0, 1)),
-  formula_version_id INTEGER REFERENCES formula_versions(id)
+  formula_version_id INTEGER REFERENCES formula_versions(id),
+  -- Which bundle this was sold as, when it was sold as one. NULL for a loose
+  -- weight or a plain whole unit. The money and the quantity are already on the
+  -- row above; this is here so a report can ask "how much do we move in 20 kg
+  -- bundles" without inferring it from the size.
+  bundle_id        INTEGER REFERENCES bundles(id)
 );
 CREATE INDEX IF NOT EXISTS idx_slines_sale ON sale_lines(sale_id);
 -- Dead-stock and profit-per-product look up sales by item; without this the
@@ -532,7 +576,9 @@ CREATE TABLE IF NOT EXISTS quote_lines (
   -- customer was offered stays true after the shelf price moves. Same meaning
   -- and the same zero-is-unknown rule as `sale_lines.list_price_cents`.
   list_price_cents INTEGER NOT NULL DEFAULT 0 CHECK (list_price_cents >= 0),
-  sort_order       INTEGER NOT NULL DEFAULT 0
+  sort_order       INTEGER NOT NULL DEFAULT 0,
+  -- The bundle this line was quoted as, when it was one. See `bundles`.
+  bundle_id        INTEGER REFERENCES bundles(id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_quotes_status ON quotes(status, created_at DESC);

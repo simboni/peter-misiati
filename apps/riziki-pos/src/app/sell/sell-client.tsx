@@ -87,6 +87,23 @@ export interface SellItem {
   qtyMilli: number;
   /** name + chemical name + aliases, lower-cased, so "sles" finds Ungerol */
   search: string;
+  /**
+   * The sizes this is also sold in, each at its own price.
+   *
+   * Empty for most of the catalogue, and that emptiness is load-bearing: a tile
+   * with no bundles behaves exactly as it did before this existed — one tap,
+   * one unit on the bill, no sheet in the way.
+   */
+  bundles: BundleChoice[];
+}
+
+/** One size on the size sheet: what it holds, what it costs, what that is per unit. */
+export interface BundleChoice {
+  id: number;
+  sizeMilli: number;
+  priceCents: number;
+  /** Never below this without the owner's PIN. Zero means no floor set. */
+  floorCents: number;
 }
 
 export interface SellCustomer {
@@ -158,6 +175,8 @@ export interface PayloadLine {
   qtyMilli: number;
   /** Set when this line came out of a recipe, for the record. */
   formulaVersionId?: number | null;
+  /** Set when the customer bought a size rather than a weight. */
+  bundleId?: number | null;
 }
 
 export interface PayloadTender {
@@ -516,6 +535,17 @@ function shelfOrder(a: SellItem, b: SellItem): number {
 
 interface CartLine {
   itemId: number;
+  /**
+   * The bundle this line is, or null when it is loose weight / a plain unit.
+   *
+   * A cart can hold three lines for one chemical — some loose, a 5 kg and a
+   * 20 kg — because they are three different prices. So a line is identified by
+   * item AND bundle, never by item alone. `lineKey` is that identity; every
+   * lookup in this file goes through it.
+   */
+  bundleId: number | null;
+  /** What one of those bundles holds. Zero on a loose line. */
+  bundleSizeMilli: number;
   /** Whole containers. Always 1 on a weighed line — `qtyMilli` is the order. */
   units: number;
   /** How much substance, in milli. Only read when the item is priced per unit. */
@@ -531,8 +561,21 @@ interface CartLine {
   formulaVersionId: number | null;
 }
 
-/** What one cart line comes to, whichever way it is priced. */
+/**
+ * How a cart line is identified.
+ *
+ * Item alone is not enough once bundles exist: 2 kg loose and one 20 kg bundle
+ * of the same chemical are two lines at two prices, and keying by item would
+ * silently merge them into whichever was added first.
+ */
+function lineKey(itemId: number, bundleId: number | null): string {
+  return bundleId === null ? `${itemId}:loose` : `${itemId}:b${bundleId}`;
+}
+
+/** What one cart line comes to, whichever of the three ways it is priced. */
 function lineCents(item: SellItem, line: CartLine): number {
+  // A bundle is a price for the whole size — not a rate, however it is weighed.
+  if (line.bundleId !== null) return line.priceCents * line.units;
   if (item.basis === "unit") return Math.round((line.priceCents * line.qtyMilli) / 1000);
   return line.priceCents * line.units;
 }
@@ -804,6 +847,11 @@ export default function SellClient({
           if (!item) return null;
           return {
             itemId: item.id,
+            // "Same as last time" repeats quantities, not bundles: the sizes on
+            // offer may have changed since, and a stale bundle id would put a
+            // price on the bill that nothing on the shelf still carries.
+            bundleId: null,
+            bundleSizeMilli: 0,
             units: item.basis === "unit" ? 1 : l.units,
             qtyMilli: item.basis === "unit" ? l.qtyMilli : item.sizeMilli * l.units,
             priceCents: listPrice(item),
@@ -1012,6 +1060,9 @@ export default function SellClient({
     };
   }, []);
 
+  /** The item whose size sheet is open, if any. */
+  const [sizeFor, setSizeFor] = useState<SellItem | null>(null);
+
   // --- cart ---------------------------------------------------------------
 
   /**
@@ -1023,19 +1074,27 @@ export default function SellClient({
    * Anything else is typed into the cart line, where the quantity is a box.
    */
   function addItem(item: SellItem) {
+    // With sizes on offer, the tap asks how much rather than assuming one.
+    // Without them nothing changes: one tap, one unit, as it has always been.
+    if (item.bundles.length) {
+      setSizeFor(item);
+      return;
+    }
     addQuantity(item, stepMilli(item), null);
   }
 
   /** Nudge a line by one container, or by one kilogram. */
-  function changeUnits(itemId: number, delta: number) {
-    const item = byId.get(itemId);
-    if (!item) return;
+  function changeUnits(key: string, delta: number) {
     setCart((prev) =>
       prev
         .map((l) => {
-          if (l.itemId !== itemId) return l;
-          const qtyMilli = l.qtyMilli + delta * stepMilli(item);
-          return { ...l, qtyMilli, units: unitsFor(item, qtyMilli) };
+          if (lineKey(l.itemId, l.bundleId) !== key) return l;
+          const item = byId.get(l.itemId);
+          if (!item) return l;
+          // One more bundle, or one more container, or one more kilogram.
+          const step = l.bundleId !== null ? l.bundleSizeMilli : stepMilli(item);
+          const qtyMilli = l.qtyMilli + delta * step;
+          return { ...l, qtyMilli, units: unitsFor(item, qtyMilli, l) };
         })
         .filter((l) => l.qtyMilli > 0),
     );
@@ -1050,15 +1109,34 @@ export default function SellClient({
    * the shop stopped pre-packing: 250 g of caustic is now a number typed into a
    * box, not a pack somebody has to have made up in advance.
    */
-  function setQuantity(itemId: number, value: number) {
-    const item = byId.get(itemId);
-    if (!item || !Number.isFinite(value) || value <= 0) return;
+  function setQuantity(key: string, value: number) {
+    const line = cart.find((l) => lineKey(l.itemId, l.bundleId) === key);
+    const item = line ? byId.get(line.itemId) : undefined;
+    if (!line || !item || !Number.isFinite(value) || value <= 0) return;
+
+    // On a bundle line the box counts BUNDLES — "2" is two 20 kg bundles, not
+    // two kilograms. The weight follows from the size, and is never typed.
+    if (line.bundleId !== null) {
+      const count = Math.max(1, Math.min(9999, Math.floor(value)));
+      setCart((prev) =>
+        prev.map((l) =>
+          lineKey(l.itemId, l.bundleId) === key
+            ? { ...l, units: count, qtyMilli: count * l.bundleSizeMilli }
+            : l,
+        ),
+      );
+      return;
+    }
     const qtyMilli =
       item.basis === "unit"
         ? Math.min(9_999_000, Math.round(value * 1000))
         : Math.max(1, Math.min(9999, Math.floor(value))) * item.sizeMilli;
     setCart((prev) =>
-      prev.map((l) => (l.itemId === itemId ? { ...l, qtyMilli, units: unitsFor(item, qtyMilli) } : l)),
+      prev.map((l) =>
+        lineKey(l.itemId, l.bundleId) === key
+          ? { ...l, qtyMilli, units: unitsFor(item, qtyMilli, l) }
+          : l,
+      ),
     );
   }
 
@@ -1073,15 +1151,18 @@ export default function SellClient({
   function addQuantity(item: SellItem, qtyMilli: number, formulaVersionId: number | null) {
     const add = Math.max(1, Math.round(qtyMilli));
     setReceipt(null);
+    // Loose weight merges only with loose weight. A 20 kg bundle already on the
+    // bill is a different price and stays its own line.
+    const key = lineKey(item.id, null);
     setCart((prev) => {
-      const at = prev.findIndex((l) => l.itemId === item.id);
+      const at = prev.findIndex((l) => lineKey(l.itemId, l.bundleId) === key);
       if (at >= 0) {
         const next = [...prev];
         const qty = next[at].qtyMilli + add;
         next[at] = {
           ...next[at],
           qtyMilli: qty,
-          units: unitsFor(item, qty),
+          units: unitsFor(item, qty, next[at]),
           formulaVersionId: next[at].formulaVersionId ?? formulaVersionId,
         };
         return next;
@@ -1090,6 +1171,8 @@ export default function SellClient({
         ...prev,
         {
           itemId: item.id,
+          bundleId: null,
+          bundleSizeMilli: 0,
           units: unitsFor(item, add),
           qtyMilli: add,
           priceCents: listPrice(item),
@@ -1099,14 +1182,59 @@ export default function SellClient({
     });
   }
 
-  /** Containers a quantity works out to. Always 1 for a weighed line. */
-  function unitsFor(item: SellItem, qtyMilli: number): number {
+  /**
+   * Put one bundle on the bill.
+   *
+   * Tapping the same size again is one more of it, which is what a counter
+   * reaching for a second jerrican expects. The price is the bundle's own —
+   * never the per-kilogram price times the size, because the whole reason the
+   * bundle exists is that it is cheaper than that.
+   */
+  function addBundle(item: SellItem, bundle: BundleChoice) {
+    setReceipt(null);
+    const key = lineKey(item.id, bundle.id);
+    setCart((prev) => {
+      const at = prev.findIndex((l) => lineKey(l.itemId, l.bundleId) === key);
+      if (at >= 0) {
+        const next = [...prev];
+        const units = next[at].units + 1;
+        next[at] = { ...next[at], units, qtyMilli: units * bundle.sizeMilli };
+        return next;
+      }
+      return [
+        ...prev,
+        {
+          itemId: item.id,
+          bundleId: bundle.id,
+          bundleSizeMilli: bundle.sizeMilli,
+          units: 1,
+          qtyMilli: bundle.sizeMilli,
+          priceCents: bundle.priceCents,
+          formulaVersionId: null,
+        },
+      ];
+    });
+  }
+
+  /**
+   * What goes in `units` for a quantity.
+   *
+   * On a bundle line it is how many bundles — that is what the price multiplies.
+   * On a weighed line it is 1, because `qtyMilli` carries the order. On a whole
+   * unit it is the container count.
+   */
+  function unitsFor(item: SellItem, qtyMilli: number, line?: { bundleId: number | null; bundleSizeMilli: number }): number {
+    if (line?.bundleId != null && line.bundleSizeMilli > 0) {
+      return Math.max(1, Math.round(qtyMilli / line.bundleSizeMilli));
+    }
     if (item.basis === "unit") return 1;
     return Math.max(1, Math.round(qtyMilli / Math.max(1, item.sizeMilli)));
   }
 
-  function setLinePrice(itemId: number, cents: number) {
-    setCart((prev) => prev.map((l) => (l.itemId === itemId ? { ...l, priceCents: cents } : l)));
+  function setLinePrice(key: string, cents: number) {
+    setCart((prev) =>
+      prev.map((l) => (lineKey(l.itemId, l.bundleId) === key ? { ...l, priceCents: cents } : l)),
+    );
   }
 
   /**
@@ -1156,9 +1284,12 @@ export default function SellClient({
         itemId: l.itemId,
         units: l.units,
         unitPriceCents: l.priceCents,
-        basis: byId.get(l.itemId)?.basis ?? "pack",
+        // A bundle is priced whole, so it bills like a pack however the parent
+        // chemical is otherwise sold.
+        basis: l.bundleId !== null ? ("pack" as const) : (byId.get(l.itemId)?.basis ?? "pack"),
         qtyMilli: l.qtyMilli,
         formulaVersionId: l.formulaVersionId,
+        bundleId: l.bundleId,
       })),
       tenders: buildTenders(),
       customerId,
@@ -1290,17 +1421,20 @@ export default function SellClient({
         {/* Hairlines between rows, not a box around each one: a list of six
             things should read as one list. */}
         <div className="divide-y divide-line">
-          {lines.map(({ line, item }) => (
-            <CartRow
-              key={line.itemId}
-              item={item}
-              line={line}
-              onStep={(d) => changeUnits(line.itemId, d)}
-              onQuantity={(v) => setQuantity(line.itemId, v)}
-              onPrice={(c) => setLinePrice(line.itemId, c)}
-              onKeepPrice={(pin) => onKeepPrice(line.itemId, line.priceCents, pin)}
-            />
-          ))}
+          {lines.map(({ line, item }) => {
+            const key = lineKey(line.itemId, line.bundleId);
+            return (
+              <CartRow
+                key={key}
+                item={item}
+                line={line}
+                onStep={(d) => changeUnits(key, d)}
+                onQuantity={(v) => setQuantity(key, v)}
+                onPrice={(c) => setLinePrice(key, c)}
+                onKeepPrice={(pin) => onKeepPrice(line.itemId, line.priceCents, pin)}
+              />
+            );
+          })}
         </div>
         {overdrawn.length ? (
           <div className="mt-3">
@@ -2083,7 +2217,17 @@ export default function SellClient({
           </SectionLabel>
           <Grid
             items={matches}
-            onAdd={(item) => addQuantity(item, queryCount * stepMilli(item), null)}
+            /*
+              A count typed into the search box — "20 ungerol" — is the counter
+              already saying how much, so it is honoured and the size sheet
+              stays out of the way. A bare tap has said nothing about quantity,
+              so it asks, exactly as a tap on the board does.
+            */
+            onAdd={(item) =>
+              queryCount > 1
+                ? addQuantity(item, queryCount * stepMilli(item), null)
+                : addItem(item)
+            }
             cart={cart}
             searching
           />
@@ -2307,6 +2451,18 @@ export default function SellClient({
           </Sheet>
         ) : null}
       </div>
+
+      {/* Outside the phone-only block on purpose: choosing a size is picking an
+          item, not working the cart, and the laptop at the counter needs it as
+          much as the phone does. */}
+      {sizeFor ? (
+        <SizeSheet
+          item={sizeFor}
+          onLoose={(qtyMilli) => addQuantity(sizeFor, qtyMilli, null)}
+          onBundle={(b) => addBundle(sizeFor, b)}
+          onClose={() => setSizeFor(null)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -2391,7 +2547,11 @@ function Grid({
   }
 
   const tile = (item: SellItem) => {
+    // Any line of this item counts as "in the cart" — loose or any bundle.
     const inCart = cart.find((l) => l.itemId === item.id);
+    // "5 · 10 · 20" under the price, so the sizes are discoverable without a
+    // tap. Without this the sheet is a surprise the first few times.
+    const sizes = item.bundles.map((b) => formatQty(b.sizeMilli, item.unit).replace(/\s*\w+$/, "")).join(" · ");
     const out = item.qtyMilli <= 0;
     const unpriced = listPrice(item) === 0;
     const { base, size } = splitName(item.name);
@@ -2469,7 +2629,10 @@ function Grid({
           {/* For a weighed chemical the container size is not what is being
               bought, so the line says what it IS sold by. */}
           <span className="shrink-0 text-[12.5px] font-bold" style={{ color: sw.bar }}>
-            {item.basis === "unit" ? `per ${item.unit}` : (size ?? "")}
+            {/* When there are sizes to choose from, say so here rather than
+                "per kg" — "5 · 10 · 20" is what a tap is about to offer, and a
+                sheet nobody expects is a sheet nobody uses. */}
+            {sizes || (item.basis === "unit" ? `per ${item.unit}` : (size ?? ""))}
           </span>
           <span
             className={`ml-auto hidden min-w-0 truncate text-right text-[11px] font-semibold tnum md:block ${
@@ -2591,10 +2754,16 @@ function CartRow({
   const [draft, setDraft] = useState(() => centsToInput(line.priceCents));
   /** Held while the box is being typed in, so a half-typed "2" of "20" is not applied. */
   const [qtyDraft, setQtyDraft] = useState<string | null>(null);
-  const list = listPrice(item);
+  const bundled = line.bundleId !== null;
+  /*
+    A bundle line is priced whole, so it is not the shop's per-kilogram price
+    that it is being compared against — it has its own. Marking it "discounted"
+    against the loose rate would put a red pencil on every bundle ever sold.
+  */
+  const list = bundled ? line.priceCents : listPrice(item);
   const discounted = line.priceCents !== list;
-  const weighed = item.basis === "unit";
-  /** What the box shows: "3" jerricans, or "1.5" kilograms. */
+  const weighed = item.basis === "unit" && !bundled;
+  /** What the box shows: "2" bundles, "3" jerricans, or "1.5" kilograms. */
   const shown = weighed ? milliToInput(line.qtyMilli) : String(line.units);
   const over = line.qtyMilli > item.qtyMilli;
 
@@ -2758,7 +2927,13 @@ function CartRow({
               aria-label={`Change the price of ${item.name}`}
               title={`Tap to agree a different price for ${item.name}`}
             >
-              {!weighed && size ? <span className="text-muted">{size} · </span> : null}
+              {bundled ? (
+                <span className="text-muted">
+                  {formatQty(line.bundleSizeMilli, item.unit)} bundle ·{" "}
+                </span>
+              ) : !weighed && size ? (
+                <span className="text-muted">{size} · </span>
+              ) : null}
               <span className="underline decoration-brand/30 decoration-dotted underline-offset-2">
                 {weighed ? priceLabel(item, line.priceCents) : `${formatKes(line.priceCents)} each`}
               </span>
@@ -2840,6 +3015,144 @@ function CartRow({
       </div>
     ) : null}
     </div>
+  );
+}
+
+
+/**
+ * How much of it? — the sheet that opens when a tile with bundles is tapped.
+ *
+ * The design decision worth recording. The obvious placement for a size picker
+ * is a dropdown on the tile itself, and it is wrong for three reasons:
+ *
+ *  1. The grid is a picking surface. A select inside every tile roughly doubles
+ *     tile height, which halves how many items are on screen, and most of the
+ *     catalogue has no bundles at all — so the majority of tiles would carry a
+ *     control with nothing in it.
+ *  2. It puts the decision before the item. What actually happens at the
+ *     counter is "twenty kilos of Ungerol" — the size IS the quantity, so it
+ *     belongs at the quantity step, not next to the name.
+ *  3. Two ways to say the same thing. With a size on the tile and a quantity
+ *     box in the cart, "20 kg" could be entered two ways at two different
+ *     prices, which is a pricing argument waiting to happen.
+ *
+ * So the sizes live here, one tap from the tile, beside the loose option they
+ * compete with. Each chip carries the price AND what that works out at per
+ * kilogram, because the per-kilogram rate is the thing the customer is really
+ * buying and the thing that makes the right chip obvious.
+ *
+ * An item with no bundles never opens this — its tile still adds one unit on a
+ * single tap, exactly as before.
+ */
+function SizeSheet({
+  item,
+  onLoose,
+  onBundle,
+  onClose,
+}: {
+  item: SellItem;
+  onLoose: (qtyMilli: number) => void;
+  onBundle: (bundle: BundleChoice) => void;
+  onClose: () => void;
+}) {
+  const [loose, setLoose] = useState("");
+  const list = listPrice(item);
+  const weighed = item.basis === "unit";
+  const typed = parseMilli(loose);
+  const looseCents = typed && list > 0 ? Math.round((list * typed) / 1000) : 0;
+
+  const take = () => {
+    if (!typed || typed <= 0) return;
+    onLoose(typed);
+    onClose();
+  };
+
+  return (
+    <Sheet title={item.name} onClose={onClose}>
+      <p className="-mt-2 mb-3 text-[13px] text-muted">{stockLabel(item)}</p>
+
+      {/*
+        One chip per size. Two columns on a phone so a thumb has a target it
+        cannot miss, three once there is room — the sizes are read across, and a
+        single column would make comparing the per-kg rates a scroll.
+      */}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        {item.bundles.map((b) => {
+          const rate = b.sizeMilli > 0 ? Math.round((b.priceCents * 1000) / b.sizeMilli) : 0;
+          const saving = list > 0 ? Math.max(0, Math.round((list * b.sizeMilli) / 1000) - b.priceCents) : 0;
+          return (
+            <button
+              key={b.id}
+              type="button"
+              onClick={() => {
+                onBundle(b);
+                onClose();
+              }}
+              className="flex min-h-[5.5rem] flex-col items-start justify-center rounded-2xl bg-brand-soft px-3 py-2.5 text-left ring-1 ring-inset ring-brand/25 transition-colors hover:ring-brand/60"
+            >
+              <span className="text-[15px] font-extrabold text-brand-deep">
+                {formatQty(b.sizeMilli, item.unit)}
+              </span>
+              <span className="mt-0.5 text-[15px] font-bold tnum">{formatKes(b.priceCents)}</span>
+              {/* The number the customer is actually comparing. */}
+              <span className="text-[11px] text-muted tnum">
+                {formatKes(rate)}/{item.unit}
+              </span>
+              {saving > 0 ? (
+                <span className="mt-0.5 text-[11px] font-bold text-good tnum">
+                  saves {formatKes(saving)}
+                </span>
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
+
+      {/*
+        Loose, underneath, so the sizes are what the eye lands on but the shop
+        never loses the ability to sell four and a half kilos of something.
+      */}
+      {list > 0 ? (
+        <div className="mt-3 rounded-2xl bg-wash p-3 ring-1 ring-inset ring-line">
+          <div className="flex items-center gap-2">
+            <label className="text-[13px] font-bold" htmlFor="loose-qty">
+              {weighed ? "Any weight" : "How many"}
+            </label>
+            <input
+              id="loose-qty"
+              className={`${inputClass} ml-auto w-24 text-right`}
+              inputMode="decimal"
+              autoComplete="off"
+              value={loose}
+              onChange={(e) => setLoose(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") take();
+              }}
+              placeholder={weighed ? "2.5" : "1"}
+              aria-label={`How much ${item.name}, in ${weighed ? item.unit : item.unitLabel + "s"}`}
+            />
+            <span className="w-8 text-[13px] font-semibold text-muted">
+              {weighed ? item.unit : ""}
+            </span>
+          </div>
+          <div className="mt-2 flex items-center gap-2">
+            <span className="text-[13px] text-muted tnum">
+              {looseCents > 0
+                ? `${formatKes(looseCents)} at ${formatKes(list)}/${weighed ? item.unit : item.unitLabel}`
+                : `${formatKes(list)} per ${weighed ? item.unit : item.unitLabel}`}
+            </span>
+            <button
+              type="button"
+              onClick={take}
+              disabled={!typed || typed <= 0}
+              className="ml-auto flex min-h-11 items-center rounded-xl bg-brand px-4 text-sm font-bold text-white disabled:opacity-40 xl:min-h-10"
+            >
+              Add
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </Sheet>
   );
 }
 

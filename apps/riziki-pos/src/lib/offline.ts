@@ -48,6 +48,8 @@ export const OUTBOX_EVENT = "riziki:outbox";
 
 export interface QueuedLine {
   itemId: number;
+  /** Which bundle, when a size was sold rather than a weight. */
+  bundleId?: number | null;
   units: number;
   /**
    * Integer cents, snapshotted at the counter. May be a haggled price.
@@ -199,6 +201,10 @@ export function parseQueuedSale(value: unknown): QueuedSalePayload {
     if (l.formulaVersionId !== undefined && l.formulaVersionId !== null) {
       parsed.formulaVersionId = l.formulaVersionId;
     }
+    // Which size it was. Without this a bundle queued on a phone in the dark
+    // would come back as a bare weight at the bundle's price, and the till
+    // would charge one 20 kg bundle's money for one kilogram.
+    if (typeof l.bundleId === "number") parsed.bundleId = l.bundleId;
     return parsed;
   });
 

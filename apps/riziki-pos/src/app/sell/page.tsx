@@ -15,6 +15,7 @@ import { mixFor, listFormulas } from "@/lib/production";
 import { getPrintSettings } from "@/lib/print-settings";
 import { formatKes } from "@/lib/units";
 import { setCounterPrice, PriceError } from "@/lib/pricing";
+import { bundlesByItem } from "@/lib/bundles";
 import SellClient, {
   type MixOffer,
   type RecipeChoice,
@@ -278,6 +279,15 @@ export default async function SellPage() {
       ORDER BY i.name`,
   );
 
+  /*
+    Every bundle on the board, in one read.
+
+    Asking per item would be a hundred round trips on a phone that is often on
+    one bar, and the counter needs them all up front: the size sheet has to open
+    the instant a tile is tapped, not after a request.
+  */
+  const bundles = bundlesByItem();
+
   const items: SellItem[] = rows.map((r) => ({
     id: r.id,
     basis: r.price_basis === "unit" ? "unit" : "pack",
@@ -288,6 +298,12 @@ export default async function SellPage() {
     priceCents: r.price_cents,
     qtyMilli: r.qty_milli,
     search: r.search,
+    bundles: (bundles.get(r.id) ?? []).map((b) => ({
+      id: b.id,
+      sizeMilli: b.sizeMilli,
+      priceCents: b.priceCents,
+      floorCents: b.floorCents,
+    })),
   }));
 
   /**

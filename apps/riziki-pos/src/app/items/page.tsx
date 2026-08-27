@@ -15,6 +15,7 @@ import {
 import { fromCents, formatKes, formatQty, SIZE_UNITS, type SizeUnit } from "@/lib/units";
 import { Alert, Button, Card, Chip, Field, PageTitle, inputClass } from "@/components/ui";
 import { ListToolbar, Pager } from "@/components/section-nav";
+import { itemBundles } from "@/lib/bundles";
 import PriceForm from "./price-form";
 import DeleteProduct from "./delete-product";
 
@@ -207,6 +208,12 @@ function ProductRow({ item }: { item: AdminItem }) {
           floor={fromCents(item.floor_cents)}
           ceiling={fromCents(item.ceiling_cents)}
           reorder={reorderUnits}
+          unit={item.canonical_unit}
+          bundles={itemBundles(item.id).map((b) => ({
+            size: String(b.sizeMilli / 1000),
+            price: String(b.priceCents / 100),
+            floor: b.floorCents ? String(b.floorCents / 100) : "",
+          }))}
         />
 
         {/* Hiding is a twice-a-year act; it lives inside the editor, in quiet

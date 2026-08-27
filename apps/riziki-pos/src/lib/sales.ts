@@ -22,6 +22,7 @@
 
 import { all, get, run, tx, postMovement, stockOf, audit, type Item, type PriceBasis } from "./db.ts";
 import { verifyPin } from "./pin.ts";
+import { findBundle } from "./bundles.ts";
 import { formatKes, formatQty, MILLI } from "./units.ts";
 
 export type Tier = "retail" | "wholesale";
@@ -225,6 +226,13 @@ export interface SaleLineInput {
    * it does not change how the line is priced.
    */
   formulaVersionId?: number | null;
+  /**
+   * The bundle the customer bought, when they bought a size rather than a
+   * weight. The size and the asking price are read from the database, never
+   * from here: the counter may argue the price down, but it cannot invent what
+   * a 20 kg bundle holds.
+   */
+  bundleId?: number | null;
 }
 
 export interface TenderInput {
@@ -266,6 +274,9 @@ interface ResolvedLine {
   listPriceCents: number;
   costCents: number;
   formulaVersionId: number | null;
+  bundleId: number | null;
+  /** What goes on the receipt: "Ungerol — 20 kg bundle". */
+  nameSnapshot: string;
 }
 
 export function recordSale(input: RecordSaleInput): RecordSaleResult {
@@ -336,11 +347,11 @@ export function recordSale(input: RecordSaleInput): RecordSaleResult {
         `INSERT INTO sale_lines (sale_id, item_id, name_snapshot, units, qty_milli,
                                  unit_price_cents, line_total_cents, rate_cents,
                                  list_price_cents, cost_cents,
-                                 is_kit, formula_version_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                                 is_kit, formula_version_id, bundle_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         saleId,
         l.item.id,
-        l.item.name,
+        l.nameSnapshot,
         l.units,
         l.qtyMilli,
         l.unitPriceCents,
@@ -355,6 +366,7 @@ export function recordSale(input: RecordSaleInput): RecordSaleResult {
         l.costCents,
         l.formulaVersionId ? 1 : 0,
         l.formulaVersionId,
+        l.bundleId,
       );
 
       // Every sale moves stock now. It used to move only for packs and finished
@@ -451,6 +463,72 @@ function resolveLines(input: RecordSaleInput): ResolvedLine[] {
     }
 
     /*
+      A bundle: a size of this item, at a price of its own.
+
+      Everything about it is read from the database. The counter sends which
+      bundle and how many; the size and the asking price come from here, so a
+      tampered payload cannot invent a 20 kg bundle that holds 200 kg or claim
+      the shop was asking less than it was.
+
+      Its band is its OWN floor, not the item's. A bundle is already a bulk rate
+      — a 20 kg at KES 440 the kilogram sits well under a per-kilogram floor of
+      KES 480, and checking it against that would refuse every bundle the shop
+      sells while an attendant stood there with a customer.
+
+      The stock is the parent's, and checked like a weighed line, because the
+      kilograms come out of the same drum whether they leave loose or in a
+      jerrican.
+    */
+    if (line.bundleId != null) {
+      const bundle = findBundle(line.bundleId);
+      if (!bundle || !bundle.active || bundle.itemId !== item.id) {
+        throw new SaleError("unknown_item", `That size of ${item.name} is no longer sold.`);
+      }
+      if (!Number.isInteger(line.units) || line.units <= 0) {
+        throw new SaleError("bad_units", `How many ${formatQty(bundle.sizeMilli, item.canonical_unit)} of ${item.name}?`);
+      }
+
+      if (bundle.floorCents > 0 && line.unitPriceCents < bundle.floorCents && !input.floorOverrideBy) {
+        throw new SaleError(
+          "below_floor",
+          `${item.name} ${formatQty(bundle.sizeMilli, item.canonical_unit)} at ` +
+            `${formatKes(line.unitPriceCents)} is below the least it may go for ` +
+            `(${formatKes(bundle.floorCents)}). The owner must approve it.`,
+        );
+      }
+
+      const qtyMilli = bundle.sizeMilli * line.units;
+      const taken = (claimed.get(item.id) ?? 0) + qtyMilli;
+      const onHand = stockOf(item.id);
+      if (taken > onHand) {
+        throw new SaleError(
+          "not_enough_stock",
+          `There is ${formatQty(Math.max(0, onHand), item.canonical_unit)} of ${item.name} left, ` +
+            `and this sale asks for ${formatQty(taken, item.canonical_unit)}. ` +
+            `If there is more in the store than the book says, do a stock take first.`,
+        );
+      }
+      claimed.set(item.id, taken);
+
+      return {
+        item,
+        // Whole bundles, priced whole — the same shape a jerrican has.
+        units: line.units,
+        rateCents: 0,
+        unitPriceCents: line.unitPriceCents,
+        qtyMilli,
+        lineTotalCents: line.unitPriceCents * line.units,
+        // What the shop was asking for this size, so a haggled bundle still
+        // shows what was given away.
+        listPriceCents: bundle.priceCents,
+        costCents: Math.round((item.cost_cents * qtyMilli) / item.size_milli),
+        formulaVersionId: line.formulaVersionId ?? null,
+        bundleId: bundle.id,
+        nameSnapshot: `${item.name} — ${formatQty(bundle.sizeMilli, item.canonical_unit)} bundle`,
+      };
+    }
+
+    /*
       The band, checked at both ends.
 
       Neither limit is ever sent to the counter — a chemical's floor sits close
@@ -505,6 +583,8 @@ function resolveLines(input: RecordSaleInput): ResolvedLine[] {
         listPriceCents,
         costCents: Math.round((item.cost_cents * qtyMilli) / item.size_milli),
         formulaVersionId,
+        bundleId: null,
+        nameSnapshot: item.name,
       };
     }
 
@@ -522,6 +602,8 @@ function resolveLines(input: RecordSaleInput): ResolvedLine[] {
       listPriceCents,
       costCents: item.cost_cents * line.units,
       formulaVersionId,
+      bundleId: null,
+      nameSnapshot: item.name,
     };
   });
 }

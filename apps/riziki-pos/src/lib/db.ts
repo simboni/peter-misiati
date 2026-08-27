@@ -146,6 +146,20 @@ const ADDED_COLUMNS: Array<{ table: string; column: string; definition: string }
     column: "ceiling_cents",
     definition: "INTEGER NOT NULL DEFAULT 0 CHECK (ceiling_cents >= 0)",
   },
+  /*
+    Which bundle a line was sold or quoted as.
+
+    The `bundles` table itself needs no entry here — `CREATE TABLE IF NOT
+    EXISTS` in schema.sql runs on every open and builds it on the shop's file
+    as readily as on a fresh one. Columns added to a table that already exists
+    are the only thing that needs saying twice.
+
+    No REFERENCES clause: SQLite cannot add a column with a foreign key to a
+    table that already has rows, and the constraint would buy nothing here —
+    nothing deletes a bundle, it is only ever switched off.
+  */
+  { table: "sale_lines", column: "bundle_id", definition: "INTEGER" },
+  { table: "quote_lines", column: "bundle_id", definition: "INTEGER" },
 ];
 
 function migrate(conn: DatabaseSync): void {
