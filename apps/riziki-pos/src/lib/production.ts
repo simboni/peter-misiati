@@ -262,6 +262,13 @@ export interface VersionResult {
   version: number;
   /** True when the existing version was corrected rather than a new one forked. */
   corrected: boolean;
+  /**
+   * True when the recipe sent was word for word the one already stored, so
+   * nothing at all was written. The screen says so rather than announcing a
+   * save that did not happen — an owner who opened a recipe to fix its name
+   * should not be told his ingredients were rewritten.
+   */
+  unchanged: boolean;
 }
 
 /**
@@ -313,10 +320,52 @@ function writeVersion(
     // forking. Without this, a shop fixing the placeholder recipes it was
     // delivered with walks its way to "version 6" of a product it has not made
     // once, and the version number stops meaning anything.
-    const current = get<{ id: number; version: number }>(
-      `SELECT id, version FROM formula_versions WHERE formula_id = ? AND is_current = 1`,
+    const current = get<{
+      id: number;
+      version: number;
+      ref_size_milli: number;
+      steps: string;
+      note: string;
+    }>(
+      `SELECT id, version, ref_size_milli, steps, note
+         FROM formula_versions WHERE formula_id = ? AND is_current = 1`,
       input.formulaId,
     );
+
+    /*
+      A save that changes nothing writes nothing.
+
+      Every save of a recipe that has been sold on forks a new version, which is
+      right when the recipe changed and pure noise when it did not — and it does
+      not, often: the owner opens a recipe to correct its NAME, or its mixing
+      steps, and the ingredients underneath are untouched. Without this, retyping
+      the catalogue would walk a product to "version 7" without one chemical
+      moving, and a version list that grows for no reason is a version list
+      nobody reads.
+
+      Compared in the order the rows are stored, so moving an ingredient up the
+      list still counts as a change — the sequence is part of how a thing is
+      mixed.
+    */
+    if (current) {
+      const was = all<{ chemical_id: number; qty_milli: number }>(
+        `SELECT chemical_id, qty_milli FROM formula_items
+          WHERE formula_version_id = ? ORDER BY sort_order`,
+        current.id,
+      );
+      const same =
+        current.ref_size_milli === input.refSizeMilli &&
+        current.steps === input.steps &&
+        current.note === input.note &&
+        was.length === items.length &&
+        was.every(
+          (r, i) => r.chemical_id === items[i].chemicalId && r.qty_milli === items[i].qtyMilli,
+        );
+      if (same) {
+        return { versionId: current.id, version: current.version, corrected: true, unchanged: true };
+      }
+    }
+
     const soldAgainstCurrent = current ? salesUsingVersion(current.id) : 0;
     const correctInPlace = Boolean(current) && soldAgainstCurrent === 0;
 
@@ -384,8 +433,49 @@ function writeVersion(
         : `${formula.name} · version ${version} (${items.length} ingredients)`,
     );
 
-    return { versionId: Number(versionId), version, corrected: correctInPlace };
+    return { versionId: Number(versionId), version, corrected: correctInPlace, unchanged: false };
   }
+}
+
+/**
+ * Correct what a recipe is called.
+ *
+ * Separate from `createFormulaVersion`, and deliberately so. Editing a recipe
+ * writes a NEW VERSION, because a sale billed last week has to keep saying
+ * exactly what went into the mix it charged for. A name is not part of that
+ * record — "Carwash Shampoo" spelled right is the same mix as "Carwash Shampo"
+ * spelled wrong — so renaming forks nothing and rewrites no history. Every
+ * version, every batch and every sale line goes on pointing where it pointed.
+ *
+ * Without this a mistyped product name was permanent: the recipe screen asked
+ * for a name when inventing one and never again, and the only way to fix a
+ * typo was a second recipe with the sales split across the two.
+ */
+export function renameFormula(formulaId: number, name: string, userId: number): void {
+  const wanted = name.trim();
+  if (!wanted) throw new Error("Give the recipe a name — what the shop calls the product.");
+
+  const formula = get<FormulaRow>(`SELECT * FROM formulas WHERE id = ?`, formulaId);
+  if (!formula) throw new Error("That recipe no longer exists.");
+  if (formula.name === wanted) return;
+
+  // `formulas.name` is UNIQUE, so a clash would otherwise reach the owner as a
+  // raw SQLite error rather than as a sentence about the shop.
+  const clash = get<{ id: number; active: number }>(
+    `SELECT id, active FROM formulas WHERE lower(name) = lower(?) AND id <> ?`,
+    wanted,
+    formulaId,
+  );
+  if (clash) {
+    throw new Error(
+      clash.active
+        ? `There is already a recipe called ${wanted}.`
+        : `${wanted} exists but is hidden. Show that one again rather than renaming this one onto it.`,
+    );
+  }
+
+  run(`UPDATE formulas SET name = ? WHERE id = ?`, wanted, formulaId);
+  audit(userId, "formula_renamed", "formula", formulaId, `${formula.name} → ${wanted}`);
 }
 
 export interface NewFormulaInput {

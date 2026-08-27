@@ -20,7 +20,6 @@
  * customer worked it out at the counter.
  */
 
-import { useState } from "react";
 import { formatKes } from "@/lib/units";
 import { inputClass } from "@/components/ui";
 

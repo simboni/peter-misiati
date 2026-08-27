@@ -333,3 +333,195 @@ test("sizes are typed the way the shelf label reads", () => {
   assert.equal(item.canonical_unit, "kg", "grams are stored as thousandths of a kilogram");
   assert.equal(item.size_milli, 500);
 });
+
+// ------------------------------------------------- editing what a thing IS
+
+test("updateProduct: renames a chemical everywhere, not just on the item row", () => {
+  const id = cat.createProduct({
+    name: "Test Ungrol",
+    unit: "kg",
+    aliases: "ungrl",
+    containerValue: 25,
+    containerLabel: "drum",
+    price: 500,
+    floor: 0,
+    ceiling: 0,
+    byUserId: OWNER,
+  });
+
+  cat.updateProduct({
+    itemId: id,
+    name: "Test Ungerol",
+    aliases: "ungerol, sles",
+    unit: "kg",
+    containerValue: 25,
+    containerLabel: "drum",
+    price: 500,
+    floor: 0,
+    ceiling: 0,
+    reorderUnits: 0,
+    byUserId: OWNER,
+  });
+
+  const item = cat.getItem(id)!;
+  assert.equal(item.name, "Test Ungerol");
+  // The substance carries the name the counter searches on, so both have to move
+  // or search would still be finding the typo.
+  const chem = get<{ name: string; aliases: string }>(
+    `SELECT name, aliases FROM chemicals WHERE id = ?`,
+    item.chemical_id,
+  )!;
+  assert.equal(chem.name, "Test Ungerol");
+  assert.equal(chem.aliases, "ungerol, sles");
+});
+
+test("updateProduct: the container and the unit are editable", () => {
+  const id = cat.createProduct({
+    name: "Test Wrong Unit",
+    unit: "kg",
+    aliases: "",
+    containerValue: 25,
+    containerLabel: "drum",
+    price: 100,
+    floor: 0,
+    ceiling: 0,
+    byUserId: OWNER,
+  });
+
+  cat.updateProduct({
+    itemId: id,
+    name: "Test Wrong Unit",
+    aliases: "",
+    unit: "L",
+    containerValue: 20,
+    containerLabel: "jerrican",
+    price: 100,
+    floor: 0,
+    ceiling: 0,
+    reorderUnits: 0,
+    byUserId: OWNER,
+  });
+
+  const item = cat.getItem(id)!;
+  assert.equal(item.canonical_unit, "L");
+  assert.equal(item.size_milli, 20_000);
+  assert.equal(item.unit_label, "jerrican");
+  // The substance has to agree, or a recipe reading the chemical would still
+  // think the thing is weighed.
+  const chem = get<{ canonical_unit: string }>(
+    `SELECT canonical_unit FROM chemicals WHERE id = ?`,
+    item.chemical_id,
+  )!;
+  assert.equal(chem.canonical_unit, "L");
+});
+
+test("updateProduct: refuses a name something else already answers to", () => {
+  const first = cat.createProduct({
+    name: "Test Taken Name",
+    unit: "kg",
+    aliases: "",
+    containerValue: 25,
+    containerLabel: "drum",
+    price: 10,
+    floor: 0,
+    ceiling: 0,
+    byUserId: OWNER,
+  });
+  const second = cat.createProduct({
+    name: "Test Other Name",
+    unit: "kg",
+    aliases: "",
+    containerValue: 25,
+    containerLabel: "drum",
+    price: 10,
+    floor: 0,
+    ceiling: 0,
+    byUserId: OWNER,
+  });
+
+  assert.throws(
+    () =>
+      cat.updateProduct({
+        itemId: second,
+        name: "test taken name",
+        aliases: "",
+        unit: "kg",
+        containerValue: 25,
+        containerLabel: "drum",
+        price: 10,
+        floor: 0,
+        ceiling: 0,
+        reorderUnits: 0,
+        byUserId: OWNER,
+      }),
+    /already called/i,
+    "two rows with one name are indistinguishable at the till",
+  );
+  assert.equal(cat.getItem(first)!.name, "Test Taken Name", "the first one is untouched");
+});
+
+test("updateProduct: keeps the band rules, and refuses without writing the name", () => {
+  const id = cat.createProduct({
+    name: "Test Band Rules",
+    unit: "kg",
+    aliases: "",
+    containerValue: 25,
+    containerLabel: "drum",
+    price: 100,
+    floor: 0,
+    ceiling: 0,
+    byUserId: OWNER,
+  });
+
+  assert.throws(
+    () =>
+      cat.updateProduct({
+        itemId: id,
+        name: "Test Band Renamed",
+        aliases: "",
+        unit: "kg",
+        containerValue: 25,
+        containerLabel: "drum",
+        price: 100,
+        floor: 200,
+        ceiling: 150,
+        reorderUnits: 0,
+        byUserId: OWNER,
+      }),
+    /can't be above/i,
+  );
+  // The whole save is one transaction: a refused band must not leave a renamed
+  // row behind it.
+  assert.equal(cat.getItem(id)!.name, "Test Band Rules");
+});
+
+test("updateProduct: a container of nothing is refused", () => {
+  const id = cat.createProduct({
+    name: "Test Empty Drum",
+    unit: "kg",
+    aliases: "",
+    containerValue: 25,
+    containerLabel: "drum",
+    price: 10,
+    floor: 0,
+    ceiling: 0,
+    byUserId: OWNER,
+  });
+  assert.throws(
+    () =>
+      cat.updateProduct({
+        itemId: id,
+        name: "Test Empty Drum",
+        aliases: "",
+        unit: "kg",
+        containerValue: 0,
+        containerLabel: "drum",
+        price: 10,
+        floor: 0,
+        ceiling: 0,
+        reorderUnits: 0,
+        byUserId: OWNER,
+      }),
+    /one container holds/i,
+  );
+});

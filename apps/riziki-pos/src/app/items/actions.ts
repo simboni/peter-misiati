@@ -1,11 +1,12 @@
 "use server";
 
 /**
- * Saving one product's prices.
+ * Saving one product — everything about it.
  *
  * This is separate from the page's other actions because it is the only one
  * that gets refused in ordinary use — a price outside its own band, a floor
- * above its ceiling — and a refusal has to come back to the row it came from.
+ * above its ceiling, a name another row already has — and a refusal has to come
+ * back to the row it came from.
  *
  * The others redirect on failure, which is right for them: adding a product or
  * hiding one either works or is a mistake worth stopping the whole page for. A
@@ -18,7 +19,7 @@
 import { revalidatePath } from "next/cache";
 import { requireOwner } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { updatePricing, deleteProduct, CatalogError } from "@/lib/catalog";
+import { updateProduct, deleteProduct, CatalogError, type Unit } from "@/lib/catalog";
 import { saveBundles, BundleError } from "@/lib/bundles";
 import { parseBundleRows } from "@/lib/bundle-input";
 
@@ -37,8 +38,13 @@ export async function savePricingAction(
   const itemId = Number(formData.get("itemId"));
 
   try {
-    updatePricing({
+    updateProduct({
       itemId,
+      name: String(formData.get("name") ?? ""),
+      aliases: String(formData.get("aliases") ?? ""),
+      unit: String(formData.get("unit") ?? "kg") as Unit,
+      containerValue: Number(formData.get("container") ?? 0),
+      containerLabel: String(formData.get("containerLabel") ?? "unit"),
       price: Number(formData.get("price") ?? 0),
       floor: Number(formData.get("floor") ?? 0),
       ceiling: Number(formData.get("ceiling") ?? 0),
@@ -49,10 +55,10 @@ export async function savePricingAction(
     /*
       The sizes, saved with the price they belong to.
 
-      One button for both because they are one thought: "Ungerol is 511.94 a
-      kilogram, and a 20 kg is 8,800". Two save buttons on one row would let an
-      owner change the price, walk away, and leave the bundles quoting against
-      a rate that no longer exists.
+      One button for the whole row because it is one thought: "Ungerol is
+      511.94 a kilogram, sold out of a 25 kg drum, and a 20 kg is 8,800". Two
+      save buttons on one row would let an owner change the price, walk away,
+      and leave the bundles quoting against a rate that no longer exists.
 
       Rows still being typed — a size with no price yet — are dropped rather
       than refused. Somebody adding a third bundle and then saving the first two

@@ -29,6 +29,7 @@ const {
   mixFor,
   salesUsingVersion,
   versionsOf,
+  renameFormula,
 } = await import("../src/lib/production.ts");
 const { recordSale } = await import("../src/lib/sales.ts");
 
@@ -522,4 +523,93 @@ test("a recipe with no sellable chemical at all is refused by name", () => {
   // "this recipe cannot be sold" with no way forward.
   assert.equal(mix.ingredients[0].chemicalName, "Test Unlisted");
   assert.ok(toCents(0) === 0);
+});
+
+// -------------------------------------------------- correcting what it is called
+
+test("renameFormula: changes the name and forks nothing", () => {
+  const f = formula("Carwash Shampoo");
+  const before = versionsOf(f.id).length;
+  const currentBefore = currentVersion(f.id)!.id;
+
+  renameFormula(f.id, "Carwash Shampoo (Premium)", OWNER);
+
+  assert.equal(
+    get<{ name: string }>(`SELECT name FROM formulas WHERE id = ?`, f.id)!.name,
+    "Carwash Shampoo (Premium)",
+  );
+  assert.equal(versionsOf(f.id).length, before, "a name is not a change to how it is mixed");
+  assert.equal(currentVersion(f.id)!.id, currentBefore, "and the current version is the same row");
+
+  renameFormula(f.id, "Carwash Shampoo", OWNER);
+});
+
+test("renameFormula: refuses a name another recipe already has", () => {
+  const f = formula("Carwash Shampoo");
+  const other = listFormulas().find((r) => r.id !== f.id);
+  assert.ok(other, "the seed has more than one recipe");
+  assert.throws(() => renameFormula(f.id, other!.name, OWNER), /already a recipe/i);
+  assert.equal(
+    get<{ name: string }>(`SELECT name FROM formulas WHERE id = ?`, f.id)!.name,
+    "Carwash Shampoo",
+  );
+});
+
+test("renameFormula: a blank name is refused", () => {
+  const f = formula("Carwash Shampoo");
+  assert.throws(() => renameFormula(f.id, "   ", OWNER), /Give the recipe a name/i);
+});
+
+test("saving a recipe that has not changed writes no new version", () => {
+  const f = formula("Carwash Shampoo");
+  const v = currentVersion(f.id)!;
+  const items = formulaItems(v.id);
+
+  // Charge somebody for it, so the next save would ordinarily fork.
+  const source = sourceRow(
+    get<{ name: string }>(`SELECT name FROM chemicals WHERE id = ?`, items[0].chemical_id)!.name,
+  );
+  run(
+    `INSERT INTO sale_lines (sale_id, item_id, name_snapshot, units, qty_milli, rate_cents,
+                             unit_price_cents, list_price_cents, line_total_cents,
+                             formula_version_id)
+     SELECT id, ?, 'test line', 1, 1000, 100, 0, 0, 100, ? FROM sales ORDER BY id LIMIT 1`,
+    source.id,
+    v.id,
+  );
+  assert.ok(salesUsingVersion(v.id) > 0, "the version now has history to protect");
+
+  const before = versionsOf(f.id).length;
+  const again = createFormulaVersion({
+    formulaId: f.id,
+    refSizeMilli: v.ref_size_milli,
+    steps: v.steps,
+    note: v.note,
+    items: items.map((i) => ({ chemicalId: i.chemical_id, qtyMilli: i.qty_milli })),
+    userId: OWNER,
+  });
+
+  assert.equal(again.versionId, v.id, "the same version came back");
+  assert.equal(versionsOf(f.id).length, before, "and no second one was written");
+});
+
+test("saving a recipe that HAS changed still forks once it has been sold on", () => {
+  const f = formula("Carwash Shampoo");
+  const v = currentVersion(f.id)!;
+  const items = formulaItems(v.id);
+  const before = versionsOf(f.id).length;
+
+  createFormulaVersion({
+    formulaId: f.id,
+    refSizeMilli: v.ref_size_milli,
+    steps: v.steps,
+    note: v.note,
+    items: items.map((i, n) => ({
+      chemicalId: i.chemical_id,
+      qtyMilli: n === 0 ? i.qty_milli + 1000 : i.qty_milli,
+    })),
+    userId: OWNER,
+  });
+
+  assert.equal(versionsOf(f.id).length, before + 1);
 });

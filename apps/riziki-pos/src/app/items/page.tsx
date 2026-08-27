@@ -14,6 +14,7 @@ import {
 } from "@/lib/catalog";
 import { fromCents, formatKes, formatQty, type SizeUnit } from "@/lib/units";
 import { Alert, Button, Card, PageTitle } from "@/components/ui";
+import { stockOf } from "@/lib/db";
 import { ListToolbar, Pager } from "@/components/section-nav";
 import { itemBundles, saveBundles, BundleError } from "@/lib/bundles";
 import { parseBundleRows } from "@/lib/bundle-input";
@@ -201,17 +202,17 @@ function ProductRow({ item }: { item: AdminItem }) {
       <div className="px-3 pb-3">
         <PriceForm
           itemId={item.id}
-          per={per}
-          reorderHint={
-            weighed
-              ? `When less than this many ${item.canonical_unit} are left.`
-              : `When fewer than this many ${item.unit_label}s are left.`
-          }
+          name={item.name}
+          aliases={item.aliases ?? ""}
+          unit={item.canonical_unit}
+          container={item.size_milli / 1000}
+          containerLabel={item.unit_label}
+          isChemical={Boolean(item.chemical_id)}
           price={fromCents(item.price_cents)}
           floor={fromCents(item.floor_cents)}
           ceiling={fromCents(item.ceiling_cents)}
           reorder={reorderUnits}
-          unit={item.canonical_unit}
+          onHandMilli={stockOf(item.id)}
           bundles={itemBundles(item.id).map((b) => ({
             size: String(b.sizeMilli / 1000),
             price: String(b.priceCents / 100),

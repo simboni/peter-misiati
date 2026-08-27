@@ -14,7 +14,7 @@
  */
 
 import { all, get, run, tx, audit, postMovement, stockOf, type PriceBasis } from "./db.ts";
-import { formatQty, sizeToMilli, sizeUnit, type SizeUnit } from "./units.ts";
+import { formatQty, sizeToMilli, sizeUnit, MILLI, type SizeUnit } from "./units.ts";
 
 export class CatalogError extends Error {}
 
@@ -160,6 +160,117 @@ export function updatePricing(input: PricingInput): void {
     input.itemId,
   );
   audit(input.byUserId, "price_changed", "item", input.itemId, `${item.name} → ${price}c`);
+}
+
+// ----------------------------------------------------------------- identity
+
+export interface ProductEditInput extends PricingInput {
+  /** What the counter will call it. */
+  name: string;
+  /** Comma-separated other names, for search. Chemicals only. */
+  aliases: string;
+  /** kg, L or pcs — what the price is per and what stock is counted in. */
+  unit: Unit;
+  /** What one drum, bag or jerrican holds, counted in `unit`. */
+  containerValue: number;
+  /** drum, bag, jerrican… */
+  containerLabel: string;
+}
+
+/**
+ * Everything about a product, changed on one screen.
+ *
+ * The owner could re-price what the shop sells and could not correct any of it.
+ * A chemical entered as "Ungrol", or sold by the litre when the shop weighs it,
+ * or with a 20 kg drum recorded as 25, was wrong for good — the only way out
+ * was to hide the row and add a second one, which splits its stock and its
+ * sales history in two. That is how the shop ended up with pack rows nobody
+ * could reconcile, and it must not be the answer to a typo.
+ *
+ * The unit is editable, deliberately, and that deserves recording: stock is
+ * held as milli of the canonical unit, so switching kg to L RELABELS every
+ * quantity already on the books rather than converting it — 20 000 milli reads
+ * as 20 L where it used to read as 20 kg. That is exactly what an owner fixing
+ * a wrongly-entered chemical wants, and exactly not what someone would want if
+ * they thought it converted. The form says so beside the box. Refusing the
+ * change instead would block the one job this screen exists for.
+ *
+ * Cost is still absent, for the reason at the top of this file.
+ */
+export function updateProduct(input: ProductEditInput): void {
+  const item = getItem(input.itemId);
+  if (!item) throw new CatalogError("That item no longer exists.");
+
+  const name = input.name.trim();
+  if (name.length < 2) throw new CatalogError("Give it a name.");
+
+  if (!["kg", "L", "pcs"].includes(input.unit)) {
+    throw new CatalogError("Choose whether it is sold by weight, by volume or by the piece.");
+  }
+  if (!Number.isFinite(input.containerValue) || input.containerValue <= 0) {
+    throw new CatalogError("Say what one container holds — it has to be more than nothing.");
+  }
+  const containerMilli = Math.round(input.containerValue * MILLI);
+
+  /*
+    Two names have to stay unique, for two different reasons.
+
+    `chemicals.name` because the database says so, and a save that trips the
+    constraint would reach the owner as a raw SQLite error. `items.name`
+    because the counter searches on it — two rows both called "Ungerol" are
+    indistinguishable at the till, and the attendant would be picking one of
+    them at random.
+  */
+  if (item.chemical_id) {
+    const clash = get<{ id: number }>(
+      `SELECT id FROM chemicals WHERE lower(name) = lower(?) AND id <> ?`,
+      name,
+      item.chemical_id,
+    );
+    if (clash) throw new CatalogError(`Another chemical is already called "${name}".`);
+  }
+  const twin = get<{ id: number }>(
+    `SELECT id FROM items WHERE lower(name) = lower(?) AND id <> ?`,
+    name,
+    input.itemId,
+  );
+  if (twin) throw new CatalogError(`Something else on the list is already called "${name}".`);
+
+  tx(() => {
+    if (item.chemical_id) {
+      run(
+        `UPDATE chemicals SET name = ?, canonical_unit = ?, aliases = ? WHERE id = ?`,
+        name,
+        input.unit,
+        input.aliases.trim(),
+        item.chemical_id,
+      );
+    }
+    run(
+      `UPDATE items SET name = ?, canonical_unit = ?, size_milli = ?, unit_label = ? WHERE id = ?`,
+      name,
+      input.unit,
+      containerMilli,
+      input.containerLabel.trim() || "unit",
+      input.itemId,
+    );
+
+    // After the identity, not before: the reorder level of something sold whole
+    // is counted in containers, so it has to be worked out against the size
+    // just written and not the one being replaced. `updatePricing` re-reads the
+    // row, and opens no transaction of its own — `tx` does not nest.
+    updatePricing(input);
+
+    if (name !== item.name || input.unit !== item.canonical_unit) {
+      audit(
+        input.byUserId,
+        "product_edited",
+        "item",
+        input.itemId,
+        `${item.name} (per ${item.canonical_unit}) → ${name} (per ${input.unit})`,
+      );
+    }
+  });
 }
 
 export function setItemActive(itemId: number, active: boolean, byUserId: number): void {

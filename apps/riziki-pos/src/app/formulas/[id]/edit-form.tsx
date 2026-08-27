@@ -52,6 +52,7 @@ interface Line extends EditRow {
 export function EditFormulaForm({
   action,
   formulaId,
+  name: nameInitial = "",
   chemicals,
   refLitres: refLitresInitial,
   steps,
@@ -63,6 +64,8 @@ export function EditFormulaForm({
 }: {
   action: (state: SaveState, formData: FormData) => Promise<SaveState>;
   formulaId: number;
+  /** What the shop calls the product now. Empty for a recipe being invented. */
+  name?: string;
   chemicals: ChemicalOption[];
   refLitres: string;
   steps: string;
@@ -81,7 +84,7 @@ export function EditFormulaForm({
 
   // Only a new recipe walks through two steps; an edit is one screen as before.
   const [step, setStep] = useState(0);
-  const [name, setName] = useState("");
+  const [name, setName] = useState(nameInitial);
   const [refLitres, setRefLitres] = useState(refLitresInitial);
   const [bundleRows, setBundleRows] = useState<BundleRow[]>([]);
   const [complaint, setComplaint] = useState<string | null>(null);
@@ -142,21 +145,28 @@ export function EditFormulaForm({
 
       <div hidden={isNew && step !== 0} className="space-y-2.5 xl:space-y-3">
       <Card className="space-y-3">
-        {isNew ? (
-          <Field
-            label="Product name"
-            hint="What the shop calls it on the board — “Carwash Shampoo”."
-          >
-            <input
-              className={inputClass}
-              name="name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              autoFocus
-              placeholder="e.g. Carwash Shampoo"
-            />
-          </Field>
-        ) : null}
+        {/* Shown on an edit too. A recipe used to be asked its name once, when
+            it was invented, and never again — so a product spelled wrong on the
+            board stayed wrong, and the only way out was a second recipe with the
+            sales split across the two. Renaming forks no version: what a mix is
+            called is not part of what went into it. */}
+        <Field
+          label="Product name"
+          hint={
+            isNew
+              ? "What the shop calls it on the board — “Carwash Shampoo”."
+              : "Correcting this renames the product everywhere. It does not start a new version."
+          }
+        >
+          <input
+            className={inputClass}
+            name="name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            autoFocus={isNew}
+            placeholder="e.g. Carwash Shampoo"
+          />
+        </Field>
 
         <Field
           label="Recipe makes (litres)"

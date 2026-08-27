@@ -11,6 +11,7 @@ import {
   formulaItems,
   listChemicals,
   createFormulaVersion,
+  renameFormula,
 } from "@/lib/production";
 import { formatQty, fromMilli, toMilli, formatDateTime } from "@/lib/units";
 import {
@@ -38,15 +39,23 @@ export const dynamic = "force-dynamic";
  * Note what this does NOT do: it never touches the version being edited. A
  * batch mixed last week points at that row, and its cost and composition have
  * to keep telling the truth.
+ *
+ * The name is the exception, and it is not an exception to that rule so much as
+ * outside it: what the shop calls a product is not part of the record of what
+ * went into a mix, so a rename rewrites no version and forks none. It is done
+ * first because it is the likelier refusal — another recipe already has the
+ * name — and doing it first means a refused rename leaves nothing else written.
  */
 async function saveFormula(_prev: SaveState, formData: FormData): Promise<SaveState> {
   "use server";
 
   const formulaId = Number(formData.get("formulaId"));
-  let version: number;
+  let outcome: { version: number; corrected: boolean; unchanged: boolean };
 
   try {
     const owner = await requireOwner();
+
+    renameFormula(formulaId, String(formData.get("name") ?? ""), owner.id);
 
     const refLitres = Number(formData.get("refLitres"));
     if (!Number.isFinite(refLitres) || refLitres <= 0) {
@@ -67,14 +76,14 @@ async function saveFormula(_prev: SaveState, formData: FormData): Promise<SaveSt
       return { error: "Give at least one ingredient a quantity above zero." };
     }
 
-    ({ version } = createFormulaVersion({
+    outcome = createFormulaVersion({
       formulaId,
       refSizeMilli: toMilli(refLitres),
       steps: String(formData.get("steps") ?? "").trim(),
       note: String(formData.get("note") ?? "").trim(),
       items,
       userId: owner.id,
-    }));
+    });
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Could not save the formula." };
   }
@@ -83,16 +92,19 @@ async function saveFormula(_prev: SaveState, formData: FormData): Promise<SaveSt
   revalidatePath("/formulas");
   // Outside the catch: redirect works by throwing, and swallowing it would
   // leave the owner staring at a form that had already saved.
-  redirect(`/formulas/${formulaId}?saved=${version}`);
+  redirect(
+    `/formulas/${formulaId}?saved=${outcome.version}` +
+      `&how=${outcome.unchanged ? "unchanged" : outcome.corrected ? "corrected" : "forked"}`,
+  );
 }
 
 export default async function FormulaDetailPage(props: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ v?: string; edit?: string; saved?: string }>;
+  searchParams: Promise<{ v?: string; edit?: string; saved?: string; how?: string }>;
 }) {
   // `params` and `searchParams` are Promises in Next.js 16.
   const { id } = await props.params;
-  const { v, edit, saved } = await props.searchParams;
+  const { v, edit, saved, how } = await props.searchParams;
 
   // Gate before a single ingredient is read.
   try {
@@ -146,6 +158,7 @@ export default async function FormulaDetailPage(props: {
         <EditFormulaForm
           action={saveFormula}
           formulaId={formulaId}
+          name={formula.name}
           chemicals={listChemicals()}
           refLitres={String(fromMilli(shown.ref_size_milli))}
           steps={shown.steps}
@@ -170,10 +183,18 @@ export default async function FormulaDetailPage(props: {
         subtitle={`Version ${shown.version} · quantities per ${formatQty(shown.ref_size_milli, "L")}`}
       />
 
+      {/* What the save actually did, rather than one sentence for all three
+          outcomes. An owner who opened this recipe to fix its name was being
+          told his ingredients had been rewritten and an old version kept — two
+          things that had not happened. */}
       {saved ? (
         <div className="mb-2.5">
           <Alert tone="good">
-            Saved as version {saved}. The previous version is kept exactly as it was.
+            {how === "unchanged"
+              ? `Saved. The recipe itself is unchanged, so version ${saved} stands as it was.`
+              : how === "corrected"
+                ? `Version ${saved} corrected. Nothing has been sold on it, so it was rewritten where it stood rather than forked.`
+                : `Saved as version ${saved}. The previous version is kept exactly as it was.`}
           </Alert>
         </div>
       ) : null}
