@@ -6,8 +6,9 @@ process.env.RIZIKI_DB = join(mkdtempSync(join(tmpdir(), "cat-")), "t.db");
 import test from "node:test";
 import assert from "node:assert/strict";
 const { seed } = await import("../src/lib/seed.ts");
-const { get, all } = await import("../src/lib/db.ts");
+const { get, all, run } = await import("../src/lib/db.ts");
 const cat = await import("../src/lib/catalog.ts");
+const { saveBundles } = await import("../src/lib/bundles.ts");
 
 seed();
 
@@ -267,30 +268,114 @@ test("deleteProduct: the name is on the audit entry, because the id will point a
   assert.equal(entry!.detail, "Test Deleted Trace");
 });
 
-test("deleteProduct: anything that has traded is refused, and says what holds it", () => {
-  const id = throwaway("Test Sold Once");
-  // A price is history in its own right — the owner set a number and that is
-  // recorded — so this alone should be enough to hold the row.
-  cat.updatePricing({ itemId: id, price: 250, floor: 0, ceiling: 0, reorderUnits: 0, byUserId: OWNER });
+test("deleteProduct: something that has traded is refused, and says what holds it", () => {
+  const id = throwaway("Test Bought In");
+
+  // A delivery is money that left the account, against a document the shop
+  // keeps. Delete the item under it and the record points at nothing.
+  const { lastInsertRowid: purchaseId } = run(
+    `INSERT INTO purchases (supplier_id, total_cents, transport_cents, ref, user_id)
+     VALUES (NULL, 100000, 0, 'DN test', ?)`,
+    OWNER,
+  );
+  run(
+    `INSERT INTO purchase_lines (purchase_id, item_id, units, size_milli, qty_milli, cost_cents)
+     VALUES (?, ?, 1, 25000, 25000, 100000)`,
+    Number(purchaseId),
+    id,
+  );
 
   const held = cat.deletableReason(id);
   assert.ok(held, "the row is held");
-  assert.match(held!, /price history/);
+  assert.match(held!, /bought in/);
 
   assert.throws(
     () => cat.deleteProduct(id, OWNER),
-    (e: unknown) => e instanceof cat.CatalogError && /Hide it from the counter instead/.test((e as Error).message),
+    (e: unknown) =>
+      e instanceof cat.CatalogError && /Hide it from the counter instead/.test((e as Error).message),
   );
   assert.ok(cat.getItem(id), "still there — a refused delete removes nothing");
 });
 
-test("deleteProduct: a seeded chemical with stock behind it cannot be deleted", () => {
-  const stocked = cat.listProducts().find((i) => i.price_basis === "unit" && i.kind === "bulk");
-  assert.ok(stocked, "the seed stocks chemicals");
+test("deleteProduct: a price, a shelf count and bundle sizes do not hold a typo", () => {
+  /*
+    The case this exists for, and the bug it was written after.
 
-  const held = cat.deletableReason(stocked!.id);
-  assert.ok(held, `${stocked!.name} has history: ${held}`);
-  assert.throws(() => cat.deleteProduct(stocked!.id, OWNER), cat.CatalogError);
+    Foreign keys are on, and nothing cleared an item's bundles before deleting
+    it — so any product that had been given sizes could not be removed at all,
+    and the owner was told "that did not work" with nothing to act on. A price
+    history and an opening count held it too, though neither says anything to
+    anybody once the item is gone. None of the three is a record of trading.
+  */
+  const id = throwaway("Test Mistake With Everything");
+  cat.updateProduct({
+    itemId: id,
+    name: "Test Mistake With Everything",
+    aliases: "",
+    unit: "kg",
+    containerValue: 25,
+    containerLabel: "bag",
+    price: 250,
+    floor: 0,
+    ceiling: 0,
+    reorderUnits: 0,
+    byUserId: OWNER,
+  });
+  saveBundles({ itemId: id }, [{ sizeMilli: 5000, priceCents: 100000, floorCents: 0 }]);
+  run(
+    `INSERT INTO stock_movements (item_id, delta_milli, reason, user_id)
+     VALUES (?, 50000, 'opening', ?)`,
+    id,
+    OWNER,
+  );
+
+  assert.ok(get(`SELECT 1 FROM price_changes WHERE item_id = ?`, id), "it has a price history");
+  assert.ok(get(`SELECT 1 FROM bundles WHERE item_id = ?`, id), "it has a size");
+  assert.ok(get(`SELECT 1 FROM stock_movements WHERE item_id = ?`, id), "and a count");
+
+  assert.equal(cat.deletableReason(id), null, "none of that is trading");
+  cat.deleteProduct(id, OWNER);
+
+  assert.equal(cat.getItem(id), undefined, "gone");
+  assert.equal(get(`SELECT 1 FROM bundles WHERE item_id = ?`, id), undefined, "its sizes went too");
+  assert.equal(get(`SELECT 1 FROM price_changes WHERE item_id = ?`, id), undefined);
+  assert.equal(get(`SELECT 1 FROM stock_movements WHERE item_id = ?`, id), undefined);
+});
+
+test("deleteProduct: the substance goes with it, so it stops offering itself to recipes", () => {
+  const id = throwaway("Test Orphan Substance");
+  const chemId = cat.getItem(id)!.chemical_id!;
+  assert.ok(get(`SELECT 1 FROM chemicals WHERE id = ?`, chemId));
+
+  cat.deleteProduct(id, OWNER);
+  assert.equal(
+    get(`SELECT 1 FROM chemicals WHERE id = ?`, chemId),
+    undefined,
+    "a chemical outliving its only item keeps appearing in the ingredient list",
+  );
+});
+
+test("deleteProduct: a substance a recipe still uses is left alone", () => {
+  const id = throwaway("Test Substance In Use");
+  const chemId = cat.getItem(id)!.chemical_id!;
+
+  const { lastInsertRowid: fid } = run(`INSERT INTO formulas (name) VALUES ('Test Holder')`);
+  const { lastInsertRowid: vid } = run(
+    `INSERT INTO formula_versions (formula_id, version, ref_size_milli, ref_unit, is_current)
+     VALUES (?, 1, 20000, 'L', 1)`,
+    Number(fid),
+  );
+  run(
+    `INSERT INTO formula_items (formula_version_id, chemical_id, qty_milli) VALUES (?, ?, 1000)`,
+    Number(vid),
+    chemId,
+  );
+
+  cat.deleteProduct(id, OWNER);
+  assert.ok(
+    get(`SELECT 1 FROM chemicals WHERE id = ?`, chemId),
+    "the recipe still names it, so it stays",
+  );
 });
 
 test("every catalog change is written to the audit log", () => {
@@ -523,5 +608,56 @@ test("updateProduct: a container of nothing is refused", () => {
         byUserId: OWNER,
       }),
     /one container holds/i,
+  );
+});
+
+test("deleting a product puts the append-only guards straight back", () => {
+  /*
+    The one thing that could go quietly wrong here.
+
+    `clearOwnRecords` drops two triggers to remove an untraded item's own
+    bookkeeping. If either failed to come back, the shop's ledger would be
+    silently editable from then on — no error, no symptom, until somebody
+    noticed a sale had been deleted rather than voided.
+  */
+  const id = throwaway("Test Guard Check");
+  run(
+    `INSERT INTO stock_movements (item_id, delta_milli, reason, user_id) VALUES (?, 1000, 'opening', ?)`,
+    id,
+    OWNER,
+  );
+  cat.deleteProduct(id, OWNER);
+
+  for (const name of ["stock_movements_no_delete", "price_changes_no_delete"]) {
+    assert.ok(
+      get(`SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name = ?`, name),
+      `${name} is back`,
+    );
+  }
+
+  // And it bites: the ledger of something that HAS traded stays untouchable.
+  assert.throws(
+    () => run(`DELETE FROM stock_movements WHERE id = (SELECT MIN(id) FROM stock_movements)`),
+    /append-only/,
+  );
+});
+
+test("a refused delete leaves the guards on", () => {
+  const id = throwaway("Test Guard Rollback");
+  const { lastInsertRowid: pid } = run(
+    `INSERT INTO purchases (supplier_id, total_cents, transport_cents, ref, user_id)
+     VALUES (NULL, 1, 0, 'x', ?)`,
+    OWNER,
+  );
+  run(
+    `INSERT INTO purchase_lines (purchase_id, item_id, units, size_milli, qty_milli, cost_cents)
+     VALUES (?, ?, 1, 1000, 1000, 1)`,
+    Number(pid),
+    id,
+  );
+
+  assert.throws(() => cat.deleteProduct(id, OWNER), cat.CatalogError);
+  assert.ok(
+    get(`SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name = 'stock_movements_no_delete'`),
   );
 });

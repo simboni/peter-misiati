@@ -287,34 +287,92 @@ export function setItemActive(itemId: number, active: boolean, byUserId: number)
  * name what it found. An item nothing points at is a mistake somebody typed and
  * can be removed; an item with one sale against it is part of the books.
  */
-function itemHistory(itemId: number): string[] {
+/**
+ * Records belonging to somebody else, which have to outlive the item.
+ *
+ * A sale line sits on a customer's invoice; a quote line sits on a quotation in
+ * their hand; a purchase line sits against money that left the account. Delete
+ * the item under any of those and the document points at a row that is not
+ * there any more.
+ *
+ * That is the whole list, and it is deliberately shorter than it used to be.
+ * Price history, stock movements, bundle sizes and a packaging pairing are the
+ * item's OWN bookkeeping: they say nothing to anyone once the item is gone, and
+ * treating them as history meant a product added with the name spelled wrong
+ * and given a price could never be removed — the catalogue filled with
+ * greyed-out typos and the only remedy was to hide them.
+ */
+function tradedHistory(itemId: number): string[] {
   const counts: Array<[string, string]> = [
     [`SELECT COUNT(*) AS n FROM sale_lines WHERE item_id = ?`, "been sold"],
-    [`SELECT COUNT(*) AS n FROM stock_movements WHERE item_id = ?`, "stock recorded against it"],
     [`SELECT COUNT(*) AS n FROM quote_lines WHERE item_id = ?`, "been quoted"],
     [`SELECT COUNT(*) AS n FROM purchase_lines WHERE item_id = ?`, "been bought in"],
-    [`SELECT COUNT(*) AS n FROM price_changes WHERE item_id = ?`, "a price history"],
   ];
-
-  const found = counts
+  return counts
     .filter(([sql]) => (get<{ n: number }>(sql, itemId)?.n ?? 0) > 0)
     .map(([, label]) => label);
+}
 
-  // Either end of the pairing counts: a bottle is as attached to the product it
-  // holds as the product is to the bottle.
-  const paired = get<{ n: number }>(
-    `SELECT COUNT(*) AS n FROM item_packaging WHERE item_id = ? OR packaging_item_id = ?`,
-    itemId,
-    itemId,
-  );
-  if ((paired?.n ?? 0) > 0) found.push("a container paired with it");
+/**
+ * Clear everything the item owns, so the row itself can go.
+ *
+ * Foreign keys are on, so this is not tidiness — without it the DELETE is
+ * refused by the database and the owner is told "that did not work", which was
+ * exactly what happened to every product that had been given bundle sizes.
+ *
+ * `stock_movements` is append-only at the database, by a trigger, and the
+ * trigger is dropped and put back around this one delete. That guard exists to
+ * protect the record of TRADING: a sale voided rather than deleted, a count
+ * corrected by a further entry rather than an edit. An item that has never been
+ * sold, quoted or bought has no trading to protect — its movements are an
+ * opening count and nothing else — and the caller has already refused anything
+ * that has. Inside the transaction, so a failure anywhere puts the guard back.
+ */
+function clearOwnRecords(itemId: number): void {
+  run(`DELETE FROM bundles WHERE item_id = ?`, itemId);
+  run(`DELETE FROM item_packaging WHERE item_id = ? OR packaging_item_id = ?`, itemId, itemId);
 
-  return found;
+  /*
+    Two of these tables are append-only at the database, by trigger, and both
+    guards come off around this one delete and go straight back on.
+
+    Those guards protect the record of TRADING: a sale voided rather than
+    deleted, a shelf count corrected by a further entry rather than an edit, a
+    price change that cannot be quietly rewritten. An item that has never been
+    sold, quoted or bought has none of that to protect — the caller has already
+    refused anything that has — and what is left is an opening count and the
+    prices the owner typed while getting the row wrong. Held forever, they made
+    a typo permanent.
+
+    Dropped and recreated inside the caller's transaction, so any failure rolls
+    the guards back with everything else.
+  */
+  run(`DROP TRIGGER IF EXISTS stock_movements_no_delete`);
+  run(`DROP TRIGGER IF EXISTS price_changes_no_delete`);
+  try {
+    run(`DELETE FROM stock_movements WHERE item_id = ?`, itemId);
+    run(`DELETE FROM price_changes WHERE item_id = ?`, itemId);
+  } finally {
+    run(
+      `CREATE TRIGGER IF NOT EXISTS stock_movements_no_delete
+       BEFORE DELETE ON stock_movements
+       BEGIN
+         SELECT RAISE(ABORT, 'stock_movements is append-only: post a correcting movement instead');
+       END`,
+    );
+    run(
+      `CREATE TRIGGER IF NOT EXISTS price_changes_no_delete
+       BEFORE DELETE ON price_changes
+       BEGIN
+         SELECT RAISE(ABORT, 'price history is append-only: record a new change instead');
+       END`,
+    );
+  }
 }
 
 /** Whether this item may be deleted, and what stands in the way if not. */
 export function deletableReason(itemId: number): string | null {
-  const held = itemHistory(itemId);
+  const held = tradedHistory(itemId);
   if (!held.length) return null;
   return held.join(", ");
 }
@@ -348,7 +406,29 @@ export function deleteProduct(itemId: number, byUserId: number): { name: string 
       );
     }
 
+    clearOwnRecords(itemId);
     run(`DELETE FROM items WHERE id = ?`, itemId);
+
+    /*
+      And the substance behind it, when nothing else needs it.
+
+      A chemical row outliving its only item is not harmless: it goes on
+      offering itself as an ingredient on the recipe screen, so a product
+      deleted from the catalogue reappears in the one place the shop is most
+      likely to pick it by mistake.
+    */
+    if (item.chemical_id) {
+      const stillUsed =
+        (get<{ n: number }>(
+          `SELECT COUNT(*) AS n FROM items WHERE chemical_id = ?`,
+          item.chemical_id,
+        )?.n ?? 0) > 0 ||
+        (get<{ n: number }>(
+          `SELECT COUNT(*) AS n FROM formula_items WHERE chemical_id = ?`,
+          item.chemical_id,
+        )?.n ?? 0) > 0;
+      if (!stillUsed) run(`DELETE FROM chemicals WHERE id = ?`, item.chemical_id);
+    }
     // Audited before it is gone, with the name in the text: after the row is
     // deleted the id in this entry points at nothing, and the name is the only
     // thing that will still say what was removed.
