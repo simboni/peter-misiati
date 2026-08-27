@@ -17,6 +17,7 @@ import { Alert, Button, Card, PageTitle } from "@/components/ui";
 import { stockOf } from "@/lib/db";
 import { ListToolbar, Pager } from "@/components/section-nav";
 import { itemBundles, saveBundles, BundleError } from "@/lib/bundles";
+import { conversionFor } from "@/lib/making";
 import { parseBundleRows } from "@/lib/bundle-input";
 import PriceForm from "./price-form";
 import DeleteProduct from "./delete-product";
@@ -36,6 +37,13 @@ export const dynamic = "force-dynamic";
 const PER_PAGE = 20;
 
 type ItemFilter = "all" | "unpriced" | "hidden";
+
+/** A candidate for "made from": anything else the shop stocks. */
+interface MakeSource {
+  id: number;
+  name: string;
+  unit: string;
+}
 
 async function guard(): Promise<number> {
   const owner = await requireOwner();
@@ -156,7 +164,7 @@ async function adoptPricing(): Promise<void> {
  * so the row states name, unit, price and band on one line, and the editor only
  * exists once you open it.
  */
-function ProductRow({ item }: { item: AdminItem }) {
+function ProductRow({ item, sources }: { item: AdminItem; sources: MakeSource[] }) {
   const weighed = item.price_basis === "unit";
   const per = weighed ? `per ${item.canonical_unit}` : "each";
   const reorderUnits = weighed
@@ -213,6 +221,19 @@ function ProductRow({ item }: { item: AdminItem }) {
           ceiling={fromCents(item.ceiling_cents)}
           reorder={reorderUnits}
           onHandMilli={stockOf(item.id)}
+          madeFrom={(() => {
+            const c = conversionFor(item.id);
+            return c
+              ? {
+                  fromItemId: c.fromItemId,
+                  inQty: String(c.inMilli / 1000),
+                  outQty: String(c.outMilli / 1000),
+                }
+              : { fromItemId: 0, inQty: "", outQty: "" };
+          })()}
+          // Everything but itself: a product made out of itself is the one
+          // choice the list must never offer.
+          sources={sources.filter((s) => s.id !== item.id)}
           bundles={itemBundles(item.id).map((b) => ({
             size: String(b.sizeMilli / 1000),
             price: String(b.priceCents / 100),
@@ -266,6 +287,11 @@ export default async function ItemsPage(props: {
   if (me.role !== "owner") redirect("/");
 
   const products = listProducts();
+  // Built once for the whole page rather than per row: fifty-six rows each
+  // asking the catalogue for the catalogue is fifty-six queries for one answer.
+  const makeSources: MakeSource[] = products
+    .filter((p) => p.active)
+    .map((p) => ({ id: p.id, name: p.name, unit: p.canonical_unit }));
   const pending = pendingUnitPricing();
   const unpricedCount = products.filter((p) => p.active && p.price_cents === 0).length;
 
@@ -416,7 +442,7 @@ export default async function ItemsPage(props: {
       {/* One list. See `ProductRow` for why this is not a grid of cards. */}
       <div className="max-w-4xl overflow-hidden rounded-2xl bg-white shadow-card ring-1 ring-ink/5">
         {shown.length ? (
-          shown.map((i) => <ProductRow key={i.id} item={i} />)
+          shown.map((i) => <ProductRow key={i.id} item={i} sources={makeSources} />)
         ) : (
           <p className="px-3 py-6 text-center text-sm text-muted">
             {needle || filter !== "all"

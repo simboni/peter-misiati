@@ -24,8 +24,10 @@ import { PageTitle } from "@/components/ui";
 import { StockClient } from "./stock-client";
 import { StocktakeClient, type StocktakeState } from "@/app/stocktake/stocktake-client";
 import type { StockView, StockLine } from "@/lib/stock-service";
+import { MakeClient, type MakeChoice, type MadeBatch } from "./make-client";
+import type { MakeState } from "./actions";
 
-type Panel = "shelf" | "count";
+type Panel = "shelf" | "count" | "make";
 
 export function StockWindow({
   view,
@@ -34,6 +36,9 @@ export function StockWindow({
   initialQuery = "",
   stocktakeAction,
   initialPanel = "shelf",
+  makeChoices,
+  recentMakes,
+  makeAction,
 }: {
   view: StockView;
   countLines: StockLine[];
@@ -41,6 +46,10 @@ export function StockWindow({
   initialQuery?: string;
   stocktakeAction: (state: StocktakeState, formData: FormData) => Promise<StocktakeState>;
   initialPanel?: Panel;
+  /** What the shop dilutes or works up out of something else. Usually empty. */
+  makeChoices: MakeChoice[];
+  recentMakes: MadeBatch[];
+  makeAction: (state: MakeState, formData: FormData) => Promise<MakeState>;
 }) {
   const [panel, setPanel] = useState<Panel>(initialPanel);
 
@@ -56,7 +65,9 @@ export function StockWindow({
         subtitle={
           panel === "shelf"
             ? `${view.itemCount} items across the shop`
-            : "Count the shelf, then post the difference"
+            : panel === "make"
+              ? "Dilute a concentrate into what the shop sells"
+              : "Count the shelf, then post the difference"
         }
       />
 
@@ -67,10 +78,15 @@ export function StockWindow({
           className="no-print mb-4 flex gap-1 rounded-2xl bg-wash p-1 ring-1 ring-inset ring-line"
         >
           {(
-            [
+            /* Make only appears once something has been told what it is made
+               from. For a shop that buys everything it sells — which is nearly
+               all of this catalogue — a third tab leading to an empty screen is
+               a tab in the way. */
+            ([
               ["shelf", "On the shelf"],
               ["count", "Stock take"],
-            ] as Array<[Panel, string]>
+              ...(makeChoices.length ? [["make", "Make"]] : []),
+            ] as Array<[Panel, string]>)
           ).map(([key, label]) => (
             <button
               key={key}
@@ -102,6 +118,12 @@ export function StockWindow({
       {canCount ? (
         <div hidden={panel !== "count"}>
           <StocktakeClient lines={countLines} owner={owner} action={stocktakeAction} heading={false} />
+        </div>
+      ) : null}
+
+      {canCount && makeChoices.length ? (
+        <div hidden={panel !== "make"}>
+          <MakeClient choices={makeChoices} recent={recentMakes} action={makeAction} />
         </div>
       ) : null}
     </div>

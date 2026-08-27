@@ -273,6 +273,47 @@ CREATE TABLE IF NOT EXISTS batch_lines (
 
 -- Breaking a drum/bag into smaller packs. kg in must equal kg out; the
 -- difference is recorded as loss rather than silently disappearing.
+-- ---------------------------------------------------------------- conversions
+
+-- So much of one product becomes so much of another.
+--
+-- Two things the shop sells work this way and nothing else does. Perfume
+-- arrives as a concentrate and is let down with water — one and a half
+-- kilograms makes twenty litres — and both the concentrate and the dilution sit
+-- on the shelf with their own prices. Hypochlorite is the same: twelve
+-- kilograms of concentrate makes twenty-three of the diluted, and the shop
+-- sells either.
+--
+-- This is NOT a bundle and NOT a recipe, and keeping the three apart is what
+-- makes the rest of the system stay simple:
+--
+--   a bundle is a PRICE for a size of the same substance — stock comes off the
+--     same pool, and nothing is transformed;
+--   a recipe is a shopping list the counter scales and bills as its
+--     ingredients — the shop holds no stock of the mix;
+--   a conversion MOVES stock from one product to another, and both ends are
+--     ordinary products with their own prices, sizes and sales.
+--
+-- One active row per product made, because "what is this made from" has one
+-- answer. What actually went in and came out is recorded per batch in
+-- `repacks`, since a shop measuring by eye never hits the ratio exactly; the
+-- drift is somebody's to find at the next stock take.
+CREATE TABLE IF NOT EXISTS conversions (
+  id           INTEGER PRIMARY KEY,
+  -- The product being made — the dilution.
+  to_item_id   INTEGER NOT NULL REFERENCES items(id),
+  -- What it is made from — the concentrate.
+  from_item_id INTEGER NOT NULL REFERENCES items(id),
+  -- The ratio, in milli of each side's own unit. Perfume goes in by the
+  -- kilogram and comes out by the litre, so these two need not agree.
+  in_milli     INTEGER NOT NULL CHECK (in_milli > 0),
+  out_milli    INTEGER NOT NULL CHECK (out_milli > 0),
+  active       INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+  CHECK (to_item_id <> from_item_id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_conversions_to
+  ON conversions(to_item_id) WHERE active = 1;
+
 CREATE TABLE IF NOT EXISTS repacks (
   id           INTEGER PRIMARY KEY,
   at           TEXT    NOT NULL DEFAULT (datetime('now')),

@@ -1,8 +1,10 @@
 import { redirect } from "next/navigation";
 import { currentUser } from "@/lib/auth";
-import { stockView, stockLines } from "@/lib/stock-service";
+import { stockView, stockLines, } from "@/lib/stock-service";
+import { madeProducts, recentMakes } from "@/lib/making";
+import { stockOf } from "@/lib/db";
 import { StockWindow } from "./stock-window";
-import { submitStocktake } from "./actions";
+import { submitStocktake, makeBatchAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +49,43 @@ export default async function StockPage(props: {
   // rather than receiving it and being shown no tab.
   const countLines = owner ? stockLines() : [];
 
+  /*
+    What the shop makes rather than buys.
+
+    Owner-only for the same reason the count sheet is: what goes into a
+    dilution and what comes out of it is the ratio, and an attendant who could
+    read it could work out what the shop pays for the concentrate. Nearly
+    always empty — two products in this catalogue are made, the rest are bought
+    — and the Make tab does not appear at all when it is.
+  */
+  const makeChoices = owner
+    ? madeProducts().map((c) => ({
+        toItemId: c.toItemId,
+        toName: c.toName,
+        toUnit: c.toUnit,
+        fromName: c.fromName,
+        fromUnit: c.fromUnit,
+        inQty: c.inMilli / 1000,
+        outQty: c.outMilli / 1000,
+        fromOnHandMilli: c.fromOnHandMilli,
+        toOnHandMilli: stockOf(c.toItemId),
+      }))
+    : [];
+
+  const madeRecently = owner
+    ? recentMakes(12).map((b) => ({
+        id: b.id,
+        at: b.at,
+        fromName: b.from_name,
+        fromUnit: b.from_unit,
+        inMilli: b.in_milli,
+        toName: b.to_name,
+        toUnit: b.to_unit,
+        outMilli: b.out_milli,
+        userName: b.user_name,
+      }))
+    : [];
+
   return (
     <StockWindow
       view={safe}
@@ -54,7 +93,10 @@ export default async function StockPage(props: {
       owner={owner}
       initialQuery={q}
       stocktakeAction={submitStocktake}
-      initialPanel={panel === "count" ? "count" : "shelf"}
+      initialPanel={panel === "count" ? "count" : panel === "make" ? "make" : "shelf"}
+      makeChoices={makeChoices}
+      recentMakes={madeRecently}
+      makeAction={makeBatchAction}
     />
   );
 }
