@@ -9,7 +9,7 @@ import { redirect } from "next/navigation";
  * who took something on credit are the same person to this shop.
  *
  * Kept as a redirect rather than deleted: the link is in the wholesale spine,
- * in the handbook, and in whatever anybody bookmarked.
+ * and in whatever anybody bookmarked.
  */
 export default function WholesaleCustomersRoute() {
   redirect("/customers");

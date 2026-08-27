@@ -290,9 +290,22 @@ export function seed(
 
   db(); // ensure schema
 
-  const already = get<{ n: number }>(`SELECT COUNT(*) AS n FROM chemicals`);
-  if ((already?.n ?? 0) > 0) {
-    return { chemicals: already!.n, items: 0, formulas: 0 };
+  /*
+    Seed once, on a database that has never been set up — and judge that by the
+    USER accounts, not by the catalogue.
+
+    This used to ask whether there were any chemicals, which is the same
+    question only until somebody deliberately empties the shelves. The login
+    screen calls `seed()` on every render, so a shop that cleared the delivered
+    catalogue to type its own signed in and found all thirty-six chemicals and
+    fourteen recipes back — along with a second Owner and a second Shop
+    Attendant on the shipped PINs, because this function creates those too.
+    An empty catalogue is a decision; an empty user table is a new machine.
+  */
+  const accounts = get<{ n: number }>(`SELECT COUNT(*) AS n FROM users`);
+  if ((accounts?.n ?? 0) > 0) {
+    const chemicals = get<{ n: number }>(`SELECT COUNT(*) AS n FROM chemicals`)?.n ?? 0;
+    return { chemicals, items: 0, formulas: 0 };
   }
 
   // --- users -------------------------------------------------------------

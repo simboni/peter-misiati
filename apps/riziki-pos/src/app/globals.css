@@ -90,20 +90,6 @@ body {
 
 
 
-/*
-  The handbook takes over the whole screen, so the app's own chrome behind it is
-  folded away rather than just covered. An opaque panel hides the header and the
-  tab bar from the eye, but leaves them in the tab order and in what a screen
-  reader announces — a keyboard landing on "Sign out" that nobody can see.
-
-  Where `:has()` is missing (an old Android WebView), the rule is skipped and the
-  panel still covers everything; the shop loses nothing but the tidiness.
-*/
-body:has(#handbook-takeover) header,
-body:has(#handbook-takeover) nav.no-print {
-  display: none;
-}
-
 /* Keyboard users must always be able to see where they are. */
 :focus-visible {
   outline: 2px solid var(--color-brand);

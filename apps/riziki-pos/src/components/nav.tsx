@@ -119,20 +119,8 @@ const MORE_GROUPS: Array<{
       { href: "/activity", label: "Activity log", owner: true },
       { href: "/settings", label: "Users & settings", owner: true },
       { href: "/settings/printer", label: "Receipt printer", owner: true },
-      // Owner-only, and the clear behind it needs a typed confirmation and the
-      // PIN: it is the most destructive button in the app.
-      { href: "/settings/demo", label: "Demo data", owner: true },
       { href: "/pin", label: "Change my PIN", owner: false },
     ],
-  },
-  // Its own group rather than an entry under Setup: the handbook is the thing
-  // somebody reaches for when they are stuck mid-task, and hunting for it
-  // among the settings is the moment they give up and phone the owner instead.
-  // Not owner-only — an attendant is who it is mostly for. They are served a
-  // copy with the owner's screens cut out; see `@/lib/handbook`.
-  {
-    label: "Help",
-    links: [{ href: "/handbook", label: "My handbook", owner: false }],
   },
 ];
 
