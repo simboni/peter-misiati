@@ -3549,13 +3549,3 @@ function ClearCart({ onClear }: { onClear: () => void }) {
   );
 }
 
-function Row({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
-  return (
-    <div className="flex items-center justify-between py-0.5">
-      <span className="text-xs font-semibold text-muted">{label}</span>
-      <span className={`tnum ${strong ? "text-base font-extrabold" : "text-sm font-semibold"}`}>
-        {value}
-      </span>
-    </div>
-  );
-}
