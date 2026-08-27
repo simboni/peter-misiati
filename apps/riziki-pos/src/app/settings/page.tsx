@@ -28,8 +28,6 @@ import {
 
 export const dynamic = "force-dynamic";
 
-type State = { error?: string; ok?: string };
-
 async function guard(): Promise<number> {
   const owner = await requireOwner();
   return owner.id;

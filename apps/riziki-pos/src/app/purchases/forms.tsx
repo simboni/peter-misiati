@@ -295,7 +295,7 @@ export function PurchaseForm({
       </Button>
 
       <p className="text-xs text-muted">
-        Recording a delivery adds the stock, files the supplier's prices and moves each item's
+        Recording a delivery adds the stock, files the supplier’s prices and moves each item’s
         average cost — all at once, or not at all.
       </p>
     </form>

@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { currentUser, requireOwner } from "@/lib/auth";
 import { listFormulas } from "@/lib/production";
 import { formatQty } from "@/lib/units";
-import { PageTitle, Card, Chip, Empty, inputClass, Button, Alert, TableWrap, Th, Td } from "@/components/ui";
+import { PageTitle, Chip, Empty, inputClass, Button, Alert, TableWrap, Th, Td } from "@/components/ui";
 import { NewBanner, Pager } from "@/components/section-nav";
 
 export const dynamic = "force-dynamic";

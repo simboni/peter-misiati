@@ -18,8 +18,6 @@ import { redirect } from "next/navigation";
 import { currentUser, requireOwner } from "@/lib/auth";
 import { formatKes, formatQty, formatDate, businessDate, pct } from "@/lib/units";
 import {
-  monthKey,
-  monthRange,
   dayRange,
   periodRange,
   describeRange,
@@ -67,7 +65,6 @@ export default async function ReportsPage(props: {
   await requireOwner();
 
   const today = businessDate();
-  const ym = monthKey(today);
 
   /*
     One period, read by everything below it.

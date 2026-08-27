@@ -80,7 +80,7 @@ export async function recordPaymentAction(_prev: FormState, formData: FormData):
     const method = String(formData.get("method") ?? "cash") as PaymentMethod;
     const code = String(formData.get("mpesa_code") ?? "").trim().toUpperCase();
 
-    const parts = recordPayment({
+    recordPayment({
       customerId,
       amountCents,
       method,

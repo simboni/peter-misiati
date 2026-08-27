@@ -33,7 +33,7 @@ import {
 import type { PayMethod, Tier } from "@/lib/sales";
 import { countOutbox, enqueueSale, onOutboxChange, type QueuedSalePayload } from "@/lib/offline";
 import { formatDate, formatDateTime, formatKes, formatQty, formatUnits } from "@/lib/units";
-import { Alert, Button, Chip, SectionLabel, inputClass } from "@/components/ui";
+import { Alert, Button, SectionLabel, inputClass } from "@/components/ui";
 import { quickAddCustomerAction } from "@/app/customers/actions";
 import type { PaperWidth, Receipt, ReceiptLine } from "@/lib/escpos";
 import { ThermalPrint } from "@/components/thermal-print";
@@ -463,15 +463,6 @@ function milliToInput(milli: number): string {
   return String(Number((milli / 1000).toFixed(3)));
 }
 
-/** "1.5" -> 1500. Blank or nonsense -> null, so a slip never becomes a zero. */
-function parseMilli(text: string): number | null {
-  const t = text.trim();
-  if (!t) return null;
-  const n = Number(t);
-  if (!Number.isFinite(n) || n <= 0) return null;
-  return Math.round(n * 1000);
-}
-
 /**
  * The price as the tile says it out loud: "KES 250" for a jerrican, "KES 50/kg"
  * for anything weighed.
@@ -823,23 +814,8 @@ export default function SellClient({
   const paidCents = Math.max(0, firstCents) + Math.max(0, secondCents);
   const onAccountCents = Math.max(0, totalCents - paidCents);
   const overpaidCents = Math.max(0, paidCents - totalCents);
-  const outstandingCents = onAccountCents;
 
   const customer = allCustomers.find((c) => c.id === customerId) ?? null;
-
-  /**
-   * Choose the customer, and price the cart the way that customer buys.
-   *
-   * Only upward, to wholesale: a wholesale buyer on retail prices is a bill
-   * nobody wants to argue about. The reverse is left alone — an attendant who
-   * deliberately set wholesale for a walk-in bulk order should not have it
-   * silently undone by naming a retail customer.
-   */
-  function pickCustomer(id: number | null) {
-    setCustomerId(id);
-    setRepeat(null);
-    const c = id === null ? null : allCustomers.find((x) => x.id === id);
-  }
 
   // Look up what a named customer bought last time, once, when they are named.
   useEffect(() => {

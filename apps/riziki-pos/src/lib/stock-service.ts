@@ -10,7 +10,7 @@
  * only ever moves by appending to `stock_movements` through `postMovement`.
  */
 
-import { all, get, run, tx, postMovement, stockOf, audit } from "./db.ts";
+import { all, get, tx, postMovement, stockOf, audit } from "./db.ts";
 import { MILLI } from "./units.ts";
 
 // ---------------------------------------------------------------- reading
