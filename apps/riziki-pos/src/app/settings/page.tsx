@@ -14,6 +14,7 @@ import {
   UserError,
 } from "@/lib/users";
 import { formatDateTime, formatKes, toCents, fromCents } from "@/lib/units";
+import { buildStamp } from "@/lib/build-stamp";
 import {
   Alert,
   Button,
@@ -143,6 +144,7 @@ export default async function SettingsPage(props: {
 
   const users = listUsers();
   const demo = usersOnDemoPin();
+  const build = buildStamp();
   const shopName = getSetting("shop_name", "Riziki Industrial Chemicals");
   const shopAddress = getSetting(
     "shop_address",
@@ -291,6 +293,46 @@ export default async function SettingsPage(props: {
       </div>
 
       <div>
+      {/*
+        Which version is running.
+
+        Here rather than hidden in a log because the question it answers is one
+        the owner will ask out loud — "I updated the server, why does it look
+        the same?" — and until now nothing on any screen could answer it. If the
+        version below is not the one that was just deployed, the build did not
+        take, and that is a different problem from the feature being missing.
+      */}
+      <SectionLabel>This system</SectionLabel>
+      <Card>
+        {build ? (
+          <dl className="space-y-1 text-sm">
+            <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-line py-1">
+              <dt className="text-muted">Version</dt>
+              <dd className="font-bold tnum">{build.commit}</dd>
+            </div>
+            <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-line py-1">
+              <dt className="text-muted">Installed</dt>
+              <dd className="font-semibold">{build.builtAt}</dd>
+            </div>
+            {build.subject ? (
+              <div className="py-1">
+                <dt className="text-muted">What changed</dt>
+                <dd className="mt-0.5 font-medium">{build.subject}</dd>
+              </div>
+            ) : null}
+          </dl>
+        ) : (
+          <p className="text-sm text-muted">
+            This build carries no version stamp, which means it was made by hand
+            rather than by the deploy script. Run{" "}
+            <code className="rounded bg-wash px-1 font-mono text-[12px]">
+              sh deploy/update.sh
+            </code>{" "}
+            on the server and this will fill in.
+          </p>
+        )}
+      </Card>
+
       <SectionLabel>Shop details</SectionLabel>
       <Card>
         <form action={saveShop} className="space-y-2.5 xl:space-y-3">

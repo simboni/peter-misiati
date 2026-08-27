@@ -44,6 +44,18 @@ check 200 "$POS/login"
 # Signed out, every screen must bounce to the login page rather than open.
 check 200 "$POS/sell"
 
+# What the shop system is actually running. The most common "the deploy did
+# nothing" is a stale image, and this is the line that says so: if the commit
+# here is not the one you just pushed, the build did not take.
+echo
+echo "Running version"
+stamp=$(curl -s -L --max-time 15 "$POS/build.txt" 2>/dev/null)
+if [ -n "$stamp" ] && echo "$stamp" | grep -q '^commit='; then
+  echo "$stamp" | sed 's/^/  /'
+else
+  echo "  (no build stamp — this image was built before stamping, or by hand)"
+fi
+
 echo
 if [ "$fails" -eq 0 ]; then
   echo "All good — the link is safe to send."
