@@ -12,12 +12,14 @@ import {
   CatalogError,
   type AdminItem,
 } from "@/lib/catalog";
-import { fromCents, formatKes, formatQty, SIZE_UNITS, type SizeUnit } from "@/lib/units";
-import { Alert, Button, Card, Chip, Field, PageTitle, inputClass } from "@/components/ui";
+import { fromCents, formatKes, formatQty, type SizeUnit } from "@/lib/units";
+import { Alert, Button, Card, PageTitle } from "@/components/ui";
 import { ListToolbar, Pager } from "@/components/section-nav";
-import { itemBundles } from "@/lib/bundles";
+import { itemBundles, saveBundles, BundleError } from "@/lib/bundles";
+import { parseBundleRows } from "@/lib/bundle-input";
 import PriceForm from "./price-form";
 import DeleteProduct from "./delete-product";
+import AddProductForm, { type AddProductState } from "./add-product-form";
 
 // Prices and the catalogue change here; never serve a cached copy.
 export const dynamic = "force-dynamic";
@@ -66,11 +68,22 @@ async function toggleActive(formData: FormData): Promise<void> {
   revalidatePath("/sell");
 }
 
-async function addProduct(formData: FormData): Promise<void> {
+/**
+ * Add a chemical, and the sizes it is sold in, on one save.
+ *
+ * It answers back rather than redirecting on a refusal — see `AddProductForm`.
+ * A form that has just been walked through in two steps must not be emptied
+ * because the floor was typed above the ceiling.
+ */
+async function addProduct(
+  _prev: AddProductState,
+  formData: FormData,
+): Promise<AddProductState> {
   "use server";
-  const by = await guard();
+  let itemId: number;
   try {
-    createProduct({
+    const by = await guard();
+    itemId = createProduct({
       name: String(formData.get("name") ?? ""),
       unit: (formData.get("unit") as SizeUnit) ?? "kg",
       aliases: String(formData.get("aliases") ?? ""),
@@ -81,11 +94,19 @@ async function addProduct(formData: FormData): Promise<void> {
       ceiling: Number(formData.get("ceiling") ?? 0),
       byUserId: by,
     });
+    // A separate transaction on purpose: `tx` does not nest, and the product
+    // existing without its sizes is a recoverable state — the row's own Bundles
+    // fold sets them — whereas a size with no product is not.
+    saveBundles({ itemId }, parseBundleRows(formData.get("bundles")));
   } catch (e) {
-    redirectWith(e);
+    if (e instanceof CatalogError || e instanceof BundleError) return { error: e.message };
+    return { error: "That did not work. Please try again." };
   }
+
+  // Outside the catch: `redirect` reports itself by throwing. See AGENTS.md.
   revalidatePath("/items");
   revalidatePath("/sell");
+  redirect(`/items?added=${itemId}`);
 }
 
 /**
@@ -125,24 +146,6 @@ async function adoptPricing(): Promise<void> {
 }
 
 // -------------------------------------------------------------------- views
-
-/**
- * The unit a size is typed in.
- *
- * Offered wherever a size is asked for, because "500 ml" is what the label says
- * and "0.5 litres" is what the database wanted.
- */
-function UnitSelect({ name, value }: { name: string; value?: string }) {
-  return (
-    <select className={inputClass} name={name} defaultValue={value ?? SIZE_UNITS[0]?.key}>
-      {SIZE_UNITS.map((u) => (
-        <option key={u.key} value={u.key}>
-          {u.label}
-        </option>
-      ))}
-    </select>
-  );
-}
 
 /**
  * One row per thing the shop sells.
@@ -438,64 +441,11 @@ export default async function ItemsPage(props: {
         Add something
       </h2>
 
-      {/* One form, everything set here — see `createProduct`. A thing added
-          without a price is a thing the counter cannot sell, and the old two
-          forms let that happen by making pricing a separate errand. */}
+      {/* Two steps, one save — see `AddProductForm`. Everything is still set
+          here in one go: a thing added without a price is a thing the counter
+          cannot sell, and the sizes it comes in are part of that price. */}
       <Card className="max-w-4xl">
-        <form action={addProduct} className="space-y-3">
-          <div className="grid gap-2.5 sm:grid-cols-2">
-            <Field label="Name" hint="What the counter will see.">
-              <input className={inputClass} name="name" required placeholder="e.g. Caustic Soda" />
-            </Field>
-            <Field label="Other names it's known by" hint="Comma separated. Helps search find it.">
-              <input className={inputClass} name="aliases" placeholder="soda ash, magadi" />
-            </Field>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
-            <Field label="Sold by" hint="The unit the price is per.">
-              <UnitSelect name="unit" value="kg" />
-            </Field>
-            <Field label="Container holds" hint="What one drum or bag holds, in the unit above.">
-              <input
-                className={inputClass}
-                type="number"
-                name="container"
-                min="0"
-                step="any"
-                required
-                placeholder="25"
-              />
-            </Field>
-            <Field label="Container is called" hint="drum, bag, jerrican…">
-              <input className={inputClass} name="containerLabel" defaultValue="drum" />
-            </Field>
-            <Field label="Price per unit" hint="What one kilogram, litre or piece sells for.">
-              <input
-                className={inputClass}
-                type="number"
-                name="price"
-                min="0"
-                step="any"
-                required
-                placeholder="50"
-              />
-            </Field>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2.5 lg:max-w-md">
-            <Field label="Never below" hint="Under this needs your PIN.">
-              <input className={inputClass} type="number" name="floor" min="0" step="any" placeholder="40" />
-            </Field>
-            <Field label="Never beyond" hint="Over this needs your PIN.">
-              <input className={inputClass} type="number" name="ceiling" min="0" step="any" placeholder="60" />
-            </Field>
-          </div>
-
-          <Button type="submit" className="w-full sm:w-auto">
-            Add it
-          </Button>
-        </form>
+        <AddProductForm action={addProduct} />
       </Card>
 
       <p className="mt-5 max-w-4xl text-xs text-muted">
