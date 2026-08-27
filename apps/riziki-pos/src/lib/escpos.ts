@@ -292,6 +292,14 @@ export interface ReceiptLine {
   rateCents?: number | null;
   rateUnit?: string | null;
   /**
+   * Print the name and the amount, and leave the money column empty.
+   *
+   * Set on the chemicals that went into a mixed product sold by the size. They
+   * are on the receipt so the customer can see what they are holding, not so
+   * they can be charged for separately.
+   */
+  amountless?: boolean;
+  /**
    * What the shop was asking, per pack or per kg — set only when the line was
    * sold for less. The detail line then quotes the asking price and a second
    * line carries the discount, so the customer can see the arithmetic they
@@ -419,6 +427,12 @@ export function renderReceipt(receipt: Receipt, opts: ReceiptOptions = {}): Rece
     const discounted = (line.discountCents ?? 0) > 0 && (line.listPriceCents ?? 0) > 0;
     const shownPrice = discounted ? line.listPriceCents! : line.rateCents || line.unitPriceCents;
     const shownTotal = line.lineTotalCents + (discounted ? line.discountCents! : 0);
+
+    // A part of a mix: the amount on its own, and nothing in the money column.
+    if (line.amountless) {
+      pushMany(indent(twoCol(toAscii(line.qty ?? String(line.units)), "", w - 2)));
+      continue;
+    }
 
     const qty = line.qty ? ` (${toAscii(line.qty)})` : "";
     const detail =

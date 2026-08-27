@@ -19,45 +19,13 @@ import { revalidatePath } from "next/cache";
 import { requireOwner } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { updatePricing, deleteProduct, CatalogError } from "@/lib/catalog";
-import { saveBundles, BundleError, type BundleInput } from "@/lib/bundles";
+import { saveBundles, BundleError } from "@/lib/bundles";
+import { parseBundleRows } from "@/lib/bundle-input";
 
 export interface PricingState {
   error?: string;
   /** Set on a save that changed something, so the row can say so. */
   savedAt?: number;
-}
-
-/**
- * The bundle rows, as the editor posted them.
- *
- * JSON rather than flat form fields: the rows are a list whose length nobody
- * knows in advance, and reading `bundle_size_3` back out of a FormData is a
- * parser that will eventually disagree with the screen that wrote it.
- *
- * Anything unparseable is treated as "no bundles were sent" rather than throwing
- * — a corrupted hidden field must not be able to take a price save down with it.
- */
-function parseBundles(raw: FormDataEntryValue | null): BundleInput[] {
-  if (typeof raw !== "string" || !raw.trim()) return [];
-  let rows: unknown;
-  try {
-    rows = JSON.parse(raw);
-  } catch {
-    return [];
-  }
-  if (!Array.isArray(rows)) return [];
-
-  return rows
-    .map((r) => {
-      const row = r as { size?: unknown; price?: unknown; floor?: unknown };
-      return {
-        sizeMilli: Math.round((Number(row.size) || 0) * 1000),
-        priceCents: Math.round((Number(row.price) || 0) * 100),
-        floorCents: Math.round((Number(row.floor) || 0) * 100),
-      };
-    })
-    // A half-typed row is not an error, it is a row still being typed.
-    .filter((b) => b.sizeMilli > 0 && b.priceCents > 0);
 }
 
 export async function savePricingAction(
@@ -90,7 +58,7 @@ export async function savePricingAction(
       than refused. Somebody adding a third bundle and then saving the first two
       should not be stopped by the empty row they left open.
     */
-    saveBundles({ itemId }, parseBundles(formData.get("bundles")));
+    saveBundles({ itemId }, parseBundleRows(formData.get("bundles")));
   } catch (e) {
     return {
       error:

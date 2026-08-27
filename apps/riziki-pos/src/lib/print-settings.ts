@@ -176,17 +176,39 @@ const METHOD_LABEL: Record<string, string> = {
 export function receiptFromInvoice(invoice: Invoice, settings: PrintSettings): Receipt {
   const { sale, lines, tenders, balanceCents, subtotalCents, discountCents } = invoice;
 
-  const items: ReceiptLine[] = lines.map((l) => ({
-    name: l.name_snapshot,
-    units: l.units,
-    unitPriceCents: l.unit_price_cents,
-    lineTotalCents: l.line_total_cents,
-    qty: l.canonical_unit ? formatQty(l.qty_milli, l.canonical_unit) : null,
-    rateCents: l.rate_cents ?? 0,
-    rateUnit: l.canonical_unit ?? null,
-    listPriceCents: l.list_price_cents ?? 0,
-    discountCents: lineDiscountCents(l),
-  }));
+  const items: ReceiptLine[] = lines.map((l) =>
+    /*
+      A chemical that went into a mixed product prints as a name and an amount
+      and nothing else. Indented so it reads as part of the line above, and
+      carrying no price, no rate and no discount: the customer agreed a price
+      for the product, and three columns of zeros beside each ingredient would
+      read as the shop handing them out free.
+    */
+    l.is_component
+      ? {
+          name: `  ${l.name_snapshot}`,
+          units: l.units,
+          unitPriceCents: 0,
+          lineTotalCents: 0,
+          qty: l.canonical_unit ? formatQty(l.qty_milli, l.canonical_unit) : null,
+          rateCents: 0,
+          rateUnit: l.canonical_unit ?? null,
+          listPriceCents: 0,
+          discountCents: 0,
+          amountless: true,
+        }
+      : {
+          name: l.name_snapshot,
+          units: l.units,
+          unitPriceCents: l.unit_price_cents,
+          lineTotalCents: l.line_total_cents,
+          qty: l.canonical_unit ? formatQty(l.qty_milli, l.canonical_unit) : null,
+          rateCents: l.rate_cents ?? 0,
+          rateUnit: l.canonical_unit ?? null,
+          listPriceCents: l.list_price_cents ?? 0,
+          discountCents: lineDiscountCents(l),
+        },
+  );
 
   return {
     header: settings.header,

@@ -15,7 +15,7 @@ import { mixFor, listFormulas } from "@/lib/production";
 import { getPrintSettings } from "@/lib/print-settings";
 import { formatKes } from "@/lib/units";
 import { setCounterPrice, PriceError } from "@/lib/pricing";
-import { bundlesByItem } from "@/lib/bundles";
+import { bundlesByItem, bundlesByFormula } from "@/lib/bundles";
 import SellClient, {
   type MixOffer,
   type RecipeChoice,
@@ -314,13 +314,21 @@ export default async function SellPage() {
    * the chemicals for it, which is the whole of what the shop means by selling
    * a product now.
    */
+  const recipeBundles = bundlesByFormula();
   const recipes: RecipeChoice[] = listFormulas()
     .filter((f) => f.ingredient_count > 0)
     .map((f) => ({
       versionId: f.version_id,
+      formulaId: f.id,
       name: f.name,
       refSizeMilli: f.ref_size_milli,
       ingredientCount: f.ingredient_count,
+      bundles: (recipeBundles.get(f.id) ?? []).map((b) => ({
+        id: b.id,
+        sizeMilli: b.sizeMilli,
+        priceCents: b.priceCents,
+        floorCents: b.floorCents,
+      })),
     }));
 
   const customers: SellCustomer[] = all<{

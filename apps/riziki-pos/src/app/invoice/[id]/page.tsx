@@ -206,7 +206,30 @@ export default async function InvoicePage(props: {
               scoop where the price of a kilogram belongs. The customer checks
               these two numbers against what they were told at the counter.
             */}
-            {lines.map((l) => (
+            {lines.map((l) =>
+              /*
+                A chemical that went into a mixed product: an amount, and no
+                money at all.
+
+                The customer agreed a price for the product, so putting a figure
+                against each ingredient invites an argument about a number
+                nobody quoted — and printing "0" three times over reads as the
+                shop giving things away. Indented, so it is plainly a part of
+                the line above rather than something else that was bought.
+              */
+              l.is_component ? (
+                <tr key={l.id}>
+                  <td className="row border-b border-line py-1 pl-3 pr-2 align-top text-muted">
+                    <span aria-hidden>· </span>
+                    {l.name_snapshot}
+                  </td>
+                  <td className="row border-b border-line py-1 text-right align-top tnum text-muted">
+                    {l.canonical_unit ? formatQty(l.qty_milli, l.canonical_unit) : l.units}
+                  </td>
+                  <td className="row border-b border-line py-1" />
+                  <td className="row border-b border-line py-1" />
+                </tr>
+              ) : (
               <tr key={l.id}>
                 <td className="row border-b border-line py-1.5 pr-2 align-top">
                   {l.name_snapshot}
@@ -252,7 +275,8 @@ export default async function InvoicePage(props: {
                   ) : null}
                 </td>
               </tr>
-            ))}
+              ),
+            )}
             {lines.length === 0 ? (
               <tr>
                 <td className="py-3 text-center text-muted" colSpan={4}>

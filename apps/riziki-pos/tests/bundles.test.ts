@@ -296,3 +296,139 @@ test("a bundle belonging to another item is refused", () => {
     /no longer sold/i,
   );
 });
+
+// ------------------------------------------------------- a recipe sold in sizes
+
+const prod = await import("../src/lib/production.ts");
+const { postMovement } = await import("../src/lib/db.ts");
+
+test("a recipe bundle is one priced line with its ingredients underneath, unpriced", () => {
+  const formula = prod.listFormulas()[0];
+  const version = prod.currentVersion(formula.id)!;
+
+  // Make sure every ingredient is stocked enough to mix 5 L.
+  const needed = prod.scaleFormula(version.id, 5000);
+  for (const n of needed) {
+    const src = get<{ id: number }>(
+      `SELECT id FROM items WHERE chemical_id = ? AND sellable = 1 AND active = 1
+        AND price_basis = 'unit' LIMIT 1`,
+      n.chemicalId,
+    );
+    if (src) {
+      postMovement({
+        itemId: src.id,
+        deltaMilli: n.neededMilli * 50,
+        reason: "opening",
+        userId: 1,
+        note: "stocked for the bundle test",
+      });
+    }
+  }
+
+  b.saveBundles({ formulaId: formula.id }, [
+    { sizeMilli: 5000, priceCents: 90000, floorCents: 85000 },
+  ]);
+  const bundle = b.formulaBundles(formula.id)[0];
+
+  const res = sales.recordSale({
+    clientUuid: `mix-bundle-${Date.now()}`,
+    userId: 1,
+    tier: "retail",
+    // No itemId: a mixed product is not a row on any shelf.
+    lines: [{ bundleId: bundle.id, units: 2, unitPriceCents: 90000 }],
+    tenders: [{ method: "cash", amountCents: 180000 }],
+  });
+
+  // The customer pays the bundle price, twice — not the sum of the chemicals.
+  assert.equal(res.totalCents, 180000);
+
+  const lines = all<Record<string, number | string | null>>(
+    `SELECT * FROM sale_lines WHERE sale_id = ? ORDER BY id`,
+    res.saleId,
+  );
+  const [parent, ...parts] = lines;
+
+  assert.equal(parent.item_id, null, "the mixed product is on no shelf");
+  assert.equal(parent.units, 2);
+  assert.equal(parent.qty_milli, 10000, "two 5 L bundles is 10 L made");
+  assert.equal(parent.line_total_cents, 180000);
+  assert.equal(parent.bundle_id, bundle.id);
+  assert.match(String(parent.name_snapshot), /5 L bundle$/);
+
+  assert.ok(parts.length > 0, "the ingredients are recorded");
+  for (const p of parts) {
+    assert.ok(p.item_id, "an ingredient is a real item, so it can move stock");
+    assert.equal(p.line_total_cents, 0, "ingredients carry no money");
+    assert.equal(p.unit_price_cents, 0);
+    assert.equal(p.rate_cents, 0, "and no rate, or the receipt would read as billed");
+    assert.ok((p.qty_milli as number) > 0, "but they do carry their amount");
+    assert.equal(p.is_kit, 1);
+  }
+
+  // The sale totals to the priced line alone.
+  const summed = all<{ n: number }>(
+    `SELECT COALESCE(SUM(line_total_cents), 0) AS n FROM sale_lines WHERE sale_id = ?`,
+    res.saleId,
+  )[0].n;
+  assert.equal(summed, 180000);
+
+  // Cost sits on the ingredients, never on the parent — or the profit would halve.
+  assert.equal(parent.cost_cents, 0);
+  assert.ok(parts.some((p) => (p.cost_cents as number) > 0), "the chemicals carry the cost");
+});
+
+test("mixing a bundle takes the ingredients off the shelf, in the right amounts", () => {
+  const formula = prod.listFormulas()[0];
+  const version = prod.currentVersion(formula.id)!;
+  b.saveBundles({ formulaId: formula.id }, [
+    { sizeMilli: 5000, priceCents: 90000, floorCents: 0 },
+  ]);
+  const bundle = b.formulaBundles(formula.id)[0];
+
+  const wanted = prod.mixFor(version.id, 5000).ingredients;
+  const before = new Map(
+    wanted.map((i) => [
+      i.itemId!,
+      get<{ n: number }>(
+        `SELECT COALESCE(SUM(delta_milli), 0) AS n FROM stock_movements WHERE item_id = ?`,
+        i.itemId!,
+      )!.n,
+    ]),
+  );
+
+  sales.recordSale({
+    clientUuid: `mix-stock-${Date.now()}`,
+    userId: 1,
+    tier: "retail",
+    lines: [{ bundleId: bundle.id, units: 1, unitPriceCents: 90000 }],
+    tenders: [{ method: "cash", amountCents: 90000 }],
+  });
+
+  for (const i of wanted) {
+    const now = get<{ n: number }>(
+      `SELECT COALESCE(SUM(delta_milli), 0) AS n FROM stock_movements WHERE item_id = ?`,
+      i.itemId!,
+    )!.n;
+    assert.equal(before.get(i.itemId!)! - now, i.qtyMilli, `${i.chemicalName} came off by what the recipe asks`);
+  }
+});
+
+test("a recipe bundle is held to its own floor", () => {
+  const formula = prod.listFormulas()[0];
+  b.saveBundles({ formulaId: formula.id }, [
+    { sizeMilli: 5000, priceCents: 90000, floorCents: 85000 },
+  ]);
+  const bundle = b.formulaBundles(formula.id)[0];
+
+  assert.throws(
+    () =>
+      sales.recordSale({
+        clientUuid: `mix-floor-${Date.now()}`,
+        userId: 1,
+        tier: "retail",
+        lines: [{ bundleId: bundle.id, units: 1, unitPriceCents: 80000 }],
+        tenders: [{ method: "cash", amountCents: 80000 }],
+      }),
+    /below the least it may go for/i,
+  );
+});

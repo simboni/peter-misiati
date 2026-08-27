@@ -25,7 +25,10 @@ import {
   LinkButton,
   Empty,
 } from "@/components/ui";
+import { formulaBundles } from "@/lib/bundles";
 import { EditFormulaForm, type SaveState } from "./edit-form";
+import BundleForm from "./bundle-form";
+import { saveFormulaBundles } from "./bundle-action";
 
 export const dynamic = "force-dynamic";
 
@@ -130,6 +133,7 @@ export default async function FormulaDetailPage(props: {
   }
 
   const items = formulaItems(shown.id);
+  const bundles = formulaBundles(formulaId);
   const editing = edit === "1";
 
   if (editing) {
@@ -183,6 +187,35 @@ export default async function FormulaDetailPage(props: {
               Show the current version
             </Link>
           </Alert>
+        </div>
+      ) : null}
+
+      {/*
+        The sizes this is sold in.
+
+        Under the recipe rather than beside it, because the recipe is what the
+        product IS and the sizes are how it is sold — and only the current
+        version carries them: an old version is on screen to be read, not
+        priced.
+      */}
+      {shown.is_current ? (
+        <div className="mb-3 max-w-3xl">
+          <details open={bundles.length > 0}>
+            <summary className="cursor-pointer text-sm font-bold text-brand-dark">
+              Sold in{bundles.length ? ` ${bundles.length} size${bundles.length === 1 ? "" : "s"}` : " — set the sizes"} ▾
+            </summary>
+            <Card className="mt-2">
+              <BundleForm
+                formulaId={formulaId}
+                bundles={bundles.map((b) => ({
+                  size: String(b.sizeMilli / 1000),
+                  price: String(b.priceCents / 100),
+                  floor: b.floorCents ? String(b.floorCents / 100) : "",
+                }))}
+                action={saveFormulaBundles}
+              />
+            </Card>
+          </details>
         </div>
       ) : null}
 

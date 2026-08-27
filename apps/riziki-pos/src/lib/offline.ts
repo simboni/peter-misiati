@@ -47,7 +47,11 @@ export const OUTBOX_EVENT = "riziki:outbox";
 // --------------------------------------------------------------- wire types
 
 export interface QueuedLine {
-  itemId: number;
+  /**
+   * Absent for a mixed product sold by the size — it is on no shelf, and the
+   * server expands the bundle into the chemicals it is mixed from.
+   */
+  itemId?: number;
   /** Which bundle, when a size was sold rather than a weight. */
   bundleId?: number | null;
   units: number;
@@ -193,10 +197,10 @@ export function parseQueuedSale(value: unknown): QueuedSalePayload {
     // was stored on the device to decide whether it is safe to drop, and
     // `{ qtyMilli: undefined }` is not the same object as one without the key.
     const parsed: QueuedLine = {
-      itemId: l.itemId,
       units: l.units,
       unitPriceCents: l.unitPriceCents,
     };
+    if (typeof l.itemId === "number") parsed.itemId = l.itemId;
     if (l.qtyMilli !== undefined) parsed.qtyMilli = l.qtyMilli;
     if (l.formulaVersionId !== undefined && l.formulaVersionId !== null) {
       parsed.formulaVersionId = l.formulaVersionId;

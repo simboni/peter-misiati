@@ -729,6 +729,12 @@ export interface InvoiceLine {
   /** What the shop was asking. 0 on lines from before this was recorded. */
   list_price_cents: number;
   canonical_unit: string | null;
+  /**
+   * True when this line is one of the chemicals that went into a mixed product
+   * sold by the size. It carries an amount and no money: the customer agreed a
+   * price for the product, not for a list of ingredients.
+   */
+  is_component: number;
 }
 
 export interface InvoiceTender {
@@ -776,7 +782,11 @@ export function getInvoice(saleId: number): Invoice | undefined {
   const lines = all<InvoiceLine>(
     `SELECT sl.id, sl.name_snapshot, sl.units, sl.qty_milli,
             sl.unit_price_cents, sl.line_total_cents, sl.rate_cents, sl.list_price_cents,
-            i.canonical_unit
+            i.canonical_unit,
+            -- A part of a mix, priced at nothing. The old "bill the
+            -- ingredients" lines are also is_kit, but they carry real money, so
+            -- the zero total is what tells the two apart.
+            CASE WHEN sl.is_kit = 1 AND sl.line_total_cents = 0 THEN 1 ELSE 0 END AS is_component
        FROM sale_lines sl
        LEFT JOIN items i ON i.id = sl.item_id
       WHERE sl.sale_id = ?

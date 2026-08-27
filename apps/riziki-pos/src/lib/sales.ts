@@ -23,6 +23,7 @@
 import { all, get, run, tx, postMovement, stockOf, audit, type Item, type PriceBasis } from "./db.ts";
 import { verifyPin } from "./pin.ts";
 import { findBundle } from "./bundles.ts";
+import { mixFor, currentVersion } from "./production.ts";
 import { formatKes, formatQty, MILLI } from "./units.ts";
 
 export type Tier = "retail" | "wholesale";
@@ -207,7 +208,11 @@ export function cartTotal(lines: readonly CartLine[]): number {
 // --------------------------------------------------------------- recording
 
 export interface SaleLineInput {
-  itemId: number;
+  /**
+   * Omitted only for a recipe bundle, which is a mixed product and therefore
+   * not a row on any shelf. Everything else is an item.
+   */
+  itemId?: number;
   /** Whole units. Ignored for a weighed item, where the quantity is the price. */
   units: number;
   /**
@@ -264,7 +269,12 @@ export interface RecordSaleResult {
 }
 
 interface ResolvedLine {
-  item: Item;
+  /**
+   * Null on the priced line of a recipe bundle: "Carwash Shampoo — 5 L bundle"
+   * is not a thing on a shelf, so it has no item, moves no stock of its own,
+   * and carries no band. The ingredient lines beneath it do all three.
+   */
+  item: Item | null;
   units: number;
   unitPriceCents: number;
   qtyMilli: number;
@@ -350,7 +360,7 @@ export function recordSale(input: RecordSaleInput): RecordSaleResult {
                                  is_kit, formula_version_id, bundle_id)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         saleId,
-        l.item.id,
+        l.item?.id ?? null,
         l.nameSnapshot,
         l.units,
         l.qtyMilli,
@@ -377,6 +387,11 @@ export function recordSale(input: RecordSaleInput): RecordSaleResult {
       // Racing devices may both sell the last bottle. The customer is already
       // holding it, so the sale is allowed through — but the ledger records the
       // move either way, which is what turns a phantom into a visible negative.
+      // The priced line of a recipe bundle has no item: it is the mixed
+      // product, and what leaves the store is the ingredients on the lines
+      // beneath it. Nothing to move, nothing to hold to a band.
+      if (!l.item) continue;
+
       postMovement({
         itemId: l.item.id,
         deltaMilli: -l.qtyMilli,
@@ -437,6 +452,119 @@ export function recordSale(input: RecordSaleInput): RecordSaleResult {
   });
 }
 
+
+/**
+ * One recipe bundle, expanded into the rows that record it.
+ *
+ * The priced row is the product the customer bought. The rows under it are the
+ * chemicals that went into it — quantities only, no money — and they are what
+ * actually move stock.
+ *
+ * Every ingredient must be a real, stocked item. A recipe with something
+ * unlisted in it cannot be sold this way, because the sale would take money for
+ * a mix the store cannot account for having made.
+ */
+function resolveFormulaBundle(
+  line: SaleLineInput,
+  input: RecordSaleInput,
+  claimed: Map<number, number>,
+): ResolvedLine[] {
+  const bundle = findBundle(line.bundleId!);
+  if (!bundle || !bundle.active || bundle.formulaId == null) {
+    throw new SaleError("unknown_item", "That size is no longer sold.");
+  }
+  if (!Number.isInteger(line.units) || line.units <= 0) {
+    throw new SaleError("bad_units", "How many of them?");
+  }
+  if (!Number.isInteger(line.unitPriceCents) || line.unitPriceCents < 0) {
+    throw new SaleError("bad_price", "That price is not a valid amount.");
+  }
+  if (bundle.floorCents > 0 && line.unitPriceCents < bundle.floorCents && !input.floorOverrideBy) {
+    throw new SaleError(
+      "below_floor",
+      `That is below the least it may go for (${formatKes(bundle.floorCents)}). ` +
+        `The owner must approve it.`,
+    );
+  }
+
+  const version = currentVersion(bundle.formulaId);
+  if (!version) throw new SaleError("unknown_item", "That recipe has no current version.");
+
+  const madeMilli = bundle.sizeMilli * line.units;
+  const mix = mixFor(version.id, madeMilli);
+
+  for (const ing of mix.ingredients) {
+    if (ing.itemId == null) {
+      throw new SaleError(
+        "unknown_item",
+        `${mix.formulaName} cannot be mixed: ${ing.chemicalName} is not on the price list.`,
+      );
+    }
+  }
+
+  /*
+    A batch is measured in litres, always.
+
+    `formula_versions.ref_size_milli` is declared as "litres the quantities are
+    stated for", and the rest of the app reads it that way. Borrowing the first
+    ingredient's unit instead produced "Carwash Shampoo — 5 kg bundle" whenever
+    a recipe happened to start with a powder.
+  */
+  const label = `${mix.formulaName} — ${formatQty(bundle.sizeMilli, "L")} bundle`;
+
+  const parent: ResolvedLine = {
+    item: null,
+    units: line.units,
+    rateCents: 0,
+    unitPriceCents: line.unitPriceCents,
+    qtyMilli: madeMilli,
+    lineTotalCents: line.unitPriceCents * line.units,
+    listPriceCents: bundle.priceCents,
+    // The ingredients carry the cost. Counting it here as well would double it
+    // and halve the profit this sale appears to have made.
+    costCents: 0,
+    formulaVersionId: version.id,
+    bundleId: bundle.id,
+    nameSnapshot: label,
+  };
+
+  const parts = mix.ingredients.map<ResolvedLine>((ing) => {
+    const item = get<Item>(`SELECT * FROM items WHERE id = ? AND active = 1`, ing.itemId!);
+    if (!item) throw new SaleError("unknown_item", `${ing.chemicalName} is no longer on sale.`);
+
+    const taken = (claimed.get(item.id) ?? 0) + ing.qtyMilli;
+    if (taken > stockOf(item.id)) {
+      throw new SaleError(
+        "not_enough_stock",
+        `${mix.formulaName} needs ${formatQty(ing.qtyMilli, item.canonical_unit)} of ` +
+          `${ing.chemicalName}, and there is not that much left. ` +
+          `If there is more in the store than the book says, do a stock take first.`,
+      );
+    }
+    claimed.set(item.id, taken);
+
+    return {
+      item,
+      // One scoop of it, like any weighed line.
+      units: 1,
+      // Zero, not the shelf rate: this row is an amount, not a charge. Leaving
+      // the rate on would make the receipt read as if each chemical had been
+      // billed, and the totals would then disagree with the price agreed.
+      rateCents: 0,
+      unitPriceCents: 0,
+      qtyMilli: ing.qtyMilli,
+      lineTotalCents: 0,
+      listPriceCents: 0,
+      costCents: Math.round((item.cost_cents * ing.qtyMilli) / item.size_milli),
+      formulaVersionId: version.id,
+      bundleId: null,
+      nameSnapshot: ing.chemicalName,
+    };
+  });
+
+  return [parent, ...parts];
+}
+
 function resolveLines(input: RecordSaleInput): ResolvedLine[] {
   /*
     Weighed lines are checked against stock; whole ones are not.
@@ -453,7 +581,26 @@ function resolveLines(input: RecordSaleInput): ResolvedLine[] {
   */
   const claimed = new Map<number, number>();
 
-  return input.lines.map((line) => {
+  return input.lines.flatMap((line) => {
+    /*
+      A recipe bundle: one price, and the ingredients underneath it.
+
+      "Carwash Shampoo — 5 L" is a mixed product. It is not on any shelf, so it
+      has no item and no stock of its own — what leaves the store is the
+      chemicals it is mixed from. So this becomes several rows:
+
+        the priced line   the bundle, at the bundle's price, no item, no stock
+        one per ingredient  the quantity used, at NO price, moving the stock
+
+      The ingredients carry no money on purpose. The customer agreed a price
+      for the product, not for a list of chemicals, and putting a figure beside
+      each one would invite an argument about a number nobody quoted. They
+      carry their COST, which is what keeps the profit on this sale honest.
+    */
+    if (line.bundleId != null && line.itemId == null) {
+      return resolveFormulaBundle(line, input, claimed);
+    }
+
     const item = get<Item>(`SELECT * FROM items WHERE id = ? AND active = 1`, line.itemId);
     if (!item) throw new SaleError("unknown_item", "That item is no longer on sale.");
     if (!item.sellable) throw new SaleError("unknown_item", `${item.name} is not sold over the counter.`);
