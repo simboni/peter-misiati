@@ -27,11 +27,18 @@
 import { all, get, run, tx, audit } from "./db.ts";
 import { priceOf, recordSale, type RecordSaleResult } from "./sales.ts";
 import { businessDate, formatQty } from "./units.ts";
+import { findBundle } from "./bundles.ts";
 
 export type QuoteStatus = "draft" | "sent" | "approved" | "declined" | "invoiced";
 
 export interface QuoteLineInput {
   itemId: number;
+  /**
+   * The bundle being quoted, when the customer is being offered a size rather
+   * than a weight — "two 20 kg of Ungerol" instead of "40 kg". The size and the
+   * asking price are read from the database, never from here.
+   */
+  bundleId?: number | null;
   /** Whole containers. Ignored for a chemical, where the quantity is the order. */
   units: number;
   /** Per container, or per kg / L for a chemical priced by quantity. */
@@ -79,19 +86,33 @@ export interface QuoteLineRow {
   canonical_unit: "kg" | "L" | "pcs";
   /** What the item is worth today, for context beside the frozen asking price. */
   price_cents: number;
+  /** The size quoted, when a size was quoted rather than a weight. */
+  bundle_id: number | null;
+  /** What that size holds — for reading the line back as "2 × 20 kg". */
+  bundle_size_milli: number | null;
 }
 
 /**
- * How a quote line says its quantity: "3" of something whole, "400 kg" of a
- * chemical. One helper so the screen, the print sheet and the WhatsApp message
- * cannot drift apart on it.
+ * How a quote line says its quantity.
+ *
+ * "400 kg" of a chemical, "3" of something whole — and "3 × 20 kg" of a size,
+ * because a quotation reading "3 × KES 8,800" of Ungerol does not say what
+ * three of anything is. The size is the thing the customer is agreeing to buy,
+ * so it belongs in the quantity, not left to be inferred from the price.
+ *
+ * One helper, so the screen, the print sheet and the WhatsApp message cannot
+ * drift apart on it.
  */
 export function quoteLineQty(l: {
   units: number;
   qty_milli: number;
   rate_cents: number;
   canonical_unit: string;
+  bundle_size_milli?: number | null;
 }): string {
+  if (l.bundle_size_milli) {
+    return `${l.units} × ${formatQty(l.bundle_size_milli, l.canonical_unit)}`;
+  }
   return l.rate_cents > 0 ? formatQty(l.qty_milli, l.canonical_unit) : String(l.units);
 }
 
@@ -157,9 +178,10 @@ export function quoteLines(quoteId: number): QuoteLineRow[] {
   return all<QuoteLineRow>(
     `SELECT l.id, l.item_id, i.name AS item_name, l.units, l.unit_price_cents,
             l.qty_milli, l.rate_cents, l.list_price_cents, i.price_basis, i.canonical_unit,
-            i.price_cents
+            i.price_cents, l.bundle_id, b.size_milli AS bundle_size_milli
        FROM quote_lines l
        JOIN items i ON i.id = l.item_id
+       LEFT JOIN bundles b ON b.id = l.bundle_id
       WHERE l.quote_id = ?
       ORDER BY l.sort_order, l.id`,
     quoteId,
@@ -180,6 +202,7 @@ function normaliseLine(line: QuoteLineInput): {
   qtyMilli: number;
   rateCents: number;
   listPriceCents: number;
+  bundleId: number | null;
 } {
   const item = get<{ price_basis: "pack" | "unit"; price_cents: number }>(
     `SELECT price_basis, price_cents FROM items WHERE id = ?`,
@@ -190,6 +213,32 @@ function normaliseLine(line: QuoteLineInput): {
   // walk-in is quoted, because it is the same number.
   const listPriceCents = item ? priceOf(item) : 0;
 
+  /*
+    A size, quoted whole.
+
+    The same shape a jerrican has — a count at a price each — so `rate_cents` is
+    zero and the weight follows from the size rather than being typed. The size
+    and what the shop asks for it come from the bundle row: a quotation is a
+    price in writing, and it must not be possible to write one against a 20 kg
+    that the shop does not sell.
+  */
+  if (line.bundleId != null) {
+    const bundle = findBundle(line.bundleId);
+    if (bundle && bundle.active && bundle.itemId === line.itemId) {
+      const units = Math.max(1, Math.trunc(line.units));
+      return {
+        units,
+        unitPriceCents: price,
+        qtyMilli: bundle.sizeMilli * units,
+        rateCents: 0,
+        listPriceCents: bundle.priceCents,
+        bundleId: bundle.id,
+      };
+    }
+    // A size that has since been retired falls back to the item's own price
+    // rather than quoting a number nothing on the shelf still carries.
+  }
+
   if (item?.price_basis !== "unit") {
     return {
       units: Math.max(1, Math.trunc(line.units)),
@@ -197,6 +246,7 @@ function normaliseLine(line: QuoteLineInput): {
       qtyMilli: 0,
       rateCents: 0,
       listPriceCents,
+      bundleId: null,
     };
   }
   return {
@@ -205,6 +255,7 @@ function normaliseLine(line: QuoteLineInput): {
     qtyMilli: Math.max(1, Math.trunc(line.qtyMilli ?? Math.trunc(line.units) * 1000)),
     rateCents: price,
     listPriceCents,
+    bundleId: null,
   };
 }
 
@@ -278,8 +329,8 @@ export function saveQuote(input: SaveQuoteInput): { quoteId: number; quoteNo: st
       const n = normaliseLine(line);
       run(
         `INSERT INTO quote_lines (quote_id, item_id, units, unit_price_cents, qty_milli,
-                                  rate_cents, list_price_cents, sort_order)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                                  rate_cents, list_price_cents, sort_order, bundle_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         quoteId,
         line.itemId,
         n.units,
@@ -288,6 +339,7 @@ export function saveQuote(input: SaveQuoteInput): { quoteId: number; quoteNo: st
         n.rateCents,
         n.listPriceCents,
         order++,
+        n.bundleId,
       );
     }
 
@@ -408,6 +460,9 @@ export function invoiceQuote(input: InvoiceQuoteInput): RecordSaleResult & { quo
       units: l.units,
       unitPriceCents: l.unit_price_cents,
       qtyMilli: l.qty_milli || undefined,
+      // A size quoted is the size invoiced. Without this the invoice would
+      // re-price the line by weight and lose the bundle the customer agreed to.
+      bundleId: l.bundle_id ?? null,
     })),
     tenders: tenders.map((t) => ({
       method: t.method,
@@ -476,6 +531,7 @@ export function invoiceDirect(input: DirectInvoiceInput): RecordSaleResult {
         units: n.units,
         unitPriceCents: n.unitPriceCents,
         qtyMilli: n.qtyMilli || undefined,
+        bundleId: n.bundleId,
       };
     }),
     tenders: tenders.map((t) => ({

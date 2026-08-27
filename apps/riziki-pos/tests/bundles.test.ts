@@ -432,3 +432,90 @@ test("a recipe bundle is held to its own floor", () => {
     /below the least it may go for/i,
   );
 });
+
+// ------------------------------------------------------- quoting a size
+
+const quotes = await import("../src/lib/quotes.ts");
+
+test("a quote for a size records the size, not a weight at a rate", () => {
+  const item = cat.listProducts().find((i) => i.price_basis === "unit")!;
+  b.saveBundles({ itemId: item.id }, [
+    { sizeMilli: 20000, priceCents: 880000, floorCents: 0 },
+  ]);
+  const bundle = b.itemBundles(item.id)[0];
+
+  const { quoteId } = quotes.saveQuote({
+    customerId: null,
+    customerName: "Walk-in wholesaler",
+    note: "",
+    validUntil: "2026-12-31",
+    userId: 1,
+    lines: [
+      { itemId: item.id, bundleId: bundle.id, units: 3, unitPriceCents: bundle.priceCents },
+    ],
+  });
+
+  const line = get<Record<string, number | null>>(
+    `SELECT units, qty_milli, rate_cents, unit_price_cents, list_price_cents, bundle_id
+       FROM quote_lines WHERE quote_id = ?`,
+    quoteId,
+  )!;
+  assert.equal(line.units, 3, "three of the size");
+  assert.equal(line.qty_milli, 60000, "and the weight follows from the size");
+  assert.equal(line.rate_cents, 0, "a size is quoted whole, not at a rate");
+  assert.equal(line.unit_price_cents, 880000);
+  assert.equal(line.list_price_cents, 880000, "measured against what the shop asks for THAT size");
+  assert.equal(line.bundle_id, bundle.id);
+
+  // And it reads back as a size, so the document can say "3 × 20 kg".
+  const read = quotes.quoteLines(quoteId)[0];
+  assert.equal(read.bundle_id, bundle.id);
+  assert.equal(read.bundle_size_milli, 20000);
+});
+
+test("the size is read from the database, whatever price the form sends", () => {
+  const item = cat.listProducts().find((i) => i.price_basis === "unit")!;
+  b.saveBundles({ itemId: item.id }, [{ sizeMilli: 5000, priceCents: 240000, floorCents: 0 }]);
+  const bundle = b.itemBundles(item.id)[0];
+
+  const { quoteId } = quotes.saveQuote({
+    customerId: null,
+    customerName: "Tamper test",
+    note: "",
+    validUntil: "2026-12-31",
+    userId: 1,
+    // A payload claiming a huge weight: on a size line qty_milli is not read.
+    lines: [
+      { itemId: item.id, bundleId: bundle.id, units: 2, unitPriceCents: 200000, qtyMilli: 999000 },
+    ],
+  });
+  const line = get<{ qty_milli: number; list_price_cents: number }>(
+    `SELECT qty_milli, list_price_cents FROM quote_lines WHERE quote_id = ?`,
+    quoteId,
+  )!;
+  assert.equal(line.qty_milli, 10000, "two 5 kg is 10 kg, whatever was sent");
+  assert.equal(line.list_price_cents, 240000, "and the asking price is the shop's");
+});
+
+test("a size that has been retired falls back rather than quoting a dead price", () => {
+  const item = cat.listProducts().find((i) => i.price_basis === "unit")!;
+  b.saveBundles({ itemId: item.id }, [{ sizeMilli: 5000, priceCents: 240000, floorCents: 0 }]);
+  const bundle = b.itemBundles(item.id)[0];
+  // The shop stops selling that size.
+  b.saveBundles({ itemId: item.id }, []);
+
+  const { quoteId } = quotes.saveQuote({
+    customerId: null,
+    customerName: "Stale size",
+    note: "",
+    validUntil: "2026-12-31",
+    userId: 1,
+    lines: [{ itemId: item.id, bundleId: bundle.id, units: 1, unitPriceCents: 240000, qtyMilli: 5000 }],
+  });
+  const line = get<{ bundle_id: number | null; rate_cents: number }>(
+    `SELECT bundle_id, rate_cents FROM quote_lines WHERE quote_id = ?`,
+    quoteId,
+  )!;
+  assert.equal(line.bundle_id, null, "the dead size is not written onto the quote");
+  assert.ok(line.rate_cents > 0, "the line reverts to being priced by weight");
+});

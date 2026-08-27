@@ -3282,6 +3282,11 @@ function SizeChip({
  * adding one of itself at its own price. Nothing about the counter's habit
  * changes; there are simply more squares to tap.
  *
+ * There is no box for an odd weight here. It was a second way to say the same
+ * thing in a window whose whole job is one tap, and the cart line already has a
+ * quantity box — 2.4 kg is a tap on "1 kg" and then the number typed on the
+ * line, which is where every other quantity on the bill is edited.
+ *
  * A dropdown on the tile was the other candidate and is worse three ways: it
  * doubles tile height so half as many items fit, most of the catalogue has no
  * bundles so the majority of tiles would carry an empty control, and a size on
@@ -3302,7 +3307,6 @@ function SizePicker({
   onBundle: (bundle: BundleChoice) => void;
   onClose: () => void;
 }) {
-  const [typed, setTyped] = useState("");
   const list = listPrice(item);
   const weighed = item.basis === "unit";
   const step = stepMilli(item);
@@ -3335,13 +3339,6 @@ function SizePicker({
         : `${l.units} × ${formatQty(l.bundleSizeMilli, item.unit)}`,
     )
     .join(", ");
-
-  const addTyped = () => {
-    const milli = parseMilli(typed);
-    if (!milli || milli <= 0) return;
-    onLoose(weighed ? milli : Math.max(1, Math.round(milli / 1000)) * item.sizeMilli);
-    setTyped("");
-  };
 
   return (
     <Modal title={item.name} subtitle={stockLabel(item)} onClose={onClose} footer={
@@ -3393,42 +3390,6 @@ function SizePicker({
         })}
       </div>
 
-      {/* An odd quantity — 2.4 kg, half a jerrican's worth. Kept small and
-          last: it is the exception, and the sizes above are the day's work. */}
-      {list > 0 ? (
-        <div className="mt-3 flex items-center gap-2 rounded-xl bg-wash p-2.5 ring-1 ring-inset ring-line">
-          <label className="text-[12px] font-bold text-muted" htmlFor="odd-qty">
-            {weighed ? "Another weight" : "How many"}
-          </label>
-          <input
-            id="odd-qty"
-            className={`${inputClass} ml-auto w-20 text-right`}
-            inputMode="decimal"
-            autoComplete="off"
-            value={typed}
-            onChange={(e) => setTyped(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") addTyped();
-            }}
-            placeholder={weighed ? "2.5" : "3"}
-            aria-label={`Another quantity of ${item.name}, in ${weighed ? item.unit : item.unitLabel + "s"}`}
-          />
-          <span className="w-6 text-[12px] font-semibold text-muted">
-            {weighed ? item.unit : ""}
-          </span>
-          {/* Dimmed until something is typed. The placeholder reads like a
-              value at a glance, and an Add that looks live but does nothing is
-              the counter tapping twice and wondering which one took. */}
-          <button
-            type="button"
-            onClick={addTyped}
-            disabled={!parseMilli(typed)}
-            className="flex min-h-11 items-center rounded-xl border border-line bg-white px-3 text-sm font-bold text-brand-dark disabled:opacity-40 xl:min-h-9"
-          >
-            Add
-          </button>
-        </div>
-      ) : null}
     </Modal>
   );
 }

@@ -14,6 +14,7 @@ import { revalidatePath } from "next/cache";
 import { authoriseOwnerPin } from "@/lib/sales";
 import { setCounterPrice, PriceError } from "@/lib/pricing";
 import { formatKes } from "@/lib/units";
+import { bundlesByItem } from "@/lib/bundles";
 import { PageTitle } from "@/components/ui";
 import Builder, { type SaveResult } from "./builder";
 
@@ -66,6 +67,7 @@ export default async function NewWholesalePage(props: {
   // knows what they want, so making them choose a board first is a question
   // with no purpose. Whether a thing is priced by the kilogram rides along as
   // a label, because that decides what the quantity box is asking for.
+  const builderBundles = bundlesByItem();
   const items = all<{
     id: number;
     name: string;
@@ -85,6 +87,14 @@ export default async function NewWholesalePage(props: {
     basis: r.price_basis === "unit" ? ("unit" as const) : ("pack" as const),
     canonicalUnit: r.canonical_unit,
     priceCents: r.price_cents,
+    // The sizes it is also sold in. Read for the whole list at once: the
+    // builder offers them the moment an item is picked, and a request per line
+    // would be a wait in the middle of writing a quotation.
+    bundles: (builderBundles.get(r.id) ?? []).map((b) => ({
+      id: b.id,
+      sizeMilli: b.sizeMilli,
+      priceCents: b.priceCents,
+    })),
   }));
 
   const customers = all<{ id: number; name: string; phone: string; kind: string }>(
@@ -165,7 +175,14 @@ export default async function NewWholesalePage(props: {
     customerName: string;
     note: string;
     validUntil: string;
-    lines: Array<{ itemId: number; units: number; unitPriceCents: number; qtyMilli: number }>;
+    lines: Array<{
+      itemId: number;
+      units: number;
+      unitPriceCents: number;
+      qtyMilli: number;
+      /** The size being quoted, when the customer is offered one. */
+      bundleId?: number | null;
+    }>;
     paidCents: number;
     payMethod: "cash" | "mpesa";
     mpesaCode: string;
@@ -294,6 +311,10 @@ export default async function NewWholesalePage(props: {
             units: l.units,
             unitPriceCents: l.unit_price_cents,
             qtyMilli: l.qty_milli,
+            // A quote converted to an invoice keeps the size it was written
+            // for, so the customer is billed the sentence they approved.
+            bundleId: l.bundle_id ?? null,
+            bundleSizeMilli: l.bundle_size_milli ?? 0,
           })),
         }}
         onSave={save}

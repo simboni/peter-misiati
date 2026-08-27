@@ -12,6 +12,8 @@ export interface PickItem {
   canonicalUnit: "kg" | "L" | "pcs";
   /** What the shop asks for one unit. The only price an item has. */
   priceCents: number;
+  /** The sizes it is also sold in, each at a price of its own. Usually empty. */
+  bundles: Array<{ id: number; sizeMilli: number; priceCents: number }>;
 }
 
 /**

@@ -98,7 +98,9 @@ export default async function QuotePage(props: { params: Promise<{ id: string }>
               <div key={l.id} className="flex items-baseline gap-2 py-2">
                 <span className="min-w-0 flex-1 truncate text-sm font-bold">{l.item_name}</span>
                 <span className="shrink-0 text-[12px] text-muted tnum">
-                  {lineQty(l)} × {formatKes(l.unit_price_cents)}
+                  {/* "3 × 20 kg at KES 8,800" rather than "3 × 20 kg × KES
+                      8,800", which reads as a sum nobody meant. */}
+                  {lineQty(l)} {l.bundle_size_milli ? "at" : "×"} {formatKes(l.unit_price_cents)}
                   {l.rate_cents > 0 ? `/${l.canonical_unit}` : ""}
                   {cut ? <span className="ml-1 text-warn">↓</span> : null}
                 </span>

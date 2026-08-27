@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Alert, Button, Card, SectionLabel, inputClass } from "@/components/ui";
-import { formatKes } from "@/lib/units";
+import { formatKes, formatQty } from "@/lib/units";
 import ItemPicker, { type PickItem } from "./item-picker";
 import CustomerPicker, { type PickCustomer } from "./customer-picker";
 
@@ -18,12 +18,22 @@ export interface QuoteChoice {
 }
 export interface DraftLine {
   itemId: number;
-  /** Whole containers. Ignored once the item is priced per kilogram. */
+  /** Whole containers, or whole bundles. Ignored on a line priced per kilogram. */
   units: number;
-  /** Per container, or per kg / L. */
+  /** Per container, per bundle, or per kg / L. */
   unitPriceCents: number;
   /** How much substance, in milli, for an item priced per kilogram. */
   qtyMilli: number;
+  /**
+   * The size being quoted, when the customer is offered one.
+   *
+   * A quotation for "two 20 kg of Ungerol" is a different sentence from one for
+   * "40 kg", and the shop charges a different number for it. Null means the
+   * line is priced the ordinary way — by weight, or by the container.
+   */
+  bundleId: number | null;
+  /** What one of those holds. Zero when the line is not a bundle. */
+  bundleSizeMilli: number;
 }
 
 /**
@@ -91,6 +101,9 @@ function decimalText(n: number): string {
 
 /** What one draft line comes to. Matches `quoteLineCents` on the server. */
 function draftCents(item: PickItem | undefined, l: DraftLine): number {
+  // A bundle is a price for the whole size, however the parent is otherwise
+  // sold — the same shape a jerrican has.
+  if (l.bundleId !== null) return l.units * l.unitPriceCents;
   if (item?.basis === "unit") return Math.round((l.unitPriceCents * l.qtyMilli) / 1000);
   return l.units * l.unitPriceCents;
 }
@@ -166,7 +179,7 @@ export default function Builder({
   const [note, setNote] = useState(initial.note);
   const [validUntil, setValidUntil] = useState(initial.validUntil);
   const [lines, setLines] = useState<DraftLine[]>(
-    initial.lines.length ? initial.lines : [{ itemId: 0, units: 1, unitPriceCents: 0, qtyMilli: 1000 }],
+    initial.lines.length ? initial.lines : [{ itemId: 0, units: 1, unitPriceCents: 0, qtyMilli: 1000, bundleId: null, bundleSizeMilli: 0 }],
   );
   const [paid, setPaid] = useState("");
   const [payMethod, setPayMethod] = useState<"cash" | "mpesa">("cash");
@@ -192,6 +205,42 @@ export default function Builder({
     setLine(i, {
       itemId,
       unitPriceCents: item ? item.priceCents : 0,
+      // A size belongs to the item it was chosen on. Carrying it across to a
+      // different chemical would quote a 20 kg of something that has none.
+      bundleId: null,
+      bundleSizeMilli: 0,
+    });
+  }
+
+  /**
+   * Quote this line as a size, or go back to quoting it the ordinary way.
+   *
+   * Picking a size sets the price to what the shop asks for that size, which is
+   * the point of it — a 20 kg is not twenty times the per-kilogram price. The
+   * price stays editable afterwards, because a quotation is where the haggling
+   * happens.
+   */
+  function chooseSize(i: number, bundleId: number | null) {
+    const line = lines[i];
+    const item = byId.get(line.itemId);
+    if (bundleId === null) {
+      setLine(i, {
+        bundleId: null,
+        bundleSizeMilli: 0,
+        unitPriceCents: item ? item.priceCents : 0,
+        units: 1,
+        qtyMilli: line.qtyMilli || 1000,
+      });
+      return;
+    }
+    const bundle = item?.bundles.find((b) => b.id === bundleId);
+    if (!bundle) return;
+    setLine(i, {
+      bundleId: bundle.id,
+      bundleSizeMilli: bundle.sizeMilli,
+      unitPriceCents: bundle.priceCents,
+      units: Math.max(1, Math.trunc(line.units) || 1),
+      qtyMilli: 0,
     });
   }
 
@@ -215,6 +264,11 @@ export default function Builder({
     */
     const clean = lines
       .map((l) => {
+        // A bundle is counted, never weighed: `units` is how many of the size,
+        // and the weight is the server's to work out from the size itself.
+        if (l.bundleId !== null) {
+          return { ...l, units: Math.max(1, Math.trunc(l.units)), qtyMilli: 0 };
+        }
         const weighed = byId.get(l.itemId)?.basis === "unit";
         return {
           ...l,
@@ -352,6 +406,48 @@ export default function Builder({
                   />
                 </div>
 
+                {/*
+                  Sizes, when the item has any.
+
+                  A row of small buttons rather than the counter's window: this
+                  is a form being filled in with a customer on the phone, not a
+                  queue being served, and the choice belongs beside the boxes it
+                  changes. "Loose" is first and is what a line starts as, so
+                  nothing about quoting a plain weight has moved.
+                */}
+                {item && item.bundles.length ? (
+                  <div className="col-span-12 -mb-1 flex flex-wrap items-center gap-1.5">
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">
+                      Sold as
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => chooseSize(i, null)}
+                      className={`min-h-9 rounded-lg px-2.5 text-[12px] font-bold ring-1 ring-inset ${
+                        l.bundleId === null
+                          ? "bg-brand text-white ring-brand"
+                          : "bg-white text-muted ring-line hover:text-ink"
+                      }`}
+                    >
+                      {item.basis === "unit" ? `By the ${item.canonicalUnit}` : "Each"}
+                    </button>
+                    {item.bundles.map((b) => (
+                      <button
+                        key={b.id}
+                        type="button"
+                        onClick={() => chooseSize(i, b.id)}
+                        className={`min-h-9 rounded-lg px-2.5 text-[12px] font-bold ring-1 ring-inset ${
+                          l.bundleId === b.id
+                            ? "bg-brand text-white ring-brand"
+                            : "bg-white text-brand-dark ring-line hover:ring-brand/50"
+                        }`}
+                      >
+                        {formatQty(b.sizeMilli, item.canonicalUnit)}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+
                 {/* One box, two questions. A chemical is quoted as a quantity —
                     "400 kg of caustic" — and a container as a count. Asking for
                     "units" of something sold by the kilogram was how a
@@ -359,30 +455,42 @@ export default function Builder({
                     paper and typed back in as a discount. */}
                 <label className="col-span-3 md:col-span-2">
                   <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">
-                    {item?.basis === "unit" ? item.canonicalUnit : "Units"}
+                    {l.bundleId !== null
+                      ? "How many"
+                      : item?.basis === "unit"
+                        ? item.canonicalUnit
+                        : "Units"}
                   </span>
                   <DecimalInput
                     className={`${inputClass} tnum`}
-                    value={item?.basis === "unit" ? l.qtyMilli / 1000 : l.units}
+                    value={
+                      l.bundleId !== null || item?.basis !== "unit" ? l.units : l.qtyMilli / 1000
+                    }
                     onValue={(n) =>
                       setLine(
                         i,
-                        item?.basis === "unit"
-                          ? { qtyMilli: Math.max(0, Math.round(n * 1000)) }
-                          : { units: Math.max(0, Math.trunc(n)) },
+                        l.bundleId !== null || item?.basis !== "unit"
+                          ? { units: Math.max(0, Math.trunc(n)) }
+                          : { qtyMilli: Math.max(0, Math.round(n * 1000)) },
                       )
                     }
                     label={
-                      item?.basis === "unit"
-                        ? `How much on line ${i + 1}, in ${item.canonicalUnit}`
-                        : `Units on line ${i + 1}`
+                      l.bundleId !== null
+                        ? `How many bundles on line ${i + 1}`
+                        : item?.basis === "unit"
+                          ? `How much on line ${i + 1}, in ${item.canonicalUnit}`
+                          : `Units on line ${i + 1}`
                     }
                   />
                 </label>
 
                 <label className="col-span-5 md:col-span-3">
                   <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">
-                    {item?.basis === "unit" ? `Price per ${item.canonicalUnit}` : "Price each"}
+                    {l.bundleId !== null
+                      ? `Price per ${formatQty(l.bundleSizeMilli, item?.canonicalUnit ?? "kg")}`
+                      : item?.basis === "unit"
+                        ? `Price per ${item.canonicalUnit}`
+                        : "Price each"}
                   </span>
                   <DecimalInput
                     className={`${inputClass} tnum ${cut ? "text-warn" : ""}`}
@@ -413,7 +521,12 @@ export default function Builder({
                     and the control unmounts — taking its own "✓ Finesalt is now
                     KES 95" with it. The button would vanish under the finger
                     that pressed it and nothing would say whether it worked. */}
-                {item && list > 0 && (l.unitPriceCents !== list || kept.has(item.id)) ? (
+                {/* Never on a size. "Keep as the new price" writes the item's
+                    per-kilogram price, and a 20 kg bundle's price is not that
+                    number — offering it here would put KES 8,800 on the shelf
+                    as the price of one kilogram. A bundle's price is changed
+                    where it was set, on Products & prices. */}
+                {item && list > 0 && l.bundleId === null && (l.unitPriceCents !== list || kept.has(item.id)) ? (
                   <div className="col-span-12">
                     <KeepPrice
                       itemId={item.id}
@@ -436,7 +549,7 @@ export default function Builder({
         <button
           type="button"
           onClick={() =>
-            setLines((prev) => [...prev, { itemId: 0, units: 1, unitPriceCents: 0, qtyMilli: 1000 }])
+            setLines((prev) => [...prev, { itemId: 0, units: 1, unitPriceCents: 0, qtyMilli: 1000, bundleId: null, bundleSizeMilli: 0 }])
           }
           className="mt-3 flex min-h-11 items-center rounded-xl px-3 text-sm font-bold text-brand hover:bg-wash xl:min-h-9"
         >
