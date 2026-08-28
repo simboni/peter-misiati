@@ -1171,6 +1171,28 @@ export default function SellClient({
   }
 
   /**
+   * Take one line off the bill.
+   *
+   * Until now the only ways off were counting the quantity down to nothing —
+   * which on a weighed line means typing over a decimal until the row happens
+   * to vanish — or Clear, which throws away the other five items with it. A
+   * customer changing their mind about one thing is the ordinary case at a
+   * counter, and it needed one tap.
+   *
+   * Nothing is asked before it goes. The line is one tap to put back, the
+   * quantity was the customer's to begin with, and a confirmation on every
+   * removal is a dialog the counter learns to dismiss without reading.
+   */
+  function removeLine(key: string) {
+    setCart((prev) => prev.filter((l) => lineKey(l) !== key));
+  }
+
+  /** Take every line of one chemical off — loose weight and each of its sizes. */
+  function removeItem(itemId: number) {
+    setCart((prev) => prev.filter((l) => Boolean(l.mixKey) || l.itemId !== itemId));
+  }
+
+  /**
    * Set a quantity outright.
    *
    * Twenty of something used to be twenty taps. A container count is still
@@ -1507,6 +1529,7 @@ export default function SellClient({
                 onStep={(d) => changeUnits(key, d)}
                 onQuantity={(v) => setQuantity(key, v)}
                 onPrice={(c) => setLinePrice(key, c)}
+                onRemove={() => removeLine(key)}
                 onKeepPrice={(pin) => onKeepPrice(line.itemId, line.priceCents, pin)}
               />
             );
@@ -2323,6 +2346,7 @@ export default function SellClient({
                 ? addQuantity(item, queryCount * stepMilli(item), null)
                 : addItem(item)
             }
+            onRemove={removeItem}
             cart={cart}
             searching
           />
@@ -2403,7 +2427,7 @@ export default function SellClient({
                 </p>
               )
             ) : chemicals.length ? (
-              <Grid items={chemicals} onAdd={addItem} cart={cart} />
+              <Grid items={chemicals} onAdd={addItem} onRemove={removeItem} cart={cart} />
             ) : (
               <p className="py-8 text-center text-sm text-muted">No chemicals are priced yet.</p>
             )}
@@ -2564,6 +2588,7 @@ export default function SellClient({
           lines={cart.filter((l) => !l.mixKey && l.itemId === sizeFor.id)}
           onLoose={(qtyMilli) => addQuantity(sizeFor, qtyMilli, null)}
           onBundle={(b) => addBundle(sizeFor, b)}
+          onRemove={(l) => removeLine(lineKey(l))}
           onClose={() => setSizeFor(null)}
         />
       ) : null}
@@ -2576,6 +2601,7 @@ export default function SellClient({
           recipe={recipeSizeFor}
           lines={cart.filter((l) => l.mixKey?.startsWith(`f${recipeSizeFor.formulaId}:`))}
           onBundle={(b) => addRecipeBundle(recipeSizeFor, b)}
+          onRemove={(l) => removeLine(lineKey(l))}
           onBatch={() => {
             const r = recipeSizeFor;
             setRecipeSizeFor(null);
@@ -2653,11 +2679,14 @@ function RecipeGrid({
 function Grid({
   items,
   onAdd,
+  onRemove,
   cart,
   searching = false,
 }: {
   items: SellItem[];
   onAdd: (item: SellItem) => void;
+  /** Every line of this chemical off the bill — see the badge below. */
+  onRemove: (itemId: number) => void;
   cart: CartLine[];
   searching?: boolean;
 }) {
@@ -2674,7 +2703,17 @@ function Grid({
 
   const tile = (item: SellItem) => {
     // Any line of this item counts as "in the cart" — loose or any bundle.
-    const inCart = cart.find((l) => l.itemId === item.id);
+    //
+    // All of them, not the first one found. A chemical can be on the bill three
+    // times over — some loose weight and two different sizes — and the badge is
+    // the only place the tile says so. Showing one line's figure understated the
+    // bill on exactly the tiles where the counter most needs the number, and it
+    // would now understate what the ✕ is about to take away.
+    const mine = cart.filter((l) => !l.mixKey && l.itemId === item.id);
+    const inCart = mine.length > 0;
+    const onBill = item.basis === "unit"
+      ? formatQty(mine.reduce((sum, l) => sum + l.qtyMilli, 0), item.unit)
+      : String(mine.reduce((sum, l) => sum + l.units, 0));
     // "5 · 10 · 20" under the price, so the sizes are discoverable without a
     // tap. Without this the sheet is a surprise the first few times.
     const sizes = item.bundles.map((b) => formatQty(b.sizeMilli, item.unit).replace(/\s*\w+$/, "")).join(" · ");
@@ -2712,14 +2751,6 @@ function Grid({
         // highlight: two backgrounds fighting would lose the one that matters.
         style={inCart ? undefined : { backgroundColor: sw.tint }}
       >
-        {/* What is on the bill for this item, in the unit it is sold in: "3"
-            jerricans, or "1.5 kg". A weighed line showing "1" would be the one
-            number on the tile that means nothing. */}
-        {inCart ? (
-          <span className="absolute right-2 top-2 flex h-6 min-w-6 items-center justify-center rounded-full bg-brand px-1.5 text-xs font-extrabold text-white tnum">
-            {item.basis === "unit" ? formatQty(inCart.qtyMilli, item.unit) : inCart.units}
-          </span>
-        ) : null}
         {/* The chemical's own colour, down the leading edge. Four pixels is
             enough to group a grid by at a glance and costs no room at all. */}
         <span
@@ -2730,7 +2761,7 @@ function Grid({
 
         {/* The name IS the picture here, so a short one is set large. Most of
             this shelf is four-letter abbreviations — see lib/swatch. */}
-        <div className={`truncate font-extrabold ${nameSize(item.name)} ${inCart ? "pr-7" : ""}`}>
+        <div className={`truncate font-extrabold ${nameSize(item.name)} ${inCart ? "pr-16" : ""}`}>
           {base}
         </div>
 
@@ -2799,7 +2830,38 @@ function Grid({
       </button>
     );
 
-    return <div key={item.id}>{body}</div>;
+    return (
+      <div key={item.id} className="relative">
+        {body}
+        {/*
+          What is on the bill for this item, in the unit it is sold in: "3"
+          jerricans, or "1.5 kg" — and the way to take it off again.
+
+          It is a button laid OVER the tile rather than inside it, because the
+          tile is itself a button and one cannot be nested in another. That is
+          also why it carries the quantity: a bare ✕ in the corner would have
+          cost the tile the one number that says this chemical is already on the
+          bill, and the counter reads that number far more often than it removes
+          anything. Pressing it takes every line of this chemical off — the
+          loose weight and each size — which is what "take it off" means when
+          the badge has been adding them all up.
+        */}
+        {inCart ? (
+          <button
+            type="button"
+            onClick={() => onRemove(item.id)}
+            aria-label={`${onBill} of ${item.name} on the bill — tap to take it off`}
+            title={`Take ${item.name} off the bill`}
+            className="absolute right-2 top-2 flex h-6 items-center gap-1 rounded-full bg-brand pl-2 pr-1.5 text-xs font-extrabold text-white tnum hover:bg-bad"
+          >
+            {onBill}
+            <span aria-hidden className="text-[13px] leading-none text-white/70">
+              ✕
+            </span>
+          </button>
+        ) : null}
+      </div>
+    );
   };
 
   // Measured against the column, not the window (see the @container above), and
@@ -2862,6 +2924,7 @@ function CartRow({
   onStep,
   onQuantity,
   onPrice,
+  onRemove,
   onKeepPrice,
 }: {
   /** Null for a mixed product sold by the size — it is on no shelf. */
@@ -2872,6 +2935,8 @@ function CartRow({
   /** A quantity typed outright, in containers or in kg / L. */
   onQuantity: (value: number) => void;
   onPrice: (cents: number) => void;
+  /** This line off the bill, whatever quantity is on it. */
+  onRemove: () => void;
   /** Make the price on this line the shop's price from now on. */
   onKeepPrice: (
     ownerPin?: string,
@@ -2941,7 +3006,7 @@ function CartRow({
   const { base, size } = splitName(name);
 
   /**
-   * One row, three columns: how many, what, how much.
+   * One row, two lines: what it is and what it comes to, then what to do to it.
    *
    * It used to be a bordered card with the quantity stepper on its own line, the
    * unit price spelled out with "· tap to change" after it, and the pack word
@@ -2949,20 +3014,43 @@ function CartRow({
    * line. Six items filled a laptop screen and pushed the bill and the Complete
    * button clean out of sight, which is the worst thing a till can do.
    *
-   * So: the stepper leads (it is the only thing here anyone adjusts, and in a
-   * column it forms one clean edge), the name and the unit price share the
-   * middle, and the line total closes on the right where a total belongs. The
-   * instruction is gone — the price is styled as the link it is.
+   * The four things then went on ONE line, which is what a bill wants and what
+   * it could not have: the cart column is 272px on the shop's own screen, the
+   * stepper and the total are fixed, and what was left for the name and the
+   * rate was about fifty pixels. So neither fitted — the name came out as
+   * "Perf…" and "KES 4,000/kg" broke across two lines — and the row grew to
+   * seventy pixels ANYWAY out of that wrapping. One line was costing the height
+   * of two and reading worse than either.
+   *
+   * So the row is two lines on purpose, and it is not taller for it. The name
+   * gets the full width with the line total facing it, which is the shape of
+   * every receipt ever printed; underneath, the three controls — how many, at
+   * what rate, and off the bill — sit on one clean line with room to be read.
    */
   return (
     <div className="py-2">
-    <div className="flex items-center gap-2.5">
+      {/* What it is, and what it comes to. */}
+      <div className="flex items-baseline gap-2">
+        <div className="min-w-0 flex-1 truncate text-[13px] font-bold leading-tight" title={name}>
+          {base}
+        </div>
+        <div className="shrink-0 text-sm font-extrabold tnum">
+          {formatKes(lineCents(item, line))}
+        </div>
+      </div>
+
+    {/*
+      The gaps and the stepper's two arrows are a size down from what they were,
+      to leave the rate a column it can be read in. The arrows stay 32px tall,
+      which is the dimension a thumb actually misses on.
+    */}
+    <div className="mt-1 flex items-center gap-1.5">
       <div className="flex shrink-0 items-center rounded-lg bg-white ring-1 ring-inset ring-line">
         <button
           type="button"
           onClick={() => onStep(-1)}
           aria-label={`Less ${name}`}
-          className="h-8 w-6 rounded-l-lg text-base font-extrabold text-brand-dark hover:bg-wash"
+          className="h-8 w-5 rounded-l-lg text-base font-extrabold text-brand-dark hover:bg-wash"
         >
           −
         </button>
@@ -3009,7 +3097,7 @@ function CartRow({
           type="button"
           onClick={() => onStep(1)}
           aria-label={`More ${name}`}
-          className="h-8 w-6 rounded-r-lg text-base font-extrabold text-brand-dark hover:bg-wash"
+          className="h-8 w-5 rounded-r-lg text-base font-extrabold text-brand-dark hover:bg-wash"
         >
           +
         </button>
@@ -3034,67 +3122,79 @@ function CartRow({
           </Button>
         </div>
       ) : (
-        <>
-          {/* The name gets the line to itself — squeezed beside the size it was
-              the first thing to be cut, and "Carwash Shampo…" beside "Carwash
-              Shampoo 5 L" on the same bill is a mistake waiting to happen. The
-              size drops to the second line, where it is still the thing next to
-              the price it belongs to. */}
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-[13px] font-bold leading-tight" title={name}>
-              {base}
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                setDraft(centsToInput(line.priceCents));
-                setEditing(true);
-              }}
-              // Not truncated. This line carries the rate — "KES 473/L" — and a
-              // weighed line's stepper is wide enough to squeeze the column to
-              // where an ellipsis ate exactly the digits the price consists of.
-              // Wrapping to a second line is the right failure here.
-              className="mt-0.5 block text-[11px] font-semibold text-brand"
-              aria-label={`Change the price of ${name}`}
-              title={`Tap to agree a different price for ${name}`}
-            >
-              {bundled ? (
-                <span className="text-muted">
-                  {formatQty(line.bundleSizeMilli, unit)} bundle ·{" "}
-                </span>
-              ) : !weighed && size ? (
-                <span className="text-muted">{size} · </span>
-              ) : null}
-              <span className="underline decoration-brand/30 decoration-dotted underline-offset-2">
-                {weighed ? priceLabel(item, line.priceCents) : `${formatKes(line.priceCents)} each`}
-              </span>
-              {/* A pencil, once, small. The dotted underline alone was not
-                  enough for an attendant to know a price could be argued down
-                  here — the owner asked for this to be possible, and a thing
-                  nobody can find is not possible. */}
-              <span aria-hidden className="ml-1 text-[10px] text-brand/60">
-                ✎
-              </span>
-              {discounted ? (
-                <span className="ml-1.5 text-muted line-through">
-                  {weighed ? priceLabel(item, list) : formatKes(list)}
-                </span>
-              ) : null}
-              {/* Named on the line it belongs to, not only in the banner above:
-                  with six lines on the bill, "not enough stock" without a name
-                  is a hunt. */}
-              {over && item ? (
-                <span className="ml-1.5 font-bold text-warn">
-                  only {formatQty(Math.max(0, item.qtyMilli), unit)} left
-                </span>
-              ) : null}
-            </button>
-          </div>
-          <div className="shrink-0 text-right text-sm font-extrabold tnum">
-            {formatKes(lineCents(item, line))}
-          </div>
-        </>
+        <button
+          type="button"
+          onClick={() => {
+            setDraft(centsToInput(line.priceCents));
+            setEditing(true);
+          }}
+          // Not truncated. This line carries the rate — "KES 473/L" — and an
+          // ellipsis here would eat exactly the digits the price consists of.
+          // Wrapping to a second line is the right failure; with the name
+          // lifted off this line it very rarely has to.
+          className="min-w-0 flex-1 text-left text-[11px] font-semibold leading-tight text-brand"
+          aria-label={`Change the price of ${name}`}
+          title={`Tap to agree a different price for ${name}`}
+        >
+          {bundled ? (
+            <span className="text-muted">
+              {formatQty(line.bundleSizeMilli, unit)} bundle ·{" "}
+            </span>
+          ) : !weighed && size ? (
+            <span className="text-muted">{size} · </span>
+          ) : null}
+          <span className="underline decoration-brand/30 decoration-dotted underline-offset-2">
+            {/* No "each" on a bundle line: "12 kg bundle · KES 3,500 each" says
+                the same thing twice and is the one string long enough to wrap
+                this column. A container line keeps it — "5 L · KES 900" alone
+                could be read as the price of the whole order. */}
+            {weighed
+              ? priceLabel(item, line.priceCents)
+              : bundled
+                ? formatKes(line.priceCents)
+                : `${formatKes(line.priceCents)} each`}
+          </span>
+          {/* A pencil, once, small. The dotted underline alone was not enough
+              for an attendant to know a price could be argued down here — the
+              owner asked for this to be possible, and a thing nobody can find
+              is not possible. */}
+          <span aria-hidden className="ml-1 text-[10px] text-brand/60">
+            ✎
+          </span>
+          {discounted ? (
+            <span className="ml-1.5 text-muted line-through">
+              {weighed ? priceLabel(item, list) : formatKes(list)}
+            </span>
+          ) : null}
+          {/* Named on the line it belongs to, not only in the banner above:
+              with six lines on the bill, "not enough stock" without a name is
+              a hunt. */}
+          {over && item ? (
+            <span className="ml-1.5 font-bold text-warn">
+              only {formatQty(Math.max(0, item.qtyMilli), unit)} left
+            </span>
+          ) : null}
+        </button>
       )}
+
+      {/*
+        Last on the line, and outside the editing branch so it does not move.
+
+        It is set in the muted grey rather than red: the counter's eye goes to
+        the price and the total, and a red ✕ on every line of a six-line bill
+        reads as six warnings. It colours on the way to being pressed instead.
+        The hit area is the full 32px of the line — a 12px glyph is not a target
+        on a touch screen — while the glyph itself stays small.
+      */}
+      <button
+        type="button"
+        onClick={onRemove}
+        aria-label={`Take ${name} off the bill`}
+        title={`Take ${name} off the bill`}
+        className="-mr-1 flex h-8 w-6 shrink-0 items-center justify-center rounded-lg text-[15px] font-bold text-muted/70 hover:bg-bad-soft hover:text-bad"
+      >
+        ✕
+      </button>
     </div>
 
     {/*
@@ -3227,14 +3327,22 @@ function SizeChip({
   per,
   inCart,
   onPick,
+  onRemove,
 }: {
   size: string;
   price: string;
   per?: string | null;
   inCart: number;
   onPick: () => void;
+  /** This size off the bill. Absent when there is none of it on there. */
+  onRemove?: () => void;
 }) {
   return (
+    /*
+      The chip is a button, so the badge that undoes it cannot live inside it —
+      it is laid over the corner instead, which is where it already was.
+    */
+    <div className="relative">
     <button
       type="button"
       onClick={onPick}
@@ -3249,21 +3357,16 @@ function SizeChip({
       aria-label={
         `Add ${size} for ${price}` + (inCart > 0 ? ` — ${inCart} already on the bill` : "")
       }
-      className={`relative flex min-h-[4.5rem] flex-col items-start justify-center rounded-2xl px-3 py-2 text-left ring-1 ring-inset transition-colors ${
+      className={`flex min-h-[4.5rem] w-full flex-col items-start justify-center rounded-2xl px-3 py-2 text-left ring-1 ring-inset transition-colors ${
         inCart > 0
           ? "bg-brand text-white ring-brand"
           : "bg-brand-soft text-brand-deep ring-brand/25 hover:ring-brand/60"
       }`}
     >
-      {inCart > 0 ? (
-        <span
-          className="absolute right-1.5 top-1.5 min-w-[1.25rem] rounded-full bg-white px-1 text-center text-[11px] font-extrabold text-brand-deep tnum"
-          aria-label={`${inCart} on the bill`}
-        >
-          ×{inCart}
-        </span>
-      ) : null}
-      <span className="text-[15px] font-extrabold">{size}</span>
+      {/* Only the size makes room for the badge, not the whole chip: the price
+          sits on the line below it, and padding the chip pushed "KES 4,000"
+          into three lines to clear something that was never beside it. */}
+      <span className={`text-[15px] font-extrabold ${inCart > 0 ? "pr-11" : ""}`}>{size}</span>
       <span className={`mt-0.5 text-[14px] font-bold tnum ${inCart > 0 ? "" : "text-ink"}`}>
         {price}
       </span>
@@ -3273,6 +3376,31 @@ function SizeChip({
         </span>
       ) : null}
     </button>
+
+    {/*
+      The count, and the way back off.
+
+      Tapping the chip is how the counter says "one more", and that is the whole
+      rhythm of this window — so undoing has to be its own target, not a long
+      press or a second mode. Everything of this size goes at once: the counter
+      that tapped four times by mistake wants the four gone, and four is what
+      the badge is showing them.
+    */}
+    {inCart > 0 && onRemove ? (
+      <button
+        type="button"
+        onClick={onRemove}
+        aria-label={`${inCart} × ${size} on the bill — tap to take them off`}
+        title={`Take the ${size} off the bill`}
+        className="absolute right-1.5 top-1.5 flex h-5 items-center gap-0.5 rounded-full bg-white pl-1.5 pr-1 text-[11px] font-extrabold text-brand-deep tnum hover:bg-bad hover:text-white"
+      >
+        ×{inCart}
+        <span aria-hidden className="text-[12px] leading-none opacity-60">
+          ✕
+        </span>
+      </button>
+    ) : null}
+    </div>
   );
 }
 
@@ -3301,6 +3429,7 @@ function SizePicker({
   lines,
   onLoose,
   onBundle,
+  onRemove,
   onClose,
 }: {
   item: SellItem;
@@ -3308,6 +3437,8 @@ function SizePicker({
   lines: CartLine[];
   onLoose: (qtyMilli: number) => void;
   onBundle: (bundle: BundleChoice) => void;
+  /** One of these lines off the bill. */
+  onRemove: (line: CartLine) => void;
   onClose: () => void;
 }) {
   const list = listPrice(item);
@@ -3315,8 +3446,8 @@ function SizePicker({
   const step = stepMilli(item);
 
   const looseLine = lines.find((l) => l.bundleId === null);
-  const countOf = (bundleId: number) =>
-    lines.find((l) => l.bundleId === bundleId)?.units ?? 0;
+  const lineOf = (bundleId: number) => lines.find((l) => l.bundleId === bundleId);
+  const countOf = (bundleId: number) => lineOf(bundleId)?.units ?? 0;
 
   /*
     What the basic unit says on its chip.
@@ -3375,11 +3506,13 @@ function SizePicker({
             per={weighed ? `per ${item.unit}` : null}
             inCart={baseInCart}
             onPick={() => onLoose(step)}
+            onRemove={looseLine ? () => onRemove(looseLine) : undefined}
           />
         ) : null}
 
         {item.bundles.map((b) => {
           const rate = b.sizeMilli > 0 ? Math.round((b.priceCents * 1000) / b.sizeMilli) : 0;
+          const on = lineOf(b.id);
           return (
             <SizeChip
               key={b.id}
@@ -3388,6 +3521,7 @@ function SizePicker({
               per={`${formatKes(rate)}/${item.unit}`}
               inCart={countOf(b.id)}
               onPick={() => onBundle(b)}
+              onRemove={on ? () => onRemove(on) : undefined}
             />
           );
         })}
@@ -3409,17 +3543,20 @@ function RecipeSizePicker({
   recipe,
   lines,
   onBundle,
+  onRemove,
   onBatch,
   onClose,
 }: {
   recipe: RecipeChoice;
   lines: CartLine[];
   onBundle: (bundle: BundleChoice) => void;
+  /** One of these lines off the bill. */
+  onRemove: (line: CartLine) => void;
   onBatch: () => void;
   onClose: () => void;
 }) {
-  const countOf = (bundleId: number) =>
-    lines.find((l) => l.bundleId === bundleId)?.units ?? 0;
+  const lineOf = (bundleId: number) => lines.find((l) => l.bundleId === bundleId);
+  const countOf = (bundleId: number) => lineOf(bundleId)?.units ?? 0;
   const billCents = lines.reduce((sum, l) => sum + l.priceCents * l.units, 0);
   const onBill = lines
     .map((l) => `${l.units} × ${formatQty(l.bundleSizeMilli, recipe.refUnit)}`)
@@ -3453,18 +3590,22 @@ function RecipeSizePicker({
       }
     >
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-        {recipe.bundles.map((b) => (
-          <SizeChip
-            key={b.id}
-            size={formatQty(b.sizeMilli, recipe.refUnit)}
-            price={formatKes(b.priceCents)}
-            per={`${formatKes(
-              b.sizeMilli > 0 ? Math.round((b.priceCents * 1000) / b.sizeMilli) : 0,
-            )}/${recipe.refUnit}`}
-            inCart={countOf(b.id)}
-            onPick={() => onBundle(b)}
-          />
-        ))}
+        {recipe.bundles.map((b) => {
+          const on = lineOf(b.id);
+          return (
+            <SizeChip
+              key={b.id}
+              size={formatQty(b.sizeMilli, recipe.refUnit)}
+              price={formatKes(b.priceCents)}
+              per={`${formatKes(
+                b.sizeMilli > 0 ? Math.round((b.priceCents * 1000) / b.sizeMilli) : 0,
+              )}/${recipe.refUnit}`}
+              inCart={countOf(b.id)}
+              onPick={() => onBundle(b)}
+              onRemove={on ? () => onRemove(on) : undefined}
+            />
+          );
+        })}
       </div>
 
       <button
