@@ -80,11 +80,14 @@ export function SiteHeader() {
   // Clear any pending close timer on unmount.
   useEffect(() => () => cancelClose(), []);
 
-  // Close the desktop panel on route change.
-  useEffect(() => {
+  // Close the menus on route change. Done during render (not in an effect) —
+  // the React-recommended way to reset state when a prop changes.
+  const [prevPathname, setPrevPathname] = useState(pathname);
+  if (pathname !== prevPathname) {
+    setPrevPathname(pathname);
     setOpenMenu(null);
     setMobileOpen(false);
-  }, [pathname]);
+  }
 
   // Escape closes everything; click outside the header closes the panel.
   useEffect(() => {
