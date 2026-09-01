@@ -65,6 +65,15 @@ export function createSupplier(input: SupplierInput, userId?: number | null): nu
 
 export function updateSupplier(id: number, input: SupplierInput, userId?: number | null): void {
   const s = cleanSupplier(input);
+  // Renaming onto a name somebody else already has would be refused by the
+  // UNIQUE index as a raw SQLite error. Say it in words instead, and say whose.
+  const clash = get<{ id: number }>(
+    `SELECT id FROM suppliers WHERE name = ? AND id <> ?`,
+    s.name,
+    id,
+  );
+  if (clash) throw new Error(`"${s.name}" is already on the supplier list.`);
+
   const { changes } = run(
     `UPDATE suppliers SET name = ?, phone = ?, note = ? WHERE id = ?`,
     s.name,
@@ -74,6 +83,87 @@ export function updateSupplier(id: number, input: SupplierInput, userId?: number
   );
   if (!changes) throw new Error(`unknown supplier ${id}`);
   audit(userId ?? null, "supplier_update", "supplier", id, s.name);
+}
+
+/**
+ * What is holding a supplier on the list.
+ *
+ * Exactly one thing can: a delivery recorded against them. That row is money
+ * that left the account, and this name is what it is filed under — the screen
+ * prints "Supplier not recorded" where the link is missing, so deleting a
+ * supplier who has delivered would quietly erase the answer to "who did we buy
+ * this from" on every delivery they ever made.
+ *
+ * A supplier with none of that is just a line somebody typed: a duplicate, a
+ * misspelling, or an entry made while trying the system out. Nothing anywhere
+ * points at it and it should be possible to clear it away.
+ */
+export function supplierHistory(id: number): string[] {
+  const n =
+    get<{ n: number }>(`SELECT COUNT(*) AS n FROM purchases WHERE supplier_id = ?`, id)?.n ?? 0;
+  return n ? [`${n} ${n === 1 ? "delivery" : "deliveries"} recorded against them`] : [];
+}
+
+/** Why this supplier cannot be deleted, or null when they can. */
+export function supplierDeletableReason(id: number): string | null {
+  const held = supplierHistory(id);
+  return held.length ? held.join(", ") : null;
+}
+
+/**
+ * Take a supplier off the list for good.
+ *
+ * Refused for anyone who has delivered, with the reason said out loud and
+ * hiding offered instead — the same rule the catalogue uses for a product, and
+ * for the same reason: the records somebody else holds must go on making sense.
+ */
+export function deleteSupplier(id: number, userId?: number | null): { name: string } {
+  return tx(() => {
+    const supplier = getSupplier(id);
+    if (!supplier) throw new Error("That supplier is no longer on the list.");
+
+    const held = supplierDeletableReason(id);
+    if (held) {
+      throw new Error(
+        `${supplier.name} cannot be deleted — there are ${held}. Hide them instead, which ` +
+          `takes them off the list and out of the delivery form while those deliveries keep ` +
+          `their name.`,
+      );
+    }
+
+    run(`DELETE FROM suppliers WHERE id = ?`, id);
+    // Audited with the name in the text: once the row is gone the id points at
+    // nothing, and the name is all that will still say who was removed.
+    audit(userId ?? null, "supplier_delete", "supplier", id, supplier.name);
+    return { name: supplier.name };
+  });
+}
+
+/**
+ * Hide a supplier, or bring them back.
+ *
+ * For the ones that cannot be deleted. Hidden, they drop out of the list and
+ * out of the delivery form's picker — so nobody records anything new against a
+ * supplier the shop has stopped using — while every delivery already on the
+ * books keeps their name. Reversible on purpose: "we are not using them any
+ * more" is a decision that gets taken back.
+ */
+export function setSupplierHidden(
+  id: number,
+  hidden: boolean,
+  userId?: number | null,
+): { name: string } {
+  const supplier = getSupplier(id);
+  if (!supplier) throw new Error("That supplier is no longer on the list.");
+  run(`UPDATE suppliers SET active = ? WHERE id = ?`, hidden ? 0 : 1, id);
+  audit(
+    userId ?? null,
+    hidden ? "supplier_hide" : "supplier_show",
+    "supplier",
+    id,
+    supplier.name,
+  );
+  return { name: supplier.name };
 }
 
 // --------------------------------------------------------------- proration
@@ -383,6 +473,8 @@ export interface SupplierSpendRow {
   deliveries: number;
   spend_cents: number;
   last_at: string | null;
+  /** 0 once hidden. Still listed here so it can be brought back. */
+  active: number;
 }
 
 /**
@@ -394,17 +486,21 @@ export interface SupplierSpendRow {
  * beside it holding the same names again in a different order.
  *
  * The money is owner-only in the UI; staff get the roll of names instead.
+ *
+ * Hidden suppliers are in here too, sorted to the bottom. Everywhere else they
+ * are gone — the roll of names, the delivery picker — but this is the owner's
+ * one view of who the shop deals with, and a hide with no screen that shows it
+ * is a door that only opens one way.
  */
 export function supplierSpend(): SupplierSpendRow[] {
   return all<SupplierSpendRow>(
-    `SELECT s.id, s.name, s.phone, s.note,
+    `SELECT s.id, s.name, s.phone, s.note, s.active,
             COUNT(p.id)                          AS deliveries,
             COALESCE(SUM(p.total_cents), 0)      AS spend_cents,
             MAX(p.at)                            AS last_at
        FROM suppliers s
        LEFT JOIN purchases p ON p.supplier_id = s.id
-      WHERE s.active = 1
       GROUP BY s.id
-      ORDER BY spend_cents DESC, s.name`,
+      ORDER BY s.active DESC, spend_cents DESC, s.name`,
   );
 }

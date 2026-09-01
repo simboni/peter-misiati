@@ -1,14 +1,18 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { currentUser } from "@/lib/auth";
 import {
   listSuppliers,
+  getSupplier,
   recentPurchases,
   purchaseLines,
   priceHistory,
   purchasedItems,
   buyableItems,
   supplierSpend,
+  supplierDeletableReason,
 } from "@/lib/purchasing";
+import RemoveSupplier from "./remove-supplier";
 import { formatKes, formatDate, formatDateTime, formatUnits, formatQty, pct } from "@/lib/units";
 import { Card, PageTitle, SectionLabel, Chip, Stat, Empty, TableWrap, Th, Td, Alert } from "@/components/ui";
 import { Pager } from "@/components/section-nav";
@@ -34,7 +38,7 @@ const PER_PAGE = 10;
  * prices, supplier spend and the cost-price history are the owner's alone.
  */
 export default async function PurchasesPage(props: {
-  searchParams: Promise<{ item?: string; dp?: string; sp?: string }>;
+  searchParams: Promise<{ item?: string; dp?: string; sp?: string; edit?: string; err?: string }>;
 }) {
   const user = await currentUser();
   if (!user) redirect("/login");
@@ -43,8 +47,13 @@ export default async function PurchasesPage(props: {
   // `searchParams` is a Promise in Next.js 16 — synchronous access was removed.
   // `dp` pages the deliveries and `sp` the suppliers: two lists on one screen
   // need two page numbers, or turning one turns the other.
-  const { item, dp, sp } = await props.searchParams;
+  //
+  // `edit` names the supplier the form at the bottom is filled with, and `err`
+  // carries a refused delete back from the action — the row it was pressed on
+  // is re-rendered by then, so there is nothing left holding the message.
+  const { item, dp, sp, edit, err } = await props.searchParams;
   const requestedSupplierPage = Math.max(1, Number(sp) || 1);
+  const editing = edit ? getSupplier(Number(edit)) : undefined;
 
   const suppliers = listSuppliers();
 
@@ -117,6 +126,15 @@ export default async function PurchasesPage(props: {
     <div>
       <PageTitle title="Suppliers & purchases" subtitle="Deliveries in, landed cost out" />
 
+      {/* A refused delete, carried back from the action. It says what is holding
+          the supplier and what to do instead, which is the whole reason the
+          refusal is worth showing rather than a bare "that did not work". */}
+      {err ? (
+        <div className="mb-3 max-w-3xl">
+          <Alert tone="warn">{err}</Alert>
+        </div>
+      ) : null}
+
       <div className="mb-3">
         <ExportButtons csv="purchases" label="the purchase record" />
       </div>
@@ -129,7 +147,18 @@ export default async function PurchasesPage(props: {
           value={formatKes(spent30)}
           detail={`${last30.length} ${last30.length === 1 ? "delivery" : "deliveries"}`}
         />
-        <Stat label="Suppliers" value={String(suppliers.length)} detail="on the list" />
+        {/* The tile counts the list; the table below counts the list plus the
+            hidden. Saying so here stops "2 on the list" reading as a
+            contradiction of the three rows underneath it. */}
+        <Stat
+          label="Suppliers"
+          value={String(suppliers.length)}
+          detail={
+            spend.length > suppliers.length
+              ? `on the list · ${spend.length - suppliers.length} hidden`
+              : "on the list"
+          }
+        />
       </div>
 
       <SectionLabel>Record a delivery</SectionLabel>
@@ -308,9 +337,19 @@ export default async function PurchasesPage(props: {
           </thead>
           <tbody>
             {shownSpend.map((s) => (
-              <tr key={s.id} className="hover:bg-wash/50">
+              <tr key={s.id} className={`hover:bg-wash/50 ${s.active ? "" : "opacity-60"}`}>
                 <Td>
-                  <div className="font-bold">{s.name}</div>
+                  <div className="font-bold">
+                    {s.name}
+                    {/* Said on the row rather than only by the button opposite:
+                        a hidden supplier still costs a line here, and without
+                        this it reads as one the shop simply never rings. */}
+                    {s.active ? null : (
+                      <span className="ml-2 rounded-full bg-wash px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-muted">
+                        Hidden
+                      </span>
+                    )}
+                  </div>
                   {s.note || s.last_at ? (
                     <div className="text-[11px] text-muted">
                       {[s.note, s.last_at ? `last ${formatDate(s.last_at)}` : ""]
@@ -318,6 +357,29 @@ export default async function PurchasesPage(props: {
                         .join(" · ")}
                     </div>
                   ) : null}
+                  {/*
+                    Under the name, not in a column of their own.
+
+                    A column at the far right of this table is four columns off
+                    the edge of a phone — inside the table's own sideways
+                    scroll, where nobody would think to look for it. Under the
+                    name they are on screen at every width, and they are next to
+                    the thing they act on, which is where a control belongs.
+                  */}
+                  <div className="-ml-3 mt-0.5 flex items-center gap-1">
+                    <Link
+                      href={`/purchases?edit=${s.id}#supplier-form`}
+                      className="inline-flex min-h-11 items-center whitespace-nowrap rounded-full px-3 text-xs font-bold text-brand hover:bg-brand-soft xl:min-h-9"
+                    >
+                      Edit
+                    </Link>
+                    <RemoveSupplier
+                      supplierId={s.id}
+                      name={s.name}
+                      held={supplierDeletableReason(s.id)}
+                      hidden={!s.active}
+                    />
+                  </div>
                 </Td>
                 <Td align="right">
                   {s.phone ? (
@@ -353,15 +415,34 @@ export default async function PurchasesPage(props: {
         />
       </div>
 
-      <SectionLabel>Add a supplier</SectionLabel>
-      <Card className="max-w-2xl">
-        <details>
-          <summary className="cursor-pointer text-sm font-bold text-brand">New supplier</summary>
-          <div className="mt-3">
-            <SupplierForm />
-          </div>
-        </details>
-      </Card>
+      {/*
+        One form, two jobs.
+
+        Edit on a row brings the owner here with that supplier loaded, rather
+        than opening a second editor inside the table. The table is the answer
+        to "who do I ring" and has to stay readable at a glance; a form folded
+        into a cell makes every row a possible three-inch-tall row on a phone.
+      */}
+      <SectionLabel>{editing ? `Edit ${editing.name}` : "Add a supplier"}</SectionLabel>
+      <div id="supplier-form">
+        <Card className="max-w-2xl">
+          {editing ? (
+            <div className="space-y-3.5">
+              <SupplierForm key={editing.id} supplier={editing} />
+              <Link href="/purchases#suppliers" className="block text-sm font-bold text-muted">
+                ← Back to the list
+              </Link>
+            </div>
+          ) : (
+            <details>
+              <summary className="cursor-pointer text-sm font-bold text-brand">New supplier</summary>
+              <div className="mt-3">
+                <SupplierForm />
+              </div>
+            </details>
+          )}
+        </Card>
+      </div>
     </div>
   );
 }

@@ -9,8 +9,16 @@
  */
 
 import { revalidatePath } from "next/cache";
-import { requireUser, isOwner } from "@/lib/auth";
-import { createSupplier, updateSupplier, recordPurchase, type PurchaseLineInput } from "@/lib/purchasing";
+import { redirect } from "next/navigation";
+import { requireUser, requireOwner, isOwner } from "@/lib/auth";
+import {
+  createSupplier,
+  updateSupplier,
+  deleteSupplier,
+  setSupplierHidden,
+  recordPurchase,
+  type PurchaseLineInput,
+} from "@/lib/purchasing";
 import { formatKes, toCents } from "@/lib/units";
 
 export interface FormState {
@@ -53,6 +61,51 @@ export async function saveSupplierAction(_prev: FormState, formData: FormData): 
   } catch (err) {
     return { error: message(err) };
   }
+}
+
+/**
+ * Take a supplier off the list.
+ *
+ * Owner-only, and a plain action rather than a `useActionState` one because the
+ * button that calls it holds "tap again to confirm" — a client component can
+ * only be handed an action from a module marked "use server".
+ *
+ * The rule is `deleteSupplier`'s: anyone with a delivery against them is
+ * refused there, and the message says to hide them instead. The refusal comes
+ * back on the URL because the row it belonged to is about to re-render.
+ *
+ * `redirect` is outside the try on purpose — it reports by throwing, so a catch
+ * around it would swallow the redirect and report it as a failure instead.
+ */
+export async function deleteSupplierAction(formData: FormData): Promise<void> {
+  const owner = await requireOwner();
+  let failed: string | null = null;
+  try {
+    deleteSupplier(Number(formData.get("supplierId")), owner.id);
+  } catch (err) {
+    failed = message(err);
+  }
+  if (failed) redirect(`/purchases?err=${encodeURIComponent(failed)}#suppliers`);
+  revalidatePath("/purchases");
+  redirect("/purchases#suppliers");
+}
+
+/** Hide a supplier the shop has stopped using, or bring one back. */
+export async function setSupplierHiddenAction(formData: FormData): Promise<void> {
+  const owner = await requireOwner();
+  let failed: string | null = null;
+  try {
+    setSupplierHidden(
+      Number(formData.get("supplierId")),
+      String(formData.get("hidden")) === "1",
+      owner.id,
+    );
+  } catch (err) {
+    failed = message(err);
+  }
+  if (failed) redirect(`/purchases?err=${encodeURIComponent(failed)}#suppliers`);
+  revalidatePath("/purchases");
+  redirect("/purchases#suppliers");
 }
 
 export async function recordPurchaseAction(_prev: FormState, formData: FormData): Promise<FormState> {
