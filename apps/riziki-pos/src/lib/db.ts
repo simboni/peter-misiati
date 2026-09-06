@@ -181,6 +181,18 @@ const ADDED_COLUMNS: Array<{ table: string; column: string; definition: string }
   // What a recipe's batch is measured in — see the note in schema.sql.
   { table: "formula_versions", column: "ref_unit", definition: "TEXT NOT NULL DEFAULT 'L'" },
   { table: "quote_lines", column: "bundle_id", definition: "INTEGER" },
+  /*
+    Mixing a recipe in advance instead of billing it at the counter.
+
+    `formulas.output_item_id` is the switch between the two, and the batch
+    columns record what a run put on the shelf and which row each ingredient
+    came off. The `batches` and `batch_lines` tables themselves need no entry —
+    schema.sql has carried them all along; only the new columns need saying
+    twice.
+  */
+  { table: "formulas", column: "output_item_id", definition: "INTEGER" },
+  { table: "batches", column: "output_item_id", definition: "INTEGER" },
+  { table: "batch_lines", column: "item_id", definition: "INTEGER" },
 ];
 
 function migrate(conn: DatabaseSync): void {

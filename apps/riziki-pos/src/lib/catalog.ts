@@ -307,6 +307,18 @@ function tradedHistory(itemId: number): string[] {
     [`SELECT COUNT(*) AS n FROM sale_lines WHERE item_id = ?`, "been sold"],
     [`SELECT COUNT(*) AS n FROM quote_lines WHERE item_id = ?`, "been quoted"],
     [`SELECT COUNT(*) AS n FROM purchase_lines WHERE item_id = ?`, "been bought in"],
+    /*
+      Mixing, at either end.
+
+      A batch is the shop's record of what it made and what that cost, and both
+      ends of it point at items. Deleting a product that has been mixed — or
+      mixed OUT OF — would leave a run claiming to have made nothing, or to have
+      been made from nothing, and the cost on the shelf would have no story
+      behind it. This is the same reasoning as a sale: somebody's figures depend
+      on the row still being there.
+    */
+    [`SELECT COUNT(*) AS n FROM batches WHERE output_item_id = ?`, "been mixed"],
+    [`SELECT COUNT(*) AS n FROM batch_lines WHERE item_id = ?`, "been mixed with"],
   ];
   return counts
     .filter(([sql]) => (get<{ n: number }>(sql, itemId)?.n ?? 0) > 0)
@@ -330,6 +342,10 @@ function tradedHistory(itemId: number): string[] {
  */
 function clearOwnRecords(itemId: number): void {
   run(`DELETE FROM bundles WHERE item_id = ?`, itemId);
+  // A recipe pointing at a product that no longer exists would offer a mixing
+  // board with nothing at the end of it. Untrading it is enough — the recipe
+  // itself is still good, it just has nowhere to put what it makes.
+  run(`UPDATE formulas SET output_item_id = NULL WHERE output_item_id = ?`, itemId);
   run(`DELETE FROM item_packaging WHERE item_id = ? OR packaging_item_id = ?`, itemId, itemId);
 
   /*

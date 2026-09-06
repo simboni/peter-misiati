@@ -318,6 +318,17 @@ export default async function SellPage() {
   const recipeBundles = bundlesByFormula();
   const recipes: RecipeChoice[] = listFormulas()
     .filter((f) => f.ingredient_count > 0)
+    /*
+      A recipe that is MIXED IN ADVANCE is not offered here at all.
+
+      Its ingredients already left the shelf when the batch was mixed, and what
+      they made is on the Chemicals board as an ordinary product with its own
+      stock. Billing it here as well would take the concentrate a second time —
+      once into the drum of mild, once out of the drum it was made from — and
+      nothing downstream would notice. This one line is the whole interlock
+      between the two ways a recipe can work; see lib/mixing.ts.
+    */
+    .filter((f) => f.output_item_id === null)
     .map((f) => ({
       versionId: f.version_id,
       formulaId: f.id,

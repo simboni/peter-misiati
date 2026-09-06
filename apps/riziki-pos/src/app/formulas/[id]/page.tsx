@@ -28,6 +28,8 @@ import {
 } from "@/components/ui";
 import { formulaBundles, saveBundles, BundleError } from "@/lib/bundles";
 import { batchSizes } from "@/lib/bundle-input";
+import { listProducts } from "@/lib/catalog";
+import { OutputForm } from "./output-form";
 import { EditFormulaForm, type SaveState } from "./edit-form";
 import BundleForm from "./bundle-form";
 import { saveFormulaBundles } from "./bundle-action";
@@ -156,6 +158,22 @@ export default async function FormulaDetailPage(props: {
 
   const items = formulaItems(shown.id);
   const bundles = formulaBundles(formulaId);
+
+  /*
+    What this recipe could be told to make.
+
+    Anything active in the catalogue except the chemicals this very recipe is
+    made OF — offering those would invite a mix that eats itself, which the
+    library refuses anyway; leaving them out means the refusal is never needed.
+  */
+  const ingredientChemicals = new Set(items.map((i) => i.chemical_id));
+  const outputChoices = listProducts()
+    .filter((p) => p.active === 1 && !(p.chemical_id && ingredientChemicals.has(p.chemical_id)))
+    .map((p) => ({ id: p.id, name: p.name, unit: p.canonical_unit }));
+  const outputName =
+    outputChoices.find((c) => c.id === formula.output_item_id)?.name ??
+    listProducts().find((p) => p.id === formula.output_item_id)?.name ??
+    null;
   const editing = edit === "1";
 
   if (editing) {
@@ -231,14 +249,45 @@ export default async function FormulaDetailPage(props: {
       ) : null}
 
       {/*
+        How this recipe reaches the customer.
+
+        First, above the sizes, because it decides whether the sizes below are
+        used at all: a recipe mixed in advance is sold as the product it makes,
+        and the sizes that matter are that product's, set on Products & prices.
+      */}
+      {shown.is_current ? (
+        <div className="mb-3 max-w-3xl">
+          <details open={formula.output_item_id !== null}>
+            <summary className="cursor-pointer text-sm font-bold text-brand-dark">
+              {formula.output_item_id
+                ? `Mixed in advance — makes ${outputName ?? "a product"}`
+                : "Mixed to order — billed at the counter"}{" "}
+              ▾
+            </summary>
+            <Card className="mt-2">
+              <OutputForm
+                formulaId={formulaId}
+                outputItemId={formula.output_item_id}
+                choices={outputChoices}
+              />
+            </Card>
+          </details>
+        </div>
+      ) : null}
+
+      {/*
         The sizes this is sold in.
 
         Under the recipe rather than beside it, because the recipe is what the
         product IS and the sizes are how it is sold — and only the current
         version carries them: an old version is on screen to be read, not
         priced.
+
+        Hidden entirely when the recipe is mixed in advance: those sizes price
+        a mix the counter no longer sells, and leaving the form on screen would
+        invite somebody to set prices that nothing reads.
       */}
-      {shown.is_current ? (
+      {shown.is_current && formula.output_item_id === null ? (
         <div className="mb-3 max-w-3xl">
           <details open={bundles.length > 0}>
             <summary className="cursor-pointer text-sm font-bold text-brand-dark">

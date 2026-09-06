@@ -223,8 +223,24 @@ GROUP BY i.id;
 CREATE TABLE IF NOT EXISTS formulas (
   id       INTEGER PRIMARY KEY,
   name     TEXT    NOT NULL UNIQUE,
+  -- The product this recipe MAKES, when it is mixed in advance rather than
+  -- billed at the counter. This one column is the switch between the two ways
+  -- a recipe can work, and they are mutually exclusive on purpose:
+  --
+  --   NULL  -- mixed to order. The counter sells a size and the ingredients
+  --            come off the shelf at that moment. The shop holds no stock of
+  --            the mix. This is every recipe the system had before mixing.
+  --   set   -- mixed in advance. The mixing board takes the ingredients and
+  --            puts the result on the shelf as real counted stock, which is
+  --            then sold like any other product.
+  --
+  -- Both at once would take the concentrate twice: once when the batch was
+  -- mixed, again when the mix was sold. So a recipe with an output product is
+  -- not offered at the counter at all -- see the sell screen's recipe feed.
+  output_item_id INTEGER REFERENCES items(id),
   active   INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1))
 );
+CREATE INDEX IF NOT EXISTS idx_formulas_output ON formulas(output_item_id);
 
 -- Immutable once batches reference it. Editing a recipe inserts a new version.
 CREATE TABLE IF NOT EXISTS formula_versions (
@@ -256,25 +272,44 @@ CREATE INDEX IF NOT EXISTS idx_fitems_version ON formula_items(formula_version_i
 
 -- ----------------------------------------------------------------- production
 
+-- One mixing run: what was made, out of what, and what it cost.
+--
+-- Written only for a recipe that has been given an OUTPUT PRODUCT — see
+-- `formulas.output_item_id`. A recipe without one is still billed as its
+-- ingredients at the moment of sale and never comes through here.
+--
+-- `target_milli` is what the recipe said the batch would make; `actual_milli`
+-- is what came out of the drum. They differ, and the second is the one the
+-- ledger believes: the shop dilutes by eye with a hosepipe, and a system that
+-- insists on the arithmetic is a system that gets lied to.
 CREATE TABLE IF NOT EXISTS batches (
   id                 INTEGER PRIMARY KEY,
   at                 TEXT    NOT NULL DEFAULT (datetime('now')),
   formula_version_id INTEGER NOT NULL REFERENCES formula_versions(id),
   batch_no           TEXT    NOT NULL UNIQUE,           -- printed on labels (KEBS traceability)
+  -- What the run put on the shelf. Null only on rows written before mixing
+  -- existed; every batch this system writes names its output.
+  output_item_id     INTEGER REFERENCES items(id),
   target_milli       INTEGER NOT NULL CHECK (target_milli > 0),
   actual_milli       INTEGER CHECK (actual_milli IS NULL OR actual_milli >= 0),
   cost_cents         INTEGER NOT NULL DEFAULT 0 CHECK (cost_cents >= 0),
   status             TEXT    NOT NULL DEFAULT 'completed' CHECK (status IN ('completed', 'voided')),
   user_id            INTEGER REFERENCES users(id)
 );
+CREATE INDEX IF NOT EXISTS idx_batches_output ON batches(output_item_id);
 
+-- What went in. The chemical says WHAT, the item says WHICH ROW it came off —
+-- a recipe names a substance, but stock only ever moves against an item.
 CREATE TABLE IF NOT EXISTS batch_lines (
   id          INTEGER PRIMARY KEY,
   batch_id    INTEGER NOT NULL REFERENCES batches(id),
   chemical_id INTEGER NOT NULL REFERENCES chemicals(id),
+  item_id     INTEGER REFERENCES items(id),
   qty_milli   INTEGER NOT NULL CHECK (qty_milli > 0),
   cost_cents  INTEGER NOT NULL DEFAULT 0
 );
+CREATE INDEX IF NOT EXISTS idx_batch_lines_batch ON batch_lines(batch_id);
+CREATE INDEX IF NOT EXISTS idx_batch_lines_item ON batch_lines(item_id);
 
 -- Breaking a drum/bag into smaller packs. kg in must equal kg out; the
 -- difference is recorded as loss rather than silently disappearing.

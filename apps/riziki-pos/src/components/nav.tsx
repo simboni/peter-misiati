@@ -111,6 +111,7 @@ const MORE_GROUPS: Array<{
     links: [
       { href: "/items", label: "Products & prices", short: "Products", owner: true },
       { href: "/formulas", label: "Recipes", owner: true },
+      { href: "/mix", label: "Mixing board", short: "Mixing", owner: true },
     ],
   },
   {

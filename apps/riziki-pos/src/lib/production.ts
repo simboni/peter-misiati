@@ -41,6 +41,13 @@ export interface ChemicalRow {
 export interface FormulaRow {
   id: number;
   name: string;
+  /**
+   * The product this recipe makes, when it is mixed in advance.
+   *
+   * Null is the ordinary case and means the recipe is billed as its ingredients
+   * at the counter, holding no stock of its own. See `lib/mixing.ts`.
+   */
+  output_item_id: number | null;
   active: number;
 }
 
@@ -77,6 +84,10 @@ export interface FormulaItemRow {
 export interface FormulaListRow {
   id: number;
   name: string;
+  /** Set when this recipe is mixed in advance into a product of its own. */
+  output_item_id: number | null;
+  /** That product's name, for screens that say what a recipe makes. */
+  output_name: string | null;
   version_id: number;
   version: number;
   ref_size_milli: number;
@@ -104,6 +115,8 @@ export function listFormulas(q?: string): FormulaListRow[] {
   const base = `
     SELECT f.id,
            f.name,
+           f.output_item_id,
+           (SELECT oi.name FROM items oi WHERE oi.id = f.output_item_id) AS output_name,
            v.id             AS version_id,
            v.version        AS version,
            v.ref_size_milli AS ref_size_milli,
@@ -134,7 +147,10 @@ export function listFormulas(q?: string): FormulaListRow[] {
 }
 
 export function formulaById(id: number): FormulaRow | undefined {
-  return get<FormulaRow>(`SELECT id, name, active FROM formulas WHERE id = ?`, id);
+  return get<FormulaRow>(
+    `SELECT id, name, output_item_id, active FROM formulas WHERE id = ?`,
+    id,
+  );
 }
 
 export function versionById(id: number): FormulaVersionRow | undefined {
