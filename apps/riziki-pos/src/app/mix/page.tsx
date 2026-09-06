@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { currentUser, requireOwner } from "@/lib/auth";
 import { mixableFormulas, recentBatches } from "@/lib/mixing";
@@ -44,12 +43,9 @@ export default async function MixPage(props: {
 
   return (
     <div>
-      <PageTitle
-        title="Mixing board"
-        subtitle="Mix a batch in advance, and it goes on the shelf to be sold"
-      />
+      <PageTitle title="Mixing board" />
 
-      <div className="max-w-3xl">
+      <div className="max-w-2xl">
         <MixClient rows={rows} openFormulaId={open ? Number(open) : null} />
       </div>
 
@@ -100,15 +96,6 @@ export default async function MixPage(props: {
         </>
       ) : null}
 
-      <p className="mt-4 max-w-2xl text-xs text-muted">
-        A recipe appears here once it has been told what it makes — set that on the recipe itself
-        under{" "}
-        <Link href="/formulas" className="font-semibold text-brand">
-          Recipes
-        </Link>
-        . A recipe mixed in advance is not billed at the counter, because its chemicals have
-        already left the shelf.
-      </p>
     </div>
   );
 }

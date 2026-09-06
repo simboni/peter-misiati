@@ -34,6 +34,7 @@ import type { PayMethod, Tier } from "@/lib/sales";
 import { countOutbox, enqueueSale, onOutboxChange, type QueuedSalePayload } from "@/lib/offline";
 import { formatDate, formatDateTime, formatKes, formatQty, formatUnits } from "@/lib/units";
 import { Alert, Button, SectionLabel, inputClass } from "@/components/ui";
+import { SizeChip } from "@/components/size-chip";
 import { quickAddCustomerAction } from "@/app/customers/actions";
 import type { PaperWidth, Receipt, ReceiptLine } from "@/lib/escpos";
 import { ThermalPrint } from "@/components/thermal-print";
@@ -3389,89 +3390,6 @@ function Modal({
  * the window stays open. The badge is what makes that safe: it says how many
  * are already on the bill, so nobody has to count their own taps.
  */
-function SizeChip({
-  size,
-  price,
-  per,
-  inCart,
-  onPick,
-  onRemove,
-}: {
-  size: string;
-  price: string;
-  per?: string | null;
-  inCart: number;
-  onPick: () => void;
-  /** This size off the bill. Absent when there is none of it on there. */
-  onRemove?: () => void;
-}) {
-  return (
-    /*
-      The chip is a button, so the badge that undoes it cannot live inside it —
-      it is laid over the corner instead, which is where it already was.
-    */
-    <div className="relative">
-    <button
-      type="button"
-      onClick={onPick}
-      /*
-        Said properly for a screen reader.
-
-        The badge sits in the corner visually but comes first in the reading
-        order, so without this the chip announced itself as "times two, twenty
-        kilogrammes, KES 8,800" — the count before the thing it counts. This
-        says what the tap will do, then what is already on the bill.
-      */
-      aria-label={
-        `Add ${size} for ${price}` + (inCart > 0 ? ` — ${inCart} already on the bill` : "")
-      }
-      className={`flex min-h-[4.5rem] w-full flex-col items-start justify-center rounded-2xl px-3 py-2 text-left ring-1 ring-inset transition-colors ${
-        inCart > 0
-          ? "bg-brand text-white ring-brand"
-          : "bg-brand-soft text-brand-deep ring-brand/25 hover:ring-brand/60"
-      }`}
-    >
-      {/* Only the size makes room for the badge, not the whole chip: the price
-          sits on the line below it, and padding the chip pushed "KES 4,000"
-          into three lines to clear something that was never beside it. */}
-      <span className={`text-[15px] font-extrabold ${inCart > 0 ? "pr-11" : ""}`}>{size}</span>
-      <span className={`mt-0.5 text-[14px] font-bold tnum ${inCart > 0 ? "" : "text-ink"}`}>
-        {price}
-      </span>
-      {per ? (
-        <span className={`text-[11px] tnum ${inCart > 0 ? "text-white/75" : "text-muted"}`}>
-          {per}
-        </span>
-      ) : null}
-    </button>
-
-    {/*
-      The count, and the way back off.
-
-      Tapping the chip is how the counter says "one more", and that is the whole
-      rhythm of this window — so undoing has to be its own target, not a long
-      press or a second mode. Everything of this size goes at once: the counter
-      that tapped four times by mistake wants the four gone, and four is what
-      the badge is showing them.
-    */}
-    {inCart > 0 && onRemove ? (
-      <button
-        type="button"
-        onClick={onRemove}
-        aria-label={`${inCart} × ${size} on the bill — tap to take them off`}
-        title={`Take the ${size} off the bill`}
-        className="absolute right-1.5 top-1.5 flex h-5 items-center gap-0.5 rounded-full bg-white pl-1.5 pr-1 text-[11px] font-extrabold text-brand-deep tnum hover:bg-bad hover:text-white"
-      >
-        ×{inCart}
-        <span aria-hidden className="text-[12px] leading-none opacity-60">
-          ✕
-        </span>
-      </button>
-    ) : null}
-    </div>
-  );
-}
-
 /**
  * How much of it? — the window that opens when a tile with sizes is tapped.
  *
@@ -3572,7 +3490,7 @@ function SizePicker({
             size={baseSize}
             price={formatKes(list)}
             per={weighed ? `per ${item.unit}` : null}
-            inCart={baseInCart}
+            count={baseInCart}
             onPick={() => onLoose(step)}
             onRemove={looseLine ? () => onRemove(looseLine) : undefined}
           />
@@ -3587,7 +3505,7 @@ function SizePicker({
               size={formatQty(b.sizeMilli, item.unit)}
               price={formatKes(b.priceCents)}
               per={`${formatKes(rate)}/${item.unit}`}
-              inCart={countOf(b.id)}
+              count={countOf(b.id)}
               onPick={() => onBundle(b)}
               onRemove={on ? () => onRemove(on) : undefined}
             />
@@ -3668,7 +3586,7 @@ function RecipeSizePicker({
               per={`${formatKes(
                 b.sizeMilli > 0 ? Math.round((b.priceCents * 1000) / b.sizeMilli) : 0,
               )}/${recipe.refUnit}`}
-              inCart={countOf(b.id)}
+              count={countOf(b.id)}
               onPick={() => onBundle(b)}
               onRemove={on ? () => onRemove(on) : undefined}
             />

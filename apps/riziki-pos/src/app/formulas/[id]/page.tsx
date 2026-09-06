@@ -299,7 +299,7 @@ export default async function FormulaDetailPage(props: {
         two chores.
       */}
       {shown.is_current && mixRow ? (
-        <div className="mb-4 max-w-3xl" id="mix-a-batch">
+        <div className="mb-4 max-w-2xl" id="mix-a-batch">
           <SectionLabel>Mix a batch</SectionLabel>
           <MixClient rows={[mixRow]} openFormulaId={mixRow.formulaId} />
           <p className="mt-2 text-xs text-muted">
