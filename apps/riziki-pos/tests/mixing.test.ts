@@ -17,6 +17,7 @@ import assert from "node:assert/strict";
 const { seed } = await import("../src/lib/seed.ts");
 const { get, all, run, stockOf } = await import("../src/lib/db.ts");
 const { createProduct } = await import("../src/lib/catalog.ts");
+const { saveBundles } = await import("../src/lib/bundles.ts");
 const { createFormula, currentVersion, listFormulas } = await import("../src/lib/production.ts");
 const { setFormulaOutput, planMix, recordMix, mixableFormulas, recentBatches, MixError } =
   await import("../src/lib/mixing.ts");
@@ -205,6 +206,27 @@ test("the board lists what can be mixed, with both shelf figures", () => {
   assert.equal(row!.outputItemId, mildId);
   assert.equal(row!.outputOnHandMilli, stockOf(mildId));
   assert.equal(row!.possibleMilli, Math.floor((stockOf(concId) * 23_000) / 12_000));
+});
+
+test("the board carries the sizes the made product is sold in, with prices", () => {
+  // The shop says "two 23s and four 5s", not "66 kg", so the board has to know
+  // the sizes and what each fetches.
+  saveBundles({ itemId: mildId }, [
+    { sizeMilli: 23_000, priceCents: 700_000, floorCents: 0 },
+    { sizeMilli: 5_000, priceCents: 160_000, floorCents: 0 },
+  ]);
+
+  const row = mixableFormulas().find((r) => r.formulaId === formulaId)!;
+  assert.equal(row.outputBundles.length, 2);
+  assert.deepEqual(
+    row.outputBundles.map((b) => [b.sizeMilli, b.priceCents]),
+    [
+      [23_000, 700_000],
+      [5_000, 160_000],
+    ],
+    "in the order the shop set them, with their own prices",
+  );
+  assert.equal(row.outputPriceCents, 16_000, "and the per-kg price for an odd quantity");
 });
 
 test("a batch is remembered, with what went into it", () => {

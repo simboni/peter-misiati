@@ -16,7 +16,11 @@ export const dynamic = "force-dynamic";
  * is queried — a staff session that reached the query would already have the
  * quantities in the response whatever the markup then decided to show.
  */
-export default async function MixPage() {
+export default async function MixPage(props: {
+  searchParams: Promise<{ open?: string }>;
+}) {
+  // `searchParams` is a Promise in Next.js 16 — synchronous access was removed.
+  const { open } = await props.searchParams;
   try {
     await requireOwner();
   } catch {
@@ -46,7 +50,7 @@ export default async function MixPage() {
       />
 
       <div className="max-w-3xl">
-        <MixClient rows={rows} />
+        <MixClient rows={rows} openFormulaId={open ? Number(open) : null} />
       </div>
 
       {batches.length ? (

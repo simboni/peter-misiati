@@ -43,6 +43,7 @@
  */
 
 import { all, get, run, tx, audit, postMovement, stockOf, type Item } from "./db.ts";
+import { itemBundles, type Bundle } from "./bundles.ts";
 import { MILLI, formatQty } from "./units.ts";
 import { currentVersion, scaleFormula, versionById, formulaById } from "./production.ts";
 
@@ -276,6 +277,17 @@ export interface MixableRow {
   possibleMilli: number;
   ingredientCount: number;
   /**
+   * The sizes the made product is SOLD in, with their prices.
+   *
+   * The shop does not think "I am making 66 kg"; it thinks "two 23s and four
+   * 5s". These are the same sizes the counter sells, read off the output
+   * product itself, so the board asks the batch in the units the person at the
+   * drum is actually filling — and can say what the batch will be worth.
+   */
+  outputBundles: Array<{ id: number; sizeMilli: number; priceCents: number }>;
+  /** What one kg / L of it sells for, for a batch that is not a round size. */
+  outputPriceCents: number;
+  /**
    * How the mix is made, in the owner's own words.
    *
    * This is where the water lives. It is not an ingredient — it has no cost and
@@ -297,11 +309,13 @@ export function mixableFormulas(): MixableRow[] {
     output_item_id: number;
     output_name: string;
     output_unit: string;
+    output_price_cents: number;
     ingredient_count: number;
   }>(
     `SELECT f.id AS formula_id, f.name, v.id AS version_id,
             v.ref_size_milli, v.ref_unit, v.steps,
             i.id AS output_item_id, i.name AS output_name, i.canonical_unit AS output_unit,
+            i.price_cents AS output_price_cents,
             (SELECT COUNT(*) FROM formula_items fi WHERE fi.formula_version_id = v.id)
               AS ingredient_count
        FROM formulas f
@@ -329,6 +343,12 @@ export function mixableFormulas(): MixableRow[] {
       outputItemId: r.output_item_id,
       outputName: r.output_name,
       outputUnit: r.output_unit,
+      outputBundles: itemBundles(r.output_item_id).map((b: Bundle) => ({
+        id: b.id,
+        sizeMilli: b.sizeMilli,
+        priceCents: b.priceCents,
+      })),
+      outputPriceCents: r.output_price_cents,
       outputOnHandMilli: Math.max(0, stockOf(r.output_item_id)),
       possibleMilli,
       ingredientCount: r.ingredient_count,

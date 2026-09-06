@@ -49,7 +49,21 @@ export function OutputForm({
   return (
     <form action={action} className="space-y-3.5">
       {state.error ? <Alert tone="bad">{state.error}</Alert> : null}
-      {state.ok ? <Alert tone="good">{state.ok}</Alert> : null}
+      {state.ok ? (
+        <div className="space-y-2">
+          <Alert tone="good">{state.ok}</Alert>
+          {/* The next thing they want, offered rather than described. Saving
+              this switch is never the errand — mixing a batch is. */}
+          {inAdvance && picked ? (
+            <a
+              href="#mix-a-batch"
+              className="flex min-h-11 w-full items-center justify-center rounded-full bg-brand px-4 text-sm font-bold text-white hover:bg-brand-dark"
+            >
+              Proceed to mix →
+            </a>
+          ) : null}
+        </div>
+      ) : null}
 
       <input type="hidden" name="formulaId" value={formulaId} />
       {/* The picker is only submitted on the "in advance" branch; the other

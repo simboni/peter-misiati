@@ -29,6 +29,8 @@ import {
 import { formulaBundles, saveBundles, BundleError } from "@/lib/bundles";
 import { batchSizes } from "@/lib/bundle-input";
 import { listProducts } from "@/lib/catalog";
+import { mixableFormulas } from "@/lib/mixing";
+import { MixClient } from "@/app/mix/mix-client";
 import { OutputForm } from "./output-form";
 import { EditFormulaForm, type SaveState } from "./edit-form";
 import BundleForm from "./bundle-form";
@@ -170,6 +172,17 @@ export default async function FormulaDetailPage(props: {
   const outputChoices = listProducts()
     .filter((p) => p.active === 1 && !(p.chemical_id && ingredientChemicals.has(p.chemical_id)))
     .map((p) => ({ id: p.id, name: p.name, unit: p.canonical_unit }));
+  /*
+    This recipe's row on the Mixing board, when it has one.
+
+    Read from the same function the board itself uses, so the card here cannot
+    drift from the card there — it is literally the same component fed the same
+    shape.
+  */
+  const mixRow = formula.output_item_id
+    ? (mixableFormulas().find((r) => r.formulaId === formulaId) ?? null)
+    : null;
+
   const outputName =
     outputChoices.find((c) => c.id === formula.output_item_id)?.name ??
     listProducts().find((p) => p.id === formula.output_item_id)?.name ??
@@ -272,6 +285,30 @@ export default async function FormulaDetailPage(props: {
               />
             </Card>
           </details>
+        </div>
+      ) : null}
+
+      {/*
+        And straight on to mixing it.
+
+        The same card the Mixing board shows, for this recipe only. Setting a
+        recipe to "mixed in advance" and then mixing a batch of it is one
+        errand, not two: the owner has the drum in front of them and the recipe
+        on the screen, and sending them off to another screen to find the same
+        recipe again is where the chore this feature already costs turns into
+        two chores.
+      */}
+      {shown.is_current && mixRow ? (
+        <div className="mb-4 max-w-3xl" id="mix-a-batch">
+          <SectionLabel>Mix a batch</SectionLabel>
+          <MixClient rows={[mixRow]} openFormulaId={mixRow.formulaId} />
+          <p className="mt-2 text-xs text-muted">
+            Every batch is also listed on the{" "}
+            <Link href="/mix" className="font-semibold text-brand">
+              Mixing board
+            </Link>
+            , with what it cost.
+          </p>
         </div>
       ) : null}
 
