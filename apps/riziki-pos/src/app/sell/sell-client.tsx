@@ -138,6 +138,14 @@ export interface RecipeChoice {
   refUnit: string;
   ingredientCount: number;
   /**
+   * Name plus every ingredient's name and alias, lowercased.
+   *
+   * The same shape the items carry, so one typed word is matched against both
+   * boards the same way — "sles" finds the chemical AND the products made out
+   * of it, which is the question a customer actually asks at the door.
+   */
+  search: string;
+  /**
    * The sizes this mix is sold in, each at a price of its own.
    *
    * When there are any, tapping the tile offers them; the customer buys "a 5 L
@@ -1410,6 +1418,19 @@ export default function SellClient({
   const matches = searchText
     ? items.filter((i) => i.search.includes(searchText)).sort(shelfOrder)
     : [];
+  /*
+    And the recipes, which used to be missed entirely.
+
+    Two comments in this file already claimed the search "cuts across both
+    boards"; it did not — it filtered `items` and nothing else, so a shop with
+    Carwash Shampoo in the book could type its name and be told there were no
+    matches. Searching is the one place the board a thing lives on should not
+    matter: the customer says what they want, not which tab it is under.
+  */
+  const recipeMatches = searchText
+    ? recipes.filter((r) => r.search.includes(searchText))
+    : [];
+  const totalMatches = matches.length + recipeMatches.length;
   /**
    * Everything sellable is a chemical now.
    *
@@ -2005,16 +2026,29 @@ export default function SellClient({
           <input
             ref={searchRef}
             onKeyDown={(e) => {
-              if (e.key !== "Enter" || !matches.length) return;
-              e.preventDefault();
-              {
+              if (e.key !== "Enter") return;
+              /*
+                Enter takes the first thing that matched, and a chemical beats a
+                recipe: "20 caustic" is a quantity of something on the shelf,
+                and a recipe cannot be added by typing a number at it — it has
+                to ask how much is being made. So a lone recipe match OPENS,
+                which is what tapping its tile would have done, and the search
+                box keeps its text because the window sits over these results.
+              */
+              if (matches.length) {
+                e.preventDefault();
                 const hit = matches.find((i) => i.qtyMilli > 0) ?? matches[0];
                 // "20 caustic" means twenty kilos of a weighed chemical and
                 // twenty jerricans of anything sold whole — the same sentence,
                 // read in the unit the thing is priced in.
                 addQuantity(hit, queryCount * stepMilli(hit), null);
+                setQuery("");
+                return;
               }
-              setQuery("");
+              if (recipeMatches.length === 1) {
+                e.preventDefault();
+                openMix(recipeMatches[0]);
+              }
             }}
             // 44px is a thumb on a phone and wasted height on a laptop with a
             // keyboard. The counter's 13" screen is the one with none to spare.
@@ -2330,26 +2364,60 @@ export default function SellClient({
       {q ? (
         <>
           <SectionLabel>
-            {matches.length} match{matches.length === 1 ? "" : "es"}
+            {totalMatches} match{totalMatches === 1 ? "" : "es"}
             {queryCount > 1 ? ` · tapping adds ${queryCount}` : ""}
           </SectionLabel>
-          <Grid
-            items={matches}
-            /*
-              A count typed into the search box — "20 ungerol" — is the counter
-              already saying how much, so it is honoured and the size sheet
-              stays out of the way. A bare tap has said nothing about quantity,
-              so it asks, exactly as a tap on the board does.
-            */
-            onAdd={(item) =>
-              queryCount > 1
-                ? addQuantity(item, queryCount * stepMilli(item), null)
-                : addItem(item)
-            }
-            onRemove={removeItem}
-            cart={cart}
-            searching
-          />
+
+          {/*
+            Products first, then chemicals — the order the boards are in, so a
+            search does not rearrange the shop.
+
+            The two get their own headings only when BOTH matched. One kind of
+            result needs no heading to tell it apart from the other kind, and a
+            search for a chemical is the common case: it would carry a label
+            saying "Chemicals" above the only thing on screen, every time.
+          */}
+          {recipeMatches.length ? (
+            <>
+              {matches.length ? <SectionLabel>Products — mixed to order</SectionLabel> : null}
+              <RecipeGrid
+                recipes={recipeMatches}
+                onOpen={openMix}
+                openVersionId={mixOpen ? mixVersion : null}
+              />
+            </>
+          ) : null}
+
+          {matches.length ? (
+            <>
+              {recipeMatches.length ? <SectionLabel>Chemicals — on the shelf</SectionLabel> : null}
+              <Grid
+                items={matches}
+                /*
+                  A count typed into the search box — "20 ungerol" — is the
+                  counter already saying how much, so it is honoured and the
+                  size sheet stays out of the way. A bare tap has said nothing
+                  about quantity, so it asks, exactly as a tap on the board does.
+                */
+                onAdd={(item) =>
+                  queryCount > 1
+                    ? addQuantity(item, queryCount * stepMilli(item), null)
+                    : addItem(item)
+                }
+                onRemove={removeItem}
+                cart={cart}
+                searching
+              />
+            </>
+          ) : null}
+
+          {/* Neither board matched. Said once, rather than by each empty grid
+              in turn — "Nothing here" twice reads as two failures. */}
+          {totalMatches === 0 ? (
+            <p className="py-6 text-center text-sm text-muted">
+              Nothing matches “{q}”.
+            </p>
+          ) : null}
         </>
       ) : (
         <>

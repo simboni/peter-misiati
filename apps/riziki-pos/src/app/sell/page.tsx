@@ -316,6 +316,30 @@ export default async function SellPage() {
    * a product now.
    */
   const recipeBundles = bundlesByFormula();
+
+  /*
+    What each recipe can be found by.
+
+    The counter's search runs on the phone, over data already sent, so that a
+    till on a dying connection still finds things. That means the text to match
+    on has to travel with the recipe — and it has to be the same text the item
+    search uses, or "sles" would find the chemical and miss the three products
+    made out of it.
+
+    So: the recipe's own name, plus every ingredient's name and the aliases the
+    shop knows it by. One query for the whole board, keyed by version, because
+    a recipe's ingredients belong to its current version and not to the recipe.
+  */
+  const recipeSearch = new Map(
+    all<{ version_id: number; text: string }>(
+      `SELECT fi.formula_version_id AS version_id,
+              LOWER(GROUP_CONCAT(c.name || ' ' || COALESCE(c.aliases, ''), ' ')) AS text
+         FROM formula_items fi
+         JOIN chemicals c ON c.id = fi.chemical_id
+        GROUP BY fi.formula_version_id`,
+    ).map((r) => [r.version_id, r.text ?? ""]),
+  );
+
   const recipes: RecipeChoice[] = listFormulas()
     .filter((f) => f.ingredient_count > 0)
     /*
@@ -336,6 +360,7 @@ export default async function SellPage() {
       refSizeMilli: f.ref_size_milli,
       refUnit: f.ref_unit,
       ingredientCount: f.ingredient_count,
+      search: `${f.name} ${recipeSearch.get(f.version_id) ?? ""}`.toLowerCase(),
       bundles: (recipeBundles.get(f.id) ?? []).map((b) => ({
         id: b.id,
         sizeMilli: b.sizeMilli,
