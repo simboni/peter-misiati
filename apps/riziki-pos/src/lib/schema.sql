@@ -240,7 +240,8 @@ CREATE TABLE IF NOT EXISTS formulas (
   output_item_id INTEGER REFERENCES items(id),
   active   INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1))
 );
-CREATE INDEX IF NOT EXISTS idx_formulas_output ON formulas(output_item_id);
+-- The index on output_item_id lives in db.ts, not here: this file runs BEFORE
+-- the column is added to a database that already exists. See ADDED_INDEXES.
 
 -- Immutable once batches reference it. Editing a recipe inserts a new version.
 CREATE TABLE IF NOT EXISTS formula_versions (
@@ -296,7 +297,7 @@ CREATE TABLE IF NOT EXISTS batches (
   status             TEXT    NOT NULL DEFAULT 'completed' CHECK (status IN ('completed', 'voided')),
   user_id            INTEGER REFERENCES users(id)
 );
-CREATE INDEX IF NOT EXISTS idx_batches_output ON batches(output_item_id);
+-- Index on output_item_id: see ADDED_INDEXES in db.ts, for the reason above.
 
 -- What went in. The chemical says WHAT, the item says WHICH ROW it came off —
 -- a recipe names a substance, but stock only ever moves against an item.
@@ -309,7 +310,7 @@ CREATE TABLE IF NOT EXISTS batch_lines (
   cost_cents  INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_batch_lines_batch ON batch_lines(batch_id);
-CREATE INDEX IF NOT EXISTS idx_batch_lines_item ON batch_lines(item_id);
+-- Index on item_id: see ADDED_INDEXES in db.ts, for the reason above.
 
 -- Breaking a drum/bag into smaller packs. kg in must equal kg out; the
 -- difference is recorded as loss rather than silently disappearing.

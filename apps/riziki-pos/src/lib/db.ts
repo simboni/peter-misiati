@@ -195,6 +195,27 @@ const ADDED_COLUMNS: Array<{ table: string; column: string; definition: string }
   { table: "batch_lines", column: "item_id", definition: "INTEGER" },
 ];
 
+/**
+ * Indexes on columns that ADDED_COLUMNS creates.
+ *
+ * These cannot live in schema.sql, and the reason cost the shop an outage.
+ * schema.sql is exec'd IN FULL on every open, before this function runs. On a
+ * new file that is fine — the CREATE TABLE above the index carries the column.
+ * On the file the shop has been trading on, the table already exists without
+ * it, `CREATE TABLE IF NOT EXISTS` does nothing, and the CREATE INDEX below it
+ * is then asked to index a column that will not exist for another few
+ * milliseconds. SQLite refuses, the whole exec throws, and every screen in the
+ * app answers 500 — while a developer's fresh copy works perfectly.
+ *
+ * So: if a new column is worth an index, the index belongs here, after the
+ * ALTER TABLE that makes the column real.
+ */
+const ADDED_INDEXES = [
+  { name: "idx_formulas_output", sql: "CREATE INDEX IF NOT EXISTS idx_formulas_output ON formulas(output_item_id)", table: "formulas", column: "output_item_id" },
+  { name: "idx_batches_output", sql: "CREATE INDEX IF NOT EXISTS idx_batches_output ON batches(output_item_id)", table: "batches", column: "output_item_id" },
+  { name: "idx_batch_lines_item", sql: "CREATE INDEX IF NOT EXISTS idx_batch_lines_item ON batch_lines(item_id)", table: "batch_lines", column: "item_id" },
+];
+
 function migrate(conn: DatabaseSync): void {
   const columnsOf = (table: string) =>
     (conn.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map((c) => c.name);
@@ -213,6 +234,20 @@ function migrate(conn: DatabaseSync): void {
     if (!columns.length) continue;
     if (columns.includes(column)) continue;
     conn.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+
+  /*
+    Indexes on the columns just added.
+
+    After the loop above, never before it, and each one still checks that its
+    column actually arrived — a table this migration has not created yet is
+    schema.sql's to build on the next open.
+  */
+  for (const { sql, table, column } of ADDED_INDEXES) {
+    const columns = columnsOf(table);
+    if (!columns.length) continue;
+    if (!columns.includes(column)) continue;
+    conn.exec(sql);
   }
 
   for (const { table, column } of DROPPED_COLUMNS) {
