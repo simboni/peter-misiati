@@ -137,7 +137,8 @@ console.log(`Carried across: ${carried.users.length} account(s), ${carried.setti
 // Prove it is actually empty rather than assuming it, and fail loudly if not:
 // a reset that quietly left data behind is the whole problem being solved.
 const TABLES = ["chemicals", "items", "formulas", "formula_versions", "formula_items",
-  "bundles", "stock_movements", "sales", "sale_lines", "payments", "batches",
+  "bundles", "stock_movements", "pack_moves", "sales", "sale_lines", "payments",
+  "batches", "batch_lines",
   "customers", "suppliers", "expenses", "purchases", "purchase_lines",
   "day_closes", "quotes", "quote_lines", "price_changes"];
 const leftover = [];
