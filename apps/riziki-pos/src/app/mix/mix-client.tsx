@@ -590,6 +590,24 @@ function BatchBoard({ row }: { row: MixableRow }) {
               ))}
             </div>
 
+            {/*
+              Said where the mistake is made, not where the fix lives.
+
+              A batch fills jerricans only for a product whose jerricans are
+              being counted, and the switch for that sits in the card BELOW this
+              one — so the natural order is to mix first and find it afterwards,
+              and the batch that went before it filled nothing at all. New
+              recipes switch it on the moment they are told what they make; this
+              is for the ones set up before that.
+            */}
+            {!row.outputPacked ? (
+              <p className="mt-2 text-xs text-warn">
+                These jerricans will not be counted on the shelf yet. Turn on{" "}
+                <span className="font-semibold">Count the jerricans</span> below first, or this
+                batch will land as {row.outputUnit} only.
+              </p>
+            ) : null}
+
             {/* The odd batch, and the remainder a set of jerricans leaves over. */}
             <div className="mt-2 flex items-center gap-2.5">
               <input

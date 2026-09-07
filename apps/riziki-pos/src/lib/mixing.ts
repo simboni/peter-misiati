@@ -44,7 +44,8 @@
 
 import { all, get, run, tx, audit, postMovement, stockOf, type Item } from "./db.ts";
 
-import { packState } from "./packing.ts";
+import { packState, setPacked } from "./packing.ts";
+import { itemBundles } from "./bundles.ts";
 import { MILLI, formatQty } from "./units.ts";
 import { currentVersion, scaleFormula, versionById, formulaById } from "./production.ts";
 
@@ -103,6 +104,36 @@ export function setFormulaOutput(
 
   run(`UPDATE formulas SET output_item_id = ? WHERE id = ?`, itemId, formulaId);
   audit(userId, "formula_output_set", "formula", formulaId, `${formula.name} makes ${item.name}`);
+
+  /*
+    A thing this shop mixes in advance IS poured into containers. Count them.
+
+    The switch existed because a bought-in chemical must not be held to a
+    jerrican count — Ungerol is sold by the 20 kg and weighed out of the drum
+    every time, and asking how many 20 kg jerricans are standing filled would
+    refuse a sale the shop makes daily. That argument does not apply here: the
+    output of a recipe mixed in advance is, by definition, mixed by this shop
+    and poured by this shop.
+
+    Leaving it off made an ordering trap out of a screen. The switch sat below
+    the batch card, so the owner mixed first and found it afterwards — and a
+    batch mixed before it was on filled nothing, silently, because there were no
+    counted jerricans to fill. Perfume was set up that way and the containers
+    stayed empty.
+
+    Only when there are sizes to count: a product with none has nothing this
+    could mean, and `setPacked` says so rather than guessing. Switching it back
+    off stays the owner's to do, and survives this — it is only turned ON here,
+    on the act of saying what the recipe makes.
+  */
+  if (itemBundles(itemId).length) {
+    try {
+      setPacked(itemId, true, userId);
+    } catch {
+      // Refused only when the sizes went away between the two calls. The recipe
+      // is still correctly pointed at its product, which is what was asked for.
+    }
+  }
 }
 
 // -------------------------------------------------------------------- planning

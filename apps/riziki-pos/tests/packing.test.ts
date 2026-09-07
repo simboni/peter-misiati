@@ -464,3 +464,99 @@ test("it refuses to open jerricans that are not standing there", () => {
     (e: Error) => e instanceof PackError && /cannot open/.test(e.message),
   );
 });
+
+test("saying a recipe is mixed in advance starts counting its jerricans", async () => {
+  const { createFormula } = await import("../src/lib/production.ts");
+  const { setFormulaOutput } = await import("../src/lib/mixing.ts");
+
+  const perfumeId = createProduct({
+    name: "Perfume (diluted)",
+    unit: "L",
+    containerValue: 5,
+    containerLabel: "jerrican",
+    price: 900,
+    floor: 0,
+    ceiling: 0,
+    aliases: "",
+    byUserId: OWNER,
+  });
+  saveBundles({ itemId: perfumeId }, [
+    { sizeMilli: 5_000, priceCents: 450_000, floorCents: 0 },
+    { sizeMilli: 1_000, priceCents: 95_000, floorCents: 0 },
+  ]);
+
+  const conc = createProduct({
+    name: "Perfume concentrate",
+    unit: "L",
+    containerValue: 5,
+    containerLabel: "jerrican",
+    price: 4000,
+    floor: 0,
+    ceiling: 0,
+    aliases: "",
+    byUserId: OWNER,
+  });
+  const chem = get<{ chemical_id: number }>(`SELECT chemical_id FROM items WHERE id = ?`, conc)!;
+  run(
+    `INSERT INTO stock_movements (item_id, delta_milli, reason, user_id)
+     VALUES (?, 20000, 'purchase', ?)`,
+    conc,
+    OWNER,
+  );
+
+  const { formulaId } = createFormula({
+    name: "Perfume — diluted",
+    refSizeMilli: 5_000,
+    refUnit: "L",
+    steps: "",
+    note: "",
+    items: [{ chemicalId: chem.chemical_id, qtyMilli: 1_000 }],
+    userId: OWNER,
+  });
+
+  assert.equal(packState(perfumeId).packed, false, "off until the recipe says what it makes");
+
+  setFormulaOutput(formulaId, perfumeId, OWNER);
+
+  assert.equal(
+    packState(perfumeId).packed,
+    true,
+    "a thing mixed in advance is poured into containers — count them without being asked",
+  );
+});
+
+test("a product with no sizes is left alone, rather than guessed at", async () => {
+  const { createFormula } = await import("../src/lib/production.ts");
+  const { setFormulaOutput } = await import("../src/lib/mixing.ts");
+
+  const looseId = createProduct({
+    name: "Bleach (sold by weight only)",
+    unit: "kg",
+    containerValue: 20,
+    containerLabel: "drum",
+    price: 100,
+    floor: 0,
+    ceiling: 0,
+    aliases: "",
+    byUserId: OWNER,
+  });
+  const conc = get<{ chemical_id: number }>(
+    `SELECT chemical_id FROM items WHERE name = 'Hypochlorite mild'`,
+  )!;
+  const { formulaId } = createFormula({
+    name: "Bleach — weak",
+    refSizeMilli: 10_000,
+    refUnit: "kg",
+    steps: "",
+    note: "",
+    items: [{ chemicalId: conc.chemical_id, qtyMilli: 5_000 }],
+    userId: OWNER,
+  });
+
+  setFormulaOutput(formulaId, looseId, OWNER);
+  assert.equal(
+    packState(looseId).packed,
+    false,
+    "nothing to count, so nothing is switched on behind the owner's back",
+  );
+});
