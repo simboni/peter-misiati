@@ -142,7 +142,12 @@ function explain(err: unknown): string {
     return "Could not reach the printer. Check it is switched on, has paper, and is within a few metres.";
   }
   if (name === "NotSupportedError") {
-    return "This printer did not offer a channel we can print on. Pair it again and choose the printer itself, not a phone or a watch.";
+    return (
+      "That entry paired but offers nothing to print on. Most of these printers " +
+      "show up twice on a phone — the same machine, listed once for its old " +
+      "Bluetooth and once for the kind a browser can use. Tap Print again and " +
+      "choose the other one."
+    );
   }
   if (name === "InvalidStateError") {
     return "The printer dropped the connection. Switch it off and on, then try again.";
@@ -380,10 +385,24 @@ export async function rebind(): Promise<boolean> {
   }
 }
 
+/**
+ * Hold a device, but do not yet trust it.
+ *
+ * Deliberately does NOT remember it. Cheap ESC/POS printers are dual-mode — they
+ * run Bluetooth Classic for their own driver AND Low Energy for everything else
+ * — and on Android that can put two entries in the chooser for one printer on
+ * the counter. Only one of them offers a GATT characteristic to write on; the
+ * other pairs happily and then has nothing to print to.
+ *
+ * Remembering on the tap meant a shop that picked the wrong twin once was stuck
+ * with it: the handle now outlives the page, so the bad choice would be
+ * reconnected all day and every automatic receipt would fail against it in
+ * silence. A printer is remembered in `connect`, after it has actually offered a
+ * channel — which is the first moment there is anything worth remembering.
+ */
 function adopt(d: BtDevice): void {
   device = d;
-  name = d.name ?? readRemembered()?.name ?? "printer";
-  writeRemembered(d);
+  name = d.name ?? "printer";
   /*
     A BLE printer switched off, carried out of range, or simply asleep fires
     this. Dropping the characteristic — but KEEPING the device — is what lets
@@ -445,6 +464,8 @@ export async function connect(): Promise<{ write: BtCharacteristic; notify?: BtC
       "Connected, but the printer never offered a channel to print on. Switch it off and on, then try again.",
     );
     chars = found;
+    // It printed, or at least it can. Only now is it worth coming back to.
+    writeRemembered(device);
     status = "ready";
     publish();
     return found;
@@ -454,6 +475,16 @@ export async function connect(): Promise<{ write: BtCharacteristic; notify?: BtC
     return await opening;
   } catch (err) {
     chars = null;
+    /*
+      A device that pairs and offers nothing to write on is the wrong half of a
+      dual-mode printer, and no amount of retrying will change that. Let it go,
+      so the next tap opens the chooser on the other entry instead of
+      reconnecting to the dud for the rest of the day.
+    */
+    if ((err as { name?: string })?.name === "NotSupportedError") {
+      device = null;
+      name = "";
+    }
     status = "idle";
     publish();
     throw err;
