@@ -529,6 +529,21 @@ function priceLabel(item: SellItem, cents: number): string {
 function stockLabel(item: SellItem): string {
   if (item.qtyMilli <= 0) return "none left";
 
+  /*
+    A thing poured into jerricans is counted in jerricans.
+
+    "495 kg · 21.52 drums" is arithmetic on a container this shop does not have:
+    the drum is what the concentrate arrived in, not what the mild stands in.
+    What the counter needs is what is on the shelf to hand over.
+  */
+  const poured = item.bundles.filter((b) => b.filled !== null && b.filled > 0);
+  if (poured.length) {
+    return poured
+      .map((b) => `${b.filled} × ${formatQty(b.sizeMilli, item.unit)}`)
+      .join(" · ");
+  }
+  if (item.bundles.some((b) => b.filled !== null)) return "none poured yet";
+
   const containers = formatUnits(item.qtyMilli, item.sizeMilli, item.unitLabel);
   if (item.unit === "pcs" || item.sizeMilli <= 0) return containers;
 
@@ -3543,6 +3558,16 @@ function SizePicker({
     number already on the tile. For anything sold whole it is one of whatever
     the container is called.
   */
+  /*
+    Sold only as jerricans: counted in containers, and it has some.
+
+    Both halves matter. Without the flag every bundled chemical would lose its
+    per-kilogramme chip, and Ungerol is sold by the 20 kg AND by weight. Without
+    the sizes, a product switched on before anything was poured would have no
+    way to be sold at all.
+  */
+  const soldInContainers = item.bundles.some((b) => b.filled !== null);
+
   const baseSize = weighed ? formatQty(step, item.unit) : `1 ${item.unitLabel}`;
   const baseInCart = weighed
     ? looseLine
@@ -3584,9 +3609,20 @@ function SizePicker({
       </div>
     }>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-        {/* The basic unit, first and always — this is the tile's old behaviour,
-            kept where the hand already expects it. */}
-        {list > 0 ? (
+        {/*
+          The basic unit — unless this is a thing sold only in the containers it
+          was poured into.
+
+          A shop that mixes 23 kg and pours it does not sell 2 kg of it: there
+          is no scoop and no scale at that counter, only jerricans standing on a
+          shelf. Offering a per-kilogramme chip there is offering something the
+          shop does not do, and it is the chip nearest the thumb.
+
+          Everything else keeps it exactly as it was: a weighed chemical is
+          weighed, and this only ever disappears for the products the owner has
+          said are poured in advance.
+        */}
+        {list > 0 && !soldInContainers ? (
           <SizeChip
             size={baseSize}
             price={formatKes(list)}

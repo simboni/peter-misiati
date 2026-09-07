@@ -279,6 +279,16 @@ function BatchBoard({ row }: { row: MixableRow }) {
 
   const nOf = (bundleId: number) => Math.max(0, Math.floor(Number(counts[bundleId]) || 0));
 
+  /**
+   * How many more of a size the chemicals in the store could still fill.
+   *
+   * `possibleMilli` is the largest batch the recipe's ingredients could carry
+   * right now; what is already counted on this form is spoken for, so the room
+   * left is the difference. Floored, because half a jerrican is not a jerrican.
+   */
+  const roomFor = (sizeMilli: number) =>
+    sizeMilli > 0 ? Math.max(0, Math.floor((row.possibleMilli - targetMilli) / sizeMilli)) : 0;
+
   /** What the counted jerricans and the loose remainder come to, in thousandths. */
   const targetMilli = useMemo(() => {
     let total = toMilli(loose);
@@ -540,6 +550,26 @@ function BatchBoard({ row }: { row: MixableRow }) {
                   noun="this batch"
                   size={formatQty(b.sizeMilli, row.outputUnit)}
                   price={formatKes(b.priceCents)}
+                  /*
+                    How many MORE of this size the store could still fill.
+
+                    The question the owner actually has at the drum is not "how
+                    much am I making" but "how many jerricans is there enough
+                    concentrate for" — and it changes with every tap, because
+                    two 23s already counted are two 23s of concentrate spoken
+                    for. So it counts down as the chips are tapped, and the chip
+                    goes dead when the drum cannot fill another.
+                  */
+                  per={
+                    roomFor(b.sizeMilli) <= 0
+                      ? targetMilli > 0
+                        ? "no more from the drum"
+                        : "not enough to mix one"
+                      : targetMilli > 0
+                        ? `${roomFor(b.sizeMilli)} more`
+                        : `enough for ${roomFor(b.sizeMilli)}`
+                  }
+                  disabled={roomFor(b.sizeMilli) <= 0}
                   /*
                     No rate on the chip. At the counter each size can be priced
                     at its own rate, so the third line earns its place; here they
