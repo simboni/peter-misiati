@@ -30,7 +30,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { Alert, Button, Field, inputClass } from "@/components/ui";
+import { Alert, Button, Chip, Field, inputClass } from "@/components/ui";
 import { receiptBytes, receiptText, testReceipt, type PaperWidth, type Receipt } from "@/lib/escpos";
 import * as link from "@/lib/printer-link";
 
@@ -239,6 +239,159 @@ export function ThermalPrint({
       ) : null}
     </div>
   );
+}
+
+// -------------------------------------------------------- pairing a printer
+
+/**
+ * The printer itself: which one, is it there, and how to change it.
+ *
+ * This existed nowhere. Pairing happened as a side effect of tapping Print, and
+ * the only way to change printers was a button that appeared AFTER a failure —
+ * so a shop that had paired the wrong one, or bought a new one, had to make the
+ * app fail before it would offer them the choice. On a screen called "Receipt
+ * printer" that is the one control that has to be plainly there.
+ *
+ * Three plain acts: pair one, print a test slip, forget it. Nothing is hidden
+ * behind an error and nothing needs a working printer to reach.
+ */
+export function PrinterPicker({ paper, header, footer }: PrinterFieldsView) {
+  const printer = useSyncExternalStore(link.subscribe, link.getSnapshot, link.getServerSnapshot);
+  const [support, setSupport] = useState<link.Support | "ok">("ok");
+  const [checking, setChecking] = useState(true);
+  const [error, setError] = useState("");
+  const [ok, setOk] = useState("");
+  const [showAll, setShowAll] = useState(false);
+  const [working, setWorking] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      const verdict = await link.available();
+      if (!live) return;
+      setSupport(verdict);
+      setChecking(false);
+      if (verdict === "ok") void link.rebind();
+    })();
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  const pair = async () => {
+    setError("");
+    setOk("");
+    setWorking(true);
+    try {
+      await link.choose(showAll);
+      // Prove it before saying it works: a device that pairs and offers nothing
+      // to print on is the wrong half of a dual-mode printer, and the only way
+      // to find out is to ask it for a channel.
+      await link.send(receiptBytes(testReceipt(header, footer), { paper }));
+      setOk(`Paired with ${link.printerName()}. A test slip should be coming out of it.`);
+    } catch (err) {
+      setError(link.explain(err));
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const test = async () => {
+    setError("");
+    setOk("");
+    setWorking(true);
+    try {
+      await link.send(receiptBytes(testReceipt(header, footer), { paper }));
+      setOk("Test slip sent.");
+    } catch (err) {
+      setError(link.explain(err));
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const blocked = support !== "ok" && !checking;
+
+  return (
+    <div className="space-y-3 rounded-3xl bg-white p-4 shadow-card ring-1 ring-ink/5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
+            The printer
+          </div>
+          <div className="mt-0.5 truncate text-base font-bold">
+            {printer.name || "None paired yet"}
+          </div>
+          <p className="mt-0.5 text-xs text-muted">
+            {!printer.name
+              ? "Switch the printer on, then pair it. It only has to be done once on this phone."
+              : printer.live
+                ? "Connected. Receipts print on their own."
+                : "Paired. It will connect itself on the next receipt."}
+          </p>
+        </div>
+        {printer.name ? (
+          <Chip tone={printer.live ? "good" : "neutral"}>
+            {printer.live ? "Connected" : "Not connected"}
+          </Chip>
+        ) : null}
+      </div>
+
+      {blocked ? (
+        <Alert tone="warn">
+          {link.SUPPORT_MESSAGE[support as Exclude<link.Support, "checking" | "ok">]}
+        </Alert>
+      ) : null}
+      {error ? <Alert tone="bad">{error}</Alert> : null}
+      {ok && !error ? <Alert tone="good">{ok}</Alert> : null}
+
+      <div className="flex flex-wrap gap-2">
+        <Button onClick={() => void pair()} disabled={working || blocked}>
+          {working ? "Working…" : printer.name ? "Pair a different printer" : "Pair a printer"}
+        </Button>
+        {printer.name ? (
+          <>
+            <Button variant="ghost" onClick={() => void test()} disabled={working || blocked}>
+              Print a test slip
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                link.forget();
+                setError("");
+                setOk("Forgotten. Pair a printer when you are ready.");
+              }}
+              disabled={working}
+            >
+              Forget it
+            </Button>
+          </>
+        ) : null}
+      </div>
+
+      {/*
+        The way out for a printer that advertises something exotic. Off by
+        default because "every Bluetooth device" is a list of watches, phones and
+        earbuds, and picking a watch out of it is how the counter ends up paired
+        to something that will never print.
+      */}
+      <label className="flex items-center gap-2.5 text-xs text-muted">
+        <input
+          type="checkbox"
+          checked={showAll}
+          onChange={(e) => setShowAll(e.target.checked)}
+          className="h-4 w-4"
+        />
+        Show every Bluetooth device, not just printers — try this only if yours never appears.
+      </label>
+    </div>
+  );
+}
+
+export interface PrinterFieldsView {
+  paper: PaperWidth;
+  header: string[];
+  footer: string;
 }
 
 // ------------------------------------------------------- settings screen

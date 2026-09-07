@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { currentUser, requireUser } from "@/lib/auth";
 import { getPrintSettings, savePrintSettings } from "@/lib/print-settings";
 import { PageTitle, SectionLabel } from "@/components/ui";
-import { PrinterSettingsForm, type PrinterFormState } from "@/components/thermal-print";
+import { PrinterSettingsForm, PrinterPicker, type PrinterFormState } from "@/components/thermal-print";
 
 export const dynamic = "force-dynamic";
 
@@ -58,7 +58,18 @@ export default async function PrinterSettingsPage() {
         subtitle="The Bluetooth till printer at the counter. Paper receipts (A5) are unaffected."
       />
 
-      <PrinterSettingsForm settings={settings} action={savePrinterSettingsAction} />
+      {/*
+        The printer itself first, the paper it prints on second.
+
+        Pairing used to happen only as a side effect of tapping Print at the
+        counter, and changing printers was offered only after a failure — so the
+        one screen named after the printer had no way to name one.
+      */}
+      <PrinterPicker paper={settings.paper} header={settings.header} footer={settings.footer} />
+
+      <div className="mt-4">
+        <PrinterSettingsForm settings={settings} action={savePrinterSettingsAction} />
+      </div>
 
       <SectionLabel>If it will not print</SectionLabel>
       <ul className="space-y-2 rounded-2xl border border-line bg-white p-4 text-sm text-muted">
