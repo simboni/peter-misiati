@@ -1504,7 +1504,15 @@ export default function SellClient({
             It will send itself as soon as the connection is back. Nothing is lost.
           </Alert>
           <div className="flex gap-2">
-            <ThermalPrint receipt={local} paper={printer.paper} auto={false} />
+            {/*
+              A queued sale prints itself too, when the shop has asked for that.
+
+              It used to be pinned to `auto={false}`, so the one receipt the
+              customer is standing there waiting for — the offline one, where
+              there is no invoice page to land on afterwards — was the only
+              receipt the setting did not reach.
+            */}
+            <ThermalPrint receipt={local} paper={printer.paper} auto={printer.autoPrint} />
             <PdfShareButton
               source={{ bytes: receiptToPdf(local) }}
               fileName="pending-sale.pdf"

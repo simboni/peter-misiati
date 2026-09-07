@@ -105,7 +105,16 @@ export function defaultPrintSettings(): PrintSettings {
       .map((l) => l.trim())
       .filter(Boolean),
     footer: "Asante sana for your business.",
-    autoPrint: false,
+    /*
+      On unless the shop turns it off.
+
+      A shop that has bought a thermal printer and paired it wants the receipt;
+      making them tick a box they never found means every sale ends in a tap
+      that did not need to exist. It costs nothing when there is no printer —
+      an automatic print never opens the chooser, so a counter with no printer
+      paired simply never fires one.
+    */
+    autoPrint: true,
   };
 }
 
@@ -129,7 +138,9 @@ export function getPrintSettings(): PrintSettings {
     paper: isPaperWidth(paperRaw) ? paperRaw : fallback.paper,
     header: headerRaw === undefined ? fallback.header : headerLines(headerRaw),
     footer: footerRaw === undefined ? fallback.footer : footerRaw.trim(),
-    autoPrint: getSetting(KEY.auto) === "1",
+    // Unset means "never chosen", which takes the default above rather than
+    // reading as a deliberate no.
+    autoPrint: getSetting(KEY.auto) === undefined ? fallback.autoPrint : getSetting(KEY.auto) === "1",
   };
 }
 
