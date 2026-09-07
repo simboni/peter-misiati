@@ -43,6 +43,8 @@ import Link from "next/link";
 import { Alert, Button, Card, Field, Empty, inputClass, inputClassBase } from "@/components/ui";
 import { SizeChip } from "@/components/size-chip";
 import { FillPanel } from "@/components/fill-panel";
+import { DividePanel } from "@/components/divide-panel";
+import { setPackedAction } from "@/app/items/pack-actions";
 import { formatQty, formatKes } from "@/lib/units";
 import type { MixableRow, MixPlan } from "@/lib/mixing";
 import { planMixAction, recordMixAction, type MixState } from "./actions";
@@ -123,7 +125,120 @@ export function MixClient({
         result banner all belong to the recipe they were typed against.
       */}
       <BatchBoard key={row.formulaId} row={row} />
+
+      {/*
+        The second half of the shop's act, and it belongs on this screen.
+
+        Mixing makes 23 kg jerricans; dividing turns one of them into 5 kg and
+        1 kg ones. They are the same errand on the same afternoon with the same
+        drum in front of you, and putting the second on another screen — under
+        Products & prices, of all places — is why it went unfound.
+      */}
+      <Shelf key={`shelf-${row.formulaId}`} row={row} />
     </div>
+  );
+}
+
+/**
+ * What is standing in the yard, and breaking it down further.
+ *
+ * Only for a product the owner counts in containers — and the switch for that
+ * is here too, because "I want to count jerricans" is a thought you have while
+ * looking at jerricans, not while editing a price list.
+ */
+function Shelf({ row }: { row: MixableRow }) {
+  const sizes = row.outputBundles.map((b) => ({
+    bundleId: b.id,
+    sizeMilli: b.sizeMilli,
+    filled: b.filled,
+  }));
+  const packedMilli = sizes.reduce((n, z) => n + z.filled * z.sizeMilli, 0);
+  const looseMilli = row.outputOnHandMilli - packedMilli;
+
+  if (!row.outputBundles.length) return null;
+
+  if (!row.outputPacked) {
+    return (
+      <Card>
+        <form action={setPackedAction} className="flex flex-wrap items-center gap-3">
+          <input type="hidden" name="itemId" value={row.outputItemId} />
+          <input type="hidden" name="packed" value="1" />
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-bold">Count the jerricans</div>
+            <p className="mt-0.5 text-xs text-muted">
+              Turn this on and the shelf says how many of each size are standing filled — and you
+              can break a {formatQty(row.outputBundles[0].sizeMilli, row.outputUnit)} down into
+              smaller ones here.
+            </p>
+          </div>
+          <Button type="submit" variant="ghost">
+            Count them
+          </Button>
+        </form>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="space-y-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
+          Standing in the yard
+        </span>
+        <span className="text-sm font-bold tnum">
+          {formatQty(row.outputOnHandMilli, row.outputUnit)} in all
+        </span>
+      </div>
+
+      {/* What is there, before anything is done to it. */}
+      <div className="flex flex-wrap gap-1.5">
+        {sizes
+          .filter((z) => z.filled > 0)
+          .map((z) => (
+            <span
+              key={z.bundleId}
+              className="rounded-full bg-brand-soft px-2.5 py-1 text-[13px] font-bold text-brand-deep tnum ring-1 ring-inset ring-brand/25"
+            >
+              {z.filled} × {formatQty(z.sizeMilli, row.outputUnit)}
+            </span>
+          ))}
+        {looseMilli > 0 ? (
+          <span className="rounded-full bg-wash px-2.5 py-1 text-[13px] font-semibold text-muted tnum ring-1 ring-inset ring-line">
+            {formatQty(looseMilli, row.outputUnit)} loose
+          </span>
+        ) : null}
+        {!sizes.some((z) => z.filled > 0) && looseMilli <= 0 ? (
+          <span className="text-sm text-muted">Nothing poured yet.</span>
+        ) : null}
+      </div>
+
+      <div className="border-t border-line pt-3">
+        <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
+          Break one down into smaller ones
+        </div>
+        <DividePanel itemId={row.outputItemId} unit={row.outputUnit} sizes={sizes} />
+      </div>
+
+      {/*
+        The way to correct a count that drifted — a jerrican that leaked, or one
+        somebody filled without saying. Folded, because it is the rarer act and
+        the common one is above it.
+      */}
+      <details className="border-t border-line pt-2">
+        <summary className="flex min-h-11 cursor-pointer list-none items-center text-sm font-bold text-brand xl:min-h-9">
+          Correct the count by hand
+        </summary>
+        <div className="mt-1">
+          <FillPanel
+            itemId={row.outputItemId}
+            itemName={row.outputName}
+            unit={row.outputUnit}
+            stockMilli={row.outputOnHandMilli}
+            sizes={sizes}
+          />
+        </div>
+      </details>
+    </Card>
   );
 }
 
@@ -360,32 +475,6 @@ function BatchBoard({ row }: { row: MixableRow }) {
         <div className="space-y-2.5">
           <Alert tone="good">{recorded}</Alert>
 
-          {/*
-            Mixing is half the errand.
-
-            46 kg is on the shelf and the next thing that happens in the yard is
-            somebody pouring it into jerricans. Sending them to another screen to
-            find the same product again is where a continuous act becomes two
-            chores and the second one gets forgotten — and a forgotten pour is a
-            counter that will not sell a jerrican that is standing right there.
-          */}
-          {row.outputPacked ? (
-            <div className="rounded-xl border border-line bg-wash/60 p-3">
-              <FillPanel
-                itemId={row.outputItemId}
-                itemName={row.outputName}
-                unit={row.outputUnit}
-                stockMilli={row.outputOnHandMilli}
-                sizes={row.outputBundles.map((b) => ({
-                  bundleId: b.id,
-                  sizeMilli: b.sizeMilli,
-                  filled: b.filled,
-                }))}
-                title="Now pour it — how many of each are standing filled?"
-              />
-            </div>
-          ) : null}
-
           <Button className="w-full !min-h-14 text-base" onClick={next}>
             Mix another batch
           </Button>
@@ -401,6 +490,21 @@ function BatchBoard({ row }: { row: MixableRow }) {
           must not quietly drop what was typed into it.
         */}
         <input type="hidden" name="made" value={fromMilli(madeMilli)} />
+        {/*
+          And the jerricans, so the batch fills them.
+
+          "Two 23 kg" is how the batch was counted and it is also what is now
+          standing in the yard; making the owner say it a second time on another
+          screen is the step that gets skipped, and a shelf one skipped step
+          behind is worse than no count at all.
+        */}
+        {row.outputPacked
+          ? row.outputBundles
+              .filter((b) => nOf(b.id) > 0)
+              .map((b) => (
+                <input key={b.id} type="hidden" name={`filled:${b.id}`} value={nOf(b.id)} />
+              ))
+          : null}
 
         {/*
           ZONE 2 — the sizes, as squares. The only real input on the screen.

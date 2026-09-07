@@ -312,3 +312,155 @@ test("a product that is NOT packed sells exactly as it always did", () => {
     "and nothing was written to a tally it does not keep",
   );
 });
+
+// ------------------------------------------------------- dividing a jerrican
+
+const { divide } = await import("../src/lib/packing.ts");
+
+test("a batch counted in jerricans fills those jerricans", async () => {
+  // The whole point: saying "two 23s" to the mixing board must not have to be
+  // said again to the shelf.
+  const { createFormula, currentVersion } = await import("../src/lib/production.ts");
+  const { setFormulaOutput, recordMix } = await import("../src/lib/mixing.ts");
+
+  const concId = createProduct({
+    name: "Hypochlorite strong",
+    unit: "kg",
+    containerValue: 24,
+    containerLabel: "drum",
+    price: 300,
+    floor: 0,
+    ceiling: 0,
+    aliases: "",
+    byUserId: OWNER,
+  });
+  const conc = get<{ chemical_id: number }>(`SELECT chemical_id FROM items WHERE id = ?`, concId)!;
+  run(
+    `INSERT INTO stock_movements (item_id, delta_milli, reason, user_id)
+     VALUES (?, 240000, 'purchase', ?)`,
+    concId,
+    OWNER,
+  );
+
+  const { formulaId } = createFormula({
+    name: "Strong to mild",
+    refSizeMilli: 23_000,
+    refUnit: "kg",
+    steps: "",
+    note: "",
+    items: [{ chemicalId: conc.chemical_id, qtyMilli: 12_000 }],
+    userId: OWNER,
+  });
+  setFormulaOutput(formulaId, mildId, OWNER);
+  const version = currentVersion(formulaId)!;
+
+  const before = packState(mildId);
+  const was23 = before.sizes.find((x) => x.sizeMilli === 23_000)!.filled;
+
+  recordMix({
+    versionId: version.id,
+    targetMilli: 46_000,
+    actualMilli: 46_000,
+    filled: [{ bundleId: size(23_000), units: 2 }],
+    userId: OWNER,
+  });
+
+  const after = packState(mildId);
+  assert.equal(after.stockMilli, before.stockMilli + 46_000, "46 kg landed on the shelf");
+  assert.equal(
+    after.sizes.find((x) => x.sizeMilli === 23_000)!.filled,
+    was23 + 2,
+    "and it landed as two jerricans, without being counted a second time",
+  );
+  assert.equal(after.packedMilli + after.looseMilli, after.stockMilli);
+});
+
+test("take one 23 kg and fill four 5 kg and three 1 kg out of it", () => {
+  const before = packState(mildId);
+  const b23 = before.sizes.find((x) => x.sizeMilli === 23_000)!;
+  const b5 = before.sizes.find((x) => x.sizeMilli === 5_000)!;
+  const b1 = before.sizes.find((x) => x.sizeMilli === 1_000)!;
+
+  const res = divide(
+    mildId,
+    {
+      fromBundleId: size(23_000),
+      fromUnits: 1,
+      into: [
+        { bundleId: size(5_000), units: 4 },
+        { bundleId: size(1_000), units: 3 },
+      ],
+    },
+    OWNER,
+  );
+
+  assert.equal(res.tookMilli, 23_000);
+  assert.equal(res.filledMilli, 23_000);
+  assert.equal(res.remainderMilli, 0);
+
+  const after = packState(mildId);
+  assert.equal(after.stockMilli, before.stockMilli, "dividing moves no stock at all");
+  assert.equal(after.sizes.find((x) => x.sizeMilli === 23_000)!.filled, b23.filled - 1);
+  assert.equal(after.sizes.find((x) => x.sizeMilli === 5_000)!.filled, b5.filled + 4);
+  assert.equal(after.sizes.find((x) => x.sizeMilli === 1_000)!.filled, b1.filled + 3);
+});
+
+test("what will not go into a smaller container goes back in the drum", () => {
+  const before = packState(mildId);
+  const res = divide(
+    mildId,
+    { fromBundleId: size(23_000), fromUnits: 1, into: [{ bundleId: size(5_000), units: 4 }] },
+    OWNER,
+  );
+  assert.equal(res.remainderMilli, 3_000, "23 into four 5s leaves 3 kg");
+  const after = packState(mildId);
+  assert.equal(after.looseMilli, before.looseMilli + 3_000, "and the 3 kg is loose, not lost");
+  assert.equal(after.stockMilli, before.stockMilli);
+});
+
+test("it refuses to fill more than comes out of the container", () => {
+  assert.throws(
+    () =>
+      divide(
+        mildId,
+        { fromBundleId: size(23_000), fromUnits: 1, into: [{ bundleId: size(5_000), units: 9 }] },
+        OWNER,
+      ),
+    (e: Error) => e instanceof PackError && /more than comes out/.test(e.message),
+  );
+});
+
+test("it refuses to fill a container out of a smaller one, or out of itself", () => {
+  assert.throws(
+    () =>
+      divide(
+        mildId,
+        { fromBundleId: size(1_000), fromUnits: 1, into: [{ bundleId: size(23_000), units: 1 }] },
+        OWNER,
+      ),
+    (e: Error) => e instanceof PackError && /not smaller/.test(e.message),
+  );
+  assert.throws(
+    () =>
+      divide(
+        mildId,
+        { fromBundleId: size(5_000), fromUnits: 1, into: [{ bundleId: size(5_000), units: 1 }] },
+        OWNER,
+      ),
+    (e: Error) => e instanceof PackError && /out of itself/.test(e.message),
+  );
+});
+
+test("it refuses to open jerricans that are not standing there", () => {
+  const state = packState(mildId);
+  const have = state.sizes.find((x) => x.sizeMilli === 23_000)!.filled;
+  assert.throws(
+    () =>
+      divide(
+        mildId,
+        { fromBundleId: size(23_000), fromUnits: have + 1, into: [{ bundleId: size(1_000), units: 1 }] },
+        OWNER,
+      ),
+    (e: Error) => e instanceof PackError && /cannot open/.test(e.message),
+  );
+});

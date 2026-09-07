@@ -9,7 +9,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireOwner } from "@/lib/auth";
-import { fill, setPacked, packState, PackError } from "@/lib/packing";
+import { fill, divide, setPacked, packState, PackError } from "@/lib/packing";
 
 export interface FillState {
   ok?: string;
@@ -80,4 +80,53 @@ export async function setPackedAction(formData: FormData): Promise<void> {
   revalidatePath("/stock");
   revalidatePath("/sell");
   revalidatePath("/mix");
+}
+
+export interface DivideState {
+  ok?: string;
+  error?: string;
+}
+
+/**
+ * Break big containers open and fill smaller ones out of them.
+ *
+ * The form speaks the yard's language — "take 1 × 23 kg, fill 4 × 5 kg" — and
+ * the ledger's negatives are worked out on this side of the wire.
+ */
+export async function divideAction(_prev: DivideState, formData: FormData): Promise<DivideState> {
+  const owner = await requireOwner();
+  const itemId = Number(formData.get("itemId"));
+  const fromBundleId = Number(formData.get("from"));
+  const fromUnits = Math.floor(Number(formData.get("fromUnits") ?? 0));
+  if (!Number.isFinite(itemId) || itemId <= 0) return { error: "That product could not be found." };
+  if (!Number.isFinite(fromBundleId) || fromBundleId <= 0) {
+    return { error: "Choose the container you are opening." };
+  }
+
+  const into: Array<{ bundleId: number; units: number }> = [];
+  for (const [key, value] of formData.entries()) {
+    if (!key.startsWith("into:")) continue;
+    const bundleId = Number(key.slice(5));
+    const units = Math.floor(Number(String(value).trim()));
+    if (!Number.isFinite(bundleId) || bundleId <= 0) continue;
+    if (!Number.isFinite(units) || units <= 0) continue;
+    into.push({ bundleId, units });
+  }
+
+  try {
+    const res = divide(itemId, { fromBundleId, fromUnits, into }, owner.id);
+    revalidatePath("/items");
+    revalidatePath("/stock");
+    revalidatePath("/sell");
+    revalidatePath("/mix");
+    return {
+      ok:
+        `${res.said}.` +
+        (res.remainderMilli > 0
+          ? ` ${res.remainderMilli / 1000} ${res.unit} went back in the drum.`
+          : ""),
+    };
+  } catch (e) {
+    return { error: e instanceof PackError ? e.message : "That could not be recorded." };
+  }
 }

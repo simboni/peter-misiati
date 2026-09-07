@@ -309,6 +309,111 @@ export function openForLoose(
   return opened;
 }
 
+export interface DivideInput {
+  /** The container being broken open, and how many of them. */
+  fromBundleId: number;
+  fromUnits: number;
+  /** What is being filled out of it. */
+  into: Array<{ bundleId: number; units: number }>;
+}
+
+export interface DivideResult {
+  itemName: string;
+  unit: string;
+  tookMilli: number;
+  filledMilli: number;
+  /** What would not go into a smaller container and stays in the drum. */
+  remainderMilli: number;
+  said: string;
+}
+
+/**
+ * Break big containers open and fill smaller ones out of them.
+ *
+ * This is the shop's own act, said the shop's own way: take one 23 kg jerrican,
+ * fill four 5 kg and three 1 kg out of it. It is the same ledger as `fill` —
+ * one negative and several positives — but nobody at a drum thinks in negatives,
+ * and asking them to work out "minus one, plus four, plus three" is asking them
+ * to do the arithmetic this screen exists to do for them.
+ *
+ * What will not go into a smaller container is not an error. Twenty-three
+ * kilogrammes into four 5 kg jerricans leaves 3 kg, and that 3 kg goes back into
+ * the drum as loose, which is exactly where it goes in the yard.
+ */
+export function divide(itemId: number, input: DivideInput, userId: number): DivideResult {
+  if (!Number.isInteger(input.fromUnits) || input.fromUnits <= 0) {
+    throw new PackError("Say how many containers you are opening.");
+  }
+  const filling = input.into.filter((x) => Number.isInteger(x.units) && x.units > 0);
+  if (!filling.length) throw new PackError("Say what you are filling out of it.");
+
+  const state = packState(itemId);
+  if (!state.packed) throw new PackError(`${state.itemName} is not counted in containers.`);
+
+  const from = state.sizes.find((z) => z.bundleId === input.fromBundleId);
+  if (!from) throw new PackError("That size is no longer on this product.");
+  if (from.filled < input.fromUnits) {
+    throw new PackError(
+      `There ${from.filled === 1 ? "is" : "are"} only ${from.filled} × ` +
+        `${formatQty(from.sizeMilli, state.unit)} filled — you cannot open ${input.fromUnits}.`,
+    );
+  }
+  if (filling.some((x) => x.bundleId === input.fromBundleId)) {
+    throw new PackError("A container cannot be filled out of itself.");
+  }
+
+  const tookMilli = input.fromUnits * from.sizeMilli;
+  let filledMilli = 0;
+  for (const x of filling) {
+    const into = state.sizes.find((z) => z.bundleId === x.bundleId);
+    if (!into) throw new PackError("That size is no longer on this product.");
+    if (into.sizeMilli >= from.sizeMilli) {
+      throw new PackError(
+        `${formatQty(into.sizeMilli, state.unit)} is not smaller than ` +
+          `${formatQty(from.sizeMilli, state.unit)}. Open the bigger one instead.`,
+      );
+    }
+    filledMilli += x.units * into.sizeMilli;
+  }
+
+  if (filledMilli > tookMilli) {
+    throw new PackError(
+      `That is more than comes out of it. ${input.fromUnits} × ` +
+        `${formatQty(from.sizeMilli, state.unit)} is ${formatQty(tookMilli, state.unit)}, ` +
+        `and you are filling ${formatQty(filledMilli, state.unit)}.`,
+    );
+  }
+
+  // One act, one ledger entry per line: the opening and every filling.
+  fill(
+    itemId,
+    [
+      { bundleId: input.fromBundleId, delta: -input.fromUnits },
+      ...filling.map((x) => ({ bundleId: x.bundleId, delta: x.units })),
+    ],
+    userId,
+    `divided ${input.fromUnits} × ${formatQty(from.sizeMilli, state.unit)}`,
+  );
+
+  const said =
+    `Opened ${input.fromUnits} × ${formatQty(from.sizeMilli, state.unit)} and filled ` +
+    filling
+      .map((x) => {
+        const into = state.sizes.find((z) => z.bundleId === x.bundleId)!;
+        return `${x.units} × ${formatQty(into.sizeMilli, state.unit)}`;
+      })
+      .join(", ");
+
+  return {
+    itemName: state.itemName,
+    unit: state.unit,
+    tookMilli,
+    filledMilli,
+    remainderMilli: tookMilli - filledMilli,
+    said,
+  };
+}
+
 export function takeFilled(
   itemId: number,
   bundleId: number,

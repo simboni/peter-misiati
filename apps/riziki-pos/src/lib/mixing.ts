@@ -387,6 +387,18 @@ export interface RecordMixInput {
    * the ordinary case; supplied when the jug disagreed with the arithmetic.
    */
   used?: MixUsed[];
+  /**
+   * The containers this batch was counted in, and therefore filled.
+   *
+   * The shop does not make 46 kg; it makes two 23 kg jerricans, and those
+   * jerricans are then standing in the yard. Saying so twice — once to record
+   * the batch and again to count what it poured — is a chore nobody would do
+   * for long, and a shelf that is one forgotten step behind is worse than no
+   * count at all. So the batch fills them.
+   *
+   * Ignored when the output is not counted in containers.
+   */
+  filled?: Array<{ bundleId: number; units: number }>;
   userId: number;
   note?: string;
 }
@@ -560,6 +572,43 @@ export function recordMix(input: RecordMixInput): MixResult {
     });
 
     run(`UPDATE items SET cost_cents = ? WHERE id = ?`, outputCostCents, output.id);
+
+    /*
+      The jerricans the batch was counted in are the jerricans it filled.
+
+      Written straight rather than through `fill()`, because that opens its own
+      transaction and this is already inside one — and because there is nothing
+      to check: the containers were counted against a batch that has just landed
+      on the shelf, so what they hold cannot exceed what is held.
+
+      Only for an output the owner counts in containers. For everything else the
+      counts were a way of saying "46 kg" and nothing is standing anywhere.
+    */
+    const packedOutput = get<{ packed: number }>(
+      `SELECT packed FROM items WHERE id = ?`,
+      output.id,
+    );
+    if (packedOutput?.packed === 1) {
+      for (const f of input.filled ?? []) {
+        if (!Number.isInteger(f.units) || f.units <= 0) continue;
+        const owns = get<{ id: number }>(
+          `SELECT id FROM bundles WHERE id = ? AND item_id = ? AND active = 1`,
+          f.bundleId,
+          output.id,
+        );
+        if (!owns) continue;
+        run(
+          `INSERT INTO pack_moves (item_id, bundle_id, delta, reason, ref_type, ref_id, user_id, note)
+           VALUES (?, ?, ?, 'fill', 'batch', ?, ?, ?)`,
+          output.id,
+          f.bundleId,
+          f.units,
+          batchId,
+          input.userId,
+          `filled by ${batchNo}`,
+        );
+      }
+    }
 
     audit(
       input.userId,

@@ -77,9 +77,27 @@ export async function recordMixAction(
     used.push({ itemId, qtyMilli: Math.round(qty * 1000) });
   }
 
+  /*
+    The containers the batch was counted in.
+
+    Sent as `filled:<bundleId>` alongside the weight, so that saying "two 23 kg
+    jerricans" to the board is also saying it to the shelf. Ignored downstream
+    for an output that is not counted in containers.
+  */
+  const filled: Array<{ bundleId: number; units: number }> = [];
+  for (const [key, value] of formData.entries()) {
+    if (!key.startsWith("filled:")) continue;
+    const bundleId = Number(key.slice(7));
+    const units = Math.floor(Number(String(value).trim()));
+    if (!Number.isFinite(bundleId) || bundleId <= 0) continue;
+    if (!Number.isFinite(units) || units <= 0) continue;
+    filled.push({ bundleId, units });
+  }
+
   try {
     const res = recordMix({
       versionId,
+      filled,
       targetMilli: Number.isFinite(target) && target > 0 ? Math.round(target) : Math.round(madeQty * 1000),
       actualMilli: Math.round(madeQty * 1000),
       used,
