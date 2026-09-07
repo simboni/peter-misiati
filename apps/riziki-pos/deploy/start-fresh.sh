@@ -99,6 +99,21 @@ console.log(JSON.stringify({
 CARRY_FORWARD_JSON="$(cat "$WORK/carry-forward.json")"
 echo "    saved $(printf '%s' "$CARRY_FORWARD_JSON" | tr ',' '\n' | grep -c '"name"') account(s)"
 
+# From here on the app is DOWN, and it must not be left that way.
+#
+# `set -e` plus a stop on one line and a start a hundred lines later is a shop
+# with no till if anything in between fails — which is how this script took the
+# counter down with a customer at it. Whatever happens now, the app comes back:
+# on the new database if the swap finished, on the old one if it did not. Both
+# are a working till, which is the only thing that matters at that moment.
+APP_IS_DOWN=1
+trap 'if [ "${APP_IS_DOWN:-0}" = "1" ]; then
+        echo
+        echo "!! Something failed. Bringing the app back up on whichever database is in place."
+        docker compose up -d pos || true
+        echo "!! The shop can trade. Nothing was deleted — the backup is in data/backups/."
+      fi' EXIT INT TERM
+
 echo "==> Stopping the app"
 docker compose stop pos
 
@@ -163,7 +178,8 @@ rm -f "$DATA_DIR/riziki.db-shm" "$DATA_DIR/riziki.db-wal"
 mv "$DATA_DIR/.start-fresh.db" "$DATA_DIR/riziki.db"
 
 echo "==> Starting the app"
-docker compose start pos
+docker compose up -d pos
+APP_IS_DOWN=0
 
 echo
 echo "==> Done. Sign in with the PIN you already set — it still works."
