@@ -105,9 +105,9 @@ const { writeFileSync } = await import("node:fs");
   item it prices.
 */
 const KEEP = [
-  "users", "settings", "chemicals", "items", "bundles",
+  "users", "settings", "chemicals", "items",
   "formulas", "formula_versions", "formula_items",
-  "customers", "suppliers",
+  "bundles", "customers", "suppliers",
 ];
 
 const out = {};
@@ -168,10 +168,19 @@ function columnsOf(table) {
   return all(`PRAGMA table_info(${table})`).map((c) => c.name);
 }
 
+/*
+  Parents before children, and `bundles` is the one that catches people out.
+
+  A bundle points at an item OR a formula, never both — so it has to come after
+  BOTH tables, not just after items. Putting it next to items looks right and
+  works perfectly on a shop whose sizes are all on products; the first recipe
+  with a batch price fails the foreign key, rolls the whole transaction back,
+  and takes the script down with it.
+*/
 const ORDER = [
-  "users", "settings", "chemicals", "items", "bundles",
+  "users", "settings", "chemicals", "items",
   "formulas", "formula_versions", "formula_items",
-  "customers", "suppliers",
+  "bundles", "customers", "suppliers",
 ];
 
 tx(() => {
@@ -182,7 +191,16 @@ tx(() => {
     const cols = Object.keys(rows[0]).filter((c) => accepted.has(c));
     if (!cols.length) continue;
     const sql = `INSERT INTO ${table} (${cols.join(", ")}) VALUES (${cols.map(() => "?").join(", ")})`;
-    for (const row of rows) run(sql, ...cols.map((c) => row[c]));
+    for (const row of rows) {
+      try {
+        run(sql, ...cols.map((c) => row[c]));
+      } catch (e) {
+        // Name the table and the row. A bare FOREIGN KEY constraint failure
+        // from inside a loop over ten tables tells nobody anything.
+        console.error(`FAILED writing ${table} id=${row.id}: ${e.message}`);
+        throw e;
+      }
+    }
   }
 
   /*
