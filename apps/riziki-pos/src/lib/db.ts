@@ -145,6 +145,16 @@ const ADDED_COLUMNS: Array<{ table: string; column: string; definition: string }
     column: "price_basis",
     definition: "TEXT NOT NULL DEFAULT 'pack' CHECK (price_basis IN ('pack', 'unit'))",
   },
+  /*
+    Is this thing poured into containers before anybody asks for it?
+
+    Off for everything, and that is the whole safety of it. Ungerol is sold by
+    the 5, 10 and 20 kg and none of those is ever pre-filled — it is weighed out
+    of the drum when somebody asks. A counter that checked filled containers for
+    Ungerol would refuse a sale the shop makes daily. So the count is only kept,
+    and only enforced, for the things the owner says are actually poured.
+  */
+  { table: "items", column: "packed", definition: "INTEGER NOT NULL DEFAULT 0 CHECK (packed IN (0, 1))" },
   { table: "sale_lines", column: "rate_cents", definition: "INTEGER NOT NULL DEFAULT 0 CHECK (rate_cents >= 0)" },
   {
     table: "sale_lines",

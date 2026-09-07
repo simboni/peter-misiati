@@ -21,6 +21,7 @@
  */
 
 import { all, get, run, tx, postMovement, stockOf, audit, type Item, type PriceBasis } from "./db.ts";
+import { filledOf, takeFilled, openForLoose } from "./packing.ts";
 import { verifyPin } from "./pin.ts";
 import { findBundle } from "./bundles.ts";
 import { mixFor, currentVersion } from "./production.ts";
@@ -404,6 +405,27 @@ export function recordSale(input: RecordSaleInput): RecordSaleResult {
           : `${l.units} × ${l.item.unit_label}`,
       });
 
+      /*
+        And the containers, for a thing that is poured in advance.
+
+        Inside the same transaction as the movement above, deliberately: the
+        kilogrammes and the jerricans must leave together or neither leaves, or
+        a crash between the two would sell a jerrican that is still counted as
+        standing on the shelf.
+
+        A sold container comes off the tally. A LOOSE sale off a shelf that is
+        all in jerricans opens one instead — which is what the attendant is
+        physically doing while the customer waits, so the tally follows the act
+        rather than forbidding it.
+      */
+      if ((l.item as Item & { packed?: number }).packed === 1) {
+        if (l.bundleId != null) {
+          takeFilled(l.item.id, l.bundleId, l.units, input.userId, Number(saleId));
+        } else {
+          openForLoose(l.item.id, l.qtyMilli, input.userId, Number(saleId));
+        }
+      }
+
       // Compare like with like: on a weighed line the haggling happened over
       // the rate per kilogram, not over the amount the scoop came to.
       const charged = l.rateCents || l.unitPriceCents;
@@ -580,6 +602,14 @@ function resolveLines(input: RecordSaleInput): ResolvedLine[] {
     at once and two lines can reach for the same drum.
   */
   const claimed = new Map<number, number>();
+  /*
+    And the same tally in containers, for the things that are poured in advance.
+
+    Kept beside `claimed` rather than derived from it: two 5 kg jerricans and
+    10 kg loose are the same ten kilogrammes but a different question, and only
+    one of them is answered by counting what is standing on the shelf.
+  */
+  const claimedFilled = new Map<number, number>();
 
   return input.lines.flatMap((line) => {
     /*
@@ -645,6 +675,31 @@ function resolveLines(input: RecordSaleInput): ResolvedLine[] {
       }
 
       const qtyMilli = bundle.sizeMilli * line.units;
+
+      /*
+        For a thing that is poured in advance, "is there enough?" is a count of
+        jerricans, not a weight. Twelve kilogrammes on the shelf is not a 23 kg
+        jerrican, and a counter that sold one because the weight allowed it
+        would be promising a container nobody has filled.
+
+        Only for items the owner has said are pre-filled. Ungerol is sold by the
+        20 kg and weighed out of the drum every time; asking how many 20 kg
+        jerricans are standing filled would refuse a sale this shop makes daily.
+      */
+      if ((item as Item & { packed?: number }).packed === 1) {
+        const wantUnits = (claimedFilled.get(bundle.id) ?? 0) + line.units;
+        const filled = filledOf(item.id, bundle.id);
+        if (wantUnits > filled) {
+          throw new SaleError(
+            "not_enough_stock",
+            `There ${filled === 1 ? "is" : "are"} ${filled} × ` +
+              `${formatQty(bundle.sizeMilli, item.canonical_unit)} of ${item.name} filled, ` +
+              `and this sale asks for ${wantUnits}. Fill more from the drum, or sell it loose.`,
+          );
+        }
+        claimedFilled.set(bundle.id, wantUnits);
+      }
+
       const taken = (claimed.get(item.id) ?? 0) + qtyMilli;
       const onHand = stockOf(item.id);
       if (taken > onHand) {

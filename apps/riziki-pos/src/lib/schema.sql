@@ -196,6 +196,59 @@ BEGIN
   SELECT RAISE(ABORT, 'stock_movements is append-only: post a correcting movement instead');
 END;
 
+-- ---------------------------------------------------------------- packing
+--
+-- How many containers of a size are actually FILLED and standing on the shelf.
+--
+-- This is not a second pile of stock. The shop holds one quantity of a thing —
+-- 46 kg of mild — and this table says how much of that 46 kg is already poured
+-- into jerricans rather than sitting loose in the drum. Filling four 5 kg
+-- jerricans moves nothing: it is still 46 kg, just 20 kg of it in containers.
+--
+-- The catalogue used to answer this with a row per pack size, each holding its
+-- own stock, and it was retired because the kilos kept splitting between a drum
+-- and its packs and had to be carried across by hand. The difference here is
+-- the invariant: what is packed can never exceed what is held, because it IS
+-- what is held. There is nothing to reconcile — only a breakdown.
+--
+-- Append-only, like every other ledger in this file: a jerrican that was filled
+-- and then opened is two rows, not an edit.
+CREATE TABLE IF NOT EXISTS pack_moves (
+  id         INTEGER PRIMARY KEY,
+  at         TEXT    NOT NULL DEFAULT (datetime('now')),
+  item_id    INTEGER NOT NULL REFERENCES items(id),
+  bundle_id  INTEGER NOT NULL REFERENCES bundles(id),
+  -- Containers filled (+) or opened, sold, or counted away (−).
+  delta      INTEGER NOT NULL CHECK (delta <> 0),
+  reason     TEXT    NOT NULL CHECK (reason IN (
+               'fill', 'open', 'sale', 'sale_void', 'stocktake', 'adjustment')),
+  ref_type   TEXT,
+  ref_id     INTEGER,
+  user_id    INTEGER REFERENCES users(id),
+  note       TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_pack_moves_item ON pack_moves(item_id);
+CREATE INDEX IF NOT EXISTS idx_pack_moves_bundle ON pack_moves(bundle_id);
+
+CREATE TRIGGER IF NOT EXISTS pack_moves_no_update
+BEFORE UPDATE ON pack_moves
+BEGIN
+  SELECT RAISE(ABORT, 'pack_moves is append-only: post a correcting move instead');
+END;
+
+CREATE TRIGGER IF NOT EXISTS pack_moves_no_delete
+BEFORE DELETE ON pack_moves
+BEGIN
+  SELECT RAISE(ABORT, 'pack_moves is append-only: post a correcting move instead');
+END;
+
+-- How many of each size are filled right now.
+CREATE VIEW IF NOT EXISTS v_filled AS
+SELECT item_id, bundle_id, SUM(delta) AS filled
+  FROM pack_moves
+ GROUP BY item_id, bundle_id;
+
 CREATE TRIGGER IF NOT EXISTS stock_movements_no_delete
 BEFORE DELETE ON stock_movements
 BEGIN
