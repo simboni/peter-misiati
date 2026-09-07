@@ -447,11 +447,29 @@ function BatchBoard({ row }: { row: MixableRow }) {
             "Hypochlorite — mild" and saying both taught nobody anything — it
             just pushed the rate off the end of a 360 px line as an ellipsis.
           */}
-          {row.outputPriceCents > 0 ? (
-            <div className="mt-0.5 text-xs font-semibold text-brand-dark tnum">
-              sells at {formatKes(row.outputPriceCents)}/{row.outputUnit}
-            </div>
-          ) : null}
+          {/*
+            What the recipe makes, beside what the product is sold in.
+
+            These are two different numbers with two different owners — the
+            batch size belongs to the recipe, the sizes on the chips belong to
+            the product — and when they disagree the screen looked like it had
+            invented one. A recipe written for 23 kg over a row of chips that
+            only offers 24 kg is worth seeing side by side.
+          */}
+          <div className="mt-0.5 text-xs text-muted">
+            one batch makes{" "}
+            <span className="font-semibold text-ink tnum">
+              {formatQty(row.refSizeMilli, row.unit)}
+            </span>
+            {row.outputPriceCents > 0 ? (
+              <>
+                {" · sells at "}
+                <span className="font-semibold text-brand-dark tnum">
+                  {formatKes(row.outputPriceCents)}/{row.outputUnit}
+                </span>
+              </>
+            ) : null}
+          </div>
         </div>
         <div className="shrink-0 text-right">
           <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">
@@ -647,9 +665,14 @@ function BatchBoard({ row }: { row: MixableRow }) {
             </div>
           ) : (
             <p className="text-sm text-muted">
-              {row.outputBundles.length
-                ? "Tap a size for each jerrican you filled."
-                : `Say how much ${row.outputName} the batch made.`}
+              {row.outputBundles.length ? (
+                <>
+                  Tap a size for each jerrican you filled, or type the weight below. The sizes are
+                  the ones {row.outputName} is sold in — change them under Products &amp; prices.
+                </>
+              ) : (
+                `Say how much ${row.outputName} the batch made.`
+              )}
             </p>
           )}
         </div>
