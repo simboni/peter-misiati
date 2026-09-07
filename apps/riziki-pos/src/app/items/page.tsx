@@ -19,6 +19,9 @@ import { ListToolbar, Pager } from "@/components/section-nav";
 import { itemBundles, saveBundles, BundleError } from "@/lib/bundles";
 import { parseBundleRows } from "@/lib/bundle-input";
 import PriceForm from "./price-form";
+import { FillPanel } from "@/components/fill-panel";
+import { packState } from "@/lib/packing";
+import { setPackedAction } from "./pack-actions";
 import DeleteProduct from "./delete-product";
 import AddProductForm, { type AddProductState } from "./add-product-form";
 
@@ -157,6 +160,8 @@ async function adoptPricing(): Promise<void> {
  * exists once you open it.
  */
 function ProductRow({ item }: { item: AdminItem }) {
+  // Read once: the row asks about the containers four times over.
+  const pack = packState(item.id);
   const weighed = item.price_basis === "unit";
   const per = weighed ? `per ${item.canonical_unit}` : "each";
   const reorderUnits = weighed
@@ -219,6 +224,56 @@ function ProductRow({ item }: { item: AdminItem }) {
             floor: b.floorCents ? String(b.floorCents / 100) : "",
           }))}
         />
+
+        {/*
+          Counted in containers, and the count itself.
+
+          Offered only where there are sizes to count — a product with no
+          jerrican sizes has nothing this could mean. Off by default and off for
+          almost everything: this is for the things the shop pours in advance
+          and then sells by the jerrican, not for the things it weighs out of a
+          drum with a customer waiting.
+        */}
+        {itemBundles(item.id).length ? (
+          <div className="mt-3 rounded-xl border border-line bg-wash/60 p-3">
+            <form action={setPackedAction} className="flex flex-wrap items-center gap-2">
+              <input type="hidden" name="itemId" value={item.id} />
+              <input type="hidden" name="packed" value={pack.packed ? "0" : "1"} />
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-bold">
+                  {pack.packed
+                    ? "Counted in containers"
+                    : "Counted by weight only"}
+                </div>
+                <p className="mt-0.5 text-xs text-muted">
+                  {pack.packed
+                    ? `The shelf says how many of each size are standing filled, and the counter will not sell one that is not.`
+                    : `Turn this on if ${item.name} is poured into containers before anybody asks for it.`}
+                </p>
+              </div>
+              <Button type="submit" variant="ghost">
+                {pack.packed ? "Stop counting them" : "Count the containers"}
+              </Button>
+            </form>
+
+            {pack.packed ? (
+              <div className="mt-3 border-t border-line pt-3">
+                <FillPanel
+                  itemId={item.id}
+                  itemName={item.name}
+                  unit={item.canonical_unit}
+                  stockMilli={pack.stockMilli}
+                  sizes={pack.sizes.map((z) => ({
+                    bundleId: z.bundleId,
+                    sizeMilli: z.sizeMilli,
+                    filled: z.filled,
+                  }))}
+                  title="How it is poured right now"
+                />
+              </div>
+            ) : null}
+          </div>
+        ) : null}
 
         {/* Hiding is a twice-a-year act; it lives inside the editor, in quiet
             ghost dress — red is for the moment of destruction, not the menu. */}

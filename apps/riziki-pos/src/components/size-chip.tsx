@@ -27,6 +27,14 @@ export function SizeChip({
   onRemove,
   /** What the badge and the label call the pile being built. */
   noun = "the bill",
+  /**
+   * Dead, with the reason already on its face.
+   *
+   * Used where a size exists but none is standing filled. The chip stays on the
+   * grid rather than disappearing: a jerrican the shop sells and has run out of
+   * is information, and a gap where it used to be is not.
+   */
+  disabled = false,
 }: {
   size: string;
   price: string;
@@ -36,6 +44,7 @@ export function SizeChip({
   /** This size off the pile. Absent when there is none of it on there. */
   onRemove?: () => void;
   noun?: string;
+  disabled?: boolean;
 }) {
   return (
     /*
@@ -46,6 +55,7 @@ export function SizeChip({
       <button
         type="button"
         onClick={onPick}
+        disabled={disabled}
         /*
           Said properly for a screen reader.
 
@@ -58,20 +68,30 @@ export function SizeChip({
           `Add ${size} for ${price}` + (count > 0 ? ` — ${count} already on ${noun}` : "")
         }
         className={`flex min-h-[4.5rem] w-full flex-col items-start justify-center rounded-2xl px-3 py-2 text-left ring-1 ring-inset transition-colors ${
-          count > 0
-            ? "bg-brand text-white ring-brand"
-            : "bg-brand-soft text-brand-deep ring-brand/25 hover:ring-brand/60"
+          disabled
+            ? "bg-wash text-muted ring-line"
+            : count > 0
+              ? "bg-brand text-white ring-brand"
+              : "bg-brand-soft text-brand-deep ring-brand/25 hover:ring-brand/60"
         }`}
       >
         {/* Only the size makes room for the badge, not the whole chip: the price
             sits on the line below it, and padding the chip pushed "KES 4,000"
             into three lines to clear something that was never beside it. */}
         <span className={`text-[15px] font-extrabold ${count > 0 ? "pr-11" : ""}`}>{size}</span>
-        <span className={`mt-0.5 text-[14px] font-bold tnum ${count > 0 ? "" : "text-ink"}`}>
+        <span
+          className={`mt-0.5 text-[14px] font-bold tnum ${
+            disabled ? "" : count > 0 ? "" : "text-ink"
+          }`}
+        >
           {price}
         </span>
         {per ? (
-          <span className={`text-[11px] tnum ${count > 0 ? "text-white/75" : "text-muted"}`}>
+          <span
+            className={`text-[11px] tnum ${
+              disabled ? "text-muted" : count > 0 ? "text-white/75" : "text-muted"
+            }`}
+          >
             {per}
           </span>
         ) : null}

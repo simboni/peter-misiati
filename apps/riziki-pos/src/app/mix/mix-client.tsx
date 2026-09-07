@@ -42,6 +42,7 @@ import { useActionState, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Alert, Button, Card, Field, Empty, inputClass, inputClassBase } from "@/components/ui";
 import { SizeChip } from "@/components/size-chip";
+import { FillPanel } from "@/components/fill-panel";
 import { formatQty, formatKes } from "@/lib/units";
 import type { MixableRow, MixPlan } from "@/lib/mixing";
 import { planMixAction, recordMixAction, type MixState } from "./actions";
@@ -358,6 +359,33 @@ function BatchBoard({ row }: { row: MixableRow }) {
       {recorded ? (
         <div className="space-y-2.5">
           <Alert tone="good">{recorded}</Alert>
+
+          {/*
+            Mixing is half the errand.
+
+            46 kg is on the shelf and the next thing that happens in the yard is
+            somebody pouring it into jerricans. Sending them to another screen to
+            find the same product again is where a continuous act becomes two
+            chores and the second one gets forgotten — and a forgotten pour is a
+            counter that will not sell a jerrican that is standing right there.
+          */}
+          {row.outputPacked ? (
+            <div className="rounded-xl border border-line bg-wash/60 p-3">
+              <FillPanel
+                itemId={row.outputItemId}
+                itemName={row.outputName}
+                unit={row.outputUnit}
+                stockMilli={row.outputOnHandMilli}
+                sizes={row.outputBundles.map((b) => ({
+                  bundleId: b.id,
+                  sizeMilli: b.sizeMilli,
+                  filled: b.filled,
+                }))}
+                title="Now pour it — how many of each are standing filled?"
+              />
+            </div>
+          ) : null}
+
           <Button className="w-full !min-h-14 text-base" onClick={next}>
             Mix another batch
           </Button>

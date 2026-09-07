@@ -16,6 +16,7 @@ import { getPrintSettings } from "@/lib/print-settings";
 import { formatKes } from "@/lib/units";
 import { setCounterPrice, PriceError } from "@/lib/pricing";
 import { bundlesByItem, bundlesByFormula } from "@/lib/bundles";
+import { filledByItem } from "@/lib/packing";
 import SellClient, {
   type MixOffer,
   type RecipeChoice,
@@ -288,6 +289,13 @@ export default async function SellPage() {
     the instant a tile is tapped, not after a request.
   */
   const bundles = bundlesByItem();
+  /*
+    And how many of each size are actually standing filled, for the few products
+    that are poured in advance. Absent for everything else, which is not a count
+    of zero: a chemical weighed out of the drum has no filled jerricans and that
+    is not a shortage.
+  */
+  const filled = filledByItem();
 
   const items: SellItem[] = rows.map((r) => ({
     id: r.id,
@@ -304,6 +312,7 @@ export default async function SellPage() {
       sizeMilli: b.sizeMilli,
       priceCents: b.priceCents,
       floorCents: b.floorCents,
+      filled: filled.has(r.id) ? (filled.get(r.id)!.get(b.id) ?? 0) : null,
     })),
   }));
 
@@ -366,6 +375,8 @@ export default async function SellPage() {
         sizeMilli: b.sizeMilli,
         priceCents: b.priceCents,
         floorCents: b.floorCents,
+        // A recipe mixed to order has nothing standing on a shelf to count.
+        filled: null,
       })),
     }));
 

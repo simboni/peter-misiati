@@ -43,7 +43,8 @@
  */
 
 import { all, get, run, tx, audit, postMovement, stockOf, type Item } from "./db.ts";
-import { itemBundles, type Bundle } from "./bundles.ts";
+
+import { packState } from "./packing.ts";
 import { MILLI, formatQty } from "./units.ts";
 import { currentVersion, scaleFormula, versionById, formulaById } from "./production.ts";
 
@@ -284,7 +285,15 @@ export interface MixableRow {
    * product itself, so the board asks the batch in the units the person at the
    * drum is actually filling — and can say what the batch will be worth.
    */
-  outputBundles: Array<{ id: number; sizeMilli: number; priceCents: number }>;
+  outputBundles: Array<{ id: number; sizeMilli: number; priceCents: number; filled: number }>;
+  /**
+   * Whether the thing this makes is counted in containers.
+   *
+   * When it is, mixing is only half the errand: 46 kg lands on the shelf and
+   * then somebody pours it into jerricans, and the board offers that next
+   * rather than sending them to another screen to find the same product again.
+   */
+  outputPacked: boolean;
   /** What one kg / L of it sells for, for a batch that is not a round size. */
   outputPriceCents: number;
   /**
@@ -334,6 +343,7 @@ export function mixableFormulas(): MixableRow[] {
     } catch {
       possibleMilli = 0;
     }
+    const pack = packState(r.output_item_id);
     return {
       formulaId: r.formula_id,
       versionId: r.version_id,
@@ -343,11 +353,13 @@ export function mixableFormulas(): MixableRow[] {
       outputItemId: r.output_item_id,
       outputName: r.output_name,
       outputUnit: r.output_unit,
-      outputBundles: itemBundles(r.output_item_id).map((b: Bundle) => ({
-        id: b.id,
-        sizeMilli: b.sizeMilli,
-        priceCents: b.priceCents,
+      outputBundles: pack.sizes.map((z) => ({
+        id: z.bundleId,
+        sizeMilli: z.sizeMilli,
+        priceCents: z.priceCents,
+        filled: z.filled,
       })),
+      outputPacked: pack.packed,
       outputPriceCents: r.output_price_cents,
       outputOnHandMilli: Math.max(0, stockOf(r.output_item_id)),
       possibleMilli,

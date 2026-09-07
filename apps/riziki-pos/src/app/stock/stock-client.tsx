@@ -191,7 +191,33 @@ export function StockClient({
                   <span className="font-bold">{formatQty(l.qtyMilli, l.unit)}</span>
                 </Td>
                 <Td align="right" className="text-muted">
-                  {formatUnits(l.qtyMilli, l.sizeMilli, l.unitLabel)}
+                  {/*
+                    For a thing poured in advance, "how many containers" is a
+                    count of what is standing there, not the weight divided by a
+                    container size. Those are different questions and the shop
+                    asks the first one: 46 kg is not two jerricans until somebody
+                    has poured it into two jerricans.
+                  */}
+                  {l.poured ? (
+                    <div className="space-y-0.5">
+                      {l.poured.sizes.length ? (
+                        l.poured.sizes.map((z) => (
+                          <div key={z.sizeMilli} className="whitespace-nowrap font-semibold text-ink">
+                            {z.filled} × {formatQty(z.sizeMilli, l.unit)}
+                          </div>
+                        ))
+                      ) : (
+                        <div className="whitespace-nowrap">none poured yet</div>
+                      )}
+                      {l.poured.looseMilli > 0 ? (
+                        <div className="whitespace-nowrap text-[11px]">
+                          {formatQty(l.poured.looseMilli, l.unit)} loose
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : (
+                    formatUnits(l.qtyMilli, l.sizeMilli, l.unitLabel)
+                  )}
                 </Td>
                 {owner ? <Td align="right">{formatKes(l.valueCents)}</Td> : null}
               </tr>

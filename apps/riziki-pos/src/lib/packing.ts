@@ -326,3 +326,32 @@ export function takeFilled(
     userId,
   );
 }
+
+/**
+ * Every filled count in the shop, in one query, for the counter.
+ *
+ * The sell screen loads its whole catalogue up front — asking per item would be
+ * a hundred round trips on a phone that is often on one bar — so this follows
+ * the same shape. Only items the owner has switched on appear: for everything
+ * else there is no count, which is not the same as a count of zero and must not
+ * be shown as one.
+ */
+export function filledByItem(): Map<number, Map<number, number>> {
+  const rows = all<{ item_id: number; bundle_id: number; filled: number }>(
+    `SELECT m.item_id, m.bundle_id, SUM(m.delta) AS filled
+       FROM pack_moves m
+       JOIN items i ON i.id = m.item_id AND i.packed = 1
+      GROUP BY m.item_id, m.bundle_id`,
+  );
+  const out = new Map<number, Map<number, number>>();
+  for (const r of rows) {
+    if (!out.has(r.item_id)) out.set(r.item_id, new Map());
+    out.get(r.item_id)!.set(r.bundle_id, Math.max(0, r.filled ?? 0));
+  }
+  // An item switched on but never poured has no rows above and still needs an
+  // entry, or the counter would read it as "not counted" and sell freely.
+  for (const r of all<{ id: number }>(`SELECT id FROM items WHERE packed = 1 AND active = 1`)) {
+    if (!out.has(r.id)) out.set(r.id, new Map());
+  }
+  return out;
+}

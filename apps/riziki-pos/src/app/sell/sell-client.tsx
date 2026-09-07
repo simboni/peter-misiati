@@ -105,6 +105,15 @@ export interface BundleChoice {
   priceCents: number;
   /** Never below this without the owner's PIN. Zero means no floor set. */
   floorCents: number;
+  /**
+   * How many of this size are standing filled on the shelf.
+   *
+   * Null means this product is not counted in containers at all — it is weighed
+   * out of the drum when somebody asks, so there is no such thing as a filled
+   * one and the counter must not look for any. Zero means it IS counted and
+   * there are none, which is a different sentence and stops the sale.
+   */
+  filled: number | null;
 }
 
 export interface SellCustomer {
@@ -3499,13 +3508,31 @@ function SizePicker({
         {item.bundles.map((b) => {
           const rate = b.sizeMilli > 0 ? Math.round((b.priceCents * 1000) / b.sizeMilli) : 0;
           const on = lineOf(b.id);
+          /*
+            How many are standing filled, for the few products that are poured
+            in advance — and how many are left once this bill's are counted off.
+
+            `filled === null` is a product weighed out of the drum: there is no
+            such thing as a filled one, so the chip says nothing about it and
+            behaves exactly as it always has. That distinction is the whole
+            reason the field is nullable rather than a number.
+          */
+          const left = b.filled === null ? null : b.filled - countOf(b.id);
+          const none = left !== null && left <= 0;
           return (
             <SizeChip
               key={b.id}
               size={formatQty(b.sizeMilli, item.unit)}
               price={formatKes(b.priceCents)}
-              per={`${formatKes(rate)}/${item.unit}`}
+              per={
+                left === null
+                  ? `${formatKes(rate)}/${item.unit}`
+                  : none
+                    ? "none filled"
+                    : `${left} filled`
+              }
               count={countOf(b.id)}
+              disabled={none}
               onPick={() => onBundle(b)}
               onRemove={on ? () => onRemove(on) : undefined}
             />

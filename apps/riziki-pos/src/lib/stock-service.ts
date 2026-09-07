@@ -12,6 +12,7 @@
 
 import { all, get, tx, postMovement, stockOf, audit } from "./db.ts";
 import { MILLI } from "./units.ts";
+import { packState } from "./packing.ts";
 
 // ---------------------------------------------------------------- reading
 
@@ -43,6 +44,14 @@ export interface StockLine {
   valueCents: number;
   /** lowercased name + aliases, so the client can filter without a round trip */
   search: string;
+  /**
+   * How the quantity above is poured, for the few things poured in advance.
+   *
+   * Null for everything else. This is a BREAKDOWN of `qtyMilli`, never an
+   * addition to it: the counts below and the loose remainder come to exactly
+   * the quantity on the row, which is why the row itself needs no adjusting.
+   */
+  poured: { sizes: Array<{ sizeMilli: number; filled: number }>; looseMilli: number } | null;
 }
 
 export interface ReagentGroup {
@@ -125,6 +134,26 @@ function toLine(r: StockRowRaw): StockLine {
     status: stockStatus(r.qty_milli, r.reorder_level_milli),
     valueCents: valueAtCost(r.qty_milli, r.size_milli, r.cost_cents),
     search: [r.name, r.chemical_name ?? "", r.chemical_aliases ?? ""].join(" ").toLowerCase(),
+    poured: pouredOf(r.id),
+  };
+}
+
+/**
+ * The container breakdown of one row, or null if it is not counted that way.
+ *
+ * Read per row rather than in one sweep because the shelf is a few dozen lines
+ * and almost none of them are poured — a join for every row to serve three of
+ * them is the more expensive shape here, not the cheaper one.
+ */
+function pouredOf(itemId: number): StockLine["poured"] {
+  const item = get<{ packed: number }>(`SELECT packed FROM items WHERE id = ?`, itemId);
+  if (!item || item.packed !== 1) return null;
+  const state = packState(itemId);
+  return {
+    sizes: state.sizes
+      .filter((z) => z.filled > 0)
+      .map((z) => ({ sizeMilli: z.sizeMilli, filled: z.filled })),
+    looseMilli: state.looseMilli,
   };
 }
 
