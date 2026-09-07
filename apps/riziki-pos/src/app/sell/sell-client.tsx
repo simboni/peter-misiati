@@ -51,10 +51,16 @@ const NEW_CUSTOMER = "__new";
  * chemical buyer knows what they came for and is one tap (or one swipe) away.
  * Search cuts across both, so nobody has to guess which board a thing is on.
  *
- * "Products" no longer means bottles on a shelf — the shop stopped mixing its
- * own. It means the things a customer comes in to make: tap Carwash Shampoo,
- * say how much, and the counter bills the chemicals that go into it. The board
- * kept its name because that is what the customer asks for at the door.
+ * "Products" means what this shop sells as a finished article, and it now holds
+ * two kinds of thing. The jerricans it mixed in advance and stood on the shelf
+ * — tap one, pick a size, done — and the recipes it mixes to order, where
+ * tapping asks how much the customer is making and bills the chemicals for it.
+ *
+ * That comment used to read "the shop stopped mixing its own", and it was true
+ * when it was written. It stopped being true the day the mixing board landed,
+ * and until this the mild the shop had just mixed was filed under Chemicals
+ * among forty-odd raw materials — a jerrican of mild is what somebody walks in
+ * and asks for, and nobody walks in and asks for sodium hypochlorite by name.
  */
 type Board = "products" | "chemicals";
 const BOARDS: Array<{ key: Board; label: string }> = [
@@ -88,6 +94,14 @@ export interface SellItem {
   qtyMilli: number;
   /** name + chemical name + aliases, lower-cased, so "sles" finds Ungerol */
   search: string;
+  /**
+   * The shop mixes this itself — it is the output of one of its own recipes.
+   *
+   * Those belong on the Products board with the recipes rather than among the
+   * raw chemicals: a jerrican of mild is what a customer walks in and asks for,
+   * and nobody walks in and asks for sodium hypochlorite by name.
+   */
+  made?: boolean;
   /**
    * The sizes this is also sold in, each at its own price.
    *
@@ -1457,7 +1471,15 @@ export default function SellClient({
    * become the recipe board instead — the list of things a customer walks in
    * intending to make.
    */
-  const chemicals = [...items].sort(shelfOrder);
+  /*
+    Two boards, split by who made the thing.
+
+    Products: what this shop sells as a finished article — the jerricans it
+    mixed itself, then the recipes it mixes to order. Chemicals: what it bought
+    in and sells on. Search still cuts across both, so nobody has to guess.
+  */
+  const made = items.filter((i) => i.made).sort(shelfOrder);
+  const chemicals = items.filter((i) => !i.made).sort(shelfOrder);
   const top = topSellerIds.map((id) => byId.get(id)).filter((i): i is SellItem => Boolean(i));
 
 
@@ -2533,11 +2555,45 @@ export default function SellClient({
             className="@container mt-3 lg:mt-0"
           >
             {board === "products" ? (
-              recipes.length ? (
-                <RecipeGrid recipes={recipes} onOpen={openMix} openVersionId={mixOpen ? mixVersion : null} />
+              made.length || recipes.length ? (
+                <div className="space-y-4">
+                  {/*
+                    What is already mixed and standing on the shelf, first.
+
+                    It is a tile like any other — tap it, pick a jerrican, done —
+                    because that is what it is: an ordinary product with ordinary
+                    stock. The heading only appears when both kinds are on the
+                    board, since one heading over one list is noise.
+                  */}
+                  {made.length ? (
+                    <div>
+                      {recipes.length ? (
+                        <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
+                          Mixed and on the shelf
+                        </div>
+                      ) : null}
+                      <Grid items={made} onAdd={addItem} onRemove={removeItem} cart={cart} />
+                    </div>
+                  ) : null}
+
+                  {recipes.length ? (
+                    <div>
+                      {made.length ? (
+                        <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
+                          Mixed to order
+                        </div>
+                      ) : null}
+                      <RecipeGrid
+                        recipes={recipes}
+                        onOpen={openMix}
+                        openVersionId={mixOpen ? mixVersion : null}
+                      />
+                    </div>
+                  ) : null}
+                </div>
               ) : (
                 <p className="py-8 text-center text-sm text-muted">
-                  No recipes are written down yet.
+                  Nothing here yet. Write a recipe, or set one to mixed in advance.
                 </p>
               )
             ) : chemicals.length ? (

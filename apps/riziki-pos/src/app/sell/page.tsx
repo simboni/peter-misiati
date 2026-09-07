@@ -314,6 +314,22 @@ export default async function SellPage() {
   */
   const filled = filledByItem();
 
+  /*
+    The things this shop makes, as opposed to the things it buys in.
+
+    A mixed-in-advance recipe puts its output on a shelf as an ordinary item,
+    and an ordinary item landed on the Chemicals board — buried among forty-odd
+    raw materials, when it is precisely what the Products board is for: a
+    finished thing a customer asks for by name. The board's own comment says
+    "Products no longer means bottles on a shelf — the shop stopped mixing its
+    own", and the shop has started again.
+  */
+  const made = new Set(
+    all<{ output_item_id: number }>(
+      `SELECT output_item_id FROM formulas WHERE output_item_id IS NOT NULL AND active = 1`,
+    ).map((r) => r.output_item_id),
+  );
+
   const items: SellItem[] = rows.map((r) => ({
     id: r.id,
     basis: r.price_basis === "unit" ? "unit" : "pack",
@@ -324,6 +340,7 @@ export default async function SellPage() {
     priceCents: r.price_cents,
     qtyMilli: r.qty_milli,
     search: r.search,
+    made: made.has(r.id),
     bundles: (bundles.get(r.id) ?? []).map((b) => ({
       id: b.id,
       sizeMilli: b.sizeMilli,
