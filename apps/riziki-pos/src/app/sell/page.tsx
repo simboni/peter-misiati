@@ -12,7 +12,8 @@ import {
   SaleError,
 } from "@/lib/sales";
 import { mixFor, listFormulas } from "@/lib/production";
-import { getPrintSettings } from "@/lib/print-settings";
+import { getPrintSettings, receiptFromInvoice } from "@/lib/print-settings";
+import { getInvoice } from "@/lib/credit";
 import { formatKes } from "@/lib/units";
 import { setCounterPrice, PriceError } from "@/lib/pricing";
 import { bundlesByItem, bundlesByFormula } from "@/lib/bundles";
@@ -109,12 +110,28 @@ async function sellAction(_prev: SellState, payload: SalePayload): Promise<SellS
     // Pull fresh stock counts and top sellers back into the grid.
     refresh();
 
+    /*
+      The receipt, built here and handed back with the sale.
+
+      Without it the counter had nothing to print: the `done` state carried four
+      totals and no lines, so an automatic receipt could only happen after
+      somebody tapped through to the invoice page — which is not automatic, it
+      is a tap plus a page load with a customer waiting. The server has just
+      written the sale and can answer the question for free.
+
+      Built from the snapshot columns rather than from what the phone sent, so
+      the paper says what the till recorded: the real prices, the real invoice
+      number, the real discount.
+    */
+    const invoice = getInvoice(result.saleId);
+
     return {
       status: "done",
       saleId: result.saleId,
       totalCents: result.totalCents,
       paidCents: result.paidCents,
       outstandingCents: result.outstandingCents,
+      receipt: invoice ? receiptFromInvoice(invoice, getPrintSettings()) : undefined,
     };
   } catch (err) {
     if (err instanceof SaleError) {

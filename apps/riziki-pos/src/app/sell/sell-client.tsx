@@ -239,6 +239,13 @@ export type SellState =
       totalCents: number;
       paidCents: number;
       outstandingCents: number;
+      /**
+       * The paper slip for this sale, ready to print without another request.
+       *
+       * Absent only if the sale could not be read back, which should not happen
+       * — the counter then falls back to the link, as it always did.
+       */
+      receipt?: Receipt;
     }
   /**
    * Saved on the phone, not yet on the till. This is a success, not an error —
@@ -1534,17 +1541,38 @@ export default function SellClient({
             ? `${formatKes(receipt.outstandingCents)} on credit.`
             : "Paid in full."}
         </p>
+        {/*
+          The receipt prints HERE, not on the invoice page.
+
+          It used to print only after somebody tapped "Receipt / invoice" and
+          waited for that page to load — which is a tap and a page load with the
+          customer still at the counter, and is not what anybody means by
+          automatic. The sale now comes back with its own slip, so the paper
+          starts moving while the change is being counted and the attendant never
+          leaves the till.
+        */}
+        {receipt.receipt ? (
+          <div className="mt-2.5">
+            <ThermalPrint
+              receipt={receipt.receipt}
+              paper={printer.paper}
+              auto={printer.autoPrint}
+              label="Print receipt"
+            />
+          </div>
+        ) : null}
+
         <div className="mt-2.5 flex gap-2">
           <Link
             href={`/invoice/${receipt.saleId}?new=1`}
-            className="flex-1 rounded-full bg-brand px-4 py-2.5 text-center text-sm font-bold text-white shadow-sm hover:bg-brand-dark"
+            className="flex-1 rounded-full bg-white px-4 py-2.5 text-center text-sm font-bold text-brand-dark ring-1 ring-inset ring-line hover:bg-wash"
           >
             Receipt / invoice
           </Link>
           <button
             type="button"
             onClick={() => setReceipt(null)}
-            className="flex-1 rounded-full bg-white px-4 py-2.5 text-sm font-bold text-brand-dark ring-1 ring-inset ring-line hover:bg-wash"
+            className="flex-1 rounded-full bg-brand px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-brand-dark"
           >
             Next sale
           </button>
