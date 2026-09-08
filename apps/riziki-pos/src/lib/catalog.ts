@@ -37,6 +37,8 @@ export interface AdminItem {
   floor_cents: number;
   ceiling_cents: number;
   cost_cents: number;
+  /** How far past zero it may be sold, in thousandths. */
+  oversell_milli?: number;
   reorder_level_milli: number;
   active: number;
 }
@@ -87,6 +89,8 @@ export interface PricingInput {
   /** The most it may go for. Zero means no ceiling. */
   ceiling: number;
   reorderUnits: number;
+  /** How far past zero it may be sold, in the item's own unit. Optional; zero means never. */
+  oversellUnits?: number;
   byUserId: number;
 }
 
@@ -150,13 +154,28 @@ export function updatePricing(input: PricingInput): void {
     );
   }
 
+  /*
+    How far past zero this may be sold.
+
+    Typed in the item's own unit — 20 means twenty kilogrammes of Ungerol, not
+    twenty drums — because that is the number the owner can say out loud about
+    the shop next door. Blank and zero mean the same thing: the till refuses
+    what the shelf cannot cover, which is what it has always done.
+  */
+  const oversellMilli = Math.max(
+    0,
+    Math.round((Number((input as { oversellUnits?: number }).oversellUnits) || 0) * MILLI),
+  );
+
   run(
-    `UPDATE items SET price_cents = ?, floor_cents = ?, ceiling_cents = ?, reorder_level_milli = ?
+    `UPDATE items SET price_cents = ?, floor_cents = ?, ceiling_cents = ?, reorder_level_milli = ?,
+                      oversell_milli = ?
       WHERE id = ?`,
     price,
     floor,
     ceiling,
     reorderMilli,
+    oversellMilli,
     input.itemId,
   );
   audit(input.byUserId, "price_changed", "item", input.itemId, `${item.name} → ${price}c`);
@@ -175,6 +194,13 @@ export interface ProductEditInput extends PricingInput {
   containerValue: number;
   /** drum, bag, jerrican… */
   containerLabel: string;
+  /**
+   * How far past zero it may be sold, in the item's own unit.
+   *
+   * Zero, and blank on the form, for almost everything — the till refuses what
+   * the shelf cannot cover. A number is a promise about the yard next door.
+   */
+  oversellUnits?: number;
 }
 
 /**

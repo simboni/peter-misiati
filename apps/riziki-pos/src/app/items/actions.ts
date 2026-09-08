@@ -49,6 +49,7 @@ export async function savePricingAction(
       floor: Number(formData.get("floor") ?? 0),
       ceiling: Number(formData.get("ceiling") ?? 0),
       reorderUnits: Number(formData.get("reorder") ?? 0),
+      oversellUnits: Number(formData.get("oversell") ?? 0),
       byUserId: owner.id,
     });
 

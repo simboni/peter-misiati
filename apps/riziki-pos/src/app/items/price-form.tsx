@@ -50,6 +50,7 @@ export default function PriceForm({
   floor,
   ceiling,
   reorder,
+  oversell,
   onHandMilli,
   bundles,
 }: {
@@ -69,6 +70,8 @@ export default function PriceForm({
   floor: number;
   ceiling: number;
   reorder: number;
+  /** How far past zero it may be sold, in the item's own unit. */
+  oversell: number;
   /** What the ledger says is on the shelf, for the warning about relabelling. */
   onHandMilli: number;
   /** The sizes this is also sold in, as they stand. */
@@ -87,6 +90,7 @@ export default function PriceForm({
   const [floorText, setFloorText] = useState(num(floor));
   const [ceilingText, setCeilingText] = useState(num(ceiling));
   const [reorderText, setReorderText] = useState(num(reorder));
+  const [oversellText, setOversellText] = useState(num(oversell));
   const [bundleRows, setBundleRows] = useState<BundleRow[]>(bundles);
 
   // Changing the unit relabels what is already on the books rather than
@@ -177,6 +181,27 @@ export default function PriceForm({
         </Field>
         <Field label="Warn me at" hint={reorderNow}>
           <Money name="reorder" label="Warn me at" value={reorderText} onValue={setReorderText} />
+        </Field>
+        {/*
+          How far past empty this may be sold.
+
+          Blank for almost everything, and blank is the till the shop has always
+          had: it refuses what the shelf cannot cover. A number is a promise
+          about the yard next door — twenty kilos of Ungerol is a phone call, and
+          twenty litres of a concentrate nobody else stocks is a promise that
+          cannot be kept, which is why this is per product rather than a switch
+          for the whole shop.
+        */}
+        <Field
+          label="May be sold short by"
+          hint={`Blank for none. ${unit === "pcs" ? "How many" : `How many ${unit}`} you can fetch from the shop next door and put back on the next delivery.`}
+        >
+          <Money
+            name="oversell"
+            label="May be sold short by"
+            value={oversellText}
+            onValue={setOversellText}
+          />
         </Field>
       </div>
 

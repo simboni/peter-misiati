@@ -3,6 +3,9 @@ import { currentUser } from "@/lib/auth";
 import { stockView, stockLines } from "@/lib/stock-service";
 import { StockWindow } from "./stock-window";
 import { submitStocktake } from "./actions";
+import { borrowed } from "@/lib/borrowing";
+import { formatQty } from "@/lib/units";
+import { Alert } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -47,7 +50,30 @@ export default async function StockPage(props: {
   // rather than receiving it and being shown no tab.
   const countLines = owner ? stockLines() : [];
 
+  /*
+    What has been sold that the shop did not have.
+
+    A negative count IS the debt to the yard next door, in the unit the debt is
+    in — so this is not a separate ledger, it is the shelf read the other way
+    round. It sits above the shelf rather than inside it because it is an errand
+    rather than a figure: somebody has to walk over with it, or put it on the
+    next order.
+  */
+  const owing = borrowed();
+
   return (
+    <>
+      {owing.length ? (
+        <div className="mb-4 max-w-3xl">
+          <Alert tone="warn">
+            <span className="font-bold">Fetched from next door and not yet replaced:</span>{" "}
+            {owing
+              .map((b) => `${formatQty(b.owedMilli, b.unit)} of ${b.name}`)
+              .join(", ")}
+            . Recording the delivery settles it — the count comes back up on its own.
+          </Alert>
+        </div>
+      ) : null}
     <StockWindow
       view={safe}
       countLines={countLines}
@@ -56,5 +82,6 @@ export default async function StockPage(props: {
       stocktakeAction={submitStocktake}
       initialPanel={panel === "count" ? "count" : "shelf"}
     />
+    </>
   );
 }

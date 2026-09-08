@@ -155,6 +155,16 @@ const ADDED_COLUMNS: Array<{ table: string; column: string; definition: string }
     and only enforced, for the things the owner says are actually poured.
   */
   { table: "items", column: "packed", definition: "INTEGER NOT NULL DEFAULT 0 CHECK (packed IN (0, 1))" },
+  /*
+    How far past zero this may be sold, in thousandths.
+
+    Zero for everything, which is the behaviour the shop has always had: the
+    till refuses what the shelf cannot cover. A number here says the shop can
+    fetch that much from the yard next door and put it back on the next
+    delivery — and the stock going negative is exactly the record of what is
+    owed, which a delivery then absorbs on its own.
+  */
+  { table: "items", column: "oversell_milli", definition: "INTEGER NOT NULL DEFAULT 0 CHECK (oversell_milli >= 0)" },
   { table: "sale_lines", column: "rate_cents", definition: "INTEGER NOT NULL DEFAULT 0 CHECK (rate_cents >= 0)" },
   {
     table: "sale_lines",

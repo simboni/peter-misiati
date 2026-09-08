@@ -273,6 +273,7 @@ interface ItemRow {
   unit_label: string;
   size_milli: number;
   price_cents: number;
+  oversell_milli: number;
   qty_milli: number;
   search: string;
 }
@@ -287,7 +288,7 @@ export default async function SellPage() {
   // server, and only then does the counter learn a limit exists.
   const rows = all<ItemRow>(
     `SELECT i.id, i.name, i.kind, i.price_basis, i.canonical_unit, i.unit_label, i.size_milli,
-            i.price_cents,
+            i.price_cents, i.oversell_milli,
             COALESCE(SUM(m.delta_milli), 0) AS qty_milli,
             LOWER(i.name || ' ' || COALESCE(c.name, '') || ' ' || COALESCE(c.aliases, '')) AS search
        FROM items i
@@ -341,6 +342,7 @@ export default async function SellPage() {
     qtyMilli: r.qty_milli,
     search: r.search,
     made: made.has(r.id),
+    oversellMilli: r.oversell_milli ?? 0,
     bundles: (bundles.get(r.id) ?? []).map((b) => ({
       id: b.id,
       sizeMilli: b.sizeMilli,

@@ -217,6 +217,7 @@ function ProductRow({ item }: { item: AdminItem }) {
           floor={fromCents(item.floor_cents)}
           ceiling={fromCents(item.ceiling_cents)}
           reorder={reorderUnits}
+          oversell={(item.oversell_milli ?? 0) / 1000}
           onHandMilli={stockOf(item.id)}
           bundles={itemBundles(item.id).map((b) => ({
             size: String(b.sizeMilli / 1000),

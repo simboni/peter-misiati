@@ -22,6 +22,7 @@
 
 import { all, get, run, tx, postMovement, stockOf, audit, type Item, type PriceBasis } from "./db.ts";
 import { filledOf, takeFilled, openForLoose } from "./packing.ts";
+import { allowanceOf, refusal } from "./borrowing.ts";
 import { verifyPin } from "./pin.ts";
 import { findBundle } from "./bundles.ts";
 import { mixFor, currentVersion } from "./production.ts";
@@ -555,12 +556,14 @@ function resolveFormulaBundle(
     if (!item) throw new SaleError("unknown_item", `${ing.chemicalName} is no longer on sale.`);
 
     const taken = (claimed.get(item.id) ?? 0) + ing.qtyMilli;
-    if (taken > stockOf(item.id)) {
+    const allow = allowanceOf(item);
+    if (taken > stockOf(item.id) + allow) {
       throw new SaleError(
         "not_enough_stock",
         `${mix.formulaName} needs ${formatQty(ing.qtyMilli, item.canonical_unit)} of ` +
-          `${ing.chemicalName}, and there is not that much left. ` +
-          `If there is more in the store than the book says, do a stock take first.`,
+          `${ing.chemicalName}, and there is not that much left` +
+          (allow > 0 ? ` even counting what may be fetched next door` : "") +
+          `. If there is more in the store than the book says, do a stock take first.`,
       );
     }
     claimed.set(item.id, taken);
@@ -689,12 +692,20 @@ function resolveLines(input: RecordSaleInput): ResolvedLine[] {
       if ((item as Item & { packed?: number }).packed === 1) {
         const wantUnits = (claimedFilled.get(bundle.id) ?? 0) + line.units;
         const filled = filledOf(item.id, bundle.id);
-        if (wantUnits > filled) {
+        /*
+          A jerrican can be fetched from next door too. The allowance is a
+          weight, so it buys whole containers of this size and no fraction of
+          one — half a borrowed jerrican is not a thing anybody carries.
+        */
+        const borrowable =
+          bundle.sizeMilli > 0 ? Math.floor(allowanceOf(item) / bundle.sizeMilli) : 0;
+        if (wantUnits > filled + borrowable) {
           throw new SaleError(
             "not_enough_stock",
             `There ${filled === 1 ? "is" : "are"} ${filled} × ` +
-              `${formatQty(bundle.sizeMilli, item.canonical_unit)} of ${item.name} filled, ` +
-              `and this sale asks for ${wantUnits}. Fill more from the drum, or sell it loose.`,
+              `${formatQty(bundle.sizeMilli, item.canonical_unit)} of ${item.name} filled` +
+              (borrowable > 0 ? `, and room to fetch ${borrowable} more` : "") +
+              `, and this sale asks for ${wantUnits}. Fill more from the drum, or sell it loose.`,
           );
         }
         claimedFilled.set(bundle.id, wantUnits);
@@ -702,14 +713,8 @@ function resolveLines(input: RecordSaleInput): ResolvedLine[] {
 
       const taken = (claimed.get(item.id) ?? 0) + qtyMilli;
       const onHand = stockOf(item.id);
-      if (taken > onHand) {
-        throw new SaleError(
-          "not_enough_stock",
-          `There is ${formatQty(Math.max(0, onHand), item.canonical_unit)} of ${item.name} left, ` +
-            `and this sale asks for ${formatQty(taken, item.canonical_unit)}. ` +
-            `If there is more in the store than the book says, do a stock take first.`,
-        );
-      }
+      const no = refusal(item.name, item.canonical_unit, onHand, allowanceOf(item), taken);
+      if (no) throw new SaleError("not_enough_stock", no);
       claimed.set(item.id, taken);
 
       return {
@@ -764,14 +769,8 @@ function resolveLines(input: RecordSaleInput): ResolvedLine[] {
 
       const taken = (claimed.get(item.id) ?? 0) + qtyMilli;
       const onHand = stockOf(item.id);
-      if (taken > onHand) {
-        throw new SaleError(
-          "not_enough_stock",
-          `There is ${formatQty(Math.max(0, onHand), item.canonical_unit)} of ${item.name} left, ` +
-            `and this sale asks for ${formatQty(taken, item.canonical_unit)}. ` +
-            `If there is more in the store than the book says, do a stock take first.`,
-        );
-      }
+      const no = refusal(item.name, item.canonical_unit, onHand, allowanceOf(item), taken);
+      if (no) throw new SaleError("not_enough_stock", no);
       claimed.set(item.id, taken);
 
       return {

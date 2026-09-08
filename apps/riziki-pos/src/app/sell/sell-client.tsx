@@ -95,6 +95,14 @@ export interface SellItem {
   /** name + chemical name + aliases, lower-cased, so "sles" finds Ungerol */
   search: string;
   /**
+   * How far past zero this may be sold, in thousandths.
+   *
+   * Zero for everything until the owner says otherwise, which is the till the
+   * shop has always had. A number means the shop can fetch that much from the
+   * yard next door and put it back on the next delivery.
+   */
+  oversellMilli?: number;
+  /**
    * The shop mixes this itself — it is the output of one of its own recipes.
    *
    * Those belong on the Products board with the recipes rather than among the
@@ -1044,8 +1052,27 @@ export default function SellClient({
   const stocked = lines.filter(
     (x): x is { line: CartLine; item: SellItem } => x.item !== null,
   );
+  /*
+    Two different sentences about a short shelf.
+
+    `oversold` is anything on the bill that the shelf cannot cover. It has never
+    stopped a sale of a packed thing — the customer is holding the bottle — and
+    it does not now.
+
+    `overdrawn` is the harder case: a weighed chemical the till used to refuse
+    outright. It still refuses, but only past what the owner has said may be
+    fetched from next door. Inside that allowance the sale goes through and the
+    count goes negative, which is the record of what is owed.
+  */
+  const roomOf = (item: SellItem) => Math.max(0, item.qtyMilli) + (item.oversellMilli ?? 0);
   const oversold = stocked.filter((x) => x.item.qtyMilli >= 0 && x.line.qtyMilli > x.item.qtyMilli);
-  const overdrawn = oversold.filter((x) => x.item.basis === "unit");
+  const overdrawn = stocked.filter(
+    (x) => x.item.basis === "unit" && x.line.qtyMilli > roomOf(x.item),
+  );
+  /** On the bill, past the shelf, but inside what may be fetched next door. */
+  const borrowing = stocked.filter(
+    (x) => x.line.qtyMilli > Math.max(0, x.item.qtyMilli) && x.line.qtyMilli <= roomOf(x.item),
+  );
   /*
     The M-Pesa code is optional.
 
@@ -1651,6 +1678,29 @@ export default function SellClient({
               take says so.
             </Alert>
           </div>
+        ) : borrowing.length ? (
+          /*
+            Sold, and said out loud.
+
+            A sale that quietly takes the shelf negative is worse than one that
+            is refused: somebody has to walk next door for this, and the person
+            who has to is the one reading this line. It names the quantity,
+            because "fetch some Ungerol" and "fetch four kilos of Ungerol" are
+            different errands.
+          */
+          <div className="mt-3">
+            <Alert tone="warn">
+              <span className="font-bold">Fetch this from next door.</span>{" "}
+              {borrowing
+                .map(
+                  (x) =>
+                    `${formatQty(x.line.qtyMilli - Math.max(0, x.item.qtyMilli), x.item.unit)} of ${x.item.name}`,
+                )
+                .join(", ")}{" "}
+              is more than the shelf holds. The sale is fine — the count goes short by that much
+              until the delivery is recorded, and then it balances itself.
+            </Alert>
+          </div>
         ) : oversold.length ? (
           <div className="mt-3">
             <Alert tone="warn">
@@ -2029,8 +2079,19 @@ export default function SellClient({
       */}
       {overdrawn.length ? (
         <p className="mt-2 text-xs font-semibold text-bad">
+          {/*
+            Say the whole ceiling, not half of it.
+
+            A shop that may be short by twenty kilos needs to be told the
+            hundred and forty-three AND the twenty, or the attendant reads "only
+            143 kg left" and has no way to know why 150 went through an hour ago
+            and 200 will not.
+          */}
           {overdrawn.length === 1
-            ? `There is only ${formatQty(Math.max(0, overdrawn[0].item.qtyMilli), overdrawn[0].item.unit)} of ${overdrawn[0].item.name} left. ` +
+            ? `There is only ${formatQty(Math.max(0, overdrawn[0].item.qtyMilli), overdrawn[0].item.unit)} of ${overdrawn[0].item.name} left` +
+              ((overdrawn[0].item.oversellMilli ?? 0) > 0
+                ? `, and ${formatQty(overdrawn[0].item.oversellMilli!, overdrawn[0].item.unit)} it may be sold short by. `
+                : ". ") +
               `Change the quantity, or record the delivery first.`
             : `Some chemicals on this bill are short: ${overdrawn
                 .map((x) => x.item.name)
