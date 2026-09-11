@@ -186,15 +186,26 @@ export function BottomNav({ isOwner }: { isOwner: boolean }) {
  */
 export function MenuDrawer({ isOwner }: { isOwner: boolean }) {
   const path = usePathname();
-  const [open, setOpen] = useState(false);
   const tabs = TABS.filter((t) => !t.ownerOnly || isOwner);
 
-  // Arriving somewhere is the signal that the menu has done its job.
-  useEffect(() => setOpen(false), [path]);
+  /*
+    Open, remembered as WHERE it was opened.
+
+    Arriving somewhere is the signal that the menu has done its job, and that
+    used to be an effect that closed it whenever the path changed — a render,
+    then a second render to undo it. Storing the path it was opened on says the
+    same thing without any effect at all: navigate, and `open` is false because
+    the page underneath is no longer the page it was opened over.
+  */
+  const [openedAt, setOpenedAt] = useState<string | null>(null);
+  const open = openedAt !== null && openedAt === path;
+  const setOpen = (next: boolean) => setOpenedAt(next ? path : null);
 
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    // Straight to the setter: `setOpen` is rebuilt every render, and listing it
+    // as a dependency would tear the listener down and put it back each time.
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpenedAt(null);
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [open]);

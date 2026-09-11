@@ -15,7 +15,7 @@
  * "Send now". They share one in-flight attempt inside `drainOutbox`.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import {
   countOutbox,
@@ -32,10 +32,34 @@ import { Alert, Button, inputClass } from "@/components/ui";
 /** Slow on purpose: the retry is cheap, but a chatty phone on Safaricom is not. */
 const RETRY_MS = 20_000;
 
+/*
+  Whether the phone thinks it has a network — read the way React reads anything
+  that lives outside it.
+
+  This used to be state set from inside an effect, which meant every screen
+  painted once believing it was online and again once the effect had asked. The
+  browser's own online/offline events are the subscription; the interval is
+  there because a cheap Android on one bar does not always fire them, and a
+  counter that believes it is offline when it is not stops sending the queue.
+
+  The server can only assume online — it has no phone to ask — and that is also
+  the quiet answer, so the first paint carries no banner either way.
+*/
+function subscribeOnline(fn: () => void): () => void {
+  window.addEventListener("online", fn);
+  window.addEventListener("offline", fn);
+  const timer = window.setInterval(fn, RETRY_MS);
+  return () => {
+    window.removeEventListener("online", fn);
+    window.removeEventListener("offline", fn);
+    window.clearInterval(timer);
+  };
+}
+
 export default function OfflineStatus() {
   const router = useRouter();
 
-  const [online, setOnline] = useState(true);
+  const online = useSyncExternalStore(subscribeOnline, () => navigator.onLine, () => true);
   const [queue, setQueue] = useState<QueuedSale[]>([]);
   const [open, setOpen] = useState(false);
   const [sending, setSending] = useState(false);
@@ -75,8 +99,15 @@ export default function OfflineStatus() {
 
   useEffect(() => {
     alive.current = true;
-    setOnline(navigator.onLine);
-    void reload();
+
+    /*
+      Both of these reach for IndexedDB, so neither writes state before the
+      first await — but started straight from the effect body they read as
+      synchronous, and the render rules cannot see past the call. A tick's delay
+      costs nothing here and says plainly that the queue is read from outside
+      React, not derived inside it.
+    */
+    const first = setTimeout(() => void reload(), 0);
 
     // On page load, before anything else: yesterday's queue must not wait for
     // the first network flap of the day.
@@ -84,18 +115,18 @@ export default function OfflineStatus() {
       if (n > 0 && navigator.onLine) void send();
     });
 
-    const goOnline = () => {
-      setOnline(true);
-      void send();
-    };
-    const goOffline = () => setOnline(false);
-
-    window.addEventListener("online", goOnline);
-    window.addEventListener("offline", goOffline);
     const stopWatching = onOutboxChange(() => void reload());
 
+    /*
+      The retry, separate from knowing whether there is a network.
+
+      `subscribeOnline` above answers "is there a signal"; this answers "is
+      there anything waiting to go". They tick at the same rate and for the same
+      reason — a phone on one bar — but they are two different questions, and a
+      queue that only drained when the signal CHANGED would sit there all
+      morning on a connection that never formally dropped.
+    */
     const timer = window.setInterval(() => {
-      setOnline(navigator.onLine);
       void countOutbox().then((n) => {
         if (n > 0 && navigator.onLine) void send();
       });
@@ -103,12 +134,22 @@ export default function OfflineStatus() {
 
     return () => {
       alive.current = false;
-      window.removeEventListener("online", goOnline);
-      window.removeEventListener("offline", goOffline);
+      clearTimeout(first);
       stopWatching();
       window.clearInterval(timer);
     };
   }, [reload, send]);
+
+  /*
+    The signal came back — send at once rather than waiting for the next tick.
+
+    Not a state write, so it is an effect doing what effects are for: reacting
+    to the outside world changing. Twenty seconds is a long time to stand at a
+    counter wondering whether the sale went.
+  */
+  useEffect(() => {
+    if (online) void send();
+  }, [online, send]);
 
   const waiting = queue.length;
   const refused = queue.filter((s) => s.lastError);

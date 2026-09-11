@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 
 /**
  * The band across the top, folded away by default.
@@ -22,6 +22,28 @@ import { useEffect, useState } from "react";
  * The choice is remembered per device, so a counter that wants the band can
  * keep it and everyone else gets the space back.
  */
+/*
+  The folded/unfolded band, held outside React so the header does not have to
+  paint twice to find out. One value, one set of watchers — there is never more
+  than one header on the screen, and a Set costs nothing when it holds one.
+*/
+const headerWatchers = new Set<() => void>();
+
+function subscribeHeader(fn: () => void): () => void {
+  headerWatchers.add(fn);
+  return () => {
+    headerWatchers.delete(fn);
+  };
+}
+
+function headerOpen(): boolean {
+  try {
+    return localStorage.getItem("riziki_header") === "open";
+  } catch {
+    return false;
+  }
+}
+
 export default function AppHeader({
   menu,
   status,
@@ -36,15 +58,24 @@ export default function AppHeader({
 }) {
   // Collapsed until told otherwise: the space matters more than the banner, and
   // one tap brings it back.
-  const [open, setOpen] = useState(false);
+  /*
+    Read from storage the way React reads anything outside itself.
 
-  useEffect(() => {
+    This was an effect that set state on mount — a render with the band folded,
+    then a second render to unfold it, on every screen. `useSyncExternalStore`
+    is the tool for state that lives outside React: the server snapshot is
+    "folded", which is also what the first client paint shows, so the markup
+    matches and only a shop that has actually opened it pays for the change.
+  */
+  const open = useSyncExternalStore(subscribeHeader, headerOpen, () => false);
+  const setOpen = (next: boolean) => {
     try {
-      setOpen(localStorage.getItem("riziki_header") === "open");
+      localStorage.setItem("riziki_header", next ? "open" : "shut");
     } catch {
-      // Private mode, or storage refused. The default stands.
+      // Private mode, or storage refused. The band still toggles for this view.
     }
-  }, []);
+    for (const fn of headerWatchers) fn();
+  };
 
   function toggle() {
     const next = !open;
