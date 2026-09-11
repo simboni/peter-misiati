@@ -28,6 +28,11 @@ export interface CorrectLine {
   unit: string;
   /** What the supplier charged for this line before transport, in shillings. */
   goods: string;
+  /** How many containers were booked. */
+  units: string;
+  /** What one of them held, in the item's own unit. */
+  each: string;
+  unitLabel: string;
 }
 
 export function CorrectForm({
@@ -56,28 +61,54 @@ export function CorrectForm({
         {state.ok ? <Alert tone="good">{state.ok}</Alert> : null}
 
         <p className="text-[11px] text-muted">
-          What the supplier charged, before transport. The quantities stay as they are — to
-          change what arrived, do a stock take.
+          How many containers came, what one held, and what the supplier charged before
+          transport. Change the count and the shelf is corrected by its own entry — the
+          original stays on the record.
         </p>
 
         {lines.map((l) => (
-          <label key={l.lineId} className="flex flex-wrap items-center gap-2">
-            <span className="min-w-0 flex-1 truncate text-[11px] font-semibold">
+          <div key={l.lineId} className="space-y-1 border-t border-line pt-1.5 first:border-0 first:pt-0">
+            <div className="truncate text-[11px] font-semibold">
               {l.itemName}
               <span className="ml-1 font-normal text-muted tnum">
-                {formatQty(l.qtyMilli, l.unit)}
+                booked as {formatQty(l.qtyMilli, l.unit)}
               </span>
-            </span>
-            <span className="text-[11px] text-muted">KES</span>
-            <input
-              className={`${inputClassBase} w-28 !py-1.5 text-right text-sm tnum`}
-              type="text"
-              inputMode="decimal"
-              name={`line:${l.lineId}`}
-              defaultValue={l.goods}
-              aria-label={`What ${l.itemName} cost, before transport`}
-            />
-          </label>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {/*
+                What came, and what it cost, on one line — because they are one
+                question at the delivery note and correcting the count without
+                the price would leave a rate nobody meant.
+              */}
+              <input
+                className={`${inputClassBase} w-14 !py-1.5 text-center text-sm tnum`}
+                type="text"
+                inputMode="numeric"
+                name={`units:${l.lineId}`}
+                defaultValue={l.units}
+                aria-label={`How many ${l.unitLabel}s of ${l.itemName} came`}
+              />
+              <span className="text-[11px] text-muted">×</span>
+              <input
+                className={`${inputClassBase} w-16 !py-1.5 text-center text-sm tnum`}
+                type="text"
+                inputMode="decimal"
+                name={`each:${l.lineId}`}
+                defaultValue={l.each}
+                aria-label={`What one ${l.unitLabel} of ${l.itemName} held, in ${l.unit}`}
+              />
+              <span className="text-[11px] text-muted">{l.unit}</span>
+              <span className="ml-auto text-[11px] text-muted">KES</span>
+              <input
+                className={`${inputClassBase} w-24 !py-1.5 text-right text-sm tnum`}
+                type="text"
+                inputMode="decimal"
+                name={`line:${l.lineId}`}
+                defaultValue={l.goods}
+                aria-label={`What ${l.itemName} cost, before transport`}
+              />
+            </div>
+          </div>
         ))}
 
         <label className="flex flex-wrap items-center gap-2 border-t border-line pt-2">

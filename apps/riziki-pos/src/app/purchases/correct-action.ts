@@ -28,7 +28,12 @@ export async function correctPricesAction(
     return { error: "That delivery could not be found." };
   }
 
-  const lines: Array<{ lineId: number; costCents: number }> = [];
+  const lines: Array<{
+    lineId: number;
+    costCents: number;
+    units?: number;
+    sizeMilli?: number;
+  }> = [];
   for (const [key, value] of formData.entries()) {
     if (!key.startsWith("line:")) continue;
     const lineId = Number(key.slice(5));
@@ -37,7 +42,23 @@ export async function correctPricesAction(
     if (!Number.isFinite(shillings) || shillings < 0) {
       return { error: "Every price has to be a number, zero or more." };
     }
-    lines.push({ lineId, costCents: Math.round(shillings * 100) });
+
+    // What came, alongside what it cost. Absent or unchanged leaves the count.
+    const units = Number(String(formData.get(`units:${lineId}`) ?? "").trim());
+    const each = Number(String(formData.get(`each:${lineId}`) ?? "").trim());
+    if (!Number.isFinite(units) || units <= 0) {
+      return { error: "Every line needs a whole number of containers, more than none." };
+    }
+    if (!Number.isFinite(each) || each <= 0) {
+      return { error: "Say what one container held — it has to be more than nothing." };
+    }
+
+    lines.push({
+      lineId,
+      costCents: Math.round(shillings * 100),
+      units: Math.round(units),
+      sizeMilli: Math.round(each * 1000),
+    });
   }
   if (!lines.length) return { error: "There was nothing to correct." };
 

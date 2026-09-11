@@ -339,6 +339,12 @@ export default async function PurchasesPage(props: {
                         goods: shillings(
                           goodsOf(l.cost_cents, p.total_cents, p.transport_cents),
                         ),
+                        units: String(l.units),
+                        each: String(
+                          Math.round(l.size_milli > 0 ? l.size_milli : l.qty_milli / (l.units || 1)) /
+                            1000,
+                        ),
+                        unitLabel: l.unit_label,
                       }))}
                     />
                   </Td>

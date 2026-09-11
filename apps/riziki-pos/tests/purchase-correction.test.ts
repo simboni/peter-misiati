@@ -149,3 +149,44 @@ test("an item with no priced arrivals keeps the cost it was given", () => {
        VALUES (?, 40000, 'stocktake', ?)`, counted, OWNER);
   assert.equal(recomputeCost(counted), 7_500, "a stock take is a count, not a price");
 });
+
+test("a wrong count of drums is corrected by its own entry, not by a rewrite", () => {
+  const drum = createProduct({ name: "Fix Ufacid", unit: "kg", containerValue: 250,
+    containerLabel: "drum", price: 180, floor: 0, ceiling: 0, aliases: "", byUserId: OWNER });
+
+  // Three drums booked; only two came.
+  const res = recordPurchase({
+    supplierId: null,
+    lines: [{ itemId: drum, units: 3, sizeMilli: 250_000, costCents: 4_500_000 }],
+    userId: OWNER,
+  });
+  assert.equal(stockOf(drum), 750_000, "three drums went on the shelf");
+  assert.equal(costOf(drum), 6_000, "45,000 over 750 kg is 60.00 a kilogramme");
+
+  const line = all<{ id: number }>(
+    `SELECT id FROM purchase_lines WHERE purchase_id = ?`, res.purchaseId)[0];
+  const movesBefore = all(`SELECT id FROM stock_movements WHERE item_id = ?`, drum).length;
+
+  correctPurchasePrices(
+    res.purchaseId,
+    { lines: [{ lineId: line.id, costCents: 3_000_000, units: 2 }] },
+    OWNER,
+  );
+
+  assert.equal(stockOf(drum), 500_000, "two drums, not three");
+  const moves = all<{ delta_milli: number; reason: string; note: string | null }>(
+    `SELECT delta_milli, reason, note FROM stock_movements WHERE item_id = ? ORDER BY id`, drum);
+  assert.equal(moves.length, movesBefore + 1, "one new entry, and the first one untouched");
+  assert.equal(moves[0].delta_milli, 750_000, "what was originally posted still says so");
+  assert.equal(moves[1].delta_milli, -250_000, "and the correction is its own row");
+  assert.equal(moves[1].reason, "adjustment");
+  assert.match(moves[1].note ?? "", /delivery corrected/);
+
+  assert.equal(costOf(drum), 6_000, "30,000 over 500 kg is still 60.00 a kilogramme");
+
+  const row = get<{ units: number; qty_milli: number; cost_cents: number }>(
+    `SELECT units, qty_milli, cost_cents FROM purchase_lines WHERE id = ?`, line.id)!;
+  assert.equal(row.units, 2, "and the delivery note and the record now agree");
+  assert.equal(row.qty_milli, 500_000);
+  assert.equal(row.cost_cents, 3_000_000);
+});

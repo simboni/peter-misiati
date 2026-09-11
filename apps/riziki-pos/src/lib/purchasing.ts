@@ -538,9 +538,10 @@ export function recomputeCost(itemId: number): number {
   const moves = all<{
     delta_milli: number;
     reason: string;
+    ref_type: string | null;
     ref_id: number | null;
   }>(
-    `SELECT delta_milli, reason, ref_id FROM stock_movements
+    `SELECT delta_milli, reason, ref_type, ref_id FROM stock_movements
       WHERE item_id = ? ORDER BY id`,
     itemId,
   );
@@ -549,15 +550,37 @@ export function recomputeCost(itemId: number): number {
   let costCents = 0;
 
   for (const m of moves) {
-    let incomingCents: number | null = null;
+    /*
+      A correction to a delivery is already in the delivery.
 
+      When the count on a line is put right, the difference is posted as its own
+      adjustment — the ledger is append-only and the original entry stays. But
+      the LINE then holds the corrected quantity and the corrected cost, so
+      replaying both would count the difference twice: once by skipping it here,
+      and once below, where the arrival is read off the line rather than off the
+      movement that first recorded it.
+    */
+    if (m.reason === "adjustment" && m.ref_type === "purchase") continue;
+
+    let incomingCents: number | null = null;
+    let incomingMilli = m.delta_milli;
+
+    /*
+      A delivery whose quantity was corrected has TWO rows against it: the
+      original arrival, priced, and an adjustment for the difference. The
+      adjustment moves the count and not the rate — which is right, because the
+      line's landed cost below is already the cost of the corrected quantity.
+    */
     if (m.reason === "purchase" && m.ref_id !== null) {
-      const line = get<{ cost_cents: number }>(
-        `SELECT cost_cents FROM purchase_lines WHERE purchase_id = ? AND item_id = ?`,
+      const line = get<{ cost_cents: number; qty_milli: number }>(
+        `SELECT cost_cents, qty_milli FROM purchase_lines WHERE purchase_id = ? AND item_id = ?`,
         m.ref_id,
         itemId,
       );
       incomingCents = line?.cost_cents ?? null;
+      // What the line says arrived, which is the corrected figure where it was
+      // corrected and the original everywhere else.
+      if (line) incomingMilli = line.qty_milli;
     } else if (m.reason === "batch_output" && m.ref_id !== null) {
       /*
         An undone batch is skipped, not counted.
@@ -575,15 +598,15 @@ export function recomputeCost(itemId: number): number {
       incomingCents = batch && !batch.voided_at ? batch.cost_cents : null;
     }
 
-    if (incomingCents !== null && m.delta_milli > 0) {
+    if (incomingCents !== null && incomingMilli > 0) {
       const held = Math.max(0, qtyMilli);
       const existingValue = Math.round((held * costCents) / MILLI);
-      const totalMilli = held + m.delta_milli;
+      const totalMilli = held + incomingMilli;
       if (totalMilli > 0) {
         costCents = Math.round(((existingValue + incomingCents) * MILLI) / totalMilli);
       }
     }
-    qtyMilli += m.delta_milli;
+    qtyMilli += incomingMilli;
   }
 
   /*
@@ -604,6 +627,16 @@ export interface PriceCorrection {
   lineId: number;
   /** What the supplier actually charged for the whole line, before transport. */
   costCents: number;
+  /**
+   * How many containers actually came, if that was wrong too.
+   *
+   * Omitted leaves the count alone, which is the ordinary case. Given, the
+   * difference is posted to the stock ledger as its own correcting entry —
+   * never by rewriting what was already written.
+   */
+  units?: number;
+  /** What one container held, if that was wrong. Omitted keeps what was recorded. */
+  sizeMilli?: number;
 }
 
 export interface CorrectionResult {
@@ -650,16 +683,36 @@ export function correctPurchasePrices(
     throw new Error("Transport must be a whole number of cents, zero or more.");
   }
 
-  const existing = all<{ id: number; item_id: number; units: number; qty_milli: number }>(
-    `SELECT id, item_id, units, qty_milli FROM purchase_lines WHERE purchase_id = ? ORDER BY id`,
+  const existing = all<{
+    id: number;
+    item_id: number;
+    units: number;
+    size_milli: number;
+    qty_milli: number;
+  }>(
+    `SELECT id, item_id, units, size_milli, qty_milli FROM purchase_lines
+      WHERE purchase_id = ? ORDER BY id`,
     purchaseId,
   );
   if (!existing.length) throw new Error("That delivery has no lines.");
 
   const wanted = new Map(input.lines.map((l) => [l.lineId, l.costCents]));
+  const wantedQty = new Map(
+    input.lines
+      .filter((l) => l.units !== undefined || l.sizeMilli !== undefined)
+      .map((l) => [l.lineId, { units: l.units, sizeMilli: l.sizeMilli }]),
+  );
   for (const [, cents] of wanted) {
     if (!Number.isInteger(cents) || cents < 0) {
       throw new Error("Every price must be a whole number of cents, zero or more.");
+    }
+  }
+  for (const [, q] of wantedQty) {
+    if (q.units !== undefined && (!Number.isInteger(q.units) || q.units <= 0)) {
+      throw new Error("A delivery line needs a whole number of containers, more than none.");
+    }
+    if (q.sizeMilli !== undefined && !(q.sizeMilli > 0)) {
+      throw new Error("Say what one container held — it has to be more than nothing.");
     }
   }
 
@@ -684,7 +737,44 @@ export function correctPurchasePrices(
     const landed = prorateTransport(goodsLines, transport);
 
     existing.forEach((row, i) => {
-      run(`UPDATE purchase_lines SET cost_cents = ? WHERE id = ?`, landed[i].landedCents, row.id);
+      /*
+        What actually came, if that was wrong too.
+
+        The quantity on the line is rewritten so the delivery note and the
+        record agree — but the SHELF is corrected by its own entry, never by
+        editing what was already posted. The stock ledger is append-only on
+        purpose, and "three drums arrived, no, two" is two facts: the second one
+        is a correction with a reason on it, and both belong on the record.
+      */
+      const q = wantedQty.get(row.id);
+      const units = q?.units ?? row.units;
+      const sizeMilli = q?.sizeMilli ?? row.size_milli;
+      const arrivedMilli = units * sizeMilli;
+
+      run(
+        `UPDATE purchase_lines SET cost_cents = ?, units = ?, size_milli = ?, qty_milli = ?
+          WHERE id = ?`,
+        landed[i].landedCents,
+        units,
+        sizeMilli,
+        arrivedMilli,
+        row.id,
+      );
+
+      const difference = arrivedMilli - row.qty_milli;
+      if (difference !== 0) {
+        postMovement({
+          itemId: row.item_id,
+          deltaMilli: difference,
+          reason: "adjustment",
+          refType: "purchase",
+          refId: purchaseId,
+          userId: userId ?? null,
+          note:
+            `delivery corrected: ${row.qty_milli / MILLI} → ${arrivedMilli / MILLI} ` +
+            `(${units} × ${sizeMilli / MILLI})`,
+        });
+      }
     });
 
     run(
