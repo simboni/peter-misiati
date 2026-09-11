@@ -15,6 +15,7 @@ import {
 import RemoveSupplier from "./remove-supplier";
 import { formatKes, formatDate, formatDateTime, formatUnits, formatQty, pct } from "@/lib/units";
 import { Card, PageTitle, SectionLabel, Chip, Stat, Empty, TableWrap, Th, Td, Alert } from "@/components/ui";
+import { CorrectForm } from "./correct-form";
 import { Pager } from "@/components/section-nav";
 import { ExportButtons } from "@/components/export-buttons";
 import { SupplierForm, PurchaseForm, ItemPicker } from "./forms";
@@ -37,6 +38,33 @@ const PER_PAGE = 10;
  * on the server: staff can see who supplies what and call them, but purchase
  * prices, supplier spend and the cost-price history are the owner's alone.
  */
+/**
+ * Cents, as the shillings an owner types.
+ *
+ * Lives here and not beside the form it feeds, because that form is a client
+ * component: Next will render a client export or take it as a prop, and refuses
+ * to CALL one from the server. It throws at request time, not at build — the
+ * whole Purchases screen 500s with "Attempted to call shillings() from the
+ * server", which names the symbol and not the import that moved it.
+ */
+function shillings(cents: number): string {
+  return String(Math.round(cents) / 100);
+}
+
+/**
+ * A line's goods cost, recovered from the landed figure it is stored as.
+ *
+ * The correction form asks for what the supplier charged, because that is what
+ * is on the note in the owner's hand. What the line holds is that plus its
+ * share of the transport, so the share has to come back off — by value, the
+ * same way it went on.
+ */
+function goodsOf(landedCents: number, totalCents: number, transportCents: number): number {
+  const goodsTotal = totalCents - transportCents;
+  if (totalCents <= 0 || goodsTotal <= 0) return landedCents;
+  return Math.round((landedCents * goodsTotal) / totalCents);
+}
+
 export default async function PurchasesPage(props: {
   searchParams: Promise<{ item?: string; dp?: string; sp?: string; edit?: string; err?: string }>;
 }) {
@@ -291,6 +319,28 @@ export default async function PurchasesPage(props: {
                         </li>
                       ))}
                     </ul>
+
+                    {/*
+                      A delivery entered in a hurry — the price blank, a nought
+                      missed, the transport forgotten — used to be permanent,
+                      and the cost price it produced went on deciding the profit
+                      on every sale of that chemical afterwards.
+                    */}
+                    <CorrectForm
+                      purchaseId={p.id}
+                      transport={shillings(p.transport_cents)}
+                      lines={purchaseLines(p.id).map((l) => ({
+                        lineId: l.id,
+                        itemName: l.item_name,
+                        qtyMilli: l.qty_milli,
+                        unit: l.canonical_unit,
+                        // The box shows the GOODS cost, which is what is on the
+                        // delivery note; the list above shows landed.
+                        goods: shillings(
+                          goodsOf(l.cost_cents, p.total_cents, p.transport_cents),
+                        ),
+                      }))}
+                    />
                   </Td>
                   <Td align="right">
                     <span className="whitespace-nowrap font-extrabold tnum">

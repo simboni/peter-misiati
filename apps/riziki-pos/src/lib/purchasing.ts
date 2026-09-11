@@ -16,7 +16,7 @@
  */
 
 import { all, get, run, tx, audit, postMovement, updateAverageCost } from "./db.ts";
-import { formatKes } from "./units.ts";
+import { formatKes, MILLI } from "./units.ts";
 
 // --------------------------------------------------------------- suppliers
 
@@ -503,4 +503,237 @@ export function supplierSpend(): SupplierSpendRow[] {
       GROUP BY s.id
       ORDER BY s.active DESC, spend_cents DESC, s.name`,
   );
+}
+
+// ------------------------------------------------- correcting a delivery
+
+/**
+ * Work out an item's cost price again from scratch, by replaying its history.
+ *
+ * The cost on an item is a running weighted average: each delivery blends into
+ * whatever was on the shelf at that moment. That is the right figure and it is
+ * also a one-way street — you cannot un-blend a delivery once a later one has
+ * gone in on top of it, so a mistyped price is permanent unless the whole
+ * sequence is worked out again.
+ *
+ * This walks the item's stock ledger in the order it happened and reproduces
+ * exactly what each step did to the cost:
+ *
+ *   a delivery       blends in that line's LANDED cost, against the quantity
+ *                    held at that moment — the same sum `updateAverageCost`
+ *                    does, and weighted the same way
+ *   a batch          blends in what the batch cost to mix, which is the same
+ *                    thing the mixing board does when it makes something
+ *   everything else  moves the quantity and leaves the rate alone: selling a
+ *                    kilogramme does not change what a kilogramme cost
+ *
+ * Replaying rather than adjusting means this is also self-healing. Whatever the
+ * cost had drifted to, for whatever reason, running it produces the figure the
+ * shop's own records support.
+ */
+export function recomputeCost(itemId: number): number {
+  const item = get<{ cost_cents: number }>(`SELECT cost_cents FROM items WHERE id = ?`, itemId);
+  if (!item) throw new Error(`unknown item ${itemId}`);
+
+  const moves = all<{
+    delta_milli: number;
+    reason: string;
+    ref_id: number | null;
+  }>(
+    `SELECT delta_milli, reason, ref_id FROM stock_movements
+      WHERE item_id = ? ORDER BY id`,
+    itemId,
+  );
+
+  let qtyMilli = 0;
+  let costCents = 0;
+
+  for (const m of moves) {
+    let incomingCents: number | null = null;
+
+    if (m.reason === "purchase" && m.ref_id !== null) {
+      const line = get<{ cost_cents: number }>(
+        `SELECT cost_cents FROM purchase_lines WHERE purchase_id = ? AND item_id = ?`,
+        m.ref_id,
+        itemId,
+      );
+      incomingCents = line?.cost_cents ?? null;
+    } else if (m.reason === "batch_output" && m.ref_id !== null) {
+      const batch = get<{ cost_cents: number }>(
+        `SELECT cost_cents FROM batches WHERE id = ?`,
+        m.ref_id,
+      );
+      incomingCents = batch?.cost_cents ?? null;
+    }
+
+    if (incomingCents !== null && m.delta_milli > 0) {
+      const held = Math.max(0, qtyMilli);
+      const existingValue = Math.round((held * costCents) / MILLI);
+      const totalMilli = held + m.delta_milli;
+      if (totalMilli > 0) {
+        costCents = Math.round(((existingValue + incomingCents) * MILLI) / totalMilli);
+      }
+    }
+    qtyMilli += m.delta_milli;
+  }
+
+  /*
+    Nothing priced ever arrived — a shop that counted its opening shelf with a
+    stock take and has not recorded a delivery yet. The cost it already carries
+    is the best answer there is, and zeroing it would throw away a figure
+    somebody may have set deliberately.
+  */
+  const moved = moves.some((m) => m.reason === "purchase" || m.reason === "batch_output");
+  const finalCost = moved ? costCents : item.cost_cents;
+
+  run(`UPDATE items SET cost_cents = ? WHERE id = ?`, finalCost, itemId);
+  return finalCost;
+}
+
+export interface PriceCorrection {
+  /** The purchase line being corrected. */
+  lineId: number;
+  /** What the supplier actually charged for the whole line, before transport. */
+  costCents: number;
+}
+
+export interface CorrectionResult {
+  purchaseId: number;
+  goodsCents: number;
+  transportCents: number;
+  totalCents: number;
+  /** Each item touched, and what its cost price became. */
+  repriced: Array<{ itemId: number; name: string; costCents: number }>;
+}
+
+/**
+ * Put right what a delivery was charged, without touching what arrived.
+ *
+ * A delivery recorded in a hurry — the price left blank, a nought missed, the
+ * transport forgotten — used to be permanent. Nothing in the app could change
+ * it, and the cost price it produced went on to decide the profit on every sale
+ * of that chemical afterwards.
+ *
+ * Only money moves here. The quantities are untouched, which is what keeps this
+ * simple and safe: the stock ledger is append-only by design and does not need
+ * a single entry rewritten, because the same drums arrived either way. What
+ * changes is the goods cost on each line, the share of transport that rides on
+ * it, the delivery's total, and — by replaying it — the cost price of every
+ * item on the delivery.
+ *
+ * To correct what ARRIVED rather than what it cost, the answer is a stock take:
+ * that is a counted fact with a reason against it, and it is the entry the
+ * shelf deserves.
+ */
+export function correctPurchasePrices(
+  purchaseId: number,
+  input: { transportCents?: number; lines: PriceCorrection[] },
+  userId?: number | null,
+): CorrectionResult {
+  const purchase = get<{ id: number; transport_cents: number }>(
+    `SELECT id, transport_cents FROM purchases WHERE id = ?`,
+    purchaseId,
+  );
+  if (!purchase) throw new Error("That delivery could not be found.");
+
+  const transport = input.transportCents ?? purchase.transport_cents;
+  if (!Number.isInteger(transport) || transport < 0) {
+    throw new Error("Transport must be a whole number of cents, zero or more.");
+  }
+
+  const existing = all<{ id: number; item_id: number; units: number; qty_milli: number }>(
+    `SELECT id, item_id, units, qty_milli FROM purchase_lines WHERE purchase_id = ? ORDER BY id`,
+    purchaseId,
+  );
+  if (!existing.length) throw new Error("That delivery has no lines.");
+
+  const wanted = new Map(input.lines.map((l) => [l.lineId, l.costCents]));
+  for (const [, cents] of wanted) {
+    if (!Number.isInteger(cents) || cents < 0) {
+      throw new Error("Every price must be a whole number of cents, zero or more.");
+    }
+  }
+
+  return tx(() => {
+    /*
+      The goods cost of every line, corrected where the owner said so and left
+      alone where they did not. Transport is then spread across the whole
+      delivery again from scratch: a changed price on one line changes every
+      other line's share of it, because the share is by value.
+    */
+    const goodsLines = existing.map((row) => ({
+      itemId: row.item_id,
+      units: row.units,
+      costCents: wanted.has(row.id)
+        ? wanted.get(row.id)!
+        : // Not being corrected: recover what the goods were from the landed
+          // figure by taking off the share of transport it was carrying.
+          recoverGoods(purchaseId, row.id),
+    }));
+
+    const goods = goodsLines.reduce((n, l) => n + l.costCents, 0);
+    const landed = prorateTransport(goodsLines, transport);
+
+    existing.forEach((row, i) => {
+      run(`UPDATE purchase_lines SET cost_cents = ? WHERE id = ?`, landed[i].landedCents, row.id);
+    });
+
+    run(
+      `UPDATE purchases SET total_cents = ?, transport_cents = ? WHERE id = ?`,
+      goods + transport,
+      transport,
+      purchaseId,
+    );
+
+    const repriced = existing.map((row) => {
+      const costCents = recomputeCost(row.item_id);
+      const name =
+        get<{ name: string }>(`SELECT name FROM items WHERE id = ?`, row.item_id)?.name ?? "";
+      return { itemId: row.item_id, name, costCents };
+    });
+
+    audit(
+      userId ?? null,
+      "purchase_prices_corrected",
+      "purchase",
+      purchaseId,
+      `${existing.length} line(s) now ${formatKes(goods + transport)} landed: ` +
+        repriced.map((r) => `${r.name} at ${formatKes(r.costCents)}`).join(", "),
+    );
+
+    return {
+      purchaseId,
+      goodsCents: goods,
+      transportCents: transport,
+      totalCents: goods + transport,
+      repriced,
+    };
+  });
+}
+
+/**
+ * What a line's goods cost was, before transport rode on it.
+ *
+ * The lines store the LANDED figure, so correcting one line means knowing what
+ * the others were charged before the spreading — otherwise re-spreading would
+ * compound the old transport into the new goods cost, and every correction
+ * would inflate the delivery a little.
+ */
+function recoverGoods(purchaseId: number, lineId: number): number {
+  const rows = all<{ id: number; cost_cents: number }>(
+    `SELECT id, cost_cents FROM purchase_lines WHERE purchase_id = ? ORDER BY id`,
+    purchaseId,
+  );
+  const p = get<{ transport_cents: number }>(
+    `SELECT transport_cents FROM purchases WHERE id = ?`,
+    purchaseId,
+  );
+  const landedTotal = rows.reduce((n, r) => n + r.cost_cents, 0);
+  const transport = p?.transport_cents ?? 0;
+  const goodsTotal = landedTotal - transport;
+  const mine = rows.find((r) => r.id === lineId)?.cost_cents ?? 0;
+
+  // Landed = goods + goods/goodsTotal × transport, so goods = landed × goodsTotal / landedTotal.
+  if (landedTotal <= 0 || goodsTotal <= 0) return mine;
+  return Math.round((mine * goodsTotal) / landedTotal);
 }
