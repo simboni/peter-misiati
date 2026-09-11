@@ -171,6 +171,20 @@ export function DividePanel({
               {formatQty(overMilli, unit)} over
             </span>
           </>
+        ) : takeN > (from?.filled ?? 0) ? (
+          /*
+            Do not do arithmetic on containers that are not there.
+
+            Asking for three 23 kg jerricans when one is standing printed "69 kg
+            opened, 59 kg back in the drum" in the big line — a confident figure
+            about sixty-nine kilogrammes that do not exist — while the actual
+            refusal sat in small grey text under a dead button. The prominent
+            number contradicted the refusal, which is worse than saying nothing.
+          */
+          <span className="font-semibold text-bad">
+            Only {from?.filled ?? 0} × {from ? formatQty(from.sizeMilli, unit) : ""}{" "}
+            {(from?.filled ?? 0) === 1 ? "is" : "are"} standing filled.
+          </span>
         ) : filledMilli <= 0 ? (
           /*
             At rest, before anything is typed. It used to run the arithmetic on

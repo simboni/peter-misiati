@@ -716,7 +716,7 @@ function BatchBoard({ row }: { row: MixableRow }) {
               {row.outputBundles.length ? (
                 <>
                   Tap a size for each jerrican you filled, or type the weight below. The sizes are
-                  the ones {row.outputName} is sold in — change them under Products &amp; prices.
+                  the ones {row.outputName} is sold in — change them under Products & prices.
                 </>
               ) : (
                 `Say how much ${row.outputName} the batch made.`
@@ -755,7 +755,7 @@ function BatchBoard({ row }: { row: MixableRow }) {
               ? takes.map((line) =>
                   line.itemId === null ? (
                     <p key={line.chemicalId} className="text-xs font-semibold text-bad">
-                      {line.itemName} is not stocked — add it under Products &amp; prices before
+                      {line.itemName} is not stocked — add it under Products & prices before
                       mixing.
                     </p>
                   ) : (

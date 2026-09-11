@@ -2162,7 +2162,10 @@ export default function SellClient({
         >
           {BOARDS.map((b) => {
             const on = board === b.key && !q;
-            const count = (b.key === "products" ? recipes : chemicals).length;
+            // Both kinds on the Products board, or the badge says 14 over
+            // sixteen tiles: the mixed-and-on-the-shelf ones are products too.
+            const count =
+              b.key === "products" ? recipes.length + made.length : chemicals.length;
             return (
               <button
                 key={b.key}
@@ -2285,7 +2288,10 @@ export default function SellClient({
           >
             {BOARDS.map((b) => {
               const on = board === b.key;
-              const count = (b.key === "products" ? recipes : chemicals).length;
+              // Both kinds on the Products board, or the badge says 14 over
+            // sixteen tiles: the mixed-and-on-the-shelf ones are products too.
+            const count =
+              b.key === "products" ? recipes.length + made.length : chemicals.length;
               return (
                 <button
                   key={b.key}
@@ -3650,7 +3656,22 @@ function SizePicker({
     the sizes, a product switched on before anything was poured would have no
     way to be sold at all.
   */
-  const soldInContainers = item.bundles.some((b) => b.filled !== null);
+  /*
+    What is poured, and what is still loose in the drum.
+
+    A packed product is sold by the jerrican — but a divide leaves a remainder:
+    23 kg into four 5 kg jerricans puts 3 kg back in the drum, and that 3 kg had
+    nowhere to go. It showed on the shelf and on the yard card and could not be
+    put on a bill, which is a number the shop can see and cannot act on.
+
+    So the per-kilogramme chip comes back exactly when there IS loose stock, and
+    stays away when every kilogramme is in a container — which is the case this
+    was written for, and still the usual one.
+  */
+  const packedItem = item.bundles.some((b) => b.filled !== null);
+  const looseMilli =
+    item.qtyMilli - item.bundles.reduce((n, b) => n + (b.filled ?? 0) * b.sizeMilli, 0);
+  const soldInContainers = packedItem && looseMilli <= 0;
 
   const baseSize = weighed ? formatQty(step, item.unit) : `1 ${item.unitLabel}`;
   const baseInCart = weighed

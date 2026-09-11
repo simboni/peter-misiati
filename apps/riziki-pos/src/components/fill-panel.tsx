@@ -71,7 +71,7 @@ export function FillPanel({
     return (
       <p className="text-sm text-muted">
         {itemName} has no container sizes yet. Add the sizes it is filled into, under Products
-        &amp; prices, and they will appear here to be counted.
+        & prices, and they will appear here to be counted.
       </p>
     );
   }

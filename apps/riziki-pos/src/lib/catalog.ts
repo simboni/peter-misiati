@@ -583,7 +583,23 @@ export function createProduct(input: ProductInput): number {
       price,
       floor,
       ceiling,
-      50_000,
+      /*
+        No warning level until somebody sets one.
+
+        This was a hard-coded 50,000 thousandths, which meant every product ever
+        added was born below its own reorder level and wore a red "Reorder" chip
+        from the moment it existed — fifty kilogrammes is a plausible guess for a
+        drum of caustic and a nonsense one for a bag of dye, and for anything
+        counted in pieces it silently meant "warn me at fifty pieces". A shop
+        typing in its catalogue would see forty-five red chips and learn to
+        ignore the colour, which is the opposite of what the colour is for.
+
+        Zero means the front page says nothing about this product until the
+        owner sets a level on it — and it says nothing about running LOW only.
+        A count below zero still surfaces regardless, because nobody chooses to
+        be short.
+      */
+      0,
     );
     audit(input.byUserId, "product_created", "item", itemId, `${name} at ${price}c per ${u.canonical}`);
     return itemId;
