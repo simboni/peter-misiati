@@ -31,13 +31,28 @@ export default async function HomePage() {
       WHERE s.status = 'completed' AND s.total_cents > s.paid_cents`,
   )[0];
 
+  /*
+    What needs attention on the shelf.
+
+    Two different questions, answered by one list. A thing at or below its
+    reorder level is running out and wants ordering — that only works where
+    somebody has set a level, which is why it is guarded. A thing BELOW ZERO has
+    already been sold and not replaced: that is a debt to the yard next door,
+    and it must surface whether or not anybody ever set a threshold for it,
+    because nobody chose to be in that position.
+
+    Zero is deliberately not in the second half. After a fresh start every
+    product sits at zero, and a front page listing all forty-five of them is a
+    front page nobody reads.
+  */
   const lowStock = all<{ name: string; qty_milli: number; canonical_unit: string }>(
     `SELECT i.name, COALESCE(SUM(m.delta_milli),0) AS qty_milli, i.canonical_unit
        FROM items i
        LEFT JOIN stock_movements m ON m.item_id = i.id
-      WHERE i.active = 1 AND i.reorder_level_milli > 0
+      WHERE i.active = 1
       GROUP BY i.id
-     HAVING qty_milli <= i.reorder_level_milli
+     HAVING (i.reorder_level_milli > 0 AND qty_milli <= i.reorder_level_milli)
+            OR qty_milli < 0
       ORDER BY qty_milli ASC
       LIMIT 6`,
   );
@@ -125,8 +140,17 @@ export default async function HomePage() {
                 <span className="text-xs text-muted tnum">
                   {formatQty(r.qty_milli, r.canonical_unit)}
                 </span>
+                {/*
+                  Below zero is not "Out". It is a debt.
+
+                  "Out" says there is none and reads as an errand for the
+                  wholesaler; minus seven kilos says the shop has already sold
+                  seven it did not have, and somebody has to walk next door or
+                  put it on the next order. Those are different sentences and
+                  the shop acts on them differently.
+                */}
                 <Chip tone={r.qty_milli <= 0 ? "bad" : "warn"}>
-                  {r.qty_milli <= 0 ? "Out" : "Low"}
+                  {r.qty_milli < 0 ? "Owed" : r.qty_milli === 0 ? "Out" : "Low"}
                 </Chip>
               </span>
             </Link>

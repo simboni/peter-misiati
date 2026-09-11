@@ -21,9 +21,11 @@ const LABEL: Record<StockStatus, string> = {
   in: "In stock",
   low: "Low",
   reorder: "Reorder",
+  // Sold and not yet replaced — a debt to the shop next door, not an order.
+  owed: "Owed",
 };
 
-const TONE = { in: "good", low: "warn", reorder: "bad" } as const;
+const TONE = { in: "good", low: "warn", reorder: "bad", owed: "bad" } as const;
 
 function StatusChip({ status }: { status: StockStatus }) {
   return <Chip tone={TONE[status]}>{LABEL[status]}</Chip>;
@@ -198,7 +200,19 @@ export function StockClient({
                     asks the first one: 46 kg is not two jerricans until somebody
                     has poured it into two jerricans.
                   */}
-                  {l.poured ? (
+                  {/*
+                    A debt has no containers.
+
+                    Dividing minus seven kilogrammes by a 25 kg drum gives
+                    "-0.28 kgs", which is arithmetic nobody asked for about a
+                    thing that is not on the shelf at all. What is useful is the
+                    errand.
+                  */}
+                  {l.qtyMilli < 0 ? (
+                    <span className="whitespace-nowrap font-semibold text-bad">
+                      {formatQty(-l.qtyMilli, l.unit)} to replace
+                    </span>
+                  ) : l.poured ? (
                     <div className="space-y-0.5">
                       {l.poured.sizes.length ? (
                         l.poured.sizes.map((z) => (

@@ -17,7 +17,7 @@ import { packState } from "./packing.ts";
 // ---------------------------------------------------------------- reading
 
 export type StockKind = "bulk" | "pack" | "finished" | "packaging";
-export type StockStatus = "in" | "low" | "reorder";
+export type StockStatus = "in" | "low" | "reorder" | "owed";
 
 export interface StockLine {
   id: number;
@@ -97,6 +97,15 @@ interface StockRowRaw {
  * before the shelf is actually empty.
  */
 export function stockStatus(qtyMilli: number, reorderMilli: number): StockStatus {
+  /*
+    Below zero is its own state, not the bottom of "reorder".
+
+    "Reorder" is an errand for the wholesaler. A negative count means the shop
+    has already sold what it did not have — fetched from the yard next door —
+    and the errand is to walk back over with it or put it on the next order.
+    Calling both the same word loses the difference the shop acts on.
+  */
+  if (qtyMilli < 0) return "owed";
   if (reorderMilli <= 0) return qtyMilli > 0 ? "in" : "reorder";
   if (qtyMilli <= reorderMilli) return "reorder";
   if (qtyMilli <= Math.round(reorderMilli * 1.5)) return "low";
