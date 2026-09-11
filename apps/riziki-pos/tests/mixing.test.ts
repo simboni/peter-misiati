@@ -276,3 +276,86 @@ test("MixError is what callers can catch", () => {
     assert.ok(e instanceof MixError);
   }
 });
+
+// ------------------------------------------------------- undoing a batch
+
+test("a batch can be undone: the mix comes off and the chemicals go back", async () => {
+  const { voidBatch } = await import("../src/lib/mixing.ts");
+  const { recomputeCost } = await import("../src/lib/purchasing.ts");
+
+  const conc = product("Undo Concentrate", 24, 300);
+  const chem = get<{ chemical_id: number }>(
+    `SELECT chemical_id FROM items WHERE id = ?`, conc)!;
+  run(`INSERT INTO stock_movements (item_id, delta_milli, reason, user_id)
+       VALUES (?, 48000, 'opening', ?)`, conc, OWNER);
+  const mild = product("Undo Mild", 23, 320);
+
+  const { formulaId } = createFormula({
+    name: "Undo mix", refSizeMilli: 23_000, refUnit: "kg", steps: "", note: "",
+    items: [{ chemicalId: chem.chemical_id, qtyMilli: 12_000 }], userId: OWNER,
+  });
+  setFormulaOutput(formulaId, mild, OWNER);
+  const version = currentVersion(formulaId)!;
+
+  const before = { conc: stockOf(conc), mild: stockOf(mild) };
+  const res = recordMix({
+    versionId: version.id, targetMilli: 23_000, actualMilli: 23_000, userId: OWNER,
+  });
+  assert.equal(stockOf(conc), before.conc - 12_000, "12 kg of concentrate went in");
+  assert.equal(stockOf(mild), before.mild + 23_000, "23 kg of mild came out");
+
+  const undone = voidBatch(res.batchId, OWNER, "recorded twice by mistake");
+  assert.equal(undone.batchNo, res.batchNo);
+  assert.equal(stockOf(conc), before.conc, "the concentrate is back, to the gramme");
+  assert.equal(stockOf(mild), before.mild, "and the mild is off the shelf");
+
+  const marked = get<{ voided_at: string | null }>(
+    `SELECT voided_at FROM batches WHERE id = ?`, res.batchId)!;
+  assert.ok(marked.voided_at, "the batch is marked, not deleted");
+  assert.ok(
+    get<{ n: number }>(`SELECT COUNT(*) AS n FROM batches WHERE id = ?`, res.batchId)!.n === 1,
+    "it is still on the record",
+  );
+  // The undone batch must not price the shelf.
+  assert.equal(recomputeCost(mild), get<{ cost_cents: number }>(
+    `SELECT cost_cents FROM items WHERE id = ?`, mild)!.cost_cents);
+});
+
+test("it will not undo a batch that has already been sold", async () => {
+  const { voidBatch } = await import("../src/lib/mixing.ts");
+  const conc = product("Sold Concentrate", 24, 300);
+  const chem = get<{ chemical_id: number }>(
+    `SELECT chemical_id FROM items WHERE id = ?`, conc)!;
+  run(`INSERT INTO stock_movements (item_id, delta_milli, reason, user_id)
+       VALUES (?, 48000, 'opening', ?)`, conc, OWNER);
+  const mild = product("Sold Mild", 23, 320);
+  const { formulaId } = createFormula({
+    name: "Sold mix", refSizeMilli: 23_000, refUnit: "kg", steps: "", note: "",
+    items: [{ chemicalId: chem.chemical_id, qtyMilli: 12_000 }], userId: OWNER,
+  });
+  setFormulaOutput(formulaId, mild, OWNER);
+  const version = currentVersion(formulaId)!;
+  const res = recordMix({
+    versionId: version.id, targetMilli: 23_000, actualMilli: 23_000, userId: OWNER,
+  });
+
+  // Most of it goes out of the door.
+  run(`INSERT INTO stock_movements (item_id, delta_milli, reason, user_id)
+       VALUES (?, -20000, 'sale', ?)`, mild, OWNER);
+
+  assert.throws(
+    () => voidBatch(res.batchId, OWNER, "changed my mind"),
+    (e: Error) => e instanceof MixError && /has been sold/.test(e.message) && /stock take/.test(e.message),
+  );
+  assert.equal(stockOf(mild), 3_000, "and nothing moved");
+});
+
+test("a batch cannot be undone twice", async () => {
+  const { voidBatch } = await import("../src/lib/mixing.ts");
+  const b = get<{ id: number }>(
+    `SELECT id FROM batches WHERE voided_at IS NOT NULL ORDER BY id LIMIT 1`)!;
+  assert.throws(
+    () => voidBatch(b.id, OWNER, "again"),
+    (e: Error) => e instanceof MixError && /already been undone/.test(e.message),
+  );
+});

@@ -13,8 +13,8 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { currentUser, requireUser } from "@/lib/auth";
-import { run, audit } from "@/lib/db";
+import { currentUser, requireUser, requireOwner } from "@/lib/auth";
+import { run, get, audit } from "@/lib/db";
 import { formatKes, toCents, businessDate, formatDateTime } from "@/lib/units";
 import {
   EXPENSE_CATEGORIES,
@@ -31,6 +31,7 @@ import {
   Button,
   Field,
   inputClass,
+  inputClassBase,
   TableWrap,
   Th,
   Td,
@@ -77,6 +78,91 @@ async function addExpense(formData: FormData) {
   redirect("/expenses?saved=1");
 }
 
+/**
+ * Put an expense right, or take one off.
+ *
+ * An expense was insert-only: a wrong figure, the wrong category, a duplicate
+ * tap, all permanent and all of it in the day's takings and the month's
+ * profit. Unlike a sale there is nobody on the other side of an expense — no
+ * customer holding goods, no stock that moved — so there is no audit trail to
+ * protect by refusing. It is a note about money leaving the till, and a wrong
+ * note should be corrected rather than survived.
+ *
+ * Owner-only, both of them, and both audited under what they changed.
+ */
+async function editExpense(formData: FormData): Promise<void> {
+  "use server";
+  const user = await requireOwner();
+  const id = Number(formData.get("id"));
+  const category = String(formData.get("category") ?? "");
+  const method = String(formData.get("method") ?? "");
+  const shillings = Number(String(formData.get("amount") ?? "").trim());
+
+  if (!Number.isFinite(id) || id <= 0) redirect("/expenses?error=missing");
+  if (!isExpenseCategory(category)) redirect("/expenses?error=category");
+  if (!Number.isFinite(shillings) || shillings <= 0) redirect("/expenses?error=amount");
+  if (method !== "cash" && method !== "mpesa") redirect("/expenses?error=method");
+
+  const before = get<{ amount_cents: number; category: string }>(
+    `SELECT amount_cents, category FROM expenses WHERE id = ?`,
+    id,
+  );
+  if (!before) redirect("/expenses?error=missing");
+
+  run(
+    `UPDATE expenses SET category = ?, amount_cents = ?, method = ?, note = ? WHERE id = ?`,
+    category,
+    toCents(shillings),
+    method,
+    String(formData.get("note") ?? "").slice(0, 200),
+    id,
+  );
+  audit(
+    user.id,
+    "expense_edit",
+    "expense",
+    id,
+    `${before.category} ${before.amount_cents} -> ${category} ${toCents(shillings)}`,
+  );
+
+  revalidatePath("/expenses");
+  revalidatePath("/day-close");
+  revalidatePath("/reports");
+  // Outside any catch: redirect reports itself by throwing. See AGENTS.md.
+  redirect("/expenses?saved=1");
+}
+
+async function deleteExpense(formData: FormData): Promise<void> {
+  "use server";
+  const user = await requireOwner();
+  const id = Number(formData.get("id"));
+  if (!Number.isFinite(id) || id <= 0) redirect("/expenses?error=missing");
+
+  const before = get<{ amount_cents: number; category: string; note: string | null }>(
+    `SELECT amount_cents, category, note FROM expenses WHERE id = ?`,
+    id,
+  );
+  if (!before) redirect("/expenses?error=missing");
+
+  run(`DELETE FROM expenses WHERE id = ?`, id);
+  /*
+    Audited under what it SAID, not its id. Once the row is gone the id points
+    at nothing, and "expense 47 deleted" answers no question anybody will ask.
+  */
+  audit(
+    user.id,
+    "expense_delete",
+    "expense",
+    null,
+    `${before.category} ${before.amount_cents}${before.note ? ` · ${before.note}` : ""}`,
+  );
+
+  revalidatePath("/expenses");
+  revalidatePath("/day-close");
+  revalidatePath("/reports");
+  redirect("/expenses?removed=1");
+}
+
 const ERRORS: Record<string, string> = {
   amount: "Enter an amount greater than zero.",
   category: "Pick a category.",
@@ -90,6 +176,7 @@ export default async function ExpensesPage(props: {
   const { saved, error } = await props.searchParams;
 
   const user = await currentUser();
+  const owner = user?.role === "owner";
   if (!user) redirect("/login");
 
   const ym = monthKey(businessDate());
@@ -245,6 +332,69 @@ export default async function ExpensesPage(props: {
                 <Td>
                   <div>{formatDateTime(r.at)}</div>
                   {r.note ? <div className="text-xs text-muted">{r.note}</div> : null}
+                  {/*
+                    Folded, and owner-only. Most rows never need touching, and a
+                    form on every one of them would bury the month's list.
+                  */}
+                  {owner ? (
+                    <details className="mt-0.5">
+                      <summary className="inline-flex min-h-8 cursor-pointer list-none items-center text-[11px] font-bold text-brand">
+                        Change it
+                      </summary>
+                      <form
+                        action={editExpense}
+                        className="mt-1 flex flex-wrap items-end gap-1.5 rounded-xl border border-line bg-wash/60 p-2"
+                      >
+                        <input type="hidden" name="id" value={r.id} />
+                        <select
+                          name="category"
+                          defaultValue={r.category}
+                          aria-label="What kind of expense"
+                          className={`${inputClassBase} !py-1.5 text-xs`}
+                        >
+                          {EXPENSE_CATEGORIES.map((c) => (
+                            <option key={c} value={c}>
+                              {c}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          name="method"
+                          defaultValue={r.method}
+                          aria-label="Paid with"
+                          className={`${inputClassBase} !py-1.5 text-xs`}
+                        >
+                          <option value="cash">Cash</option>
+                          <option value="mpesa">M-Pesa</option>
+                        </select>
+                        <input
+                          name="amount"
+                          type="text"
+                          inputMode="decimal"
+                          defaultValue={String(r.amount_cents / 100)}
+                          aria-label="How much"
+                          className={`${inputClassBase} w-24 !py-1.5 text-right text-xs tnum`}
+                        />
+                        <input
+                          name="note"
+                          type="text"
+                          defaultValue={r.note ?? ""}
+                          placeholder="Note"
+                          aria-label="Note"
+                          className={`${inputClassBase} w-36 !py-1.5 text-xs`}
+                        />
+                        <Button type="submit" variant="ghost" className="!min-h-9 !px-3 text-xs">
+                          Save
+                        </Button>
+                      </form>
+                      <form action={deleteExpense} className="mt-1">
+                        <input type="hidden" name="id" value={r.id} />
+                        <Button type="submit" variant="danger" className="!min-h-9 !px-3 text-xs">
+                          Remove this expense
+                        </Button>
+                      </form>
+                    </details>
+                  ) : null}
                 </Td>
                 <Td>{r.category}</Td>
                 <Td>{r.method === "cash" ? "Cash" : "M-Pesa"}</Td>

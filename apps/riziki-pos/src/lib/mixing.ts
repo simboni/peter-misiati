@@ -691,6 +691,8 @@ function nextBatchNo(): string {
 // --------------------------------------------------------------------- history
 
 export interface BatchRow {
+  /** Set when the batch was undone. The entries stay; the batch is marked. */
+  voidedAt?: string | null;
   id: number;
   at: string;
   batchNo: string;
@@ -707,7 +709,7 @@ export interface BatchRow {
 /** What has been mixed lately, newest first. */
 export function recentBatches(limit = 30): BatchRow[] {
   return all<BatchRow>(
-    `SELECT b.id, b.at, b.batch_no AS batchNo,
+    `SELECT b.id, b.at, b.batch_no AS batchNo, b.voided_at AS voidedAt,
             f.name AS formulaName,
             i.name AS outputName, i.canonical_unit AS outputUnit,
             COALESCE(b.actual_milli, 0) AS madeMilli,
@@ -734,4 +736,150 @@ export function recentBatches(limit = 30): BatchRow[] {
       LIMIT ?`,
     limit,
   );
+}
+
+// ------------------------------------------------------ undoing a batch
+
+export interface VoidBatchResult {
+  batchNo: string;
+  outputName: string;
+  outputUnit: string;
+  /** What was taken back off the shelf. */
+  madeMilli: number;
+  /** What was handed back to the chemicals it came from. */
+  returned: Array<{ name: string; qtyMilli: number; unit: string }>;
+}
+
+/**
+ * Undo a batch: the mix comes off the shelf and the chemicals go back.
+ *
+ * A mix mistyped — the wrong recipe, the wrong count of jerricans, the same
+ * batch recorded twice — used to be permanent, and it is the entry most likely
+ * to be wrong because it is made standing at a drum rather than sitting at a
+ * counter.
+ *
+ * NOT A DELETE. The batch happened, somebody recorded it, and the stock ledger
+ * is append-only by design. It is marked as undone and reversed by opposite
+ * entries, so the shelf comes back to where it was and both the original and
+ * the undoing stay on the record. Anybody asking "why did 69 kg appear and
+ * disappear on Tuesday" can be answered.
+ *
+ * Refused when the mix has already been sold past what undoing would leave.
+ * Taking 69 kg back off a shelf that only holds 20 kg would put the count at
+ * minus 49 and call it a correction — and the honest answer there is a stock
+ * take, which is a counted fact rather than a guess.
+ */
+export function voidBatch(batchId: number, userId: number, reason: string): VoidBatchResult {
+  const why = reason.trim();
+  if (!why) throw new MixError("Say why this batch is being undone.");
+
+  return tx(() => {
+    const batch = get<{
+      id: number;
+      batch_no: string;
+      output_item_id: number;
+      actual_milli: number;
+      voided_at: string | null;
+    }>(`SELECT id, batch_no, output_item_id, actual_milli, voided_at FROM batches WHERE id = ?`, batchId);
+    if (!batch) throw new MixError("That batch could not be found.");
+    if (batch.voided_at) throw new MixError(`${batch.batch_no} has already been undone.`);
+
+    const output = get<Item>(`SELECT * FROM items WHERE id = ?`, batch.output_item_id);
+    if (!output) throw new MixError("The product this batch made is no longer on the catalogue.");
+
+    const onHand = stockOf(output.id);
+    if (onHand < batch.actual_milli) {
+      throw new MixError(
+        `${batch.batch_no} made ${formatQty(batch.actual_milli, output.canonical_unit)} of ` +
+          `${output.name} and only ${formatQty(Math.max(0, onHand), output.canonical_unit)} is left — ` +
+          `the rest has been sold. Undoing it would put the shelf below nothing. ` +
+          `Do a stock take instead, which records what is actually there.`,
+      );
+    }
+
+    const lines = all<{ item_id: number; qty_milli: number }>(
+      `SELECT item_id, qty_milli FROM batch_lines WHERE batch_id = ? AND item_id IS NOT NULL`,
+      batchId,
+    );
+
+    // The mix off the shelf.
+    postMovement({
+      itemId: output.id,
+      deltaMilli: -batch.actual_milli,
+      reason: "adjustment",
+      refType: "batch",
+      refId: batchId,
+      userId,
+      note: `${batch.batch_no} undone · ${why}`,
+    });
+
+    // And the chemicals back where they came from.
+    const returned: VoidBatchResult["returned"] = [];
+    for (const line of lines) {
+      const item = get<Item>(`SELECT * FROM items WHERE id = ?`, line.item_id);
+      if (!item) continue;
+      postMovement({
+        itemId: line.item_id,
+        deltaMilli: line.qty_milli,
+        reason: "adjustment",
+        refType: "batch",
+        refId: batchId,
+        userId,
+        note: `${batch.batch_no} undone · ${why}`,
+      });
+      returned.push({ name: item.name, qtyMilli: line.qty_milli, unit: item.canonical_unit });
+    }
+
+    /*
+      And the jerricans it filled, unfilled.
+
+      Only the ones this batch put there, and only as far as they are still
+      standing: somebody may have poured them into smaller ones since, and
+      taking away a jerrican that has already been broken up would send the
+      tally below zero.
+    */
+    const filled = all<{ bundle_id: number; n: number }>(
+      `SELECT bundle_id, SUM(delta) AS n FROM pack_moves
+        WHERE ref_type = 'batch' AND ref_id = ? GROUP BY bundle_id`,
+      batchId,
+    );
+    for (const f of filled) {
+      if (f.n <= 0) continue;
+      const standing = get<{ n: number }>(
+        `SELECT COALESCE(SUM(delta), 0) AS n FROM pack_moves WHERE bundle_id = ?`,
+        f.bundle_id,
+      );
+      const take = Math.min(f.n, Math.max(0, standing?.n ?? 0));
+      if (take <= 0) continue;
+      run(
+        `INSERT INTO pack_moves (item_id, bundle_id, delta, reason, ref_type, ref_id, user_id, note)
+         VALUES (?, ?, ?, 'adjustment', 'batch', ?, ?, ?)`,
+        output.id,
+        f.bundle_id,
+        -take,
+        batchId,
+        userId,
+        `${batch.batch_no} undone`,
+      );
+    }
+
+    run(`UPDATE batches SET voided_at = datetime('now') WHERE id = ?`, batchId);
+
+    audit(
+      userId,
+      "batch_voided",
+      "batch",
+      batchId,
+      `${batch.batch_no}: ${formatQty(batch.actual_milli, output.canonical_unit)} ${output.name} ` +
+        `off the shelf, ${returned.map((r) => `${formatQty(r.qtyMilli, r.unit)} ${r.name}`).join(", ")} back · ${why}`,
+    );
+
+    return {
+      batchNo: batch.batch_no,
+      outputName: output.name,
+      outputUnit: output.canonical_unit,
+      madeMilli: batch.actual_milli,
+      returned,
+    };
+  });
 }

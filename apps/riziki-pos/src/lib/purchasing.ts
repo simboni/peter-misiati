@@ -559,11 +559,20 @@ export function recomputeCost(itemId: number): number {
       );
       incomingCents = line?.cost_cents ?? null;
     } else if (m.reason === "batch_output" && m.ref_id !== null) {
-      const batch = get<{ cost_cents: number }>(
-        `SELECT cost_cents FROM batches WHERE id = ?`,
+      /*
+        An undone batch is skipped, not counted.
+
+        Its two ledger entries both stay — the making and the undoing — because
+        the ledger is append-only and both happened. But its cost must not blend
+        into the rate: the mix came back off the shelf, so the shop never held
+        it, and leaving it in would price every later kilogramme against
+        something that was cancelled.
+      */
+      const batch = get<{ cost_cents: number; voided_at: string | null }>(
+        `SELECT cost_cents, voided_at FROM batches WHERE id = ?`,
         m.ref_id,
       );
-      incomingCents = batch?.cost_cents ?? null;
+      incomingCents = batch && !batch.voided_at ? batch.cost_cents : null;
     }
 
     if (incomingCents !== null && m.delta_milli > 0) {

@@ -165,6 +165,14 @@ const ADDED_COLUMNS: Array<{ table: string; column: string; definition: string }
     owed, which a delivery then absorbs on its own.
   */
   { table: "items", column: "oversell_milli", definition: "INTEGER NOT NULL DEFAULT 0 CHECK (oversell_milli >= 0)" },
+  /*
+    When a batch was undone, if it was.
+
+    A mix is not deleted — it happened, somebody recorded it, and the ledger
+    entries it wrote are append-only. It is marked, reversed by opposite
+    entries, and skipped when a cost price is worked out again from history.
+  */
+  { table: "batches", column: "voided_at", definition: "TEXT" },
   { table: "sale_lines", column: "rate_cents", definition: "INTEGER NOT NULL DEFAULT 0 CHECK (rate_cents >= 0)" },
   {
     table: "sale_lines",
