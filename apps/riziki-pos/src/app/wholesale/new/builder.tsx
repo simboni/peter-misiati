@@ -67,15 +67,22 @@ function DecimalInput({
   const [text, setText] = useState(() => decimalText(value));
   const [typing, setTyping] = useState(false);
 
-  useEffect(() => {
-    if (!typing) setText(decimalText(value));
-  }, [value, typing]);
+  /*
+    What the box shows: what is being typed, or what the line actually holds.
+
+    While the cursor is in it, the text is the person's. The moment it leaves,
+    the box goes back to mirroring the value — which is what stops "1." or an
+    empty box surviving as a number. This was an effect copying the value into
+    state, which is a render to show the old figure and a second to correct it,
+    every time any line on the quote changed.
+  */
+  const shown = typing ? text : decimalText(value);
 
   return (
     <input
       className={className}
       inputMode="decimal"
-      value={text}
+      value={shown}
       onFocus={() => setTyping(true)}
       onBlur={() => {
         setTyping(false);

@@ -28,38 +28,15 @@ import {
 } from "@/lib/offline";
 import { formatDateTime, formatKes } from "@/lib/units";
 import { Alert, Button, inputClass } from "@/components/ui";
+import { subscribeOnline, readOnline, assumeOnline } from "@/lib/online";
 
 /** Slow on purpose: the retry is cheap, but a chatty phone on Safaricom is not. */
 const RETRY_MS = 20_000;
 
-/*
-  Whether the phone thinks it has a network — read the way React reads anything
-  that lives outside it.
-
-  This used to be state set from inside an effect, which meant every screen
-  painted once believing it was online and again once the effect had asked. The
-  browser's own online/offline events are the subscription; the interval is
-  there because a cheap Android on one bar does not always fire them, and a
-  counter that believes it is offline when it is not stops sending the queue.
-
-  The server can only assume online — it has no phone to ask — and that is also
-  the quiet answer, so the first paint carries no banner either way.
-*/
-function subscribeOnline(fn: () => void): () => void {
-  window.addEventListener("online", fn);
-  window.addEventListener("offline", fn);
-  const timer = window.setInterval(fn, RETRY_MS);
-  return () => {
-    window.removeEventListener("online", fn);
-    window.removeEventListener("offline", fn);
-    window.clearInterval(timer);
-  };
-}
-
 export default function OfflineStatus() {
   const router = useRouter();
 
-  const online = useSyncExternalStore(subscribeOnline, () => navigator.onLine, () => true);
+  const online = useSyncExternalStore(subscribeOnline, readOnline, assumeOnline);
   const [queue, setQueue] = useState<QueuedSale[]>([]);
   const [open, setOpen] = useState(false);
   const [sending, setSending] = useState(false);

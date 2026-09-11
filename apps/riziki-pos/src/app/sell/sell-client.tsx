@@ -28,6 +28,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   startTransition,
 } from "react";
 import type { PayMethod, Tier } from "@/lib/sales";
@@ -35,6 +36,7 @@ import { countOutbox, enqueueSale, onOutboxChange, type QueuedSalePayload } from
 import { formatDate, formatDateTime, formatKes, formatQty, formatUnits } from "@/lib/units";
 import { Alert, Button, SectionLabel, inputClass } from "@/components/ui";
 import { SizeChip } from "@/components/size-chip";
+import { subscribeOnline, readOnline, assumeOnline } from "@/lib/online";
 import { quickAddCustomerAction } from "@/app/customers/actions";
 import type { PaperWidth, Receipt, ReceiptLine } from "@/lib/escpos";
 import { ThermalPrint } from "@/components/thermal-print";
@@ -771,7 +773,16 @@ export default function SellClient({
   > | null>(null);
 
   // The counter needs to know, without asking, whether what it sees is live.
-  const [online, setOnline] = useState(true);
+  /*
+    One answer to "is there a network", shared with the offline banner.
+
+    It was local state seeded in an effect, which meant a till opened while
+    already offline believed it was online until the first event fired — and the
+    Complete button is labelled from this: "Take KES 270 — done" against "Save
+    on this phone". Getting that wrong at the moment of a sale is the whole
+    reason the outbox exists.
+  */
+  const online = useSyncExternalStore(subscribeOnline, readOnline, assumeOnline);
   const [waiting, setWaiting] = useState(0);
 
   const uuid = useRef<string>(newUuid());
@@ -1129,14 +1140,25 @@ export default function SellClient({
   useEffect(() => {
     if (restored.current) return;
     restored.current = true;
-    try {
-      const raw = sessionStorage.getItem("riziki_cart");
-      if (!raw) return;
-      const saved = JSON.parse(raw) as { cart: CartLine[] };
-      if (saved.cart?.length) setCart(saved.cart);
-    } catch {
-      /* a corrupt cart is not worth crashing the till over */
-    }
+    /*
+      Deferred by a tick.
+
+      The cart is React's own state, seeded once from the phone's storage — not
+      state that lives outside React, so a subscription would be the wrong
+      shape. What it must not be is a write during the effect body: that paints
+      an empty till and then paints it again with yesterday's basket in it.
+    */
+    const t = setTimeout(() => {
+      try {
+        const raw = sessionStorage.getItem("riziki_cart");
+        if (!raw) return;
+        const saved = JSON.parse(raw) as { cart: CartLine[] };
+        if (saved.cart?.length) setCart(saved.cart);
+      } catch {
+        /* a corrupt cart is not worth crashing the till over */
+      }
+    }, 0);
+    return () => clearTimeout(t);
   }, []);
 
   useEffect(() => {
@@ -1157,11 +1179,12 @@ export default function SellClient({
       });
     };
 
-    setOnline(navigator.onLine);
     recount();
 
-    const goOnline = () => setOnline(true);
-    const goOffline = () => setOnline(false);
+    // The queue, not the signal — `subscribeOnline` above answers that. Coming
+    // back on is still the moment to look for anything waiting to go.
+    const goOnline = () => recount();
+    const goOffline = () => {};
     window.addEventListener("online", goOnline);
     window.addEventListener("offline", goOffline);
     const stopWatching = onOutboxChange(recount);

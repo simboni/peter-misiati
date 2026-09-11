@@ -119,6 +119,10 @@ export default async function NewWholesalePage(props: {
    * weeks is long enough for a customer to think and short enough to protect
    * the margin; it is a starting point, and it is editable.
    */
+  // "Two weeks from now" needs the clock, and this is a server component
+  // rendered per request, where the clock is as legitimate an input as the
+  // database. The render rules cannot tell that from an impure component.
+  // eslint-disable-next-line react-hooks/purity
   const twoWeeks = new Date(Date.now() + 14 * 86_400_000).toISOString().slice(0, 10);
 
   const source = fromQuoteId ? getQuote(fromQuoteId) : undefined;

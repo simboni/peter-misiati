@@ -56,10 +56,14 @@ export function StocktakeClient({
   // Once posted, the counts are history — leaving them on screen would invite a
   // second submission against stock that has already been corrected.
   useEffect(() => {
-    if (state.ok) {
+    if (!state.ok) return;
+    // A tick late, so the posted counts are not cleared in the same pass that
+    // renders the confirmation — the screen would paint twice to say one thing.
+    const t = setTimeout(() => {
       setCounts({});
       setReason("");
-    }
+    }, 0);
+    return () => clearTimeout(t);
   }, [state.ok]);
 
   const terms = useMemo(() => query.trim().toLowerCase().split(/\s+/).filter(Boolean), [query]);

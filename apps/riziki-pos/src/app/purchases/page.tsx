@@ -117,8 +117,19 @@ export default async function PurchasesPage(props: {
   const previous = history[1];
   const swing = latest && previous ? pct(latest.unit_cost_cents - previous.unit_cost_cents, previous.unit_cost_cents) : 0;
 
+  /*
+    "Now" is an input to this request, not a value derived from anything.
+
+    This is a server component rendered fresh per request (`force-dynamic`), so
+    the clock is exactly as legitimate a source as the database — "what did we
+    spend in the last thirty days" has no meaning without it. The render rules
+    cannot tell that apart from a component that would give two different
+    answers for the same props, so it is said here instead.
+  */
+  // eslint-disable-next-line react-hooks/purity
+  const now = Date.now();
   const last30 = purchases.filter(
-    (p) => Date.now() - new Date(p.at.replace(" ", "T") + "Z").getTime() < 30 * 86_400_000,
+    (p) => now - new Date(p.at.replace(" ", "T") + "Z").getTime() < 30 * 86_400_000,
   );
   const spent30 = last30.reduce((s, p) => s + p.total_cents, 0);
 
