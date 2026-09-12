@@ -460,3 +460,34 @@ export function filledByItem(): Map<number, Map<number, number>> {
   }
   return out;
 }
+
+/**
+ * Put back the containers a sale took, because the sale was voided.
+ *
+ * Only the ones that were SOLD come back standing. A jerrican that was opened
+ * to pour a loose sale stays open: the void returns the liquid, and liquid out
+ * of a broken seal is loose, not a filled container. Reversing an open would
+ * put a jerrican on the tally that is, in the yard, standing there empty.
+ */
+export function returnFilled(saleId: number, userId: number, note: string): void {
+  const sold = all<{ item_id: number; bundle_id: number; units: number }>(
+    `SELECT item_id, bundle_id, SUM(delta) AS units
+       FROM pack_moves
+      WHERE ref_type = 'sale' AND ref_id = ? AND reason = 'sale'
+      GROUP BY item_id, bundle_id`,
+    saleId,
+  );
+  for (const s of sold) {
+    if (!s.units) continue;
+    run(
+      `INSERT INTO pack_moves (item_id, bundle_id, delta, reason, ref_type, ref_id, user_id, note)
+       VALUES (?, ?, ?, 'sale_void', 'sale', ?, ?, ?)`,
+      s.item_id,
+      s.bundle_id,
+      -s.units,
+      saleId,
+      userId,
+      note,
+    );
+  }
+}

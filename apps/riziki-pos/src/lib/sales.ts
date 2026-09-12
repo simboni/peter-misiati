@@ -21,7 +21,7 @@
  */
 
 import { all, get, run, tx, postMovement, stockOf, audit, type Item, type PriceBasis } from "./db.ts";
-import { filledOf, takeFilled, openForLoose } from "./packing.ts";
+import { filledOf, takeFilled, openForLoose, returnFilled } from "./packing.ts";
 import { allowanceOf, refusal } from "./borrowing.ts";
 import { verifyPin } from "./pin.ts";
 import { findBundle } from "./bundles.ts";
@@ -914,6 +914,11 @@ export function voidSale(saleId: number, userId: number, reason: string): void {
         note: why,
       });
     }
+
+    // And the containers. A jerrican that was sold stands on the shelf again;
+    // one that was opened to pour a loose sale stays open, and its contents
+    // come back as loose — which is what is actually standing in the yard.
+    returnFilled(saleId, userId, why);
 
     run(
       `UPDATE sales

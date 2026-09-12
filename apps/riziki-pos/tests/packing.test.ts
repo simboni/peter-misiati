@@ -214,7 +214,7 @@ test("the whole picture never contradicts itself", () => {
 
 // ---------------------------------------------------------------- at the till
 
-const { recordSale, SaleError } = await import("../src/lib/sales.ts");
+const { recordSale, voidSale, SaleError } = await import("../src/lib/sales.ts");
 
 function sell(lines: unknown, dueCents: number) {
   return recordSale({
@@ -241,6 +241,52 @@ test("selling a jerrican takes the kilogrammes AND the jerrican", () => {
     "and one fewer 5 kg is standing there",
   );
   assert.equal(after.packedMilli + after.looseMilli, after.stockMilli, "still one number");
+});
+
+test("voiding that sale stands the jerrican back on the shelf", () => {
+  const before = packState(mildId);
+  const filled5 = before.sizes.find((x) => x.sizeMilli === 5_000)!.filled;
+
+  const sale = sell([{ itemId: mildId, bundleId: size(5_000), units: 2, unitPriceCents: 160_000 }], 320_000);
+  assert.equal(packState(mildId).sizes.find((x) => x.sizeMilli === 5_000)!.filled, filled5 - 2);
+
+  voidSale(sale.saleId, OWNER, "wrong customer");
+
+  const after = packState(mildId);
+  assert.equal(after.stockMilli, before.stockMilli, "the kilogrammes came back");
+  assert.equal(
+    after.sizes.find((x) => x.sizeMilli === 5_000)!.filled,
+    filled5,
+    "and so did the two jerricans — they are sealed and standing again",
+  );
+  assert.equal(after.packedMilli + after.looseMilli, after.stockMilli, "still one number");
+
+  // A return, like everything else here, is a row and not an edit.
+  const back = all<{ delta: number }>(
+    `SELECT delta FROM pack_moves WHERE ref_type = 'sale' AND ref_id = ? AND reason = 'sale_void'`,
+    sale.saleId,
+  );
+  assert.deepEqual(back.map((r) => r.delta), [2]);
+});
+
+test("voiding a loose sale returns the liquid loose, not as a sealed container", () => {
+  // Leave nothing loose, so the sale has to break a seal to be poured.
+  const s0 = packState(mildId);
+  const spare = Math.floor(s0.looseMilli / 1_000);
+  if (spare > 0) fill(mildId, [{ bundleId: size(1_000), delta: spare }], OWNER);
+
+  const before = packState(mildId);
+  const sale = sell([{ itemId: mildId, units: 1, qtyMilli: 2_000, unitPriceCents: 32_000 }], 64_000);
+  const opened = before.packedMilli - packState(mildId).packedMilli;
+  assert.ok(opened > 0, "a container was opened to pour it");
+
+  voidSale(sale.saleId, OWNER, "poured back");
+
+  const after = packState(mildId);
+  assert.equal(after.stockMilli, before.stockMilli, "every kilogramme is back");
+  assert.equal(after.packedMilli, before.packedMilli - opened, "the opened container stays open");
+  assert.equal(after.looseMilli, before.looseMilli + opened, "its contents are loose, which is where they are");
+  assert.equal(after.packedMilli + after.looseMilli, after.stockMilli);
 });
 
 test("it refuses to sell a jerrican nobody has filled", () => {
