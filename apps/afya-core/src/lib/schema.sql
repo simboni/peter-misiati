@@ -218,3 +218,150 @@ CREATE TABLE IF NOT EXISTS audit_log (
 CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_log(at);
 CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_log(actor_id);
 CREATE INDEX IF NOT EXISTS idx_audit_patient ON audit_log(patient_id);
+
+-- ============================================================ M03 SYNC ENGINE
+--
+-- Rule: a device writes locally and never blocks on the network. Every change
+-- is recorded here as an immutable operation, then pushed when a link exists.
+--
+-- Ordering is a Lamport clock, not wall time. Two tablets in a clinic with
+-- drifting clocks — one of them set by hand — must still agree on what happened
+-- after what, and wall time cannot give that. `at` is kept for display and as a
+-- last-resort tie-break only.
+--
+-- `data_class` decides how a conflict is resolved, because the right answer
+-- differs by what the data is:
+--
+--   clinical     never lose data. Both versions kept, a human reviews.
+--   ledger       stock and money. Server authoritative, variance logged.
+--   demographic  field-level last-writer-wins, audited.
+--   identifier   provisional and canonical both retained, never overwritten.
+
+CREATE TABLE IF NOT EXISTS sync_ops (
+  -- Local arrival order. Says nothing about causal order; use lamport.
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  -- Globally unique without coordination: device-prefixed. Also the idempotency
+  -- key — a retried push must not apply twice.
+  op_id        TEXT    NOT NULL UNIQUE,
+  device_code  TEXT    NOT NULL,
+  lamport      INTEGER NOT NULL,
+  at           TEXT    NOT NULL,
+  actor_id     INTEGER REFERENCES users(id),
+  actor_name   TEXT    NOT NULL DEFAULT 'system',
+  entity       TEXT    NOT NULL,
+  entity_id    TEXT    NOT NULL,
+  data_class   TEXT    NOT NULL CHECK (data_class IN ('clinical','ledger','demographic','identifier')),
+  -- JSON object of changed fields only, never a whole row: a device that was
+  -- offline must not clobber fields it never saw.
+  payload      TEXT    NOT NULL DEFAULT '{}',
+  origin       TEXT    NOT NULL CHECK (origin IN ('local','remote')),
+  status       TEXT    NOT NULL CHECK (status IN ('pending','applied','superseded')),
+  applied_at   TEXT,
+  pushed_at    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_ops_entity ON sync_ops(entity, entity_id);
+CREATE INDEX IF NOT EXISTS idx_ops_status ON sync_ops(status, origin);
+CREATE INDEX IF NOT EXISTS idx_ops_order ON sync_ops(lamport, device_code);
+
+-- This device's Lamport clock, and how far it has read the upstream log.
+CREATE TABLE IF NOT EXISTS sync_state (
+  device_code     TEXT PRIMARY KEY,
+  lamport         INTEGER NOT NULL DEFAULT 0,
+  last_pulled_op  TEXT,
+  last_synced_at  TEXT
+);
+
+-- Conflicts that a person has to look at. A clinical conflict is never resolved
+-- silently: two clinicians documented the same encounter from different devices
+-- and both versions are real.
+CREATE TABLE IF NOT EXISTS sync_conflicts (
+  id           INTEGER PRIMARY KEY,
+  entity       TEXT    NOT NULL,
+  entity_id    TEXT    NOT NULL,
+  field        TEXT,
+  data_class   TEXT    NOT NULL,
+  kept_op_id   TEXT    NOT NULL,
+  other_op_id  TEXT    NOT NULL,
+  resolution   TEXT    NOT NULL CHECK (resolution IN ('both-kept','server-wins','field-merged')),
+  detected_at  TEXT    NOT NULL,
+  -- Null until a human has looked. Only clinical conflicts require this.
+  reviewed_at  TEXT,
+  reviewed_by  INTEGER REFERENCES users(id)
+);
+CREATE INDEX IF NOT EXISTS idx_conflicts_open ON sync_conflicts(reviewed_at);
+
+-- ================================================ M10 PATIENT REGISTRY & MPI
+
+CREATE TABLE IF NOT EXISTS patients (
+  -- The facility's own medical record number, minted on the device that
+  -- registered the patient. Carries that device's prefix so two disconnected
+  -- tablets cannot issue the same one.
+  mrn                TEXT PRIMARY KEY,
+  facility_id        INTEGER NOT NULL REFERENCES facilities(id),
+
+  -- Strong identifiers. Any one of these matching is a definite match, so each
+  -- is stored normalised (trimmed, upper-cased, punctuation removed).
+  national_id        TEXT,
+  sha_number         TEXT,
+  passport_no        TEXT,
+  birth_cert_no      TEXT,
+  alien_id           TEXT,
+
+  given_name         TEXT NOT NULL,
+  family_name        TEXT NOT NULL,
+  other_names        TEXT NOT NULL DEFAULT '',
+  -- Kenyan identity documents recognise intersex, so the record must too.
+  sex                TEXT NOT NULL CHECK (sex IN ('male','female','intersex')),
+  date_of_birth      TEXT,
+  -- Many patients do not know their date of birth. Recording an estimate as an
+  -- estimate keeps it usable for matching without asserting a fact.
+  dob_estimated      INTEGER NOT NULL DEFAULT 0 CHECK (dob_estimated IN (0,1)),
+
+  -- Normalised to 254XXXXXXXXX. The single strongest weak identifier in Kenya.
+  phone              TEXT,
+  alt_phone          TEXT,
+
+  county             TEXT NOT NULL DEFAULT '',
+  sub_county         TEXT NOT NULL DEFAULT '',
+  ward               TEXT NOT NULL DEFAULT '',
+  village            TEXT NOT NULL DEFAULT '',
+
+  nok_name           TEXT NOT NULL DEFAULT '',
+  nok_phone          TEXT,
+  nok_relation       TEXT NOT NULL DEFAULT '',
+
+  deceased           INTEGER NOT NULL DEFAULT 0 CHECK (deceased IN (0,1)),
+  deceased_date      TEXT,
+
+  -- Set when this record has been merged away into another. The row is never
+  -- deleted: anything already pointing at this MRN must keep resolving, and the
+  -- merge has to be reversible.
+  merged_into        TEXT REFERENCES patients(mrn),
+
+  registered_by      INTEGER REFERENCES users(id),
+  registered_device  TEXT,
+  created_at         TEXT NOT NULL,
+  updated_at         TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_pt_national ON patients(national_id);
+CREATE INDEX IF NOT EXISTS idx_pt_sha ON patients(sha_number);
+CREATE INDEX IF NOT EXISTS idx_pt_phone ON patients(phone);
+CREATE INDEX IF NOT EXISTS idx_pt_name ON patients(family_name, given_name);
+CREATE INDEX IF NOT EXISTS idx_pt_merged ON patients(merged_into);
+
+-- A merge is an event, not a state change, so it can be undone. Holds enough to
+-- restore the losing record exactly as it was.
+CREATE TABLE IF NOT EXISTS patient_merges (
+  id           INTEGER PRIMARY KEY,
+  kept_mrn     TEXT    NOT NULL REFERENCES patients(mrn),
+  merged_mrn   TEXT    NOT NULL REFERENCES patients(mrn),
+  -- JSON snapshot of the kept record before the merge, so an unmerge restores
+  -- fields the merge filled in.
+  kept_before  TEXT    NOT NULL,
+  reason       TEXT    NOT NULL DEFAULT '',
+  merged_by    INTEGER REFERENCES users(id),
+  merged_at    TEXT    NOT NULL,
+  undone_by    INTEGER REFERENCES users(id),
+  undone_at    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_merge_kept ON patient_merges(kept_mrn);

@@ -1,8 +1,9 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { currentUser } from "@/lib/auth.ts";
 import { facilityCompliance, getFacility, listDevices, LEVELS } from "@/lib/facility.ts";
 import { expiringLicences, listUsers } from "@/lib/users.ts";
-import { licenceStatus } from "@/lib/access.ts";
+import { licenceStatus, can } from "@/lib/access.ts";
 import { verifyAuditChain } from "@/lib/db.ts";
 import { signOutAction } from "@/app/actions/session.ts";
 
@@ -136,10 +137,27 @@ export default async function Dashboard() {
         </div>
       </section>
 
+      <section className="mt-7">
+        <h2 className="text-sm font-semibold tracking-[0.08em] uppercase text-muted">Today</h2>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Link href="/patients" className="bg-brand text-white font-semibold rounded px-4 py-2.5 text-sm">
+            Find a patient
+          </Link>
+          {can(user.userId, "patient.register") ? (
+            <Link
+              href="/patients/new"
+              className="border border-brand text-brand font-semibold rounded px-4 py-2.5 text-sm"
+            >
+              Register a patient
+            </Link>
+          ) : null}
+        </div>
+      </section>
+
       <footer className="mt-8 pt-5 border-t border-line">
         <p className="text-xs text-muted leading-relaxed">
-          Phase 0 — platform, identity and audit. Patient registration, encounters, billing and the
-          claim scrubber follow in Phase 1.
+          Phase 1 in progress — platform, identity, audit, offline sync and the patient index are in.
+          Encounters, billing and the claim scrubber follow.
         </p>
       </footer>
     </main>

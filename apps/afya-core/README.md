@@ -3,9 +3,9 @@
 Kenya-compliant hospital management system (HMIS). Built to the plan in
 [`docs/hms/`](../../docs/hms/) at the repository root.
 
-**Current state: Phase 0 complete** — M00 Platform Core, M01 Identity & Access,
-M02 Audit. Patient registration, encounters, billing and the claim scrubber are
-Phase 1.
+**Current state: Phase 0 complete, Phase 1 started** — M00 Platform Core, M01
+Identity & Access, M02 Audit, M03 Sync Engine, M10 Patient Registry & MPI.
+Encounters, billing and the claim scrubber are next.
 
 ## Running it
 
@@ -13,7 +13,7 @@ Phase 1.
 npm install
 npm run seed     # creates data/afya.db with a demo clinic and staff
 npm run dev      # http://localhost:3200
-npm test         # 42 tests, no network or database server needed
+npm test         # 79 tests, no network or database server needed
 ```
 
 Sign in as `admin` / `ChangeMe123`.
@@ -40,9 +40,11 @@ tier. `src/lib/db.ts` is the only module that would change.
 | **M01** Identity & Access | `src/lib/users.ts`, `src/lib/access.ts` | Named accounts, practitioner licences, roles, permissions, sessions |
 | **M02** Audit | `src/lib/db.ts` | Hash-chained append-only audit log, with verification |
 | — | `src/lib/ids.ts` | Device-prefixed identifiers that cannot collide offline |
+| **M03** Sync Engine | `src/lib/sync.ts` | Offline operation log, Lamport ordering, conflict resolution by data class |
+| **M10** Patient Registry & MPI | `src/lib/patients.ts` | Patients, identifier normalisation, duplicate matching, merge and unmerge |
 | — | `src/lib/seed.ts` | Cadres, the permission catalogue, default roles |
 
-## Four rules the code enforces
+## Six rules the code enforces
 
 These are compliance requirements expressed as code, not documentation. Each has
 a test that fails if it regresses.
@@ -65,6 +67,19 @@ a test that fails if it regresses.
    invoice number — are never minted locally; they are assigned on transmission
    and both are kept.
 
+5. **Sync order comes from a Lamport clock, and conflict policy depends on what
+   the data is.** Wall time would let a tablet with a fast clock win every
+   conflict. Clinical content is never overwritten (both versions kept, a person
+   reconciles); stock and money defer to the server with the variance logged;
+   demographics merge field by field. Ops carry changed fields only, so a device
+   that was offline for two days cannot revert what someone else fixed.
+
+6. **The system never auto-merges two patients.** A strong identifier match is
+   definite; everything else is scored, shown with its reasons, and decided by a
+   person. Merges are reversible, and two records carrying different national IDs
+   are refused outright — one record for two patients is the worst outcome the
+   index can produce.
+
 ## Testing
 
 ```bash
@@ -75,12 +90,12 @@ Tests run against a throwaway database in `$TMPDIR` via `AFYA_DB`. No Next.js
 import reaches `src/lib/*`, so the domain layer is testable without booting the
 framework.
 
-## Next: Phase 1
+## Next in Phase 1
 
-The MVP ("Claim-Safe Core") adds, in dependency order: M03 Sync Engine, M10
-Patient Registry & MPI, M11 Consent, M14 Queue & Triage, M21 Terminology
-(ICD-11), M20 Encounter, M23 Prescribing, M50 Billing, M52 eTIMS, M53 Payer &
-Coverage, M54 Pre-authorisation, and M55 the Claims Engine and scrubber.
+Remaining for the "Claim-Safe Core" MVP, in dependency order: M11 Consent, M14
+Queue & Triage, M21 Terminology (ICD-11), M20 Encounter, M23 Prescribing, M50
+Billing, M52 eTIMS, M53 Payer & Coverage, M54 Pre-authorisation, and M55 the
+Claims Engine and scrubber.
 
 Per the roadmap, the scrubber's rules should be built from 50 real rejected
 claims before the rest — encoding what SHA already rejected beats guessing.

@@ -17,7 +17,7 @@
 
 import { get, run, tx, audit } from "./db.ts";
 import { definePermission, defineRole } from "./access.ts";
-import { registerFacility, setSetting } from "./facility.ts";
+import { registerFacility, registerDevice, setSetting } from "./facility.ts";
 import { createUser, recordLicence } from "./users.ts";
 
 /** The councils that license clinical practice in Kenya. */
@@ -256,6 +256,17 @@ export function seedDemo(): { facilityId: number; adminId: number; clinicianId: 
     regulator: "KMPDC",
     licenceNumber: "KMPDC-DEMO-4471",
     expiresOn: nextYear,
+    byUserId: adminId,
+    byUserName: "seed",
+  });
+
+  // A facility with no registered device cannot record a patient — every file
+  // number carries its device's prefix. A real clinic has at least one, so the
+  // demo has one too rather than dead-ending on the first registration.
+  registerDevice({
+    facilityId,
+    code: "REC1",
+    label: "Reception desk",
     byUserId: adminId,
     byUserName: "seed",
   });
