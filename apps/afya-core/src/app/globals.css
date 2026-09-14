@@ -1,0 +1,52 @@
+@import "tailwindcss";
+
+/*
+  Afya Core — visual system.
+
+  Clinical, not corporate. Deep indigo carries the interface; amber is reserved
+  for the claim clock and expiry warnings, and red for anything that blocks
+  payment — so a colour never means two different things on one screen.
+
+  Designed for a 10-inch tablet in a consulting room: large targets, high
+  contrast, readable under fluorescent light.
+*/
+
+@theme {
+  /* Neutrals, biased toward the indigo so nothing reads as flat grey */
+  --color-ink: #141826;
+  --color-muted: #5b6280;
+  --color-line: #d9dbe7;
+  --color-wash: #f4f5f9;
+
+  /* Primary */
+  --color-brand: #252f7a;
+  --color-brand-dark: #1a2259;
+  --color-brand-soft: #e6e8f6;
+
+  /* The claim clock and anything expiring */
+  --color-clock: #9a5600;
+  --color-clock-soft: #fbeed6;
+
+  /* Blocking — a claim that cannot be submitted, a lapsed licence */
+  --color-block: #9e2a24;
+  --color-block-soft: #f8e4e2;
+
+  /* Clear */
+  --color-good: #1d6b45;
+  --color-good-soft: #dff0e7;
+}
+
+html {
+  color-scheme: light;
+}
+
+body {
+  background: var(--color-wash);
+  color: var(--color-ink);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Digits that line up in columns — claim values, counts, dates. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
