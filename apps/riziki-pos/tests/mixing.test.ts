@@ -22,6 +22,17 @@ const { createFormula, currentVersion, listFormulas } = await import("../src/lib
 const { setFormulaOutput, planMix, recordMix, mixableFormulas, recentBatches, MixError } =
   await import("../src/lib/mixing.ts");
 const { deletableReason } = await import("../src/lib/catalog.ts");
+const { setOversellPolicy } = await import("../src/lib/borrowing.ts");
+
+/** The shop's rule, set for one test and put back afterwards. */
+function withRule<T>(all: boolean, capMilli: number, fn: () => T): T {
+  setOversellPolicy({ all, capMilli }, OWNER);
+  try {
+    return fn();
+  } finally {
+    setOversellPolicy({ all: true, capMilli: 0 }, OWNER);
+  }
+}
 
 seed();
 const OWNER = 1;
@@ -168,10 +179,13 @@ test("what actually came out of the jug is what the ledger believes", () => {
 });
 
 test("more concentrate than the shelf holds is refused, by name and amount", () => {
-  assert.throws(
-    () => recordMix({ versionId, targetMilli: 200_000, actualMilli: 200_000, userId: OWNER }),
-    /Not enough Hypochlorite \(concentrate\)[\s\S]*in the store/,
-  );
+  // With the shop's rule set to refuse — which is what it means to refuse.
+  withRule(false, 0, () => {
+    assert.throws(
+      () => recordMix({ versionId, targetMilli: 200_000, actualMilli: 200_000, userId: OWNER }),
+      /Not enough Hypochlorite \(concentrate\)[\s\S]*in the store/,
+    );
+  });
 });
 
 test("a refused batch changes nothing at all", () => {
@@ -179,13 +193,57 @@ test("a refused batch changes nothing at all", () => {
   const mild0 = stockOf(mildId);
   const batches0 = all(`SELECT id FROM batches`).length;
 
-  assert.throws(() =>
-    recordMix({ versionId, targetMilli: 500_000, actualMilli: 500_000, userId: OWNER }),
-  );
+  withRule(false, 0, () => {
+    assert.throws(() =>
+      recordMix({ versionId, targetMilli: 500_000, actualMilli: 500_000, userId: OWNER }),
+    );
+  });
 
   assert.equal(stockOf(concId), conc0, "no concentrate left the shelf");
   assert.equal(stockOf(mildId), mild0, "no mild arrived");
   assert.equal(all(`SELECT id FROM batches`).length, batches0, "and no batch was written");
+});
+
+test("a batch past what the drum holds is mixed, and the shortfall is what is owed", () => {
+  // The shop's rule, as it now ships: fetch it from next door and mix.
+  const conc0 = stockOf(concId);
+  // Six kilogrammes more concentrate than the drum holds.
+  const madeMilli = Math.round(((conc0 + 6_000) * 23_000) / 12_000);
+
+  const plan = planMix(versionId, madeMilli);
+  assert.equal(plan.canMake, true, "short is not the same as impossible");
+  assert.deepEqual(plan.problems, [], "nothing stands in the way");
+  assert.ok(plan.owing.length > 0, "but it says what has to be fetched");
+  assert.match(plan.owing[0], /Hypochlorite \(concentrate\)/);
+
+  const needed = plan.lines[0].neededMilli;
+  recordMix({ versionId, targetMilli: madeMilli, actualMilli: madeMilli, userId: OWNER });
+
+  assert.ok(stockOf(concId) < 0, "the concentrate is past zero");
+  assert.equal(stockOf(concId), conc0 - needed, "by exactly what the batch took");
+
+  // And a delivery settles it with nobody reconciling anything.
+  const owed = -stockOf(concId);
+  run(
+    `INSERT INTO stock_movements (item_id, delta_milli, reason, user_id)
+     VALUES (?, ?, 'adjustment', ?)`,
+    concId,
+    owed + 10_000,
+    OWNER,
+  );
+  assert.equal(stockOf(concId), 10_000, "the debt is absorbed by what arrives");
+});
+
+test("the shop can put a limit on how far past zero a batch may go", () => {
+  withRule(true, 1_000, () => {
+    const conc = stockOf(concId);
+    // Five kilogrammes short, where the shop has said one.
+    const madeMilli = Math.round(((conc + 5_000) * 23_000) / 12_000);
+    assert.throws(
+      () => recordMix({ versionId, targetMilli: madeMilli, actualMilli: madeMilli, userId: OWNER }),
+      /may be fetched short by/,
+    );
+  });
 });
 
 test("a mixed-in-advance recipe is not offered at the counter", () => {

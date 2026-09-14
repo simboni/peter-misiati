@@ -407,7 +407,22 @@ function BatchBoard({ row }: { row: MixableRow }) {
     return { ...line, qtyMilli, costCents, short: line.availableMilli < qtyMilli };
   });
   const takesCostCents = takes.reduce((n, l) => n + l.costCents, 0);
-  const shortLines = takes.filter((l) => l.short || l.itemId === null);
+  /*
+    Short, and short past what may be fetched. Two different sentences.
+
+    A recipe that needs three kilogrammes more concentrate than the drum holds
+    is mixed here every week: somebody walks next door for it and it goes back
+    on the next delivery. That must not kill the button — it must be said out
+    loud, which is what the amber line under the ledger does. What DOES kill the
+    button is an ingredient nothing stocks at all, or one past whatever limit
+    the shop put on fetching.
+  */
+  const refusedLines = takes.filter(
+    (l) =>
+      l.itemId === null ||
+      (l.allowanceMilli !== null && l.qtyMilli > l.availableMilli + l.allowanceMilli),
+  );
+  const fetchLines = takes.filter((l) => l.short && !refusedLines.includes(l));
 
   /*
     One string for what is stopping this, driving both the message and the dead
@@ -417,8 +432,8 @@ function BatchBoard({ row }: { row: MixableRow }) {
   const problem =
     targetMilli <= 0
       ? `Tap a size to say how much ${row.outputName} you made.`
-      : shortLines.length
-        ? `Not enough in the store: ${shortLines.map((l) => l.itemName).join(", ")}. ` +
+      : refusedLines.length
+        ? `Not enough in the store: ${refusedLines.map((l) => l.itemName).join(", ")}. ` +
           (plan && plan.possibleMilli > 0
             ? `The most you could mix right now is ${formatQty(plan.possibleMilli, row.unit)}.`
             : "Record the delivery first.")
@@ -562,14 +577,23 @@ function BatchBoard({ row }: { row: MixableRow }) {
                   */
                   per={
                     roomFor(b.sizeMilli) <= 0
-                      ? targetMilli > 0
-                        ? "no more from the drum"
-                        : "not enough to mix one"
+                      ? row.oversell
+                        ? "fetched from next door"
+                        : targetMilli > 0
+                          ? "no more from the drum"
+                          : "not enough to mix one"
                       : targetMilli > 0
                         ? `${roomFor(b.sizeMilli)} more`
                         : `enough for ${roomFor(b.sizeMilli)}`
                   }
-                  disabled={roomFor(b.sizeMilli) <= 0}
+                  /*
+                    Dead only where the shop has said no.
+
+                    When it allows fetching from next door the drum running out
+                    is not the end of the batch — it is an errand, and the chip
+                    says so rather than going grey with no explanation.
+                  */
+                  disabled={!row.oversell && roomFor(b.sizeMilli) <= 0}
                   /*
                     No rate on the chip. At the counter each size can be priced
                     at its own rate, so the third line earns its place; here they
@@ -708,6 +732,25 @@ function BatchBoard({ row }: { row: MixableRow }) {
                   {madeMilli < targetMilli ? "Short of" : "Over"} the{" "}
                   {formatQty(targetMilli, row.outputUnit)} counted by{" "}
                   {formatQty(Math.abs(targetMilli - madeMilli), row.outputUnit)}
+                </div>
+              ) : null}
+              {/*
+                The errand this batch creates, named before the button is
+                pressed.
+
+                Mixing past what the drum holds is allowed — somebody fetches
+                the difference from the yard next door — but it is somebody
+                walking somewhere, and the person who has to is the one reading
+                this. The amount is what makes it an errand rather than a
+                worry: "fetch 3 kg of concentrate", not "you are short".
+              */}
+              {fetchLines.length ? (
+                <div className="text-xs font-semibold text-warn">
+                  Fetch from next door:{" "}
+                  {fetchLines
+                    .map((l) => `${formatQty(l.qtyMilli - l.availableMilli, l.unit)} of ${l.itemName}`)
+                    .join(", ")}
+                  . The count goes short by that much until the delivery is recorded.
                 </div>
               ) : null}
             </div>

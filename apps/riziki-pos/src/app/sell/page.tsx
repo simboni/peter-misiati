@@ -18,6 +18,7 @@ import { formatKes } from "@/lib/units";
 import { setCounterPrice, PriceError } from "@/lib/pricing";
 import { bundlesByItem, bundlesByFormula } from "@/lib/bundles";
 import { filledByItem } from "@/lib/packing";
+import { allowanceOf, oversellPolicy } from "@/lib/borrowing";
 import SellClient, {
   type MixOffer,
   type RecipeChoice,
@@ -331,6 +332,22 @@ export default async function SellPage() {
     ).map((r) => r.output_item_id),
   );
 
+  /*
+    The shop's rule on selling past zero, worked out here rather than on the
+    phone.
+
+    The counter is sent one number per item — how far this may go past zero —
+    with the shop's general rule and the item's own allowance already reconciled
+    into it. The till has no business knowing which of the two it came from, and
+    a rule the phone worked out for itself would be a second copy of it to keep
+    in step. Null is "the shop named no limit".
+  */
+  const policy = oversellPolicy();
+  const roomPastZero = (oversellMilli: number): number | null => {
+    const allow = allowanceOf({ id: 0, oversell_milli: oversellMilli }, policy);
+    return Number.isFinite(allow) ? allow : null;
+  };
+
   const items: SellItem[] = rows.map((r) => ({
     id: r.id,
     basis: r.price_basis === "unit" ? "unit" : "pack",
@@ -342,7 +359,7 @@ export default async function SellPage() {
     qtyMilli: r.qty_milli,
     search: r.search,
     made: made.has(r.id),
-    oversellMilli: r.oversell_milli ?? 0,
+    oversellMilli: roomPastZero(r.oversell_milli ?? 0),
     bundles: (bundles.get(r.id) ?? []).map((b) => ({
       id: b.id,
       sizeMilli: b.sizeMilli,
@@ -398,6 +415,14 @@ export default async function SellPage() {
       between the two ways a recipe can work; see lib/mixing.ts.
     */
     .filter((f) => f.output_item_id === null)
+    /*
+      And not one the owner has taken off the counter.
+
+      Same interlock as the line above, for a different reason: that one stops
+      the concentrate leaving the books twice, this one is the owner saying a
+      recipe is not the counter's to sell.
+    */
+    .filter((f) => !f.hidden)
     .map((f) => ({
       versionId: f.version_id,
       formulaId: f.id,

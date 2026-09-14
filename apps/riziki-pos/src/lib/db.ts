@@ -172,6 +172,16 @@ const ADDED_COLUMNS: Array<{ table: string; column: string; definition: string }
     entries it wrote are append-only. It is marked, reversed by opposite
     entries, and skipped when a cost price is worked out again from history.
   */
+  /*
+    A recipe the counter is not to offer.
+
+    Off for everything, which is how the shop has always worked. On, and the
+    recipe stays exactly where it is — the owner's book, the mixing board, the
+    version history — but the sell screen stops listing it, so a mix that is
+    made to order for one customer, or one the owner would rather nobody tapped
+    by accident, is not a thing an attendant can reach.
+  */
+  { table: "formulas", column: "hidden", definition: "INTEGER NOT NULL DEFAULT 0 CHECK (hidden IN (0, 1))" },
   { table: "batches", column: "voided_at", definition: "TEXT" },
   { table: "sale_lines", column: "rate_cents", definition: "INTEGER NOT NULL DEFAULT 0 CHECK (rate_cents >= 0)" },
   {

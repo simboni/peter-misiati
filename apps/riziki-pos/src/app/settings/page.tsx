@@ -15,6 +15,7 @@ import {
 } from "@/lib/users";
 import { formatDateTime, formatKes, toCents, fromCents } from "@/lib/units";
 import { buildStamp } from "@/lib/build-stamp";
+import { oversellPolicy, setOversellPolicy } from "@/lib/borrowing";
 import {
   Alert,
   Button,
@@ -95,6 +96,31 @@ async function updateRole(formData: FormData): Promise<void> {
   revalidatePath("/settings");
 }
 
+/**
+ * The shop's rule on selling and mixing past zero.
+ *
+ * One rule, one screen, covering every product, every chemical and every
+ * ingredient a recipe reaches for. It used to be a number per item, which meant
+ * nobody set it: when a customer is standing there the shop finds the goods
+ * somewhere, and walking to Products & prices to raise a limit first is not a
+ * thing that happens.
+ */
+async function saveOversell(formData: FormData): Promise<void> {
+  "use server";
+  const by = await guard();
+  const limit = Number(formData.get("oversell_limit") ?? 0);
+  setOversellPolicy(
+    {
+      all: formData.get("oversell_all") === "1",
+      capMilli: Number.isFinite(limit) && limit > 0 ? Math.round(limit * 1000) : 0,
+    },
+    by,
+  );
+  revalidatePath("/settings");
+  revalidatePath("/sell");
+  revalidatePath("/mix");
+}
+
 async function saveShop(formData: FormData): Promise<void> {
   "use server";
   const by = await guard();
@@ -141,6 +167,7 @@ export default async function SettingsPage(props: {
   }
 
   const users = listUsers();
+  const oversell = oversellPolicy();
   const demo = usersOnDemoPin();
   const build = buildStamp();
   const shopName = getSetting("shop_name", "Riziki Industrial Chemicals");
@@ -329,6 +356,44 @@ export default async function SettingsPage(props: {
             on the server and this will fill in.
           </p>
         )}
+      </Card>
+
+      <SectionLabel>Selling past zero</SectionLabel>
+      <Card>
+        <form action={saveOversell} className="space-y-2.5 xl:space-y-3">
+          <Field
+            label="When the shelf is empty"
+            hint="A till that refuses what the shop can fetch in two minutes sends the goods out of the door unrecorded, which is worse than a number somebody can see and settle."
+          >
+            <select className={inputClass} name="oversell_all" defaultValue={oversell.all ? "1" : "0"}>
+              <option value="1">Sell it anyway — fetched from next door</option>
+              <option value="0">Refuse it — nothing leaves that is not there</option>
+            </select>
+          </Field>
+          <Field
+            label="How far past zero"
+            hint="In the thing's own unit: 20 means 20 kg, 20 L or 20 pieces. Leave it at 0 for no limit."
+          >
+            <input
+              className={inputClass}
+              type="number"
+              name="oversell_limit"
+              min="0"
+              step="any"
+              defaultValue={oversell.capMilli ? oversell.capMilli / 1000 : 0}
+            />
+          </Field>
+          <p className="text-xs text-muted">
+            {oversell.all
+              ? oversell.capMilli > 0
+                ? `Anything may be sold or mixed up to ${oversell.capMilli / 1000} past zero. What it goes short by is what is owed next door, and the next delivery settles it on its own.`
+                : "Anything may be sold or mixed past zero, with no limit. What it goes short by is what is owed next door, and the next delivery settles it on its own."
+              : "Nothing may be sold or mixed past what the shelf holds, except an item given its own allowance under Products & prices."}
+          </p>
+          <Button type="submit" className="w-full">
+            Save
+          </Button>
+        </form>
       </Card>
 
       <SectionLabel>Shop details</SectionLabel>

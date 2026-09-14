@@ -22,7 +22,7 @@
 
 import { all, get, run, tx, postMovement, stockOf, audit, type Item, type PriceBasis } from "./db.ts";
 import { filledOf, takeFilled, openForLoose, returnFilled } from "./packing.ts";
-import { allowanceOf, refusal } from "./borrowing.ts";
+import { allowanceOf, refusal, oversellPolicy, type OversellPolicy } from "./borrowing.ts";
 import { verifyPin } from "./pin.ts";
 import { findBundle } from "./bundles.ts";
 import { mixFor, currentVersion } from "./production.ts";
@@ -421,7 +421,18 @@ export function recordSale(input: RecordSaleInput): RecordSaleResult {
       */
       if ((l.item as Item & { packed?: number }).packed === 1) {
         if (l.bundleId != null) {
-          takeFilled(l.item.id, l.bundleId, l.units, input.userId, Number(saleId));
+          /*
+            Only what was actually standing there comes off the tally.
+
+            A sale may go past zero — the jerricans beyond what the shelf held
+            were fetched from next door, already filled, and were never on this
+            shop's count. Taking them off it anyway would put the container
+            tally below nothing, which is a number with no meaning: the debt is
+            already recorded, in kilogrammes, by the stock going negative.
+          */
+          const standing = filledOf(l.item.id, l.bundleId);
+          const off = Math.min(l.units, standing);
+          if (off > 0) takeFilled(l.item.id, l.bundleId, off, input.userId, Number(saleId));
         } else {
           openForLoose(l.item.id, l.qtyMilli, input.userId, Number(saleId));
         }
@@ -491,6 +502,7 @@ function resolveFormulaBundle(
   line: SaleLineInput,
   input: RecordSaleInput,
   claimed: Map<number, number>,
+  policy: OversellPolicy,
 ): ResolvedLine[] {
   const bundle = findBundle(line.bundleId!);
   if (!bundle || !bundle.active || bundle.formulaId == null) {
@@ -556,7 +568,7 @@ function resolveFormulaBundle(
     if (!item) throw new SaleError("unknown_item", `${ing.chemicalName} is no longer on sale.`);
 
     const taken = (claimed.get(item.id) ?? 0) + ing.qtyMilli;
-    const allow = allowanceOf(item);
+    const allow = allowanceOf(item, policy);
     if (taken > stockOf(item.id) + allow) {
       throw new SaleError(
         "not_enough_stock",
@@ -613,6 +625,13 @@ function resolveLines(input: RecordSaleInput): ResolvedLine[] {
     one of them is answered by counting what is standing on the shelf.
   */
   const claimedFilled = new Map<number, number>();
+  /*
+    The shop's rule on selling past zero, read once for the whole bill.
+
+    Once, deliberately: a rule that changed halfway down a bill would refuse the
+    second line for a reason the first one was allowed for.
+  */
+  const policy = oversellPolicy();
 
   return input.lines.flatMap((line) => {
     /*
@@ -631,7 +650,7 @@ function resolveLines(input: RecordSaleInput): ResolvedLine[] {
       carry their COST, which is what keeps the profit on this sale honest.
     */
     if (line.bundleId != null && line.itemId == null) {
-      return resolveFormulaBundle(line, input, claimed);
+      return resolveFormulaBundle(line, input, claimed, policy);
     }
 
     const item = get<Item>(`SELECT * FROM items WHERE id = ? AND active = 1`, line.itemId);
@@ -698,7 +717,7 @@ function resolveLines(input: RecordSaleInput): ResolvedLine[] {
           one — half a borrowed jerrican is not a thing anybody carries.
         */
         const borrowable =
-          bundle.sizeMilli > 0 ? Math.floor(allowanceOf(item) / bundle.sizeMilli) : 0;
+          bundle.sizeMilli > 0 ? Math.floor(allowanceOf(item, policy) / bundle.sizeMilli) : 0;
         if (wantUnits > filled + borrowable) {
           throw new SaleError(
             "not_enough_stock",
@@ -713,7 +732,7 @@ function resolveLines(input: RecordSaleInput): ResolvedLine[] {
 
       const taken = (claimed.get(item.id) ?? 0) + qtyMilli;
       const onHand = stockOf(item.id);
-      const no = refusal(item.name, item.canonical_unit, onHand, allowanceOf(item), taken);
+      const no = refusal(item.name, item.canonical_unit, onHand, allowanceOf(item, policy), taken);
       if (no) throw new SaleError("not_enough_stock", no);
       claimed.set(item.id, taken);
 
@@ -769,7 +788,7 @@ function resolveLines(input: RecordSaleInput): ResolvedLine[] {
 
       const taken = (claimed.get(item.id) ?? 0) + qtyMilli;
       const onHand = stockOf(item.id);
-      const no = refusal(item.name, item.canonical_unit, onHand, allowanceOf(item), taken);
+      const no = refusal(item.name, item.canonical_unit, onHand, allowanceOf(item, policy), taken);
       if (no) throw new SaleError("not_enough_stock", no);
       claimed.set(item.id, taken);
 
@@ -1080,6 +1099,14 @@ export interface SaleLineRow {
   rate_cents: number;
   /** The canonical unit `qty_milli` is counted in, for weighed lines. */
   canonical_unit: "kg" | "L" | "pcs";
+  /**
+   * An ingredient of a mixed product rather than something the customer chose.
+   *
+   * It carries no money — the price was agreed for the product — and between
+   * them these lines ARE the recipe, so no screen may show them to anybody but
+   * the owner.
+   */
+  is_component: number;
 }
 
 /** Lines for a whole page of sales in one query, rather than one query per row. */
@@ -1089,7 +1116,8 @@ export function saleLinesFor(saleIds: readonly number[]): SaleLineRow[] {
   return all<SaleLineRow>(
     `SELECT l.sale_id, l.name_snapshot, l.units, l.qty_milli,
             l.unit_price_cents, l.line_total_cents, l.rate_cents,
-            COALESCE(i.canonical_unit, 'kg') AS canonical_unit
+            COALESCE(i.canonical_unit, 'kg') AS canonical_unit,
+            CASE WHEN l.is_kit = 1 AND l.line_total_cents = 0 THEN 1 ELSE 0 END AS is_component
        FROM sale_lines l
        LEFT JOIN items i ON i.id = l.item_id
       WHERE l.sale_id IN (${marks})

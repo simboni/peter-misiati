@@ -215,6 +215,7 @@ test("the whole picture never contradicts itself", () => {
 // ---------------------------------------------------------------- at the till
 
 const { recordSale, voidSale, SaleError } = await import("../src/lib/sales.ts");
+const { setOversellPolicy } = await import("../src/lib/borrowing.ts");
 
 function sell(lines: unknown, dueCents: number) {
   return recordSale({
@@ -290,16 +291,61 @@ test("voiding a loose sale returns the liquid loose, not as a sealed container",
 });
 
 test("it refuses to sell a jerrican nobody has filled", () => {
-  const s = packState(mildId);
-  const twentyThree = s.sizes.find((x) => x.sizeMilli === 23_000)!;
-  const askFor = twentyThree.filled + 3;
-  assert.ok(s.stockMilli > askFor * 23_000 - 23_000 || true);
+  // With the shop's rule set to refuse going past zero. Where the shop allows
+  // it, a jerrican can be fetched from next door like anything else — the test
+  // below that one.
+  setOversellPolicy({ all: false, capMilli: 0 }, OWNER);
+  try {
+    const s = packState(mildId);
+    const twentyThree = s.sizes.find((x) => x.sizeMilli === 23_000)!;
+    const askFor = twentyThree.filled + 3;
 
-  assert.throws(
-    () => sell([{ itemId: mildId, bundleId: size(23_000), units: askFor, unitPriceCents: 700_000 }], 700_000 * askFor),
-    (e: Error) => e instanceof SaleError && /filled/.test(e.message),
-    "the weight might allow it; the shelf does not",
+    assert.throws(
+      () => sell([{ itemId: mildId, bundleId: size(23_000), units: askFor, unitPriceCents: 700_000 }], 700_000 * askFor),
+      (e: Error) => e instanceof SaleError && /filled/.test(e.message),
+      "the weight might allow it; the shelf does not",
+    );
+  } finally {
+    setOversellPolicy({ all: true, capMilli: 0 }, OWNER);
+  }
+});
+
+test("where the shop allows it, a jerrican it has not filled is sold and owed", () => {
+  const before = packState(mildId);
+  const five = before.sizes.find((x) => x.sizeMilli === 5_000)!;
+  const askFor = five.filled + 2;
+
+  sell([{ itemId: mildId, bundleId: size(5_000), units: askFor, unitPriceCents: 160_000 }], 160_000 * askFor);
+
+  const after = packState(mildId);
+  assert.equal(after.stockMilli, before.stockMilli - askFor * 5_000, "every kilogramme is accounted for");
+  assert.equal(
+    after.sizes.find((x) => x.sizeMilli === 5_000)!.filled,
+    0,
+    "the tally empties, and stops at nothing — the two fetched were never on it",
   );
+  assert.ok(after.packedMilli >= 0 && after.looseMilli >= 0, "no share of the shelf goes upside down");
+  /*
+    The shares do NOT add up to the stock while the shop is in debt, and that is
+    the honest answer rather than a broken one: the jerricans fetched from next
+    door went out of the door without ever being on this count, so the book is
+    short by what is owed. That figure is said on the stock screen, in
+    kilogrammes, which is the unit the debt is actually in.
+  */
+  assert.ok(after.looseMilli === 0 || after.packedMilli + after.looseMilli === after.stockMilli);
+
+  // And the delivery settles it: what was fetched comes back, and the shares
+  // add up again with nobody reconciling anything.
+  const fetched = (askFor - five.filled) * 5_000;
+  run(
+    `INSERT INTO stock_movements (item_id, delta_milli, reason, user_id, note)
+     VALUES (?, ?, 'purchase', ?, 'replacing what was fetched next door')`,
+    mildId,
+    fetched,
+    OWNER,
+  );
+  const settled = packState(mildId);
+  assert.equal(settled.packedMilli + settled.looseMilli, settled.stockMilli, "one number again");
 });
 
 test("a loose sale off a fully packed shelf opens a jerrican rather than refusing", () => {

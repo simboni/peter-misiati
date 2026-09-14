@@ -183,18 +183,18 @@ export default function PriceForm({
           <Money name="reorder" label="Warn me at" value={reorderText} onValue={setReorderText} />
         </Field>
         {/*
-          How far past empty this may be sold.
+          How far past empty this ONE thing may be sold.
 
-          Blank for almost everything, and blank is the till the shop has always
-          had: it refuses what the shelf cannot cover. A number is a promise
-          about the yard next door — twenty kilos of Ungerol is a phone call, and
-          twenty litres of a concentrate nobody else stocks is a promise that
-          cannot be kept, which is why this is per product rather than a switch
-          for the whole shop.
+          The shop's general rule, under Users & settings, covers everything and
+          is what almost every product now runs on. This box is the exception
+          for a single product, and it is only ever more generous than the
+          general rule — never less, or a shop that had switched fetching on
+          would find one product quietly refusing a customer for a reason nobody
+          could see on this screen.
         */}
         <Field
           label="May be sold short by"
-          hint={`Blank for none. ${unit === "pcs" ? "How many" : `How many ${unit}`} you can fetch from the shop next door and put back on the next delivery.`}
+          hint={`Blank to use the shop's own rule under Users and settings. A number here is this one product's exception: ${unit === "pcs" ? "how many" : `how many ${unit}`} you can fetch from the shop next door and put back on the next delivery.`}
         >
           <Money
             name="oversell"

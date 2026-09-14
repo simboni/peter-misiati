@@ -103,7 +103,11 @@ export interface SellItem {
    * shop has always had. A number means the shop can fetch that much from the
    * yard next door and put it back on the next delivery.
    */
-  oversellMilli?: number;
+  /**
+   * How far past zero this may be taken — the shop's rule and this item's own
+   * allowance already reconciled by the server. Null means no limit was named.
+   */
+  oversellMilli?: number | null;
   /**
    * The shop mixes this itself — it is the output of one of its own recipes.
    *
@@ -1075,7 +1079,10 @@ export default function SellClient({
     fetched from next door. Inside that allowance the sale goes through and the
     count goes negative, which is the record of what is owed.
   */
-  const roomOf = (item: SellItem) => Math.max(0, item.qtyMilli) + (item.oversellMilli ?? 0);
+  const roomOf = (item: SellItem) =>
+    item.oversellMilli === null
+      ? Number.POSITIVE_INFINITY
+      : Math.max(0, item.qtyMilli) + (item.oversellMilli ?? 0);
   const oversold = stocked.filter((x) => x.item.qtyMilli >= 0 && x.line.qtyMilli > x.item.qtyMilli);
   const overdrawn = stocked.filter(
     (x) => x.item.basis === "unit" && x.line.qtyMilli > roomOf(x.item),

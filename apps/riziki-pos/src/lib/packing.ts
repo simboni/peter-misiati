@@ -112,7 +112,18 @@ export function packState(itemId: number): PackState {
     stockMilli,
     sizes,
     packedMilli,
-    looseMilli: stockMilli - packedMilli,
+    /*
+      Never below nothing, even when the containers standing there come to more
+      than the book says the shop holds.
+
+      That happens the moment something is sold past zero: two 5 kg jerricans
+      fetched from next door go straight out of the door, the sale takes ten
+      kilogrammes off a count that never carried them, and a 23 kg jerrican can
+      then be standing against a smaller figure. The difference is the debt, and
+      it is said in kilogrammes on the stock screen — it is not a negative
+      puddle in the drum, which is what this number would otherwise claim.
+    */
+    looseMilli: Math.max(0, stockMilli - packedMilli),
   };
 }
 

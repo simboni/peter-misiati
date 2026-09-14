@@ -94,6 +94,8 @@ export interface FormulaListRow {
   ref_unit: BatchUnit;
   note: string;
   ingredient_count: number;
+  /** Kept off the counter. The owner still sees it here and on the board. */
+  hidden: number;
 }
 
 // ------------------------------------------------------------------- reads
@@ -115,6 +117,7 @@ export function listFormulas(q?: string): FormulaListRow[] {
   const base = `
     SELECT f.id,
            f.name,
+           f.hidden,
            f.output_item_id,
            (SELECT oi.name FROM items oi WHERE oi.id = f.output_item_id) AS output_name,
            v.id             AS version_id,
@@ -502,12 +505,39 @@ export function renameFormula(formulaId: number, name: string, userId: number): 
     throw new Error(
       clash.active
         ? `There is already a recipe called ${wanted}.`
-        : `${wanted} exists but is hidden. Show that one again rather than renaming this one onto it.`,
+        : `${wanted} exists but is retired. Bring that one back rather than renaming this one onto it.`,
     );
   }
 
   run(`UPDATE formulas SET name = ? WHERE id = ?`, wanted, formulaId);
   audit(userId, "formula_renamed", "formula", formulaId, `${formula.name} → ${wanted}`);
+}
+
+/**
+ * Keep a recipe off the counter, or put it back.
+ *
+ * Not deleting, not retiring: the recipe stays in the owner's book, keeps its
+ * versions, and is still mixed on the board. All that changes is whether the
+ * sell screen offers it — which is the difference between a recipe the shop
+ * sells over the counter all day and one it makes to order for a single
+ * customer, or one that is nobody's business but the owner's.
+ *
+ * A recipe that is mixed IN ADVANCE was never on the counter to begin with (it
+ * is sold as the product it makes), so hiding one changes nothing there — the
+ * flag is kept anyway, because what it is told to make can change.
+ */
+export function setFormulaHidden(formulaId: number, hidden: boolean, userId: number): void {
+  const formula = get<FormulaRow>(`SELECT * FROM formulas WHERE id = ?`, formulaId);
+  if (!formula) throw new Error("That recipe no longer exists.");
+
+  run(`UPDATE formulas SET hidden = ? WHERE id = ?`, hidden ? 1 : 0, formulaId);
+  audit(
+    userId,
+    hidden ? "formula_hidden" : "formula_shown",
+    "formula",
+    formulaId,
+    formula.name,
+  );
 }
 
 export interface NewFormulaInput {

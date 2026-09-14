@@ -30,6 +30,7 @@ const {
   salesUsingVersion,
   versionsOf,
   renameFormula,
+  setFormulaHidden,
 } = await import("../src/lib/production.ts");
 const { recordSale } = await import("../src/lib/sales.ts");
 
@@ -671,4 +672,32 @@ test("changing only the batch unit is a change, and is kept", () => {
     userId: OWNER,
   });
   assert.equal(currentVersion(f.id)!.ref_unit, "kg", "the no-op check must notice the unit");
+});
+
+// ------------------------------------------------------- off the counter
+
+test("a recipe can be taken off the counter without leaving the owner's book", () => {
+  const magadi = get<{ id: number }>(`SELECT id FROM chemicals WHERE name = 'Magadi'`)!;
+  const { formulaId } = createFormula({
+    name: "Test Secret Perfume",
+    refSizeMilli: toMilli(1),
+    steps: "",
+    note: "",
+    items: [{ chemicalId: magadi.id, qtyMilli: toMilli(0.075) }],
+    userId: OWNER,
+  });
+
+  const onTheCounter = () => listFormulas().filter((f) => f.output_item_id === null && !f.hidden);
+  assert.ok(onTheCounter().some((f) => f.id === formulaId), "it starts where every recipe does");
+
+  setFormulaHidden(formulaId, true, OWNER);
+
+  assert.ok(!onTheCounter().some((f) => f.id === formulaId), "the counter stops offering it");
+  const mine = listFormulas().find((f) => f.id === formulaId);
+  assert.ok(mine, "the owner still has it");
+  assert.equal(mine!.hidden, 1);
+  assert.equal(mine!.ingredient_count, 1, "with its recipe intact");
+
+  setFormulaHidden(formulaId, false, OWNER);
+  assert.ok(onTheCounter().some((f) => f.id === formulaId), "and it comes straight back");
 });

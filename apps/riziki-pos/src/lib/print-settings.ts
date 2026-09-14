@@ -187,39 +187,33 @@ const METHOD_LABEL: Record<string, string> = {
 export function receiptFromInvoice(invoice: Invoice, settings: PrintSettings): Receipt {
   const { sale, lines, tenders, balanceCents, subtotalCents, discountCents } = invoice;
 
-  const items: ReceiptLine[] = lines.map((l) =>
-    /*
-      A chemical that went into a mixed product prints as a name and an amount
-      and nothing else. Indented so it reads as part of the line above, and
-      carrying no price, no rate and no discount: the customer agreed a price
-      for the product, and three columns of zeros beside each ingredient would
-      read as the shop handing them out free.
-    */
-    l.is_component
-      ? {
-          name: `  ${l.name_snapshot}`,
-          units: l.units,
-          unitPriceCents: 0,
-          lineTotalCents: 0,
-          qty: l.canonical_unit ? formatQty(l.qty_milli, l.canonical_unit) : null,
-          rateCents: 0,
-          rateUnit: l.canonical_unit ?? null,
-          listPriceCents: 0,
-          discountCents: 0,
-          amountless: true,
-        }
-      : {
-          name: l.name_snapshot,
-          units: l.units,
-          unitPriceCents: l.unit_price_cents,
-          lineTotalCents: l.line_total_cents,
-          qty: l.canonical_unit ? formatQty(l.qty_milli, l.canonical_unit) : null,
-          rateCents: l.rate_cents ?? 0,
-          rateUnit: l.canonical_unit ?? null,
-          listPriceCents: l.list_price_cents ?? 0,
-          discountCents: lineDiscountCents(l),
-        },
-  );
+  /*
+    THE RECIPE DOES NOT GO ON THE RECEIPT.
+
+    A mixed product used to print its ingredients underneath it, as names and
+    amounts with no money — the reasoning being that the customer could see what
+    they were getting. What they were actually getting was the formula: "75 g
+    Chantia concentrate, 1 L white oil" on a slip of paper is the whole recipe,
+    legible to anyone, walking out of the shop in the customer's hand several
+    times a day. That recipe is the business.
+
+    The customer agreed a price for a product, and the product is what the
+    receipt now says. What went into it is on the sale itself, where the owner
+    can see it and nobody else can.
+  */
+  const items: ReceiptLine[] = lines
+    .filter((l) => !l.is_component)
+    .map((l) => ({
+      name: l.name_snapshot,
+      units: l.units,
+      unitPriceCents: l.unit_price_cents,
+      lineTotalCents: l.line_total_cents,
+      qty: l.canonical_unit ? formatQty(l.qty_milli, l.canonical_unit) : null,
+      rateCents: l.rate_cents ?? 0,
+      rateUnit: l.canonical_unit ?? null,
+      listPriceCents: l.list_price_cents ?? 0,
+      discountCents: lineDiscountCents(l),
+    }));
 
   return {
     header: settings.header,

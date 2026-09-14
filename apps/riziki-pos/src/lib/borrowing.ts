@@ -26,12 +26,87 @@
  * Nothing here imports from `next/*`, so it can be unit-tested under Node.
  */
 
-import { all, type Item } from "./db.ts";
+import { all, audit, type Item } from "./db.ts";
+import { getSetting, setSetting } from "./users.ts";
 import { formatQty } from "./units.ts";
 
-/** How far below zero this item may be taken. Zero means it may not. */
-export function allowanceOf(item: Pick<Item, "id"> & { oversell_milli?: number }): number {
-  return Math.max(0, item.oversell_milli ?? 0);
+/*
+  THE SHOP'S GENERAL RULE, and why it is not per item any more.
+
+  The allowance started per item, because twenty kilos of Ungerol is a phone
+  call to a neighbour and twenty kilos of a perfume concentrate nobody else
+  stocks is a promise that cannot be kept. In this trade that turned out to be
+  a distinction without a difference: when a customer is standing there, the
+  shop finds the goods somewhere or loses the sale, and nobody is going to walk
+  to Products & prices to raise a limit first. So the rule is the shop's, set
+  once, and it covers every product, every chemical, and every ingredient a
+  recipe reaches for — the same permission whether the goods leave by the
+  counter or into a drum.
+
+  An item's own allowance is not thrown away: it is a floor, not a ceiling. The
+  shop's rule, or this item's own number, whichever is the more generous.
+*/
+export interface OversellPolicy {
+  /** Whether anything at all may be sold past zero without its own allowance. */
+  all: boolean;
+  /**
+   * How far, in thousandths of each thing's own unit. Zero means no limit —
+   * which is what "allow it everywhere" means to a shop that cannot know in
+   * advance how much the yard next door will have.
+   */
+  capMilli: number;
+}
+
+const KEY_ALL = "oversell_all";
+const KEY_CAP = "oversell_cap_milli";
+
+/**
+ * The rule as it stands. On by default: a till that refuses what the shop can
+ * fetch in two minutes sends the goods out of the door unrecorded, which is
+ * worse than a negative number somebody can see and settle.
+ */
+export function oversellPolicy(): OversellPolicy {
+  const capRaw = Number(getSetting(KEY_CAP, "0"));
+  return {
+    all: getSetting(KEY_ALL, "1") !== "0",
+    capMilli: Number.isFinite(capRaw) && capRaw > 0 ? Math.round(capRaw) : 0,
+  };
+}
+
+export function setOversellPolicy(policy: OversellPolicy, userId: number | null): OversellPolicy {
+  const cap = Number.isFinite(policy.capMilli) && policy.capMilli > 0 ? Math.round(policy.capMilli) : 0;
+  setSetting(KEY_ALL, policy.all ? "1" : "0", userId);
+  setSetting(KEY_CAP, String(cap), userId);
+  audit(
+    userId,
+    "oversell_policy",
+    "settings",
+    null,
+    policy.all ? (cap > 0 ? `allowed, up to ${cap / 1000}` : "allowed, no limit") : "refused",
+  );
+  return oversellPolicy();
+}
+
+/**
+ * How far below zero this item may be taken. Zero means it may not; Infinity
+ * means the shop has said yes and named no limit.
+ *
+ * The policy is passed in rather than read here because one sale asks this of
+ * a dozen items and the answer cannot change halfway down a bill.
+ */
+export function allowanceOf(
+  item: Pick<Item, "id"> & { oversell_milli?: number },
+  policy?: OversellPolicy,
+): number {
+  const own = Math.max(0, item.oversell_milli ?? 0);
+  const rule = policy ?? oversellPolicy();
+  if (!rule.all) return own;
+  return rule.capMilli > 0 ? Math.max(own, rule.capMilli) : Number.POSITIVE_INFINITY;
+}
+
+/** For a screen: what the allowance is called when there is no number to say. */
+export function allowanceLabel(allowanceMilli: number, unit: string): string {
+  return Number.isFinite(allowanceMilli) ? formatQty(allowanceMilli, unit) : "as much as it takes";
 }
 
 /**
@@ -41,8 +116,9 @@ export function allowanceOf(item: Pick<Item, "id"> & { oversell_milli?: number }
 export function sellableMilli(
   item: Pick<Item, "id"> & { oversell_milli?: number },
   onHandMilli: number,
+  policy?: OversellPolicy,
 ): number {
-  return onHandMilli + allowanceOf(item);
+  return onHandMilli + allowanceOf(item, policy);
 }
 
 export interface Borrowed {
@@ -51,8 +127,8 @@ export interface Borrowed {
   unit: string;
   /** How much is owed — always positive, however the shelf says it. */
   owedMilli: number;
-  /** What may still be fetched on top of what already has been. */
-  roomLeftMilli: number;
+  /** What may still be fetched on top of what already has been. Null: no limit. */
+  roomLeftMilli: number | null;
 }
 
 /**
@@ -61,7 +137,8 @@ export interface Borrowed {
  * This is the list somebody walks next door with. Sorted by what is owed, most
  * first, because that is the order the errands get done in.
  */
-export function borrowed(): Borrowed[] {
+export function borrowed(policy?: OversellPolicy): Borrowed[] {
+  const rule = policy ?? oversellPolicy();
   const rows = all<{
     id: number;
     name: string;
@@ -82,7 +159,10 @@ export function borrowed(): Borrowed[] {
       name: r.name,
       unit: r.canonical_unit,
       owedMilli: -r.qty,
-      roomLeftMilli: Math.max(0, (r.oversell_milli ?? 0) + r.qty),
+      roomLeftMilli: (() => {
+        const allow = allowanceOf({ id: r.id, oversell_milli: r.oversell_milli }, rule);
+        return Number.isFinite(allow) ? Math.max(0, allow + r.qty) : null;
+      })(),
     }))
     .sort((a, b) => b.owedMilli - a.owedMilli);
 }

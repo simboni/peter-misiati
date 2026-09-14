@@ -43,6 +43,7 @@
  */
 
 import { all, get, run, tx, audit, postMovement, stockOf, type Item } from "./db.ts";
+import { allowanceOf, oversellPolicy } from "./borrowing.ts";
 
 import { packState, setPacked } from "./packing.ts";
 import { itemBundles } from "./bundles.ts";
@@ -150,6 +151,11 @@ export interface MixPlanLine {
   /** How much is on the shelf. */
   availableMilli: number;
   short: boolean;
+  /**
+   * How much of this may be fetched from next door on top of what is there.
+   * Null means the shop has said yes and named no limit.
+   */
+  allowanceMilli: number | null;
   /** What that quantity is worth at the item's weighted average cost. */
   costCents: number;
 }
@@ -171,10 +177,21 @@ export interface MixPlan {
   totalCostCents: number;
   /** The biggest batch the store could carry right now. */
   possibleMilli: number;
-  /** Every ingredient is stocked, priced and present in enough quantity. */
+  /** Every ingredient is stocked, priced and within reach — on the shelf or next door. */
   canMake: boolean;
   /** Whatever stands in the way, said plainly. */
   problems: string[];
+  /**
+   * What this batch will have to be fetched for, said plainly.
+   *
+   * Not a problem: the shop has said these may be taken past zero, and the
+   * negative count that results IS the record of what is owed. It is on the
+   * plan so the board can say it out loud before the button is pressed, rather
+   * than the owner discovering it on the stock screen tomorrow.
+   */
+  owing: string[];
+  /** Whether the shop allows going past zero at all. */
+  oversell: boolean;
 }
 
 /**
@@ -185,8 +202,15 @@ export interface MixPlan {
  * something the shop mixes with need not be sold over the counter.
  */
 function stockSource(chemicalId: number) {
-  return get<{ id: number; name: string; cost_cents: number; qty_milli: number; canonical_unit: string }>(
-    `SELECT i.id, i.name, i.cost_cents, i.canonical_unit,
+  return get<{
+    id: number;
+    name: string;
+    cost_cents: number;
+    qty_milli: number;
+    canonical_unit: string;
+    oversell_milli: number;
+  }>(
+    `SELECT i.id, i.name, i.cost_cents, i.canonical_unit, i.oversell_milli,
             COALESCE(SUM(m.delta_milli), 0) AS qty_milli
        FROM items i
        LEFT JOIN stock_movements m ON m.item_id = i.id
@@ -221,6 +245,8 @@ export function planMix(versionId: number, targetMilli: number): MixPlan {
 
   const target = Math.max(1, Math.round(targetMilli));
   const problems: string[] = [];
+  const owing: string[] = [];
+  const policy = oversellPolicy();
   let possibleMilli = Number.POSITIVE_INFINITY;
   let totalCostCents = 0;
 
@@ -238,6 +264,7 @@ export function planMix(versionId: number, targetMilli: number): MixPlan {
         neededMilli: line.neededMilli,
         availableMilli: 0,
         short: true,
+        allowanceMilli: 0,
         costCents: 0,
       };
     }
@@ -245,11 +272,31 @@ export function planMix(versionId: number, targetMilli: number): MixPlan {
     const costCents = Math.round((source.cost_cents * line.neededMilli) / MILLI);
     totalCostCents += costCents;
 
+    /*
+      Short, and whether short is allowed.
+
+      These are two questions and the board needs both. Short is a fact about
+      the store; refused is the shop's own rule about it. A recipe that needs
+      three kilogrammes more than the drum holds is mixed every week here — the
+      concentrate is fetched from the yard next door and put back on the next
+      delivery — and the batch must not be blocked for it. What must be said is
+      that it is being fetched.
+    */
+    const allowMilli = allowanceOf(
+      { id: source.id, oversell_milli: source.oversell_milli },
+      policy,
+    );
     const short = line.neededMilli > source.qty_milli;
-    if (short) {
+    const refused = line.neededMilli > source.qty_milli + allowMilli;
+    if (refused) {
       problems.push(
         `${source.name}: ${formatQty(line.neededMilli, source.canonical_unit)} needed, ` +
           `${formatQty(Math.max(0, source.qty_milli), source.canonical_unit)} in the store.`,
+      );
+    } else if (short) {
+      owing.push(
+        `${formatQty(line.neededMilli - Math.max(0, source.qty_milli), source.canonical_unit)} ` +
+          `of ${source.name}`,
       );
     }
 
@@ -271,6 +318,7 @@ export function planMix(versionId: number, targetMilli: number): MixPlan {
       neededMilli: line.neededMilli,
       availableMilli: Math.max(0, source.qty_milli),
       short,
+      allowanceMilli: Number.isFinite(allowMilli) ? allowMilli : null,
       costCents,
     };
   });
@@ -292,6 +340,8 @@ export function planMix(versionId: number, targetMilli: number): MixPlan {
     possibleMilli: Number.isFinite(possibleMilli) ? Math.max(0, possibleMilli) : 0,
     canMake: lines.length > 0 && problems.length === 0,
     problems,
+    owing,
+    oversell: policy.all,
   };
 }
 
@@ -307,6 +357,14 @@ export interface MixableRow {
   outputUnit: string;
   outputOnHandMilli: number;
   possibleMilli: number;
+  /**
+   * Whether an ingredient may be taken past zero — the shop's own rule.
+   *
+   * On the board this is the difference between a size that goes dead when the
+   * drum runs out and one that says "from next door" and lets the batch be
+   * mixed anyway.
+   */
+  oversell: boolean;
   ingredientCount: number;
   /**
    * The sizes the made product is SOLD in, with their prices.
@@ -365,6 +423,8 @@ export function mixableFormulas(): MixableRow[] {
       ORDER BY f.name`,
   );
 
+  const policy = oversellPolicy();
+
   return rows.map((r) => {
     // One planning pass per recipe, at its own reference size, purely to learn
     // how much the store could carry. Cheap: these are a handful of rows.
@@ -394,6 +454,7 @@ export function mixableFormulas(): MixableRow[] {
       outputPriceCents: r.output_price_cents,
       outputOnHandMilli: Math.max(0, stockOf(r.output_item_id)),
       possibleMilli,
+      oversell: policy.all,
       ingredientCount: r.ingredient_count,
       steps: r.steps ?? "",
     };
@@ -515,17 +576,31 @@ export function recordMix(input: RecordMixInput): MixResult {
     */
     let totalCostCents = 0;
     const consumed: MixResult["consumed"] = [];
+    const policy = oversellPolicy();
 
     for (const c of consuming) {
       const item = get<Item>(`SELECT * FROM items WHERE id = ? AND active = 1`, c.itemId);
       if (!item) throw new MixError(`${c.line.itemName} is no longer on the catalogue.`);
 
+      /*
+        The same rule the counter sells by, applied to the drum.
+
+        A batch that takes three kilogrammes more concentrate than the store
+        holds is the yard next door lending it, exactly as a sale past zero is
+        — the ingredient goes negative and that negative is what is owed, which
+        the next delivery absorbs on its own. Refused only past whatever limit
+        the shop has set, and then in the same words as before.
+      */
       const onHand = stockOf(item.id);
-      if (c.qtyMilli > onHand) {
+      const allowMilli = allowanceOf(item, policy);
+      if (c.qtyMilli > onHand + allowMilli) {
         throw new MixError(
           `Not enough ${item.name}: ${formatQty(c.qtyMilli, item.canonical_unit)} needed, ` +
-            `${formatQty(Math.max(0, onHand), item.canonical_unit)} in the store. ` +
-            `If there is more than the book says, do a stock take first.`,
+            `${formatQty(Math.max(0, onHand), item.canonical_unit)} in the store` +
+            (allowMilli > 0
+              ? `, and ${formatQty(allowMilli, item.canonical_unit)} it may be fetched short by`
+              : "") +
+            `. If there is more than the book says, do a stock take first.`,
         );
       }
 

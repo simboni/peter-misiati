@@ -504,3 +504,82 @@ test("renderReceipt keeps every block within the paper", () => {
     }
   }
 });
+
+test("a mixed product prints as itself — the recipe never reaches the customer", () => {
+  /*
+    The receipt this fixes had "Chantia Mild - 1 L bundle  600" and then, under
+    it, "CHANTIA CONC 75 g" and "WHITE OIL 1 L" with no money beside either.
+    Those two lines are the recipe. On a slip of paper in the customer's hand,
+    several times a day, they are the business walking out of the shop.
+  */
+  const receipt = settings.receiptFromInvoice(
+    {
+      sale: {
+        id: 85,
+        at: "2026-09-14 16:20:00",
+        invoice_no: "#85",
+        tier: "retail" as const,
+        total_cents: 60000,
+        paid_cents: 60000,
+        status: "completed" as const,
+        note: "",
+        customer_id: null,
+        customer_name: null,
+        customer_phone: "",
+        customer_kra_pin: "",
+        user_name: "Owner",
+      },
+      lines: [
+        {
+          id: 1,
+          name_snapshot: "Chantia Mild — 1 L bundle",
+          units: 1,
+          qty_milli: 1000,
+          unit_price_cents: 60000,
+          line_total_cents: 60000,
+          rate_cents: 0,
+          list_price_cents: 60000,
+          is_component: 0,
+          canonical_unit: "L",
+        },
+        {
+          id: 2,
+          name_snapshot: "CHANTIA CONC",
+          units: 1,
+          qty_milli: 75,
+          unit_price_cents: 0,
+          line_total_cents: 0,
+          rate_cents: 0,
+          list_price_cents: 0,
+          is_component: 1,
+          canonical_unit: "kg",
+        },
+        {
+          id: 3,
+          name_snapshot: "WHITE OIL",
+          units: 1,
+          qty_milli: 1000,
+          unit_price_cents: 0,
+          line_total_cents: 0,
+          rate_cents: 0,
+          list_price_cents: 0,
+          is_component: 1,
+          canonical_unit: "L",
+        },
+      ],
+      tenders: [{ method: "mpesa" as const, amount_cents: 60000, codes: null }],
+      balanceCents: 0,
+      subtotalCents: 60000,
+      discountCents: 0,
+    },
+    settings.getPrintSettings(),
+  );
+
+  assert.equal(receipt.lines.length, 1, "one line: the product the customer bought");
+  assert.equal(receipt.lines[0].name, "Chantia Mild — 1 L bundle");
+
+  const text = receiptText(receipt, { paper: 58 });
+  assert.ok(!/CHANTIA CONC/.test(text), "the concentrate is not named");
+  assert.ok(!/WHITE OIL/.test(text), "nor is the oil");
+  assert.match(text, /TOTAL\s+600$/m, "and the money is untouched");
+});

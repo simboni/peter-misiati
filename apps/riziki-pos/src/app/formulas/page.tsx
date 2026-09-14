@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { refresh } from "next/cache";
 import { currentUser, requireOwner } from "@/lib/auth";
-import { listFormulas } from "@/lib/production";
+import { listFormulas, setFormulaHidden } from "@/lib/production";
 import { formatQty } from "@/lib/units";
 import { PageTitle, Chip, Empty, inputClass, Button, Alert, TableWrap, Th, Td } from "@/components/ui";
 import { NewBanner, Pager } from "@/components/section-nav";
@@ -10,6 +11,20 @@ export const dynamic = "force-dynamic";
 
 /** Recipes are read one at a time; twenty is more than anybody scans past. */
 const PER_PAGE = 20;
+
+/**
+ * Take a recipe off the counter, or put it back.
+ *
+ * Owner only, like everything on this screen: the gate is on the server, not on
+ * whether the button was drawn.
+ */
+async function toggleHidden(formData: FormData) {
+  "use server";
+
+  const owner = await requireOwner();
+  setFormulaHidden(Number(formData.get("formulaId")), formData.get("hide") === "1", owner.id);
+  refresh();
+}
 
 export default async function FormulasPage(props: {
   searchParams: Promise<{ q?: string; page?: string }>;
@@ -54,6 +69,17 @@ export default async function FormulasPage(props: {
         title="Recipes"
         subtitle="Owner only. Every edit is saved as a new version, never over the old one."
       />
+
+      {/*
+        What hiding does, said once where the switch is.
+
+        Without this the word is ambiguous — hidden from whom? — and an owner
+        who read it as "deleted" would never use it.
+      */}
+      <p className="mb-3 max-w-2xl text-sm text-muted">
+        A hidden recipe stays here and on the mixing board; it is only taken off the counter, so
+        nobody can sell it by tapping it and no customer sees it named on a screen.
+      </p>
 
       {/* The way in to a recipe the shop does not have yet. Large and first,
           because the book was read-only until now and nobody will go looking
@@ -113,6 +139,7 @@ export default async function FormulasPage(props: {
               <Th align="right">Ingredients</Th>
               <Th align="right">Version</Th>
               <Th>Standing</Th>
+              <Th align="right">At the counter</Th>
             </tr>
           </thead>
           <tbody>
@@ -130,6 +157,29 @@ export default async function FormulasPage(props: {
                 </Td>
                 <Td>
                   {f.note.trim() ? <Chip tone="warn">Check this</Chip> : <Chip tone="good">Confirmed</Chip>}
+                </Td>
+                {/*
+                  Hidden, and the way back.
+
+                  One cell doing both jobs: it says where the recipe stands and
+                  the button changes it, so there is nothing to go and find. A
+                  recipe mixed in advance is never offered at the counter
+                  anyway — it is sold as the product it makes — and saying so
+                  is better than a switch that would appear to do nothing.
+                */}
+                <Td align="right">
+                  {f.output_item_id !== null ? (
+                    <span className="text-[11px] text-muted">mixed in advance</span>
+                  ) : (
+                    <form action={toggleHidden} className="flex items-center justify-end gap-2">
+                      <input type="hidden" name="formulaId" value={f.id} />
+                      <input type="hidden" name="hide" value={f.hidden ? "0" : "1"} />
+                      {f.hidden ? <Chip tone="neutral">Hidden</Chip> : null}
+                      <Button type="submit" variant="ghost">
+                        {f.hidden ? "Show it" : "Hide it"}
+                      </Button>
+                    </form>
+                  )}
                 </Td>
               </tr>
             ))}

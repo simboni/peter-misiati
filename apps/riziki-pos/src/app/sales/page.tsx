@@ -110,7 +110,15 @@ export default async function SalesPage(props: {
             .split(",")
             .filter(Boolean)
             .map((m) => METHOD_LABEL[m] ?? m);
-          const mine = lines.filter((l) => l.sale_id === s.id);
+          /*
+            The ingredients of a mixed product are the recipe, so they are the
+            owner's to see and nobody else's — not the attendant on the counter
+            phone, and never the customer, who gets neither this screen nor them
+            on the receipt.
+          */
+          const mine = lines.filter(
+            (l) => l.sale_id === s.id && (isOwner || !l.is_component),
+          );
 
           return (
             <tr key={s.id} className={voided ? "opacity-60" : "hover:bg-wash/50"}>
