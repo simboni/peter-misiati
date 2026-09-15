@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { currentUser } from "@/lib/auth.ts";
 import { can } from "@/lib/access.ts";
-import { findCandidates } from "@/lib/patients.ts";
+import { searchPatients } from "@/lib/patients.ts";
 
 /**
  * Patient search.
@@ -21,19 +21,11 @@ export default async function PatientsPage(props: { searchParams: Promise<Record
 
   // One box, because reception types whatever the patient says: a name, a phone
   // number or an ID. Splitting it into five fields is how a queue backs up.
-  const looksNumeric = /^[\d+\s-]+$/.test(q) && q.replace(/\D/g, "").length >= 7;
-  const [givenName, familyName] = looksNumeric ? ["", ""] : q.split(/\s+/);
-
-  const results = q
-    ? findCandidates({
-        facilityId: user.facilityId,
-        nationalId: looksNumeric ? q : null,
-        shaNumber: looksNumeric ? q : null,
-        phone: looksNumeric ? q : null,
-        givenName: givenName || undefined,
-        familyName: familyName || givenName || undefined,
-      })
-    : [];
+  //
+  // This uses `searchPatients`, not the duplicate matcher: a receptionist typing
+  // a name is looking for that person, not for possible duplicates, and the
+  // duplicate rules deliberately refuse a name-only match.
+  const results = q ? searchPatients({ facilityId: user.facilityId, query: q }) : [];
 
   return (
     <main className="max-w-3xl mx-auto px-5 py-8">
@@ -72,38 +64,29 @@ export default async function PatientsPage(props: { searchParams: Promise<Record
           </p>
         ) : (
           <ul className="mt-6 flex flex-col gap-2">
-            {results.map((c) => (
-              <li key={c.patient.mrn}>
+            {results.map((p) => (
+              <li key={p.mrn}>
                 <Link
-                  href={`/patients/${encodeURIComponent(c.patient.mrn)}`}
+                  href={`/patients/${encodeURIComponent(p.mrn)}`}
                   className="block bg-white border border-line rounded px-4 py-3 hover:border-brand"
                 >
                   <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                     <span className="font-semibold">
-                      {c.patient.given_name} {c.patient.family_name}
+                      {p.given_name} {p.family_name}
                     </span>
-                    <span className="text-xs text-muted tnum">{c.patient.mrn}</span>
-                    <span
-                      className={`ml-auto text-xs font-semibold tnum px-2 py-0.5 rounded ${
-                        c.definite ? "bg-good-soft text-good" : "bg-brand-soft text-brand"
-                      }`}
-                    >
-                      {c.definite ? "Exact" : `${c.score}%`}
-                    </span>
+                    <span className="text-xs text-muted tnum ml-auto">{p.mrn}</span>
                   </div>
                   <div className="text-sm text-muted mt-1 tnum">
                     {[
-                      c.patient.sex,
-                      c.patient.date_of_birth
-                        ? `b. ${c.patient.date_of_birth}${c.patient.dob_estimated ? " (est.)" : ""}`
-                        : null,
-                      c.patient.phone,
-                      c.patient.village || c.patient.county,
+                      p.sex,
+                      p.date_of_birth ? `b. ${p.date_of_birth}${p.dob_estimated ? " (est.)" : ""}` : null,
+                      p.phone,
+                      p.national_id ? `ID ${p.national_id}` : null,
+                      p.village || p.county,
                     ]
                       .filter(Boolean)
                       .join(" · ")}
                   </div>
-                  <div className="text-xs text-muted mt-1">{c.reasons.join(", ")}</div>
                 </Link>
               </li>
             ))}

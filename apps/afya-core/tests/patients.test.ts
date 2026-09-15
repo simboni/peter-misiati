@@ -342,3 +342,41 @@ test("the audit chain survives registration, correction, merge and unmerge", () 
   assert.equal(result.ok, true);
   assert.ok(result.ok && result.checked > 20);
 });
+
+// -------------------------------------------------------------- front-desk search
+
+test("a receptionist can find a patient by name — the duplicate rules do not apply here", () => {
+  // findCandidates deliberately refuses a name-only match, which is right for
+  // duplicate detection and useless for looking somebody up.
+  assert.equal(
+    P.findCandidates({ facilityId, givenName: "Alice", familyName: "Wanjiku" }).length,
+    0,
+    "duplicate detection still refuses a name-only match",
+  );
+
+  const found = P.searchPatients({ facilityId, query: "Alice Wanjiku" });
+  assert.ok(found.length >= 1, "but search finds her, because that is what search is for");
+  assert.equal(found[0].given_name, "Alice");
+});
+
+test("search matches a partial name, so half-typed works", () => {
+  const found = P.searchPatients({ facilityId, query: "ali wan" });
+  assert.ok(found.some((p) => p.given_name === "Alice"), "'ali wan' finds Alice Wanjiku");
+});
+
+test("search finds by phone in any format, and by identifier", () => {
+  const byPhone = P.searchPatients({ facilityId, query: "+254 799 888 777" });
+  assert.ok(byPhone.length >= 1, "however the number is typed");
+
+  const byId = P.searchPatients({ facilityId, query: "29384756" });
+  assert.ok(byId.some((p) => p.national_id === "29384756"));
+});
+
+test("search ignores merged-away records, so an old file number does not confuse reception", () => {
+  const all = P.searchPatients({ facilityId, query: "Wanjiku" });
+  assert.ok(all.every((p) => p.merged_into === null));
+});
+
+test("a one- or two-character query returns nothing rather than the whole register", () => {
+  assert.deepEqual(P.searchPatients({ facilityId, query: "A" }), []);
+});

@@ -458,6 +458,59 @@ export function findCandidates(input: SearchInput, limit = 10): Candidate[] {
 /** The threshold above which the interface leads with "is this the same person?" */
 export const LIKELY_MATCH = 60;
 
+/**
+ * Front-desk lookup — deliberately NOT `findCandidates`.
+ *
+ * Duplicate detection refuses a name-only match on purpose: in a clinic where
+ * half the register shares a surname, surfacing those as possible duplicates
+ * trains staff to dismiss the list. But a receptionist typing "Grace Njeri" is
+ * not looking for duplicates, they are looking for Grace Njeri, and a search
+ * that returns nothing for a name is a search nobody uses.
+ *
+ * So the two have different rules, and this one matches the way a person
+ * actually types: a name, part of a name, a phone number, or an identifier.
+ */
+export function searchPatients(input: { facilityId: number; query: string; limit?: number }): Patient[] {
+  const q = input.query.trim();
+  if (q.length < 2) return [];
+
+  const digits = q.replace(/\D/g, "");
+  const phone = normalisePhone(q);
+  const id = normaliseId(q);
+  const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
+
+  const pool = all<Patient>(
+    `SELECT * FROM patients WHERE facility_id = ? AND merged_into IS NULL`,
+    input.facilityId,
+  );
+
+  const scored: { patient: Patient; rank: number }[] = [];
+
+  for (const p of pool) {
+    let rank = 0;
+
+    // A strong identifier or a phone number is an exact hit and outranks names.
+    if (id && [p.national_id, p.sha_number, p.passport_no, p.birth_cert_no, p.alien_id].includes(id)) rank = 100;
+    else if (phone && (p.phone === phone || p.alt_phone === phone)) rank = 95;
+    else if (digits.length >= 4 && (p.national_id?.includes(digits) || p.phone?.includes(digits) || p.mrn.includes(q.toUpperCase()))) rank = 70;
+
+    if (rank === 0) {
+      // Every word typed must appear somewhere in the name, so "grace nj"
+      // finds Grace Njeri but "grace" alone does not drag in every Grace.
+      const name = `${p.given_name} ${p.family_name} ${p.other_names}`.toLowerCase();
+      const allHit = terms.every((t) => name.split(/\s+/).some((w) => w.startsWith(t)));
+      if (allHit) rank = terms.length > 1 ? 60 : 40;
+    }
+
+    if (rank > 0) scored.push({ patient: p, rank });
+  }
+
+  return scored
+    .sort((a, b) => b.rank - a.rank || a.patient.family_name.localeCompare(b.patient.family_name))
+    .slice(0, input.limit ?? 20)
+    .map((s) => s.patient);
+}
+
 // ------------------------------------------------------------------- updating
 
 /** Fields a receptionist may correct. Clinical content is not updated here. */
