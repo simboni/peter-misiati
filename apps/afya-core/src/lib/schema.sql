@@ -365,3 +365,119 @@ CREATE TABLE IF NOT EXISTS patient_merges (
   undone_at    TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_merge_kept ON patient_merges(kept_mrn);
+
+-- ========================================================= M21 TERMINOLOGY
+--
+-- Coded terminology: ICD-11 diagnoses, billable services, product codes.
+--
+-- Why this is a table and not a constant: a wrong diagnosis code is a named SHA
+-- rejection cause. Codes must be loadable from the authority that issues them
+-- (the WHO ICD-11 MMS release, the SHA tariff schedule) and must carry their
+-- provenance, so a coder can be told where a code came from and when.
+--
+-- `verified` is deliberately conservative. Only codes checked against the
+-- issuing authority are marked 1. An unverified code can be stored but is never
+-- offered for a claim, because guessing a code is worse than having none.
+
+CREATE TABLE IF NOT EXISTS terminology (
+  system      TEXT    NOT NULL,   -- 'ICD-11-MMS', 'service', 'product'
+  code        TEXT    NOT NULL,
+  term        TEXT    NOT NULL,
+  -- Comma-separated alternatives staff actually type: "URTI", "flu", "homa".
+  synonyms    TEXT    NOT NULL DEFAULT '',
+  -- Parent code, for a hierarchy that can be walked.
+  parent_code TEXT,
+  -- 1 when this is a leaf usable on a claim; 0 for chapter and block headings.
+  billable    INTEGER NOT NULL DEFAULT 1 CHECK (billable IN (0,1)),
+  verified    INTEGER NOT NULL DEFAULT 0 CHECK (verified IN (0,1)),
+  -- Where it came from, e.g. 'WHO ICD-11 MMS 2026-01' or 'SHA tariff 2026/28'.
+  source      TEXT    NOT NULL DEFAULT '',
+  active      INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1)),
+  loaded_at   TEXT    NOT NULL,
+  PRIMARY KEY (system, code)
+);
+CREATE INDEX IF NOT EXISTS idx_term_term ON terminology(system, term);
+CREATE INDEX IF NOT EXISTS idx_term_parent ON terminology(system, parent_code);
+
+-- Codes a clinician reaches for constantly. The single biggest lever on the
+-- 90-second consultation budget: in a Kenyan outpatient clinic a handful of
+-- diagnoses cover most of the day, and making those one tap is the difference
+-- between coding at the point of care and coding badly at the billing desk.
+CREATE TABLE IF NOT EXISTS terminology_favourites (
+  user_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  system    TEXT    NOT NULL,
+  code      TEXT    NOT NULL,
+  uses      INTEGER NOT NULL DEFAULT 0,
+  last_used TEXT,
+  PRIMARY KEY (user_id, system, code)
+);
+
+-- ============================================================ M20 ENCOUNTER
+
+CREATE TABLE IF NOT EXISTS encounters (
+  id             TEXT PRIMARY KEY,         -- device-prefixed, minted at the bedside
+  facility_id    INTEGER NOT NULL REFERENCES facilities(id),
+  patient_mrn    TEXT    NOT NULL REFERENCES patients(mrn),
+  kind           TEXT    NOT NULL CHECK (kind IN ('outpatient','inpatient','emergency','anc','followup')),
+  status         TEXT    NOT NULL CHECK (status IN ('open','closed','cancelled')),
+
+  clinician_id   INTEGER REFERENCES users(id),
+  clinician_name TEXT    NOT NULL,
+  cadre_code     TEXT    REFERENCES cadres(code),
+  -- The licence PINNED as it stood when care was given. A claim cites the
+  -- practitioner's registration at the time of service; if they renew or let it
+  -- lapse afterwards, the claim must still show what was true on the day. Never
+  -- resolve this by joining to the current licence.
+  licence_regulator TEXT,
+  licence_number    TEXT,
+  licence_expires_on TEXT,
+
+  device_code    TEXT,
+  opened_at      TEXT NOT NULL,
+  closed_at      TEXT,
+  cancelled_reason TEXT,
+  created_at     TEXT NOT NULL,
+  updated_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_enc_patient ON encounters(patient_mrn);
+CREATE INDEX IF NOT EXISTS idx_enc_status ON encounters(facility_id, status);
+
+-- Append-only. A correction is a NEW version; the previous one is marked
+-- superseded and kept. Nothing clinical is ever overwritten or deleted — that is
+-- the rule the whole record depends on, and the reason a dispute can be settled.
+CREATE TABLE IF NOT EXISTS encounter_notes (
+  id            INTEGER PRIMARY KEY,
+  encounter_id  TEXT    NOT NULL REFERENCES encounters(id),
+  version       INTEGER NOT NULL,
+  complaint     TEXT    NOT NULL DEFAULT '',
+  history       TEXT    NOT NULL DEFAULT '',
+  examination   TEXT    NOT NULL DEFAULT '',
+  assessment    TEXT    NOT NULL DEFAULT '',
+  plan          TEXT    NOT NULL DEFAULT '',
+  author_id     INTEGER REFERENCES users(id),
+  author_name   TEXT    NOT NULL,
+  written_at    TEXT    NOT NULL,
+  -- Null on the current version. Set when a later version replaces it.
+  superseded_at TEXT,
+  UNIQUE (encounter_id, version)
+);
+CREATE INDEX IF NOT EXISTS idx_note_current ON encounter_notes(encounter_id, superseded_at);
+
+CREATE TABLE IF NOT EXISTS encounter_diagnoses (
+  id           INTEGER PRIMARY KEY,
+  encounter_id TEXT    NOT NULL REFERENCES encounters(id),
+  system       TEXT    NOT NULL DEFAULT 'ICD-11-MMS',
+  code         TEXT    NOT NULL,
+  -- The term as it read when chosen. Catalogues get re-released; the claim must
+  -- keep showing what the clinician actually picked.
+  term         TEXT    NOT NULL,
+  -- 1 is the primary diagnosis. A claim needs exactly one.
+  rank         INTEGER NOT NULL DEFAULT 1,
+  certainty    TEXT    NOT NULL DEFAULT 'confirmed' CHECK (certainty IN ('confirmed','suspected')),
+  added_by     INTEGER REFERENCES users(id),
+  added_at     TEXT    NOT NULL,
+  -- Removal is a mark, never a delete.
+  removed_at   TEXT,
+  removed_by   INTEGER REFERENCES users(id)
+);
+CREATE INDEX IF NOT EXISTS idx_dx_encounter ON encounter_diagnoses(encounter_id, removed_at);

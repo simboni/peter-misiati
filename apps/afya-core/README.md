@@ -3,9 +3,9 @@
 Kenya-compliant hospital management system (HMIS). Built to the plan in
 [`docs/hms/`](../../docs/hms/) at the repository root.
 
-**Current state: Phase 0 complete, Phase 1 started** — M00 Platform Core, M01
-Identity & Access, M02 Audit, M03 Sync Engine, M10 Patient Registry & MPI.
-Encounters, billing and the claim scrubber are next.
+**Current state: Phase 0 complete, Phase 1 in progress** — M00 Platform Core,
+M01 Identity & Access, M02 Audit, M03 Sync Engine, M10 Patient Registry & MPI,
+M21 Terminology, M20 Encounter. Billing, eTIMS and the claim scrubber are next.
 
 ## Running it
 
@@ -13,7 +13,7 @@ Encounters, billing and the claim scrubber are next.
 npm install
 npm run seed     # creates data/afya.db with a demo clinic and staff
 npm run dev      # http://localhost:3200
-npm test         # 79 tests, no network or database server needed
+npm test         # 104 tests, no network or database server needed
 ```
 
 Sign in as `admin` / `ChangeMe123`.
@@ -42,9 +42,11 @@ tier. `src/lib/db.ts` is the only module that would change.
 | — | `src/lib/ids.ts` | Device-prefixed identifiers that cannot collide offline |
 | **M03** Sync Engine | `src/lib/sync.ts` | Offline operation log, Lamport ordering, conflict resolution by data class |
 | **M10** Patient Registry & MPI | `src/lib/patients.ts` | Patients, identifier normalisation, duplicate matching, merge and unmerge |
-| — | `src/lib/seed.ts` | Cadres, the permission catalogue, default roles |
+| **M21** Terminology | `src/lib/terminology.ts` | Coded catalogues, verified-only coding search, favourites, coverage |
+| **M20** Encounter | `src/lib/encounters.ts` | Consultations, append-only notes, coded diagnoses, readiness |
+| — | `src/lib/seed.ts` | Cadres, the permission catalogue, default roles, ICD-11 starter set |
 
-## Six rules the code enforces
+## Eight rules the code enforces
 
 These are compliance requirements expressed as code, not documentation. Each has
 a test that fails if it regresses.
@@ -80,6 +82,18 @@ a test that fails if it regresses.
    are refused outright — one record for two patients is the worst outcome the
    index can produce.
 
+7. **An unverified code can never reach a claim.** A wrong diagnosis code is a
+   named SHA rejection cause, so only codes checked against the issuing authority
+   are offered for coding. A guessed code is worse than none: no code stops at
+   the scrubber, a wrong one is paid and then clawed back.
+
+8. **The licence is pinned when care is given, and an encounter cannot close
+   without a coded primary diagnosis.** A claim cites the practitioner's
+   registration as it stood on the day, so it is copied onto the encounter rather
+   than resolved later. And the diagnosis is demanded while the clinician is
+   still with the patient — the cheapest moment in the whole revenue cycle to
+   fix it.
+
 ## Testing
 
 ```bash
@@ -90,12 +104,44 @@ Tests run against a throwaway database in `$TMPDIR` via `AFYA_DB`. No Next.js
 import reaches `src/lib/*`, so the domain layer is testable without booting the
 framework.
 
+## The ICD-11 catalogue — read before go-live
+
+The seed ships **ten ICD-11 codes**, each checked individually against the
+published MMS classification. Codes that could not be confirmed were left out
+rather than guessed, because an invented code causes exactly the rejection this
+system exists to prevent.
+
+That is not a catalogue. Before go-live, load the full WHO ICD-11 MMS release:
+
+```ts
+importCodes({ system: ICD11, source: "WHO ICD-11 MMS <release>", concepts: [...] });
+```
+
+`coverage()` reports `starterOnly: true` until it is, and the consultation screen
+says so on every visit — a clinician who cannot find their diagnosis picks
+something close instead, which is how wrong codes reach claims.
+
+## The consultation budget
+
+Design principle P3: a standard outpatient consultation in under 90 seconds and
+under 15 interactions. Measured against the running app on 15 September 2026:
+
+| Path | Interactions | Seconds |
+|---|---|---|
+| Coding by search (first use of a code) | 10 / 15 | ~9 / 90 |
+| Coding by favourite chip (thereafter) | 8 / 15 | ~7.5 / 90 |
+
+`scripts/consultation-budget.mjs` measures it. It is **not** part of `npm test` —
+it needs a running server and a browser, and the app carries no browser-test
+dependency yet. Wiring it into CI is outstanding.
+
 ## Next in Phase 1
 
-Remaining for the "Claim-Safe Core" MVP, in dependency order: M11 Consent, M14
-Queue & Triage, M21 Terminology (ICD-11), M20 Encounter, M23 Prescribing, M50
-Billing, M52 eTIMS, M53 Payer & Coverage, M54 Pre-authorisation, and M55 the
-Claims Engine and scrubber.
+Remaining for the "Claim-Safe Core" MVP, in dependency order: M23 Prescribing,
+M11 Consent, M14 Queue & Triage, M50 Billing, M52 eTIMS, M53 Payer & Coverage,
+M54 Pre-authorisation, and M55 the Claims Engine and scrubber.
 
 Per the roadmap, the scrubber's rules should be built from 50 real rejected
 claims before the rest — encoding what SHA already rejected beats guessing.
+`readiness()` in `src/lib/encounters.ts` is deliberately the same shape those
+rules will take.

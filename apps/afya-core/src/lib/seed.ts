@@ -19,6 +19,7 @@ import { get, run, tx, audit } from "./db.ts";
 import { definePermission, defineRole } from "./access.ts";
 import { registerFacility, registerDevice, setSetting } from "./facility.ts";
 import { createUser, recordLicence } from "./users.ts";
+import { importCodes, ICD11 } from "./terminology.ts";
 
 /** The councils that license clinical practice in Kenya. */
 export const CADRES: { code: string; name: string; regulator: string; licensed: boolean }[] = [
@@ -166,6 +167,38 @@ export const ROLES: { code: string; name: string; description: string; permissio
   },
 ];
 
+
+/**
+ * ICD-11 starter set.
+ *
+ * TEN CODES. This is not a catalogue — it is enough to run the system on day one
+ * and to prove the coding path works end to end.
+ *
+ * Every code here was checked against the published ICD-11 MMS classification
+ * and is marked `verified`. Codes that could NOT be confirmed were deliberately
+ * left out rather than guessed: a wrong diagnosis code is one of the named
+ * reasons SHA rejects a claim, so an invented code would cause exactly the
+ * problem this system exists to prevent.
+ *
+ * BEFORE GO-LIVE the full WHO ICD-11 MMS release must be loaded with
+ * `importCodes({ system: ICD11, source: "WHO ICD-11 MMS <release>", ... })`.
+ * `coverage()` reports `starterOnly` until it is, and the compliance dashboard
+ * says so, because a clinician who cannot find their diagnosis picks something
+ * close instead — which is how wrong codes reach claims.
+ */
+export const ICD11_STARTER: { code: string; term: string; synonyms?: string }[] = [
+  { code: "1F40", term: "Malaria due to Plasmodium falciparum", synonyms: "malaria,falciparum,homa ya malaria" },
+  { code: "1F41", term: "Malaria due to Plasmodium vivax", synonyms: "malaria,vivax" },
+  { code: "1F42", term: "Malaria due to Plasmodium malariae", synonyms: "malaria,malariae" },
+  { code: "1F43", term: "Malaria due to Plasmodium ovale", synonyms: "malaria,ovale" },
+  { code: "1F4Z", term: "Malaria, unspecified", synonyms: "malaria" },
+  { code: "CA07", term: "Acute upper respiratory infections of multiple and unspecified sites", synonyms: "URTI,cold,flu,cough" },
+  { code: "CA23", term: "Asthma", synonyms: "asthma,wheeze" },
+  { code: "CA40", term: "Pneumonia", synonyms: "pneumonia,chest infection" },
+  { code: "1A40", term: "Gastroenteritis or colitis without specification of infectious agent", synonyms: "gastroenteritis,diarrhoea,diarrhea,running stomach" },
+  { code: "GC08", term: "Urinary tract infection, site not specified", synonyms: "UTI,urine infection" },
+];
+
 /** Install cadres, permissions and roles. Idempotent. */
 export function seedReferenceData(): void {
   tx(() => {
@@ -193,6 +226,15 @@ export function seedReferenceData(): void {
   for (const r of ROLES) {
     defineRole({ ...r, system: true, byUserName: "system" });
   }
+
+  importCodes({
+    system: ICD11,
+    // Names the release these were checked against, so a coder challenged on a
+    // code can be told where it came from.
+    source: "ICD-11 MMS (starter set, verified individually)",
+    concepts: ICD11_STARTER.map((c) => ({ ...c, verified: true })),
+    byUserName: "seed",
+  });
 }
 
 /**

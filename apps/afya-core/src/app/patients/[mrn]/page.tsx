@@ -2,6 +2,9 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { currentUser } from "@/lib/auth.ts";
 import { openPatient, accessHistory, mergeHistory } from "@/lib/patients.ts";
+import { encountersFor, openEncounterFor } from "@/lib/encounters.ts";
+import { check } from "@/lib/access.ts";
+import { startEncounterAction } from "@/app/encounters/actions.ts";
 
 /**
  * A patient record.
@@ -29,6 +32,9 @@ export default async function PatientPage(props: { params: Promise<{ mrn: string
   if (!patient) notFound();
 
   const merges = mergeHistory(patient.mrn).filter((m) => !m.undone_at);
+  const visits = encountersFor(patient.mrn, 10);
+  const openVisit = openEncounterFor(patient.mrn);
+  const canConsult = check(user.userId, "encounter.conduct");
   const access = accessHistory(patient.mrn, 8);
   const age = patient.date_of_birth
     ? Math.floor((Date.now() - Date.parse(patient.date_of_birth)) / (365.25 * 86_400_000))
@@ -72,6 +78,46 @@ export default async function PatientPage(props: { params: Promise<{ mrn: string
           </div>
         ))}
       </dl>
+
+      {/* The clinician's next action, or the reason there isn't one. */}
+      <div className="mt-5 flex flex-wrap items-center gap-3">
+        {openVisit ? (
+          <Link
+            href={`/encounters/${encodeURIComponent(openVisit.id)}`}
+            className="bg-brand text-white font-semibold rounded px-4 py-2.5 text-sm"
+          >
+            Continue consultation
+          </Link>
+        ) : canConsult.allowed ? (
+          <form action={startEncounterAction}>
+            <input type="hidden" name="mrn" value={patient.mrn} />
+            <button type="submit" className="bg-brand text-white font-semibold rounded px-4 py-2.5 text-sm">
+              Start consultation
+            </button>
+          </form>
+        ) : null}
+      </div>
+
+      {visits.length > 0 ? (
+        <section className="mt-7">
+          <h2 className="text-sm font-semibold tracking-[0.08em] uppercase text-muted">Visits</h2>
+          <ul className="mt-2 flex flex-col gap-px bg-line border border-line rounded overflow-hidden">
+            {visits.map((v) => (
+              <li key={v.id}>
+                <Link
+                  href={`/encounters/${encodeURIComponent(v.id)}`}
+                  className="bg-white px-4 py-2.5 flex flex-wrap gap-x-3 gap-y-1 items-baseline hover:bg-wash"
+                >
+                  <span className="text-sm tnum text-muted">{v.opened_at.slice(0, 10)}</span>
+                  <span className="text-sm font-medium">{v.kind}</span>
+                  <span className="text-sm text-muted">{v.clinician_name}</span>
+                  <span className="ml-auto text-xs text-muted">{v.status}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       {!patient.national_id && !patient.sha_number ? (
         <p className="mt-3 bg-clock-soft border border-clock/25 text-clock rounded px-4 py-2.5 text-sm">
