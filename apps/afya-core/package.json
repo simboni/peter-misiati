@@ -2,13 +2,14 @@
   "name": "afya-core",
   "version": "0.1.0",
   "private": true,
-  "description": "Afya Core — Kenya-compliant hospital management system (HMIS)",
+  "description": "Afya Core \u2014 Kenya-compliant hospital management system (HMIS)",
   "scripts": {
     "dev": "next dev --port 3200",
     "build": "next build",
     "start": "next start --port 3200",
     "seed": "node --experimental-strip-types scripts/seed.ts",
-    "test": "node --experimental-strip-types --test tests/*.test.ts"
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "demo": "node --experimental-strip-types scripts/seed.ts && node --experimental-strip-types scripts/demo-day.ts"
   },
   "dependencies": {
     "next": "16.2.10",
@@ -22,5 +23,8 @@
     "@types/react-dom": "^19",
     "tailwindcss": "^4",
     "typescript": "^5"
+  },
+  "engines": {
+    "node": ">=22.6"
   }
 }

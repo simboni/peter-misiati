@@ -13,16 +13,60 @@ What remains before a facility could actually run on this is listed under
 [Not done](#not-done-be-clear-about-this) — read that before showing it to a
 clinic.
 
-## Running it
+## Running it on a Mac, from nothing
+
+You need **Node.js 22.6 or newer** — the system uses Node's built-in SQLite and
+its TypeScript support, so there is no database server to install and no build
+toolchain. That is the only prerequisite.
+
+**1. Install Node.js.** Either download the LTS installer from
+[nodejs.org](https://nodejs.org) and run it, or if you have Homebrew:
 
 ```bash
-npm install
-npm run seed     # creates data/afya.db with a demo clinic and staff
-npm run dev      # http://localhost:3200
-npm test         # 168 tests, no network or database server needed
+brew install node
 ```
 
-Sign in as `admin` / `ChangeMe123`.
+Then confirm it worked — this must print v22.6 or higher:
+
+```bash
+node --version
+```
+
+**2. Get the code.** From your home folder:
+
+```bash
+cd ~
+git clone https://github.com/simboni/peter-misiati.git
+cd peter-misiati
+git checkout claude/hospital-management-research-damdg2
+cd apps/afya-core
+```
+
+macOS will offer to install the Xcode Command Line Tools the first time you run
+`git`. Accept it, wait, then run the clone again.
+
+**3. Install and run.**
+
+```bash
+npm install      # ~30 seconds
+npm run demo     # loads a clinic morning: 6 patients, a queue, claims
+npm run dev      # then open http://localhost:3200
+```
+
+Sign in with any of these — the password is `ChangeMe123` for all three, and
+each sees a genuinely different system:
+
+| Username | Role | What they can do |
+|---|---|---|
+| `admin` | Facility Administrator | Dashboard, claims, users, devices. **Cannot** register patients or prescribe |
+| `a.wanjiru` | Clinician | Queue, consultations, diagnose, prescribe. Licence-gated |
+| `j.otieno` | Receptionist | Register, search, check in, take payment. **Cannot** prescribe |
+
+Stop the server with `Ctrl-C`. To wipe and start over: `rm -rf data && npm run demo`.
+
+```bash
+npm test         # 173 tests, no network or database server needed
+```
 
 ## Why SQLite, not Postgres
 
