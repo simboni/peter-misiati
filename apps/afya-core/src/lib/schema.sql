@@ -608,6 +608,11 @@ CREATE TABLE IF NOT EXISTS benefit_rules (
   covered         INTEGER NOT NULL DEFAULT 1 CHECK (covered IN (0,1)),
   requires_preauth INTEGER NOT NULL DEFAULT 0 CHECK (requires_preauth IN (0,1)),
   limit_cents     INTEGER,
+  -- Document kinds the payer requires before it will pay for this service,
+  -- comma-separated (e.g. 'lab_report,preauth_letter'). "Missing documentation"
+  -- is a named SHA rejection cause, so the rule that prevents it lives with the
+  -- benefit it applies to rather than in code.
+  required_documents TEXT NOT NULL DEFAULT '',
   notes           TEXT NOT NULL DEFAULT '',
   source          TEXT NOT NULL DEFAULT '',
   UNIQUE (payer_code, service_code)
@@ -860,3 +865,128 @@ CREATE TABLE IF NOT EXISTS vitals (
   recorded_at  TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_vitals_visit ON vitals(visit_id);
+
+-- ==================================================== M04 INTEGRATION HUB
+--
+-- Every external system sits behind one contract: queue → transform → transmit
+-- → confirm → reconcile. No domain module calls SHA or KRA directly, so when a
+-- specification changes exactly one adapter changes.
+--
+-- `mode` is the honest part. 'demo' runs a deterministic in-process simulator
+-- so the whole flow can be shown end to end; 'live' uses the real adapter once
+-- the specification is in hand; 'disabled' queues everything and says so. The
+-- mode is displayed wherever its results are, so nobody mistakes a simulated
+-- acknowledgement for a real one.
+
+CREATE TABLE IF NOT EXISTS integration_endpoints (
+  code       TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  kind       TEXT NOT NULL CHECK (kind IN ('payer','tax','hie','sms','dhis2')),
+  mode       TEXT NOT NULL CHECK (mode IN ('demo','live','disabled')),
+  base_url   TEXT NOT NULL DEFAULT '',
+  notes      TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL
+);
+
+-- Append-only record of every call out of the building. This is the evidence
+-- when a payer says "we never received it".
+CREATE TABLE IF NOT EXISTS integration_log (
+  id          INTEGER PRIMARY KEY,
+  endpoint    TEXT NOT NULL,
+  operation   TEXT NOT NULL,
+  mode        TEXT NOT NULL,
+  request     TEXT NOT NULL DEFAULT '{}',
+  response    TEXT NOT NULL DEFAULT '{}',
+  status      TEXT NOT NULL CHECK (status IN ('ok','failed')),
+  attempts    INTEGER NOT NULL DEFAULT 1,
+  error       TEXT,
+  at          TEXT NOT NULL,
+  duration_ms INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_intlog_at ON integration_log(endpoint, at);
+
+-- Calls that failed every retry. A dead letter is never silently dropped: it
+-- sits here until a person deals with it.
+CREATE TABLE IF NOT EXISTS integration_dead_letters (
+  id         INTEGER PRIMARY KEY,
+  endpoint   TEXT NOT NULL,
+  operation  TEXT NOT NULL,
+  request    TEXT NOT NULL,
+  last_error TEXT NOT NULL,
+  attempts   INTEGER NOT NULL,
+  queued_at  TEXT NOT NULL,
+  resolved_at TEXT,
+  resolved_by INTEGER REFERENCES users(id)
+);
+
+-- ==================================================== M05 NOTIFICATIONS
+
+-- Things a person has to know about. Deliberately a queue with an owner rather
+-- than a broadcast: "someone should look at this" is how nothing gets looked at.
+CREATE TABLE IF NOT EXISTS notifications (
+  id          INTEGER PRIMARY KEY,
+  facility_id INTEGER NOT NULL REFERENCES facilities(id),
+  -- The role that can act on it, so it lands on the right desk.
+  owner_role  TEXT NOT NULL,
+  severity    TEXT NOT NULL CHECK (severity IN ('info','warning','critical')),
+  kind        TEXT NOT NULL,
+  subject     TEXT NOT NULL,
+  body        TEXT NOT NULL DEFAULT '',
+  -- What it is about, so the interface can link straight to it.
+  entity      TEXT,
+  entity_id   TEXT,
+  -- Set so a repeating condition updates one notification instead of making a
+  -- new one every time the job runs.
+  dedupe_key  TEXT UNIQUE,
+  created_at  TEXT NOT NULL,
+  updated_at  TEXT NOT NULL,
+  acted_at    TEXT,
+  acted_by    INTEGER REFERENCES users(id),
+  dismissed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_notif_open ON notifications(facility_id, acted_at, severity);
+
+-- ==================================================== M06 DOCUMENT STORE
+
+-- Attachments: lab reports, referral letters, signed consent, scanned IDs.
+-- Content is stored as a base64 payload in the facility database so the file
+-- travels with the record and survives being copied to a stick — a separate
+-- blob store is another thing to back up, secure and explain to an auditor.
+CREATE TABLE IF NOT EXISTS documents (
+  id           TEXT PRIMARY KEY,
+  facility_id  INTEGER NOT NULL REFERENCES facilities(id),
+  -- What it is attached to: encounter, claim, patient, preauth.
+  entity       TEXT NOT NULL,
+  entity_id    TEXT NOT NULL,
+  patient_mrn  TEXT REFERENCES patients(mrn),
+  kind         TEXT NOT NULL,
+  filename     TEXT NOT NULL,
+  content_type TEXT NOT NULL,
+  size_bytes   INTEGER NOT NULL,
+  -- SHA-256 of the content, so tampering with a stored file is detectable.
+  sha256       TEXT NOT NULL,
+  content_b64  TEXT NOT NULL,
+  uploaded_by  INTEGER REFERENCES users(id),
+  uploaded_at  TEXT NOT NULL,
+  removed_at   TEXT,
+  removed_by   INTEGER REFERENCES users(id)
+);
+CREATE INDEX IF NOT EXISTS idx_doc_entity ON documents(entity, entity_id, removed_at);
+
+-- A signature is a person putting their name to something, with their licence
+-- as it stood at that moment. Kept separate from documents because it is an
+-- assertion, not a file.
+CREATE TABLE IF NOT EXISTS signatures (
+  id            INTEGER PRIMARY KEY,
+  entity        TEXT NOT NULL,
+  entity_id     TEXT NOT NULL,
+  purpose       TEXT NOT NULL,
+  signed_by     INTEGER NOT NULL REFERENCES users(id),
+  signer_name   TEXT NOT NULL,
+  licence_regulator TEXT,
+  licence_number    TEXT,
+  -- Digest of what was signed, so a later edit cannot hide behind the signature.
+  content_sha256 TEXT NOT NULL,
+  signed_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sig_entity ON signatures(entity, entity_id);

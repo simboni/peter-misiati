@@ -43,6 +43,8 @@ export function db(): DatabaseSync {
   const schemaPath = process.env.AFYA_SCHEMA ?? join(process.cwd(), "src", "lib", "schema.sql");
   conn.exec(readFileSync(schemaPath, "utf8"));
 
+  addColumns(conn);
+
   _db = conn;
 
   const applied = conn
@@ -55,6 +57,30 @@ export function db(): DatabaseSync {
   }
 
   return conn;
+}
+
+/**
+ * Columns added after a facility's database already existed.
+ *
+ * `CREATE TABLE IF NOT EXISTS` does nothing to a table that is already there,
+ * so a new column would never reach an installed clinic. These run every start,
+ * guarded by what the table actually has — there is no downtime and no dump and
+ * reload, which matters when the database is a file on a clinic's one machine.
+ *
+ * Additive only: a column is added with a default, never dropped or retyped.
+ * Anything that cannot be expressed this way needs a numbered migration.
+ */
+function addColumns(conn: DatabaseSync): void {
+  const additions: { table: string; column: string; ddl: string }[] = [
+    { table: "benefit_rules", column: "required_documents", ddl: "TEXT NOT NULL DEFAULT ''" },
+  ];
+
+  for (const a of additions) {
+    const present = conn
+      .prepare(`SELECT name FROM pragma_table_info(?) WHERE name = ?`)
+      .get(a.table, a.column);
+    if (!present) conn.exec(`ALTER TABLE ${a.table} ADD COLUMN ${a.column} ${a.ddl}`);
+  }
 }
 
 /** Reset the module-level handle — used by tests that swap the database file. */
@@ -100,20 +126,45 @@ export function run(sql: string, ...params: Param[]): { lastInsertRowid: number;
   return { lastInsertRowid: Number(r.lastInsertRowid), changes: Number(r.changes) };
 }
 
+let txDepth = 0;
+
 /**
  * Run `fn` in a transaction, rolling back if it throws.
  *
- * Not reentrant — SQLite has no nested transactions. A service function that
- * may be called from inside another transaction must not open its own.
+ * SQLite has no nested transactions, so a nested call JOINS the outer one
+ * rather than opening its own: the outermost `tx` decides whether everything
+ * commits. This matters because service functions compose — closing an
+ * encounter signs the note, requesting a pre-authorisation records the payer's
+ * answer — and neither caller should have to know whether it is already inside
+ * a transaction.
+ *
+ * The consequence is deliberate and is the behaviour you want: if the outer
+ * unit of work fails, the inner writes go too. A consultation that did not
+ * close must not leave a signature behind saying it did.
  */
 export function tx<T>(fn: () => T): T {
   const conn = db();
+
+  if (txDepth > 0) {
+    // Already inside one. A throw propagates and the outermost frame rolls the
+    // whole thing back, so there is nothing to do here but run.
+    txDepth++;
+    try {
+      return fn();
+    } finally {
+      txDepth--;
+    }
+  }
+
   conn.exec("BEGIN");
+  txDepth = 1;
   try {
     const result = fn();
+    txDepth = 0;
     conn.exec("COMMIT");
     return result;
   } catch (err) {
+    txDepth = 0;
     conn.exec("ROLLBACK");
     throw err;
   }

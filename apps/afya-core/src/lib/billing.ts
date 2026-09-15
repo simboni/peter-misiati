@@ -29,6 +29,7 @@
 
 import { all, get, run, tx, audit, now, today } from "./db.ts";
 import { mintLocalId } from "./ids.ts";
+import { call } from "./integration.ts";
 import { recordOp } from "./sync.ts";
 import { getEncounter, activeDiagnoses } from "./encounters.ts";
 import { prescriptionsFor } from "./prescribing.ts";
@@ -609,11 +610,43 @@ export type EtimsTransmitter = (payload: string) =>
   | { ok: true; canonicalNumber: string }
   | { ok: false; error: string };
 
-/** Default: nothing is configured, so everything stays queued and visible. */
+/** For a facility with no tax link at all: everything stays queued and visible. */
 export const ETIMS_NOT_CONFIGURED: EtimsTransmitter = () => ({
   ok: false,
   error: "no eTIMS adapter is configured on this installation",
 });
+
+/**
+ * The default: transmit through the integration hub.
+ *
+ * The hub applies the retry policy and dead-letters what never gets through, so
+ * this only has to decide what to do with the answer. A queued invoice that
+ * fails here stays queued with the reason on it — an untransmitted tax invoice
+ * is a compliance failure the facility must be able to see.
+ */
+export const ETIMS_VIA_HUB: EtimsTransmitter = (payload) => {
+  const invoice = JSON.parse(payload) as {
+    provisionalNumber?: string;
+    totalCents?: number;
+    lines?: unknown[];
+  };
+  const result = call({
+    endpoint: "ETIMS",
+    operation: "transmitInvoice",
+    request: {
+      provisionalNumber: invoice.provisionalNumber ?? "",
+      totalCents: invoice.totalCents ?? 0,
+      lines: invoice.lines ?? [],
+    },
+  });
+
+  if (!result.ok) return { ok: false, error: result.error };
+  const canonical = result.data.canonicalNumber;
+  if (typeof canonical !== "string" || !canonical) {
+    return { ok: false, error: "the tax authority acknowledged without assigning an invoice number" };
+  }
+  return { ok: true, canonicalNumber: canonical };
+};
 
 /**
  * Transmit whatever is queued.
@@ -622,7 +655,7 @@ export const ETIMS_NOT_CONFIGURED: EtimsTransmitter = () => ({
  * an attempt counted — never dropped, because an untransmitted invoice is a tax
  * compliance failure the facility will not discover on its own.
  */
-export function flushEtims(transmit: EtimsTransmitter = ETIMS_NOT_CONFIGURED): {
+export function flushEtims(transmit: EtimsTransmitter = ETIMS_VIA_HUB): {
   sent: number;
   failed: number;
 } {

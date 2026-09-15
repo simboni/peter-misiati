@@ -25,6 +25,7 @@
 
 import { all, get, run, tx, audit, now, today } from "./db.ts";
 import { mintLocalId } from "./ids.ts";
+import { call } from "./integration.ts";
 import { resolvePatient } from "./patients.ts";
 
 export class PayerError extends Error {}
@@ -64,6 +65,7 @@ export interface BenefitRule {
   covered: number;
   requires_preauth: number;
   limit_cents: number | null;
+  required_documents: string;
   notes: string;
   source: string;
 }
@@ -125,6 +127,8 @@ export function defineBenefit(input: {
   covered?: boolean;
   requiresPreauth?: boolean;
   limitCents?: number | null;
+  /** Document kinds the payer wants with the claim: lab_report, referral, ... */
+  requiredDocuments?: string[];
   notes?: string;
   source: string;
 }): void {
@@ -132,16 +136,19 @@ export function defineBenefit(input: {
     throw new PayerError("a benefit rule must record its source, e.g. 'SHA benefit package 2026/28'");
   }
   run(
-    `INSERT INTO benefit_rules (payer_code, service_code, covered, requires_preauth, limit_cents, notes, source)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO benefit_rules (payer_code, service_code, covered, requires_preauth, limit_cents,
+       required_documents, notes, source)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(payer_code, service_code) DO UPDATE SET
        covered = excluded.covered, requires_preauth = excluded.requires_preauth,
-       limit_cents = excluded.limit_cents, notes = excluded.notes, source = excluded.source`,
+       limit_cents = excluded.limit_cents, required_documents = excluded.required_documents,
+       notes = excluded.notes, source = excluded.source`,
     input.payerCode.trim().toUpperCase(),
     input.serviceCode.trim().toUpperCase(),
     input.covered === false ? 0 : 1,
     input.requiresPreauth ? 1 : 0,
     input.limitCents ?? null,
+    (input.requiredDocuments ?? []).map((d) => d.trim().toLowerCase()).filter(Boolean).join(","),
     input.notes ?? "",
     input.source.trim(),
   );
@@ -168,21 +175,55 @@ export function benefitFor(payerCode: string, serviceCode: string): BenefitRule 
 /**
  * How a verification attempt went.
  *
- * `reachPayer` is injected so the real SHA adapter can be dropped in without
+ * The probe is injected so the real SHA adapter can be dropped in without
  * touching this module — the anti-corruption layer the architecture note calls
- * for. Until the SHA specification is in hand, a facility runs with the
- * unreachable path, which is the honest default.
+ * for. The default routes through the integration hub, which runs the real
+ * adapter in live mode and a labelled simulator in demo mode.
  */
 export type PayerProbe = (input: {
   payerCode: string;
   memberNumber: string;
 }) => { reachable: true; active: boolean; schemeName?: string; validTo?: string } | { reachable: false; error: string };
 
-/** The default probe: the payer is unreachable until a real adapter is wired. */
+/** The honest fallback for a payer with no channel at all. */
 export const UNREACHABLE: PayerProbe = () => ({
   reachable: false,
   error: "no payer adapter is configured on this installation",
 });
+
+/** Document kinds this payer requires for a service, from its benefit rule. */
+export function requiredDocumentsFor(payerCode: string, serviceCode: string): string[] {
+  const rule = benefitFor(payerCode, serviceCode);
+  return (rule?.required_documents ?? "")
+    .split(",")
+    .map((d) => d.trim())
+    .filter(Boolean);
+}
+
+/**
+ * The default probe: ask the integration hub.
+ *
+ * SHA-kind payers have an endpoint; private and corporate payers do not yet, so
+ * for them this stays honestly unreachable and the provisional path runs. The
+ * hub decides whether the answer came from a real link or a simulator, and says
+ * which — this module only has to pass the answer on truthfully.
+ */
+export const VIA_HUB: PayerProbe = ({ payerCode, memberNumber }) => {
+  const payer = getPayer(payerCode);
+  if (payer?.kind !== "sha") {
+    return { reachable: false, error: `no integration is configured for ${payer?.name ?? payerCode}` };
+  }
+
+  const result = call({ endpoint: "SHA", operation: "verifyMember", request: { memberNumber } });
+  if (!result.ok) return { reachable: false, error: result.error };
+
+  return {
+    reachable: true,
+    active: result.data.active === true,
+    schemeName: typeof result.data.schemeName === "string" ? result.data.schemeName : undefined,
+    validTo: typeof result.data.validUntil === "string" ? result.data.validUntil : undefined,
+  };
+};
 
 /** How long an online verification stays good before it is re-checked. */
 const CACHE_HOURS = 24;
@@ -261,7 +302,7 @@ export function verifyCoverage(input: {
     };
   }
 
-  const probe = input.probe ?? UNREACHABLE;
+  const probe = input.probe ?? VIA_HUB;
   const answer = probe({ payerCode, memberNumber: member });
 
   if (answer.reachable) {
@@ -492,6 +533,58 @@ export function requestPreauth(input: {
       detail: { payer: input.payerCode, services: input.serviceCodes },
     });
     return id;
+  });
+
+  // Sent after the row exists, not before: a request the facility cannot show
+  // it made is worthless, and the transmission may well fail.
+  sendPreauth(id, input);
+
+  return id;
+}
+
+/**
+ * Put a recorded pre-authorisation on the wire.
+ *
+ * A payer that answers immediately has its decision recorded here. One that
+ * does not — or that cannot be reached — leaves the request 'requested', which
+ * is what the pre-auth worklist is for. Nothing is invented either way.
+ */
+function sendPreauth(
+  preauthId: string,
+  input: { payerCode: string; serviceCodes: string[]; clinicalSummary: string; byUserId: number; byUserName: string },
+): void {
+  const payer = getPayer(input.payerCode);
+  if (payer?.kind !== "sha") return;
+
+  const result = call({
+    endpoint: "SHA",
+    operation: "requestPreauth",
+    request: {
+      preauthId,
+      serviceCodes: input.serviceCodes.map((c) => c.trim().toUpperCase()),
+      clinicalSummary: input.clinicalSummary.trim(),
+    },
+  });
+
+  if (!result.ok) {
+    run(`UPDATE preauths SET decline_reason = ? WHERE id = ?`, `Not yet decided: ${result.error}`, preauthId);
+    return;
+  }
+
+  const approved = result.data.approved === true;
+  const reference = typeof result.data.reference === "string" ? result.data.reference : undefined;
+  if (approved && !reference) return; // An approval without a reference is not usable.
+
+  const validDays = typeof result.data.validUntilDays === "number" ? result.data.validUntilDays : 30;
+
+  recordPreauthDecision({
+    preauthId,
+    approved,
+    reference,
+    validUntil: new Date(Date.now() + validDays * 86_400_000).toISOString().slice(0, 10),
+    declineReason: approved ? undefined : String(result.data.reason ?? "declined by the payer"),
+    byUserId: input.byUserId,
+    byUserName: input.byUserName,
   });
 }
 

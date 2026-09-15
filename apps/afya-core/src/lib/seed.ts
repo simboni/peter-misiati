@@ -23,6 +23,7 @@ import { importCodes, ICD11 } from "./terminology.ts";
 import { importProducts } from "./prescribing.ts";
 import { definePayer, defineBenefit } from "./payers.ts";
 import { defineService, setTariff } from "./billing.ts";
+import { seedEndpoints } from "./integration.ts";
 
 /** The councils that license clinical practice in Kenya. */
 export const CADRES: { code: string; name: string; regulator: string; licensed: boolean }[] = [
@@ -300,6 +301,14 @@ export function seedRevenueCycle(): void {
       covered: true,
       // Minor procedures need pre-authorisation; routine outpatient care does not.
       requiresPreauth: code.startsWith("PROC-"),
+      // "Missing documentation" is a named rejection cause. A laboratory line
+      // claimed without its report, or a procedure without its approval letter,
+      // is one the scrubber can now stop before it leaves the building.
+      requiredDocuments: code.startsWith("LAB-")
+        ? ["lab_report"]
+        : code.startsWith("PROC-")
+          ? ["preauth_letter"]
+          : [],
       source: "illustrative benefit rules — load the SHA package before go-live",
     });
   }
@@ -355,6 +364,11 @@ export function seedReferenceData(): void {
   });
 
   seedRevenueCycle();
+
+  // Every way out of the building, installed in demo mode. Nothing calls a real
+  // payer or the tax authority until an operator switches an endpoint to live,
+  // and that is refused until a live adapter exists.
+  seedEndpoints();
 }
 
 /**

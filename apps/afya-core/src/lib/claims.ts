@@ -30,9 +30,11 @@
 import { all, get, run, tx, audit, now, today } from "./db.ts";
 import { mintLocalId } from "./ids.ts";
 import { recordOp } from "./sync.ts";
-import { getEncounter, activeDiagnoses, currentNote } from "./encounters.ts";
+import { getEncounter, activeDiagnoses, currentNote, signableNote } from "./encounters.ts";
 import { chargesFor, invoiceForEncounter, type Charge } from "./billing.ts";
-import { getPayer, benefitFor, coveragesFor, preauthGap, type Coverage } from "./payers.ts";
+import { getPayer, benefitFor, coveragesFor, preauthGap, requiredDocumentsFor, type Coverage } from "./payers.ts";
+import { attachments, verifySignature } from "./documents.ts";
+import { call } from "./integration.ts";
 import { lookup as lookupCode, ICD11 } from "./terminology.ts";
 
 export class ClaimError extends Error {}
@@ -284,40 +286,10 @@ export function scrub(claimId: string, asOf = today()): Verdict {
   gates.push(gateDates(claim, encounter?.closed_at ?? null, asOf));
 
   // --- 7. Documentation ----------------------------------------------------
-  const note = currentNote(claim.encounter_id);
-  const hasNote = Boolean(note?.assessment.trim());
-  const invoice = claim.invoice_id ? true : false;
-  const missingDocs: string[] = [];
-  if (!hasNote) missingDocs.push("the clinical assessment");
-  if (!invoice) missingDocs.push("the invoice");
-  gates.push({
-    gate: 7,
-    name: "Documentation",
-    passed: missingDocs.length === 0,
-    severity: missingDocs.length === 0 ? "ok" : "block",
-    owner: hasNote ? "claims officer" : "clinician",
-    // Names exactly what is missing. "Documentation incomplete" is the message
-    // that sends a claims officer hunting for an hour.
-    message:
-      missingDocs.length === 0
-        ? "Clinical assessment and invoice are both attached."
-        : `Missing: ${missingDocs.join(" and ")}.`,
-  });
+  gates.push(gateDocumentation(claim, items));
 
   // --- 8. Signature / attribution -----------------------------------------
-  const signed = Boolean(encounter?.licence_number && encounter.status === "closed");
-  gates.push({
-    gate: 8,
-    name: "Signature",
-    passed: signed,
-    severity: signed ? "ok" : "block",
-    owner: "clinician",
-    message: !encounter?.licence_number
-      ? "No practitioner licence was pinned when this encounter opened. A claim citing it is rejected."
-      : encounter.status !== "closed"
-        ? "The encounter is still open. A claim cannot be signed off from an unfinished consultation."
-        : `Signed by ${encounter.clinician_name} (${encounter.licence_regulator} ${encounter.licence_number}).`,
-  });
+  gates.push(gateSignature(claim, encounter));
 
   // --- 9. Submission window ------------------------------------------------
   const age = daysBetween(claim.service_date, asOf);
@@ -393,6 +365,115 @@ function gateMemberVerified(coverage: Coverage | undefined): GateResult {
   };
 }
 
+/**
+ * Gate 7 — is everything the payer will ask for actually here?
+ *
+ * Three things, and each names what is missing rather than saying
+ * "documentation incomplete", which is the message that sends a claims officer
+ * hunting for an hour:
+ *
+ *   the clinical assessment  — written, not just an encounter that exists
+ *   the invoice              — a claim with no priced invoice has no amount
+ *   the payer's own list     — whatever the benefit rule for each service says
+ *                              must accompany it, checked against real files
+ *
+ * The third is the one that was missing until the document store existed. A
+ * benefit rule that says a lab report must accompany a malaria claim is now
+ * checked against a lab report that is genuinely attached.
+ */
+function gateDocumentation(claim: Claim, items: { service_code: string }[]): GateResult {
+  const note = currentNote(claim.encounter_id);
+  const hasNote = Boolean(note?.assessment.trim());
+
+  const held = new Set(
+    [...attachments("claim", claim.id), ...attachments("encounter", claim.encounter_id)].map((d) => d.kind),
+  );
+
+  const required = new Map<string, string[]>();
+  for (const item of items) {
+    for (const kind of requiredDocumentsFor(claim.payer_code, item.service_code)) {
+      if (held.has(kind)) continue;
+      required.set(kind, [...(required.get(kind) ?? []), item.service_code]);
+    }
+  }
+
+  const missing: string[] = [];
+  if (!hasNote) missing.push("the clinical assessment");
+  if (!claim.invoice_id) missing.push("the invoice");
+  for (const [kind, services] of required) {
+    missing.push(`${kind.replace(/_/g, " ")} (required for ${services.join(", ")})`);
+  }
+
+  return {
+    gate: 7,
+    name: "Documentation",
+    passed: missing.length === 0,
+    severity: missing.length === 0 ? "ok" : "block",
+    owner: hasNote && claim.invoice_id ? "clinician" : hasNote ? "claims officer" : "clinician",
+    message:
+      missing.length === 0
+        ? held.size > 0
+          ? `Assessment, invoice and ${held.size} attachment${held.size === 1 ? "" : "s"} are all present.`
+          : "Clinical assessment and invoice are both present."
+        : `Missing: ${missing.join("; ")}.`,
+  };
+}
+
+/**
+ * Gate 8 — did a licensed person put their name to this, and does it still hold?
+ *
+ * Two failures, and the second is the one nobody catches by hand: a note signed
+ * off at the end of a consultation and then amended afterwards. The signature
+ * stores a digest of what was signed, so an amendment makes it stop matching —
+ * and a claim resting on a signature that no longer covers the record is
+ * exactly what a payer audit looks for.
+ */
+function gateSignature(claim: Claim, encounter: ReturnType<typeof getEncounter>): GateResult {
+  const base = { gate: 8, name: "Signature", owner: "clinician" as const };
+
+  if (!encounter?.licence_number) {
+    return {
+      ...base,
+      passed: false,
+      severity: "block",
+      message: "No practitioner licence was pinned when this encounter opened. A claim citing it is rejected.",
+    };
+  }
+  if (encounter.status !== "closed") {
+    return {
+      ...base,
+      passed: false,
+      severity: "block",
+      message: "The encounter is still open. A claim cannot be signed off from an unfinished consultation.",
+    };
+  }
+
+  const check = verifySignature({
+    entity: "encounter",
+    entityId: claim.encounter_id,
+    purpose: "clinical_note",
+    content: signableNote(claim.encounter_id),
+  });
+
+  if (check.signed && !check.stillValid) {
+    return {
+      ...base,
+      passed: false,
+      severity: "block",
+      message: `The record was amended after ${check.signature!.signer_name} signed it. It must be signed again before this claim goes out.`,
+    };
+  }
+
+  return {
+    ...base,
+    passed: true,
+    severity: "ok",
+    message: check.signed
+      ? `Signed by ${check.signature!.signer_name} (${check.signature!.licence_regulator} ${check.signature!.licence_number}) on ${check.signature!.signed_at.slice(0, 10)}.`
+      : `Attributed to ${encounter.clinician_name} (${encounter.licence_regulator} ${encounter.licence_number}).`,
+  };
+}
+
 function gateDates(claim: Claim, closedAt: string | null, asOf: string): GateResult {
   const problems: string[] = [];
   if (claim.service_date > asOf) problems.push("the date of service is in the future");
@@ -419,10 +500,36 @@ export type ClaimSubmitter = (payload: string) =>
   | { ok: true; reference: string }
   | { ok: false; error: string };
 
+/** For a payer with no channel at all. The claim stays ready and visible. */
 export const SUBMISSION_NOT_CONFIGURED: ClaimSubmitter = () => ({
   ok: false,
   error: "no payer claim adapter is configured on this installation",
 });
+
+/**
+ * The default: submit through the integration hub.
+ *
+ * An acknowledgement is not a decision. SHA acknowledges on receipt and decides
+ * later, which is why this only records the reference — the outcome arrives
+ * through `pollOutcomes`, and the dashboard tracks days-to-decision rather than
+ * pretending an answer came back with the submission.
+ */
+export const SUBMIT_VIA_HUB: ClaimSubmitter = (payload) => {
+  const claim = JSON.parse(payload) as { claimId: string; payer: string };
+  const payer = getPayer(claim.payer);
+  if (payer?.kind !== "sha") {
+    return { ok: false, error: `no claim channel is configured for ${payer?.name ?? claim.payer}` };
+  }
+
+  const result = call({ endpoint: "SHA", operation: "submitClaim", request: JSON.parse(payload) });
+  if (!result.ok) return { ok: false, error: result.error };
+
+  const reference = result.data.reference;
+  if (typeof reference !== "string" || !reference) {
+    return { ok: false, error: "the payer acknowledged without returning a reference — treat it as not received" };
+  }
+  return { ok: true, reference };
+};
 
 /**
  * Submit a claim — only if the scrubber passes.
@@ -484,7 +591,7 @@ export function submitClaim(input: {
     items: all(`SELECT service_code, description, quantity, amount_cents, diagnosis_code FROM claim_items WHERE claim_id = ?`, claim.id),
   });
 
-  const result = (input.submit ?? SUBMISSION_NOT_CONFIGURED)(payload);
+  const result = (input.submit ?? SUBMIT_VIA_HUB)(payload);
 
   if (!result.ok) {
     logEvent(input.claimId, "submission_failed", input.byUserId, input.byUserName, { error: result.error });
@@ -597,6 +704,61 @@ export function claimEvents(claimId: string) {
     `SELECT at, kind, actor_name, detail FROM claim_events WHERE claim_id = ? ORDER BY at`,
     claimId,
   );
+}
+
+/**
+ * Ask the payer what it decided about everything still outstanding.
+ *
+ * Run on a schedule and from the claims screen. A payer that has not decided
+ * yet says so and the claim stays submitted — nothing is guessed, and a claim
+ * is never moved off `submitted` without the payer's own answer.
+ */
+export function pollOutcomes(input: {
+  byUserId: number | null;
+  byUserName: string;
+  limit?: number;
+}): { checked: number; decided: number; accepted: number; rejected: number; paid: number } {
+  const outstanding = all<Claim>(
+    `SELECT * FROM claims WHERE status = 'submitted' ORDER BY submitted_at LIMIT ?`,
+    input.limit ?? 50,
+  );
+
+  const tally = { checked: 0, decided: 0, accepted: 0, rejected: 0, paid: 0 };
+
+  for (const claim of outstanding) {
+    const payer = getPayer(claim.payer_code);
+    if (payer?.kind !== "sha") continue;
+
+    tally.checked++;
+    const result = call({
+      endpoint: "SHA",
+      operation: "pollOutcome",
+      request: { claimId: claim.id, reference: claim.reference ?? "" },
+    });
+    if (!result.ok || result.data.decided !== true) continue;
+
+    const outcome = String(result.data.outcome);
+    if (outcome !== "accepted" && outcome !== "rejected" && outcome !== "paid") continue;
+
+    recordOutcome({
+      claimId: claim.id,
+      outcome,
+      rejectionCode: typeof result.data.code === "string" ? result.data.code : undefined,
+      // recordOutcome refuses a rejection with no reason, and rightly so: the
+      // reason is the asset that improves the scrubber.
+      rejectionReason:
+        outcome === "rejected"
+          ? String(result.data.reason ?? "rejected without a stated reason — query the payer")
+          : undefined,
+      byUserId: input.byUserId,
+      byUserName: input.byUserName,
+    });
+
+    tally.decided++;
+    tally[outcome]++;
+  }
+
+  return tally;
 }
 
 // ----------------------------------------------------------------- dashboard

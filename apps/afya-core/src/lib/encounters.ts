@@ -31,6 +31,7 @@ import { recordOp } from "./sync.ts";
 import { check, explain, licenceStatus } from "./access.ts";
 import { resolvePatient } from "./patients.ts";
 import { assertCodable, noteUse, ICD11 } from "./terminology.ts";
+import { sign } from "./documents.ts";
 
 export class EncounterError extends Error {}
 
@@ -303,6 +304,30 @@ export function currentNote(encounterId: string): Note | undefined {
   );
 }
 
+/**
+ * The exact text a clinician signs off, as one canonical string.
+ *
+ * Built the same way every time — the current note plus the active coded
+ * diagnoses — so the digest stored with a signature can be recomputed later and
+ * compared. Change the shape of this and every existing signature stops
+ * matching, which is why it is deliberately dull.
+ */
+export function signableNote(encounterId: string): string {
+  const note = currentNote(encounterId);
+  const diagnoses = activeDiagnoses(encounterId)
+    .map((d) => `${d.code} ${d.term}`)
+    .sort();
+
+  return [
+    `complaint: ${note?.complaint ?? ""}`,
+    `history: ${note?.history ?? ""}`,
+    `examination: ${note?.examination ?? ""}`,
+    `assessment: ${note?.assessment ?? ""}`,
+    `plan: ${note?.plan ?? ""}`,
+    `diagnoses: ${diagnoses.join("; ")}`,
+  ].join("\n");
+}
+
 /** Every version, newest first. The answer to "what did you write at 14:20?" */
 export function noteHistory(encounterId: string): Note[] {
   return all<Note>(
@@ -525,6 +550,19 @@ export function closeEncounter(input: {
       purpose: "treatment",
       deviceCode: input.deviceCode,
       detail: { diagnoses: activeDiagnoses(input.encounterId).map((d) => d.code) },
+    });
+
+    // Closing IS the sign-off. The signature carries the licence as it stood
+    // now, and a digest of what was written — so if the note is amended
+    // afterwards, the claim scrubber sees that the signature no longer covers
+    // it rather than the amendment passing unnoticed.
+    sign({
+      entity: "encounter",
+      entityId: input.encounterId,
+      purpose: "clinical_note",
+      content: signableNote(input.encounterId),
+      byUserId: input.byUserId,
+      byUserName: input.byUserName,
     });
   });
 }

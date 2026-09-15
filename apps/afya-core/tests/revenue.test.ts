@@ -65,12 +65,40 @@ test("the seeded payers carry SHA's real rules", () => {
   assert.ok(Pay.getPayer("CASH"));
 });
 
-test("an unreachable payer does not block care — it queues and says so", () => {
+test("by default verification goes through the integration hub", () => {
+  const mrn = newPatient("Hubbed", "40000091");
+  const result = Pay.verifyCoverage({
+    patientMrn: mrn, payerCode: "SHA", memberNumber: "SHA-0091",
+    byUserId: receptionistId, byUserName: "Joseph Otieno",
+    // No probe: the default routes through the hub, which is in demo mode.
+  });
+  assert.equal(result.source, "online");
+  assert.equal(result.provisional, false);
+  const logged = all<{ endpoint: string; operation: string; mode: string }>(
+    `SELECT endpoint, operation, mode FROM integration_log ORDER BY id DESC LIMIT 1`,
+  )[0];
+  assert.equal(logged.endpoint, "SHA");
+  assert.equal(logged.operation, "verifyMember");
+  assert.equal(logged.mode, "demo", "the log says it was a simulator, so nobody can later claim it was live");
+});
+
+test("a private payer has no channel yet, and says so rather than guessing", () => {
+  const mrn = newPatient("Private", "40000092");
+  Pay.definePayer({ code: "JUBILEE", name: "Jubilee Health", kind: "private", byUserName: "seed" });
+  const result = Pay.verifyCoverage({
+    patientMrn: mrn, payerCode: "JUBILEE", memberNumber: "JUB-1",
+    byUserId: receptionistId, byUserName: "Joseph Otieno",
+  });
+  assert.equal(result.provisional, true);
+  assert.match(result.message, /Jubilee Health/);
+});
+
+test("a payer that cannot be reached does not block care — it queues and says so", () => {
   const mrn = newPatient("Unreachable", "40000001");
   const result = Pay.verifyCoverage({
     patientMrn: mrn, payerCode: "SHA", memberNumber: "SHA-0001",
     byUserId: receptionistId, byUserName: "Joseph Otieno",
-    // The default probe: nothing configured, so the payer is unreachable.
+    probe: Pay.UNREACHABLE,
   });
 
   assert.equal(result.source, "provisional");
@@ -287,6 +315,7 @@ test("gate 1 — a provisional verification blocks until it is re-checked", () =
   Pay.verifyCoverage({
     patientMrn: mrn, payerCode: "SHA", memberNumber: "SHA-PROV",
     byUserId: receptionistId, byUserName: "Joseph Otieno",
+    probe: Pay.UNREACHABLE,
   });
   const enc = completeEncounter(mrn);
   B.assembleCharges({ encounterId: enc, payerCode: "SHA", deviceCode: DEV, ...BY });
@@ -442,6 +471,7 @@ test("a blocked claim cannot be submitted, and the block is logged", () => {
   Pay.verifyCoverage({
     patientMrn: mrn, payerCode: "SHA", memberNumber: "SHA-BLK",
     byUserId: receptionistId, byUserName: "Joseph Otieno",
+    probe: Pay.UNREACHABLE,
   }); // provisional — gate 1 will block
   const enc = completeEncounter(mrn);
   B.assembleCharges({ encounterId: enc, payerCode: "SHA", deviceCode: DEV, ...BY });
@@ -509,6 +539,140 @@ test("the dashboard reports acceptance rate and ranks rejections by value", () =
   assert.ok(summary.topRejectionReasons.some((r) => r.reason.includes("specialist report")));
   assert.ok(summary.valueAtRiskCents >= 0);
   assert.ok(Array.isArray(summary.closingSoon));
+});
+
+// ===================================== the gates that need the document store
+
+test("gate 7 — a lab line the payer wants a report for blocks until it is attached", async () => {
+  const D = await import("../src/lib/documents.ts");
+
+  const mrn = newPatient("Labbed", "43000001");
+  Pay.verifyCoverage({
+    patientMrn: mrn, payerCode: "SHA", memberNumber: "SHA-LAB",
+    byUserId: receptionistId, byUserName: "Joseph Otieno",
+  });
+  const enc = completeEncounter(mrn);
+  B.addCharge({
+    encounterId: enc, serviceCode: "LAB-MRDT", payerCode: "SHA",
+    sourceKind: "lab", deviceCode: DEV, ...BY,
+  });
+  B.assembleCharges({ encounterId: enc, payerCode: "SHA", deviceCode: DEV, ...BY });
+  B.issueInvoice({ encounterId: enc, payerCode: "SHA", deviceCode: DEV, ...BY });
+  E.closeEncounter({ encounterId: enc, byUserId: clinicianId, byUserName: BY.byUserName, deviceCode: DEV });
+  const claim = C.assembleClaim({ encounterId: enc, payerCode: "SHA", deviceCode: DEV, ...BY });
+
+  const blocked = C.scrub(claim).gates.find((g) => g.gate === 7)!;
+  assert.equal(blocked.passed, false, "the benefit rule asks for a lab report and none is attached");
+  assert.match(blocked.message, /lab report/);
+  assert.match(blocked.message, /LAB-MRDT/, "and it names the line that needs it");
+
+  D.attach({
+    facilityId, entity: "encounter", entityId: enc, patientMrn: mrn, kind: "lab_report",
+    filename: "mrdt.txt", contentType: "text/plain", content: Buffer.from("MRDT: positive for P. falciparum"),
+    deviceCode: DEV, ...BY,
+  });
+
+  const passed = C.scrub(claim).gates.find((g) => g.gate === 7)!;
+  assert.equal(passed.passed, true, "attaching the report is what clears it — not a tick box");
+  assert.match(passed.message, /attachment/);
+});
+
+test("gate 8 — closing a consultation signs it, with the licence of the moment", async () => {
+  const D = await import("../src/lib/documents.ts");
+  const { claim, enc } = goodClaim("43000002");
+
+  const sig = D.signedFor("encounter", enc, "clinical_note")!;
+  assert.ok(sig, "closing an encounter IS the sign-off");
+  assert.equal(sig.signer_name, "Dr. Achieng Wanjiru");
+  assert.equal(sig.licence_regulator, "KMPDC");
+
+  const gate = C.scrub(claim).gates.find((g) => g.gate === 8)!;
+  assert.equal(gate.passed, true);
+  assert.match(gate.message, /KMPDC/);
+});
+
+test("gate 8 — a record altered after sign-off stops passing", () => {
+  const { claim, enc } = goodClaim("43000003");
+  assert.equal(C.scrub(claim).gates.find((g) => g.gate === 8)!.passed, true);
+
+  // Reach past the API and change the note, which is exactly what the digest
+  // stored with the signature exists to catch.
+  run(`UPDATE encounter_notes SET assessment = ? WHERE encounter_id = ? AND superseded_at IS NULL`,
+    "Something else entirely", enc);
+
+  const gate = C.scrub(claim).gates.find((g) => g.gate === 8)!;
+  assert.equal(gate.passed, false);
+  assert.match(gate.message, /amended after/);
+  assert.equal(gate.severity, "block");
+});
+
+// ============================================ submission through the hub
+
+test("a claim submits through the integration hub by default, and the call is logged", () => {
+  const { claim } = goodClaim("43000004");
+  const result = C.submitClaim({ claimId: claim, ...BY });
+
+  assert.equal(result.submitted, true, result.error ?? "");
+  assert.match(result.reference!, /^SHA-\d{6}$/);
+  const logged = all<{ endpoint: string; operation: string; mode: string; status: string }>(
+    `SELECT endpoint, operation, mode, status FROM integration_log WHERE operation = 'submitClaim' ORDER BY id DESC LIMIT 1`,
+  )[0];
+  assert.equal(logged.status, "ok");
+  assert.equal(logged.mode, "demo");
+});
+
+test("a payer with no channel is told so, and the claim stays ready rather than lost", () => {
+  const mrn = newPatient("Unclaimable", "43000005");
+  Pay.definePayer({ code: "AAR", name: "AAR Insurance", kind: "private", byUserName: "seed" });
+  Pay.verifyCoverage({
+    patientMrn: mrn, payerCode: "AAR", memberNumber: "AAR-1",
+    byUserId: receptionistId, byUserName: "Joseph Otieno",
+    probe: () => ({ reachable: true, active: true }),
+  });
+  B.setTariff({ payerCode: "AAR", serviceCode: "CONSULT-OP", priceCents: 40_000, effectiveFrom: "2020-01-01", source: "test" });
+  Pay.defineBenefit({ payerCode: "AAR", serviceCode: "CONSULT-OP", covered: true, source: "test" });
+
+  const enc = completeEncounter(mrn);
+  B.addCharge({ encounterId: enc, serviceCode: "CONSULT-OP", payerCode: "AAR", sourceKind: "consultation", deviceCode: DEV, ...BY });
+  B.issueInvoice({ encounterId: enc, payerCode: "AAR", deviceCode: DEV, ...BY });
+  E.closeEncounter({ encounterId: enc, byUserId: clinicianId, byUserName: BY.byUserName, deviceCode: DEV });
+  const claim = C.assembleClaim({ encounterId: enc, payerCode: "AAR", deviceCode: DEV, ...BY });
+
+  const result = C.submitClaim({ claimId: claim, ...BY });
+  assert.equal(result.submitted, false);
+  assert.match(result.error!, /AAR Insurance/);
+  assert.equal(C.getClaim(claim)!.status, "ready", "it is checked and waiting for a channel, not abandoned");
+});
+
+test("polling brings back the payer's own decision, never a guessed one", () => {
+  const before = C.getClaim(all<{ id: string }>(`SELECT id FROM claims WHERE status = 'submitted' LIMIT 1`)[0].id)!;
+  assert.equal(before.status, "submitted");
+
+  const tally = C.pollOutcomes({ ...BY });
+  assert.ok(tally.checked > 0);
+  assert.equal(tally.decided, tally.accepted + tally.rejected + tally.paid);
+
+  for (const c of all<{ status: string; rejection_reason: string | null }>(
+    `SELECT status, rejection_reason FROM claims WHERE decided_at IS NOT NULL`,
+  )) {
+    if (c.status === "rejected") {
+      assert.ok(c.rejection_reason, "a rejection without its reason teaches the facility nothing");
+    }
+  }
+});
+
+test("eTIMS transmission goes through the hub and brings back a KRA number", () => {
+  const queued = B.etimsBacklog().queued;
+  assert.ok(queued > 0);
+
+  const flushed = B.flushEtims();
+  assert.ok(flushed.sent > 0);
+  assert.equal(B.etimsBacklog().queued, queued - flushed.sent);
+
+  const invoice = all<{ etims_number: string; etims_status: string }>(
+    `SELECT etims_number, etims_status FROM invoices WHERE etims_status = 'sent' LIMIT 1`,
+  )[0];
+  assert.match(invoice.etims_number, /^KRA-INV-\d{6}$/);
 });
 
 test("the audit chain survives the whole revenue cycle", () => {
