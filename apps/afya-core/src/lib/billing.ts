@@ -34,6 +34,7 @@ import { recordOp } from "./sync.ts";
 import { getEncounter, activeDiagnoses } from "./encounters.ts";
 import { prescriptionsFor } from "./prescribing.ts";
 import { getPayer, benefitFor } from "./payers.ts";
+import { check, explain } from "./access.ts";
 
 export class BillingError extends Error {}
 
@@ -628,6 +629,115 @@ export function recordPayment(input: {
   });
 }
 
+/**
+ * Refund money, or part of it.
+ *
+ * MFA-gated, and posted as a NEGATIVE payment against the same invoice rather
+ * than by editing or deleting the original. Money that left the till has to
+ * stay visible: a receipt the patient is holding must still correspond to a row,
+ * and "the payment disappeared" is how a till is robbed.
+ */
+export function refundPayment(input: {
+  paymentId: string;
+  amountCents?: number;
+  reason: string;
+  deviceCode: string;
+  byUserId: number;
+  byUserName: string;
+  sessionToken?: string | null;
+}): string {
+  const decision = check(input.byUserId, "payment.refund", today(), input.sessionToken);
+  if (!decision.allowed) throw new BillingError(explain(decision));
+
+  const payment = get<Payment>(`SELECT * FROM payments WHERE id = ?`, input.paymentId);
+  if (!payment) throw new BillingError("no such payment");
+  if (payment.amount_cents < 0) throw new BillingError("that is itself a refund");
+  if (!input.reason.trim()) throw new BillingError("a refund must record why — it is money leaving the till");
+
+  const alreadyRefunded = Math.abs(
+    get<{ total: number }>(
+      `SELECT COALESCE(SUM(amount_cents), 0) AS total FROM payments WHERE refund_of = ?`,
+      input.paymentId,
+    )?.total ?? 0,
+  );
+  const refundable = payment.amount_cents - alreadyRefunded;
+  const amount = input.amountCents ?? refundable;
+
+  if (!Number.isInteger(amount) || amount <= 0) {
+    throw new BillingError("a refund must be a whole number of cents greater than zero");
+  }
+  if (amount > refundable) {
+    throw new BillingError(
+      `only ${formatKes(refundable)} of that ${formatKes(payment.amount_cents)} payment can still be refunded`,
+    );
+  }
+
+  const invoice = getInvoice(payment.invoice_id)!;
+  const id = mintLocalId(input.deviceCode, 8);
+
+  return tx(() => {
+    run(
+      `INSERT INTO payments (id, invoice_id, method, amount_cents, reference, refund_of, reason, received_by, received_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      id,
+      payment.invoice_id,
+      payment.method,
+      -amount,
+      payment.reference,
+      payment.id,
+      input.reason.trim(),
+      input.byUserId,
+      now(),
+    );
+
+    // The invoice is no longer settled if money has gone back out.
+    if (invoice.status === "paid") {
+      run(`UPDATE invoices SET status = 'issued' WHERE id = ?`, invoice.id);
+    }
+
+    recordOp({
+      deviceCode: input.deviceCode,
+      entity: "payment",
+      entityId: id,
+      dataClass: "ledger",
+      payload: { invoice_id: payment.invoice_id, amount_cents: -amount, refund_of: payment.id },
+      actorId: input.byUserId,
+      actorName: input.byUserName,
+    });
+
+    audit({
+      action: "payment_refunded",
+      entity: "payment",
+      entityId: id,
+      patientId: invoice.patient_mrn,
+      actorId: input.byUserId,
+      actorName: input.byUserName,
+      purpose: "billing",
+      deviceCode: input.deviceCode,
+      detail: { refundOf: payment.id, amountCents: amount, method: payment.method, reason: input.reason },
+    });
+
+    return id;
+  });
+}
+
+export interface Payment {
+  id: string;
+  invoice_id: string;
+  method: "cash" | "mpesa" | "card" | "cheque" | "insurance" | "waiver";
+  amount_cents: number;
+  reference: string;
+  refund_of: string | null;
+  reason: string;
+  received_by: number | null;
+  received_at: string;
+  voided_at: string | null;
+}
+
+export function paymentsFor(invoiceId: string): Payment[] {
+  return all<Payment>(`SELECT * FROM payments WHERE invoice_id = ? ORDER BY received_at`, invoiceId);
+}
+
 export function paidCents(invoiceId: string): number {
   return (
     get<{ total: number }>(`SELECT COALESCE(SUM(amount_cents), 0) AS total FROM payments WHERE invoice_id = ?`, invoiceId)
@@ -639,6 +749,116 @@ export function balanceCents(invoiceId: string): number {
   const invoice = getInvoice(invoiceId);
   if (!invoice) throw new BillingError("no such invoice");
   return invoice.total_cents - paidCents(invoiceId);
+}
+
+/**
+ * What is owed, oldest first.
+ *
+ * The cashier's worklist and the owner's debtor ageing are the same query: an
+ * invoice with a balance. Split by who owes it, because chasing a patient and
+ * chasing a payer are different jobs done by different people — a cashier can
+ * ask the person in front of them, and nobody can ask SHA at the counter.
+ */
+export interface Outstanding {
+  invoice: Invoice;
+  patientName: string;
+  paidCents: number;
+  balanceCents: number;
+  ageDays: number;
+  /** True when the payer settles it, not the person at the desk. */
+  payerOwes: boolean;
+}
+
+export function outstandingInvoices(facilityId: number, asOf = today()): Outstanding[] {
+  const rows = all<Invoice & { patient_name: string; paid: number }>(
+    `SELECT i.*,
+            p.given_name || ' ' || p.family_name AS patient_name,
+            COALESCE((SELECT SUM(pay.amount_cents) FROM payments pay WHERE pay.invoice_id = i.id), 0) AS paid
+       FROM invoices i
+       JOIN encounters e ON e.id = i.encounter_id
+       JOIN patients p ON p.mrn = i.patient_mrn
+      WHERE e.facility_id = ? AND i.status = 'issued'`,
+    facilityId,
+  );
+
+  return rows
+    .map((row) => ({
+      invoice: row,
+      patientName: row.patient_name,
+      paidCents: row.paid,
+      balanceCents: row.total_cents - row.paid,
+      ageDays: Math.max(
+        0,
+        Math.round(
+          (Date.parse(`${asOf}T00:00:00.000Z`) - Date.parse(`${row.issued_at.slice(0, 10)}T00:00:00.000Z`)) /
+            86_400_000,
+        ),
+      ),
+      payerOwes: getPayer(row.payer_code)?.kind !== "cash",
+    }))
+    .filter((o) => o.balanceCents > 0)
+    .sort((a, b) => b.ageDays - a.ageDays || b.balanceCents - a.balanceCents);
+}
+
+export interface Ageing {
+  bucket: "0-30" | "31-60" | "61-90" | "90+";
+  invoices: number;
+  cents: number;
+}
+
+/** Debtor ageing. The number that says whether the money is actually coming. */
+export function debtorAgeing(facilityId: number, asOf = today()): { patient: Ageing[]; payer: Ageing[] } {
+  const buckets = (rows: Outstanding[]): Ageing[] => {
+    const order: Ageing["bucket"][] = ["0-30", "31-60", "61-90", "90+"];
+    const totals = new Map<Ageing["bucket"], { invoices: number; cents: number }>(
+      order.map((b) => [b, { invoices: 0, cents: 0 }]),
+    );
+    for (const row of rows) {
+      const bucket: Ageing["bucket"] =
+        row.ageDays <= 30 ? "0-30" : row.ageDays <= 60 ? "31-60" : row.ageDays <= 90 ? "61-90" : "90+";
+      const entry = totals.get(bucket)!;
+      entry.invoices++;
+      entry.cents += row.balanceCents;
+    }
+    return order.map((bucket) => ({ bucket, ...totals.get(bucket)! }));
+  };
+
+  const outstanding = outstandingInvoices(facilityId, asOf);
+  return {
+    patient: buckets(outstanding.filter((o) => !o.payerOwes)),
+    payer: buckets(outstanding.filter((o) => o.payerOwes)),
+  };
+}
+
+/** What came through the till today, by method. What a cashier balances against. */
+export function takings(facilityId: number, onDate = today()): {
+  method: Payment["method"];
+  received: number;
+  refunded: number;
+  netCents: number;
+}[] {
+  const rows = all<{ method: Payment["method"]; amount_cents: number }>(
+    `SELECT pay.method, pay.amount_cents
+       FROM payments pay
+       JOIN invoices i ON i.id = pay.invoice_id
+       JOIN encounters e ON e.id = i.encounter_id
+      WHERE e.facility_id = ? AND pay.received_at LIKE ? AND pay.voided_at IS NULL`,
+    facilityId,
+    `${onDate}%`,
+  );
+
+  const byMethod = new Map<Payment["method"], { received: number; refunded: number; netCents: number }>();
+  for (const row of rows) {
+    const entry = byMethod.get(row.method) ?? { received: 0, refunded: 0, netCents: 0 };
+    if (row.amount_cents > 0) entry.received += row.amount_cents;
+    else entry.refunded += -row.amount_cents;
+    entry.netCents += row.amount_cents;
+    byMethod.set(row.method, entry);
+  }
+
+  return [...byMethod.entries()]
+    .map(([method, totals]) => ({ method, ...totals }))
+    .sort((a, b) => b.netCents - a.netCents);
 }
 
 // --------------------------------------------------------------------- eTIMS

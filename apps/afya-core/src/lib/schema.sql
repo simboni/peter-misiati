@@ -731,11 +731,19 @@ CREATE TABLE IF NOT EXISTS payments (
   id           TEXT PRIMARY KEY,
   invoice_id   TEXT NOT NULL REFERENCES invoices(id),
   method       TEXT NOT NULL CHECK (method IN ('cash','mpesa','card','cheque','insurance','waiver')),
-  amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
+  -- Negative for a refund. Never zero.
+  amount_cents INTEGER NOT NULL CHECK (amount_cents <> 0),
   reference    TEXT NOT NULL DEFAULT '',
+  -- A refund is a NEGATIVE payment pointing at the one it reverses. Same
+  -- ledger, so the two can never be added up wrongly, and the refund carries
+  -- the reason it was given.
+  refund_of    TEXT REFERENCES payments(id),
+  reason       TEXT NOT NULL DEFAULT '',
   received_by  INTEGER REFERENCES users(id),
-  received_at  TEXT NOT NULL
+  received_at  TEXT NOT NULL,
+  voided_at    TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_payment_invoice ON payments(invoice_id);
 CREATE INDEX IF NOT EXISTS idx_pay_invoice ON payments(invoice_id);
 
 -- ========================================================== M52 eTIMS

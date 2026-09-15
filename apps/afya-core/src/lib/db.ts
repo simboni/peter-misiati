@@ -74,6 +74,11 @@ function addColumns(conn: DatabaseSync): void {
   const additions: { table: string; column: string; ddl: string }[] = [
     { table: "benefit_rules", column: "required_documents", ddl: "TEXT NOT NULL DEFAULT ''" },
     { table: "sessions", column: "mfa_verified_at", ddl: "TEXT" },
+    // A refund is a negative payment: same ledger, so the two can never be
+    // added up wrongly. These carry why it was given and who authorised it.
+    { table: "payments", column: "refund_of", ddl: "TEXT" },
+    { table: "payments", column: "reason", ddl: "TEXT NOT NULL DEFAULT ''" },
+    { table: "payments", column: "voided_at", ddl: "TEXT" },
   ];
 
   for (const a of additions) {
