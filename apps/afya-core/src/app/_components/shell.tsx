@@ -21,22 +21,30 @@ import type { CurrentUser } from "@/lib/auth.ts";
 export interface NavItem {
   href: string;
   label: string;
-  permission?: string;
+  /**
+   * Any one of these is enough to see the screen.
+   *
+   * Seeing a worklist is not doing the work on it. A facility administrator who
+   * cannot even look at the pharmacy counter cannot supervise it, so
+   * `report.read` opens the clinical worklists read-only — and the screens
+   * themselves still refuse the action, which is where the rule belongs.
+   */
+  permission?: string[];
 }
 
 const NAV: NavItem[] = [
   { href: "/", label: "Dashboard" },
-  { href: "/queue", label: "Queue", permission: "queue.manage" },
-  { href: "/appointments", label: "Appointments", permission: "queue.manage" },
-  { href: "/patients", label: "Patients", permission: "patient.read" },
-  { href: "/payments", label: "Payments", permission: "payment.receive" },
-  { href: "/ward", label: "Ward", permission: "patient.read" },
-  { href: "/pharmacy", label: "Pharmacy", permission: "dispense.perform" },
-  { href: "/laboratory", label: "Laboratory", permission: "lab.result.release" },
-  { href: "/stock", label: "Stock", permission: "report.read" },
-  { href: "/claims", label: "Claims", permission: "claim.prepare" },
-  { href: "/reports", label: "Reports", permission: "report.read" },
-  { href: "/admin", label: "Administration", permission: "facility.configure" },
+  { href: "/queue", label: "Queue", permission: ["queue.manage"] },
+  { href: "/appointments", label: "Appointments", permission: ["queue.manage"] },
+  { href: "/patients", label: "Patients", permission: ["patient.read"] },
+  { href: "/payments", label: "Payments", permission: ["payment.receive"] },
+  { href: "/ward", label: "Ward", permission: ["patient.read"] },
+  { href: "/pharmacy", label: "Pharmacy", permission: ["dispense.perform", "report.read"] },
+  { href: "/laboratory", label: "Laboratory", permission: ["lab.result.release", "report.read"] },
+  { href: "/stock", label: "Stock", permission: ["report.read"] },
+  { href: "/claims", label: "Claims", permission: ["claim.prepare", "report.read"] },
+  { href: "/reports", label: "Reports", permission: ["report.read"] },
+  { href: "/admin", label: "Administration", permission: ["facility.configure"] },
 ];
 
 export function Shell({
@@ -61,7 +69,9 @@ export function Shell({
   const licence = licenceStatus(user.userId);
   const open = countOpen(user.facilityId);
 
-  const visible = NAV.filter((item) => !item.permission || user.granted.includes(item.permission));
+  const visible = NAV.filter(
+    (item) => !item.permission || item.permission.some((p) => user.granted.includes(p)),
+  );
 
   return (
     <div className="min-h-dvh">
