@@ -23,7 +23,7 @@ import {
   assembleCharges, issueInvoice, addCharge, flushEtims,
   recordPayment, refundPayment, outstandingInvoices, takings,
 } from "../src/lib/billing.ts";
-import { assembleClaim, submitClaim, recordOutcome, claimsSummary } from "../src/lib/claims.ts";
+import { assembleClaim, submitClaim, claimsSummary } from "../src/lib/claims.ts";
 import { receiveStock, quarantineBatch, recordCount, pickable, onHand, stockValue } from "../src/lib/inventory.ts";
 import { dispense } from "../src/lib/pharmacy.ts";
 import { placeOrder, acknowledgeResult } from "../src/lib/orders.ts";
@@ -32,6 +32,7 @@ import { admit, recordObservation, scheduleDoses, recordAdministration, billBedN
 import { openClinic, book, availability, sendReminders, closeOutDay, markArrived } from "../src/lib/scheduling.ts";
 import { generateReturn, submitToDhis2, detectNotifiable } from "../src/lib/reporting.ts";
 import { sweep, countOpen } from "../src/lib/notifications.ts";
+import { importRemittance, reconcile, reconciliation } from "../src/lib/remittance.ts";
 import { closeDb, run, get, all as dbAll, verifyAuditChain, today } from "../src/lib/db.ts";
 
 const { facilityId, adminId, clinicianId, receptionistId, pharmacistId, labTechId } = seedDemo();
@@ -255,12 +256,45 @@ for (const c of CASES) {
   }
 
   assembleCharges({ encounterId: enc, payerCode: c.payer, deviceCode: CONS, ...DOC });
-  if (c.extra) {
+
+  if (c.extra?.startsWith("LAB-")) {
+    // Ordered, collected, read and released — the real loop. The charge is
+    // raised by the order, and releasing the result attaches the report, which
+    // is what clears the claim's documentation gate. Faking the charge instead
+    // would leave a claim the scrubber correctly refuses.
+    const order = placeOrder({
+      encounterId: enc,
+      kind: "lab",
+      serviceCode: c.extra,
+      clinicalQuestion: c.assessment,
+      payerCode: c.payer,
+      deviceCode: CONS,
+      ordererId: clinicianId,
+      ordererName: DOC.byUserName,
+    });
+    collectSpecimen({
+      orderId: order,
+      kind: c.extra === "LAB-URIN" ? "Midstream urine" : "Capillary blood",
+      collectorId: labTechId,
+      collectorName: "Samuel Mutiso",
+      deviceCode: "LAB1",
+    });
+    enterResult({
+      orderId: order,
+      analyte: c.extra === "LAB-URIN" ? "LEUCOCYTES" : "MRDT",
+      valueText: "Positive",
+      enteredBy: labTechId,
+      enteredByName: "Samuel Mutiso",
+      deviceCode: "LAB1",
+    });
+    releaseResults({ orderId: order, releaserId: labTechId, releaserName: "Samuel Mutiso", deviceCode: "LAB1" });
+    acknowledgeResult({ orderId: order, byUserId: clinicianId, byUserName: DOC.byUserName, action: "Seen, treating" });
+  } else if (c.extra) {
     addCharge({
       encounterId: enc,
       serviceCode: c.extra,
       payerCode: c.payer,
-      sourceKind: c.extra.startsWith("PROC-") ? "procedure" : "lab",
+      sourceKind: "procedure",
       deviceCode: CONS,
       ...DOC,
     });
@@ -276,16 +310,10 @@ for (const c of CASES) {
       byUserName: "Claims Officer",
       submit: () => ({ ok: true, reference: `SHA-${String(++n).padStart(6, "0")}` }),
     });
-    if (result.submitted && c.outcome) {
-      recordOutcome({
-        claimId: claim,
-        outcome: c.outcome,
-        rejectionCode: c.rejection?.code,
-        rejectionReason: c.rejection?.reason,
-        byUserId: adminId,
-        byUserName: "Claims Officer",
-      });
-    }
+    // Deliberately NOT decided here. A claim's outcome arrives on a payment
+    // advice from the payer, and the remittance section below is what posts it
+    // — which is the loop this system exists to close.
+    void result;
   }
 }
 
@@ -673,6 +701,50 @@ for (const [index, mrn] of [PETER, DANIEL, FAITH].entries()) {
 }
 closeOutDay({ facilityId, date: YESTERDAY });
 
+// ------------------------------------------------------------- remittance
+//
+// A payment advice from SHA covering the submitted claims: most paid in full,
+// one paid short with a real reason code, and one line the facility has no
+// claim for — all three happen, and the third is the one a spreadsheet drops.
+
+const submittedClaims = dbAll<{ id: string; reference: string; total_cents: number }>(
+  `SELECT id, reference, total_cents FROM claims WHERE status = 'submitted' AND reference IS NOT NULL`,
+);
+
+if (submittedClaims.length > 0) {
+  const adviceLines = submittedClaims.map((claim, index) =>
+    index === 0
+      ? {
+          // Paid short. The reason is the asset: it is what the rejection
+          // taxonomy ranks and what the next scrubber gate is built from.
+          payerReference: claim.reference,
+          claimedCents: claim.total_cents,
+          paidCents: Math.round(claim.total_cents * 0.6),
+          reasonCode: "E11",
+          reason: "Service not covered under the member's package",
+        }
+      : { payerReference: claim.reference, claimedCents: claim.total_cents, paidCents: claim.total_cents },
+  );
+
+  // And a line for a claim this facility never submitted. A real event — a
+  // mixed-up file at the payer — and it must be visible, not swallowed.
+  adviceLines.push({ payerReference: "SHA-REF-90211", claimedCents: 0, paidCents: 180_000 });
+
+  const advice = importRemittance({
+    facilityId,
+    payerCode: "SHA",
+    reference: "PA-2026-0912",
+    adviceDate: inDays(-3),
+    statedTotalCents: adviceLines.reduce((sum, l) => sum + l.paidCents, 0),
+    lines: adviceLines,
+    byUserId: adminId,
+    byUserName: "Claims Officer",
+    deviceCode: REC,
+  });
+
+  reconcile({ remittanceId: advice.id, byUserId: adminId, byUserName: "Claims Officer" });
+}
+
 // --------------------------------------------------------------- reporting
 
 detectNotifiable(facilityId);
@@ -778,6 +850,7 @@ console.log(`  MOH returns       ${count(`SELECT COUNT(*) AS n FROM moh_returns`
 console.log(`  taken today       ${Math.round(takings(facilityId).reduce((sum, t) => sum + t.netCents, 0) / 100)} KES`);
 console.log(`  owed              ${Math.round(outstandingInvoices(facilityId).reduce((sum, o) => sum + o.balanceCents, 0) / 100)} KES across ${outstandingInvoices(facilityId).length} invoices`);
 console.log(`  claims            ${summary.total} · acceptance ${summary.acceptanceRatePercent}%`);
+console.log(`  recovered         ${Math.round(reconciliation(facilityId).paidCents / 100)} KES of ${Math.round(reconciliation(facilityId).submittedCents / 100)} KES claimed`);
 console.log(`  value at risk     ${summary.valueAtRiskCents / 100} KES`);
 console.log(`  alerts            ${alerts.total} open, ${alerts.critical} critical`);
 console.log(`  audit chain       ${chain.ok ? `intact, ${chain.checked} entries` : "BROKEN"}`);

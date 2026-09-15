@@ -1424,3 +1424,57 @@ CREATE TABLE IF NOT EXISTS notifiable_events (
   UNIQUE (encounter_id, condition_code)
 );
 CREATE INDEX IF NOT EXISTS idx_notifiable_open ON notifiable_events(facility_id, notified_at);
+
+-- ==================================================== M56 REMITTANCE
+
+-- A payment advice from a payer: "we are paying you X for these claims".
+-- Imported as a whole, then reconciled line by line, because the total a payer
+-- says they sent and the total the facility expected are almost never equal and
+-- the difference is the entire point of this module.
+CREATE TABLE IF NOT EXISTS remittances (
+  id            TEXT PRIMARY KEY,
+  facility_id   INTEGER NOT NULL REFERENCES facilities(id),
+  payer_code    TEXT NOT NULL REFERENCES payers(code),
+  -- The payer's own reference for the advice. Two advices with the same one is
+  -- the same advice imported twice.
+  reference     TEXT NOT NULL,
+  advice_date   TEXT NOT NULL,
+  -- What the payer says they sent, as stated on the advice.
+  stated_total_cents INTEGER NOT NULL,
+  status        TEXT NOT NULL CHECK (status IN ('imported','reconciled','disputed')),
+  imported_by   INTEGER REFERENCES users(id),
+  imported_at   TEXT NOT NULL,
+  reconciled_at TEXT,
+  notes         TEXT NOT NULL DEFAULT '',
+  UNIQUE (payer_code, reference)
+);
+
+-- One line of the advice, against one claim.
+--
+-- `paid_cents` is what arrived; `claimed_cents` is what was asked for. The
+-- variance between them is the number a facility owner has never been able to
+-- see, because reconciling a payment advice by hand against a paper claim file
+-- is a week of work nobody has.
+CREATE TABLE IF NOT EXISTS remittance_lines (
+  id             INTEGER PRIMARY KEY,
+  remittance_id  TEXT NOT NULL REFERENCES remittances(id),
+  -- Null when the payer paid for something this facility has no claim for,
+  -- which happens and must be visible rather than dropped.
+  claim_id       TEXT REFERENCES claims(id),
+  -- The payer's own claim reference, as it appears on the advice.
+  payer_reference TEXT NOT NULL DEFAULT '',
+  claimed_cents  INTEGER NOT NULL DEFAULT 0,
+  paid_cents     INTEGER NOT NULL DEFAULT 0,
+  -- Why the payer paid less than was claimed. This is the asset: it is what
+  -- turns a rejection into a scrubber rule.
+  reason_code    TEXT,
+  reason         TEXT NOT NULL DEFAULT '',
+  -- How this line was matched to a claim, so a wrong match can be found later.
+  matched_by     TEXT NOT NULL DEFAULT 'unmatched'
+                   CHECK (matched_by IN ('reference','claim_id','manual','unmatched')),
+  disputed_at    TEXT,
+  dispute_reason TEXT,
+  created_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_remit_line ON remittance_lines(remittance_id);
+CREATE INDEX IF NOT EXISTS idx_remit_claim ON remittance_lines(claim_id);

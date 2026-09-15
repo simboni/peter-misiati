@@ -37,6 +37,7 @@ export type BadgeKey =
   | "etims"
   | "notifiable"
   | "deadLetters"
+  | "unsettled"
   | "alerts";
 
 export const NAV: NavGroup[] = [
@@ -78,6 +79,8 @@ export const NAV: NavGroup[] = [
       { href: "/invoices?view=etims", label: "eTIMS queue", permission: ["report.read"], badge: "etims" },
       { href: "/claims", label: "Claims", permission: ["claim.prepare", "report.read"], badge: "claims" },
       { href: "/claims?view=preauth", label: "Pre-authorisations", permission: ["preauth.request", "report.read"], badge: "preauth" },
+      { href: "/remittance", label: "Remittance", permission: ["claim.prepare", "report.read"], badge: "unsettled" },
+      { href: "/remittance?view=taxonomy", label: "Why claims fail", permission: ["claim.prepare", "report.read"] },
     ],
   },
   {
