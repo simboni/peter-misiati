@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { currentUser } from "@/lib/auth.ts";
 import { check, explain } from "@/lib/access.ts";
 import { claimsSummary, scrub, getClaim } from "@/lib/claims.ts";
+import { Shell, Banner } from "@/app/_components/shell.tsx";
 import { formatKes, etimsBacklog } from "@/lib/billing.ts";
 import { pendingVerifications } from "@/lib/payers.ts";
 import { resolvePatient } from "@/lib/patients.ts";
@@ -21,12 +22,11 @@ export default async function ClaimsPage() {
   const decision = check(user.userId, "report.read");
   if (!decision.allowed) {
     return (
-      <main className="max-w-xl mx-auto px-5 py-10">
-        <Link href="/" className="text-xs text-brand underline underline-offset-2">← Dashboard</Link>
-        <p className="mt-4 bg-block-soft border border-block/25 text-block rounded px-4 py-3 text-sm font-medium">
-          {explain(decision)}
-        </p>
-      </main>
+      <Shell user={user} current="/claims" title="Claims">
+        <div className="mt-5">
+          <Banner tone="block">{explain(decision)}</Banner>
+        </div>
+      </Shell>
     );
   }
 
@@ -35,11 +35,12 @@ export default async function ClaimsPage() {
   const unverified = pendingVerifications();
 
   return (
-    <main className="max-w-4xl mx-auto px-5 py-8">
-      <div className="pb-4 border-b border-line">
-        <Link href="/" className="text-xs text-brand underline underline-offset-2">← Dashboard</Link>
-        <h1 className="text-2xl font-bold tracking-tight mt-2">Claims</h1>
-      </div>
+    <Shell
+      user={user}
+      current="/claims"
+      title="Claims"
+      subtitle="Every gate maps to a documented reason SHA rejects a claim."
+    >
 
       <section className="mt-6 grid gap-3 sm:grid-cols-3">
         <div className="bg-white border border-line rounded px-4 py-3">
@@ -154,6 +155,6 @@ export default async function ClaimsPage() {
           not be reached. Claims for those patients will block until they resolve.
         </p>
       ) : null}
-    </main>
+    </Shell>
   );
 }

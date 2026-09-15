@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { currentUser } from "@/lib/auth.ts";
 import { can } from "@/lib/access.ts";
 import { searchPatients } from "@/lib/patients.ts";
+import { Shell } from "@/app/_components/shell.tsx";
 
 /**
  * Patient search.
@@ -28,18 +29,19 @@ export default async function PatientsPage(props: { searchParams: Promise<Record
   const results = q ? searchPatients({ facilityId: user.facilityId, query: q }) : [];
 
   return (
-    <main className="max-w-3xl mx-auto px-5 py-8">
-      <div className="flex items-baseline justify-between gap-4">
-        <div>
-          <Link href="/" className="text-xs text-brand underline underline-offset-2">← Dashboard</Link>
-          <h1 className="text-2xl font-bold tracking-tight mt-2">Find a patient</h1>
-        </div>
-        {can(user.userId, "patient.register") ? (
-          <Link href="/patients/new" className="bg-brand text-white text-sm font-semibold rounded px-4 py-2.5">
+    <Shell
+      user={user}
+      current="/patients"
+      title="Find a patient"
+      subtitle="Name, file number, national ID, SHA number or telephone."
+      actions={
+        can(user.userId, "patient.register") ? (
+          <Link href="/patients/new" className="bg-brand text-white text-sm font-semibold rounded px-4 py-2">
             Register new
           </Link>
-        ) : null}
-      </div>
+        ) : null
+      }
+    >
 
       <form className="mt-5 flex gap-2">
         <input
@@ -98,6 +100,6 @@ export default async function PatientsPage(props: { searchParams: Promise<Record
           payer sees two different people.
         </p>
       )}
-    </main>
+    </Shell>
   );
 }

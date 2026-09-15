@@ -499,13 +499,18 @@ export function seedDemo(): {
   seedStores(facilityId);
   seedWards(facilityId);
 
+  // Three roles, because that is what one person does in a Level 2 clinic: they
+  // configure the facility, they work the claims, and on a busy morning they
+  // are on the front desk. Roles are additive and each is visible in the
+  // administration screen, which is the honest way to say so — better than
+  // quietly widening what "administrator" means for everybody.
   const adminId = createUser({
     facilityId,
     name: "Facility Administrator",
     username: "admin",
     password: "ChangeMe123",
     cadreCode: "administrative",
-    roles: ["administrator"],
+    roles: ["administrator", "claims_officer", "receptionist"],
     mustChangePassword: true,
     byUserName: "seed",
   });
@@ -516,7 +521,7 @@ export function seedDemo(): {
     username: "a.wanjiru",
     password: "ChangeMe123",
     cadreCode: "medical_officer",
-    roles: ["clinician"],
+    roles: ["clinician", "triage_nurse"],
     mustChangePassword: true,
     byUserId: adminId,
     byUserName: "seed",

@@ -4,6 +4,7 @@ import { currentUser } from "@/lib/auth.ts";
 import { can } from "@/lib/access.ts";
 import { queue, vitalsFor, show } from "@/lib/frontdesk.ts";
 import { resolvePatient } from "@/lib/patients.ts";
+import { Shell } from "@/app/_components/shell.tsx";
 import { setPriorityAction, recordVitalsAction, seeNextAction, closeVisitAction } from "./actions.ts";
 
 /**
@@ -27,17 +28,17 @@ export default async function QueuePage() {
   };
 
   return (
-    <main className="max-w-4xl mx-auto px-5 py-8">
-      <div className="flex flex-wrap items-baseline justify-between gap-3 pb-4 border-b border-line">
-        <div>
-          <Link href="/" className="text-xs text-brand underline underline-offset-2">← Dashboard</Link>
-          <h1 className="text-2xl font-bold tracking-tight mt-2">Waiting</h1>
-        </div>
-        <p className="text-sm text-muted tnum">
-          {waiting.length} in the queue ·{" "}
-          {waiting.filter((v) => v.priority === "emergency").length} emergency
-        </p>
-      </div>
+    <Shell
+      user={user}
+      current="/queue"
+      title="Waiting"
+      subtitle={`${waiting.length} in the queue · ${waiting.filter((v) => v.priority === "emergency").length} emergency`}
+      actions={
+        <Link href="/appointments" className="border border-brand text-brand font-semibold rounded px-4 py-2 text-sm">
+          Appointments
+        </Link>
+      }
+    >
 
       {waiting.length === 0 ? (
         <p className="mt-6 text-sm text-muted">
@@ -139,6 +140,6 @@ export default async function QueuePage() {
           })}
         </ul>
       )}
-    </main>
+    </Shell>
   );
 }

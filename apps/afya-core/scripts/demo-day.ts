@@ -12,7 +12,7 @@
  * can be shown and reviewed, not to represent any real patient or facility.
  */
 
-import { seedDemo } from "../src/lib/seed.ts";
+import { seedDemo, DEMO_MFA_SECRET } from "../src/lib/seed.ts";
 import { registerDevice, setOdpcRegistration, getFacility } from "../src/lib/facility.ts";
 import { registerPatient } from "../src/lib/patients.ts";
 import { recordConsent, checkIn, recordVitals, setPriority, advanceVisit } from "../src/lib/frontdesk.ts";
@@ -21,9 +21,17 @@ import { prescribe, recordAllergy } from "../src/lib/prescribing.ts";
 import { verifyCoverage, type PayerProbe } from "../src/lib/payers.ts";
 import { assembleCharges, issueInvoice, addCharge, flushEtims } from "../src/lib/billing.ts";
 import { assembleClaim, submitClaim, recordOutcome, claimsSummary } from "../src/lib/claims.ts";
-import { closeDb, run, verifyAuditChain } from "../src/lib/db.ts";
+import { receiveStock, quarantineBatch, recordCount, pickable, onHand, stockValue } from "../src/lib/inventory.ts";
+import { dispense } from "../src/lib/pharmacy.ts";
+import { placeOrder, acknowledgeResult } from "../src/lib/orders.ts";
+import { collectSpecimen, enterResult, releaseResults } from "../src/lib/laboratory.ts";
+import { admit, recordObservation, scheduleDoses, recordAdministration, billBedNights, discharge } from "../src/lib/inpatient.ts";
+import { openClinic, book, availability, sendReminders, closeOutDay, markArrived } from "../src/lib/scheduling.ts";
+import { generateReturn, submitToDhis2, detectNotifiable } from "../src/lib/reporting.ts";
+import { sweep, countOpen } from "../src/lib/notifications.ts";
+import { closeDb, run, get, all as dbAll, verifyAuditChain, today } from "../src/lib/db.ts";
 
-const { facilityId, adminId, clinicianId, receptionistId } = seedDemo();
+const { facilityId, adminId, clinicianId, receptionistId, pharmacistId, labTechId } = seedDemo();
 
 // The facility is properly set up, so the dashboard shows a working clinic
 // rather than a wall of red. The ODPC expiry is deliberately near, to show the
@@ -44,6 +52,9 @@ for (const [code, label] of [
   ["REC1", "Reception desk"],
   ["CONS", "Consulting room 1"],
   ["TRI1", "Triage bay"],
+  ["PHR1", "Pharmacy counter"],
+  ["LAB1", "Laboratory bench"],
+  ["WRD1", "Ward station"],
 ] as const) {
   try {
     registerDevice({ facilityId, code, label, byUserId: adminId, byUserName: "Facility Administrator" });
@@ -302,19 +313,383 @@ flushEtims((payload) =>
     : { ok: false, error: "KRA gateway timeout" },
 );
 
+// ------------------------------------------------------------------- stock
+//
+// The store is loaded the way a real one is: several batches per product with
+// different expiry dates, so first-expiry-first-out has something to prove.
+
+const PHARM = "PHARM";
+const inDays = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
+
+const DELIVERIES: [string, string, number, number, number][] = [
+  // product, batch, days to expiry, quantity, unit cost in cents
+  ["AL-20-120", "AL-2411", 420, 180, 22_000],
+  ["AL-20-120", "AL-2402", 55, 40, 22_000],
+  ["PARA-500", "PA-8801", 500, 2_400, 180],
+  ["PARA-500", "PA-8790", 70, 300, 180],
+  ["AMOX-500", "AM-5512", 380, 600, 900],
+  ["AMOX-125S", "AS-2201", 240, 80, 18_000],
+  ["CTX-960", "CT-3390", 310, 400, 600],
+  ["ORS-1L", "OR-1180", 600, 500, 3_500],
+  ["ZINC-20", "ZN-4420", 450, 800, 200],
+  ["SALB-INH", "SB-7710", 330, 45, 62_000],
+  ["METRO-400", "MT-2290", 290, 350, 500],
+  ["IBU-400", "IB-6610", 400, 500, 420],
+  ["MORPH-10", "MO-0091", 270, 60, 32_000],
+  // Deliberately shallow, so the reorder report has something to say.
+  ["CTX-960", "CT-3399", 40, 12, 600],
+];
+
+for (const [product, batch, days, quantity, cost] of DELIVERIES) {
+  receiveStock({
+    storeCode: PHARM,
+    productCode: product,
+    batchNumber: batch,
+    expiresOn: inDays(days),
+    quantity,
+    unitCostCents: cost,
+    deviceCode: "PHR1",
+    byUserId: adminId,
+    byUserName: "Facility Administrator",
+  });
+}
+
+// A recall, so the quarantine state is visible and the trace has a batch to
+// follow. Nothing was dispensed from it, which is the good outcome.
+const recalled = pickable(PHARM, "IBU-400")[0];
+quarantineBatch({
+  batchId: recalled.id,
+  reason: "PPB recall notice 2026/04 — suspect packaging integrity",
+  byUserId: adminId,
+  byUserName: "Facility Administrator",
+});
+
+// A stock take that came up short. A discrepancy with a history, not a mystery.
+const counted = pickable(PHARM, "PARA-500")[0];
+recordCount({
+  batchId: counted.id,
+  counted: counted.quantity - 34,
+  reason: "Monthly count — breakage in transit, reported to the supplier",
+  byUserId: adminId,
+  byUserName: "Facility Administrator",
+});
+
+// ------------------------------------------------------------- dispensing
+
+const PHARMACIST = { dispenserId: pharmacistId, dispenserName: "Grace Kimani" };
+
+const outstanding = dbAll<{ id: string; product_code: string }>(
+  `SELECT id, product_code FROM prescriptions WHERE status = 'active' ORDER BY created_at`,
+);
+
+// Most of the morning's prescriptions are handed over; the last one is left on
+// the counter so the pharmacy screen opens with work on it rather than empty.
+for (const rx of outstanding.slice(0, -1)) {
+  if (onHand(PHARM, rx.product_code) === 0) continue;
+  dispense({
+    prescriptionId: rx.id,
+    storeCode: PHARM,
+    payerCode: "CASH",
+    counselling: "Complete the course. Come back if it gets worse.",
+    deviceCode: "PHR1",
+    ...PHARMACIST,
+  });
+}
+
+// ------------------------------------------------------------- the laboratory
+
+const LAB = { enteredBy: labTechId, enteredByName: "Samuel Mutiso" };
+const RELEASER = { releaserId: labTechId, releaserName: "Samuel Mutiso" };
+
+// Mercy's open consultation gets a full blood count, worked through to a
+// released result with a genuinely abnormal value.
+const cbc = placeOrder({
+  encounterId: liveEnc,
+  kind: "lab",
+  serviceCode: "LAB-CBC",
+  priority: "routine",
+  clinicalQuestion: "Recurrent wheeze — rule out infection, check eosinophils",
+  payerCode: "SHA",
+  deviceCode: "CONS",
+  ordererId: clinicianId,
+  ordererName: DOC.byUserName,
+});
+collectSpecimen({ orderId: cbc, kind: "EDTA whole blood", collectorId: labTechId, collectorName: "Samuel Mutiso", deviceCode: "LAB1" });
+enterResult({ orderId: cbc, analyte: "HB", value: 11.4, ...LAB, deviceCode: "LAB1" });
+enterResult({ orderId: cbc, analyte: "WBC", value: 13.8, ...LAB, deviceCode: "LAB1" });
+enterResult({ orderId: cbc, analyte: "PLT", value: 264, ...LAB, deviceCode: "LAB1" });
+releaseResults({ orderId: cbc, deviceCode: "LAB1", ...RELEASER });
+
+// A stat order still on the bench, so the worklist shows urgency doing its job.
+const stat = placeOrder({
+  encounterId: liveEnc,
+  kind: "lab",
+  serviceCode: "LAB-URIN",
+  priority: "stat",
+  clinicalQuestion: "Ketones — vomiting since this morning",
+  payerCode: "SHA",
+  deviceCode: "CONS",
+  ordererId: clinicianId,
+  ordererName: DOC.byUserName,
+});
+collectSpecimen({ orderId: stat, kind: "Midstream urine", collectorId: labTechId, collectorName: "Samuel Mutiso", deviceCode: "LAB1" });
+
+// ------------------------------------------------------------------- the ward
+
+const admissionEnc = openEncounter({
+  facilityId,
+  patientMrn: PETER,
+  kind: "inpatient",
+  clinicianId,
+  clinicianName: DOC.byUserName,
+  deviceCode: "WRD1",
+});
+addDiagnosis({ encounterId: admissionEnc, code: "CA40", ...DOC, deviceCode: "WRD1" });
+writeNote({
+  encounterId: admissionEnc,
+  complaint: "Breathless, productive cough, fever for two days",
+  examination: "Crackles right base. Saturations 92% on air.",
+  assessment: "Community-acquired pneumonia, CRB-65 2",
+  plan: "Admit. IV antibiotics, oxygen as needed, review in the morning.",
+  authorId: clinicianId,
+  authorName: DOC.byUserName,
+  deviceCode: "WRD1",
+});
+
+const admission = admit({
+  encounterId: admissionEnc,
+  wardCode: "GEN",
+  bedCode: "GEN-1",
+  reason: "Community-acquired pneumonia, for IV antibiotics and oxygen",
+  byUserId: clinicianId,
+  byUserName: DOC.byUserName,
+  deviceCode: "WRD1",
+});
+
+// Backdated two nights so the bed-night billing and the length of stay are real.
+run(`UPDATE admissions SET admitted_at = ? WHERE id = ?`, `${inDays(-2)}T14:20:00.000Z`, admission);
+
+// A patient who arrived unwell and is improving — the trend a ward round reads.
+for (const obs of [
+  { respRate: 26, spo2: 92, systolic: 104, pulse: 112, temp: 38.9, note: "On admission. Started IV ceftriaxone." },
+  { respRate: 22, spo2: 94, systolic: 112, pulse: 96, temp: 38.1, note: "Overnight. Settled." },
+  { respRate: 18, spo2: 96, systolic: 118, pulse: 84, temp: 37.2, note: "Morning round. Much improved." },
+]) {
+  recordObservation({
+    admissionId: admission,
+    observation: obs,
+    note: obs.note,
+    byUserId: clinicianId,
+    byUserName: DOC.byUserName,
+  });
+}
+
+const wardRx = prescribe({
+  encounterId: admissionEnc,
+  productCode: "AMOX-500",
+  dose: "500 mg",
+  frequency: "three times daily",
+  quantity: 21,
+  durationDays: 7,
+  deviceCode: "WRD1",
+  prescriberId: clinicianId,
+  prescriberName: DOC.byUserName,
+});
+scheduleDoses({ admissionId: admission, prescriptionId: wardRx, times: ["08:00", "14:00", "20:00"], days: 3, deviceCode: "WRD1" });
+
+// The morning's doses signed for — one given, one refused, the rest still due.
+const doses = dbAll<{ id: string }>(
+  `SELECT id FROM medication_administrations WHERE prescription_id = ? ORDER BY due_at`,
+  wardRx,
+);
+recordAdministration({ administrationId: doses[0].id, given: true, byUserId: adminId, byUserName: "Ward Nurse" });
+recordAdministration({
+  administrationId: doses[1].id,
+  given: false,
+  omittedReason: "Patient vomiting — dose withheld, doctor informed",
+  byUserId: adminId,
+  byUserName: "Ward Nurse",
+});
+
+billBedNights({
+  facilityId,
+  payerCode: "CASH",
+  deviceCode: "WRD1",
+  byUserId: adminId,
+  byUserName: "Facility Administrator",
+});
+
+// A second, shorter admission already discharged, so the census has history.
+const shortStayEnc = openEncounter({
+  facilityId,
+  patientMrn: DANIEL,
+  kind: "inpatient",
+  clinicianId,
+  clinicianName: DOC.byUserName,
+  deviceCode: "WRD1",
+});
+addDiagnosis({ encounterId: shortStayEnc, code: "1A40", ...DOC, deviceCode: "WRD1" });
+writeNote({
+  encounterId: shortStayEnc,
+  complaint: "Vomiting and watery stool since yesterday",
+  examination: "Mildly dehydrated, abdomen soft.",
+  assessment: "Acute gastroenteritis with mild dehydration",
+  plan: "IV fluids overnight, ORS, discharge when tolerating orally",
+  authorId: clinicianId,
+  authorName: DOC.byUserName,
+  deviceCode: "WRD1",
+});
+const shortStay = admit({
+  encounterId: shortStayEnc,
+  wardCode: "GEN",
+  bedCode: "GEN-4",
+  reason: "Gastroenteritis, overnight rehydration",
+  byUserId: clinicianId,
+  byUserName: DOC.byUserName,
+  deviceCode: "WRD1",
+});
+run(`UPDATE admissions SET admitted_at = ? WHERE id = ?`, `${inDays(-1)}T19:40:00.000Z`, shortStay);
+discharge({
+  admissionId: shortStay,
+  type: "home",
+  summary:
+    "Rehydrated overnight, tolerating oral fluids by morning. ORS and zinc to continue at home. " +
+    "Return if unable to keep fluids down or if the stool becomes bloody.",
+  byUserId: clinicianId,
+  byUserName: DOC.byUserName,
+  deviceCode: "WRD1",
+});
+
+// ------------------------------------------------------------- appointments
+
+const TOMORROW = inDays(1);
+openClinic({
+  facilityId,
+  providerId: clinicianId,
+  date: TOMORROW,
+  from: "09:00",
+  to: "12:00",
+  minutes: 20,
+  deviceCode: REC,
+});
+
+const slots = availability({ facilityId, date: TOMORROW });
+for (const [index, mrn] of [GRACE, MERCY, SAMUEL].entries()) {
+  book({
+    slotId: slots[index].id,
+    patientMrn: mrn,
+    reason: ["Malaria follow-up", "Asthma review with peak flow", "Blood pressure check"][index],
+    deviceCode: REC,
+    ...DESK,
+  });
+}
+sendReminders({ facilityId, date: TOMORROW });
+
+// Today's clinic too, so the screen opens on a day with something on it. One
+// patient has already arrived and is in the queue; the rest are still expected.
+const TODAY = today();
+openClinic({ facilityId, providerId: clinicianId, date: TODAY, from: "09:00", to: "12:00", minutes: 20, deviceCode: REC });
+const todaySlots = availability({ facilityId, date: TODAY });
+for (const [index, mrn] of [FAITH, DANIEL, PETER].entries()) {
+  const appointment = book({
+    slotId: todaySlots[index].id,
+    patientMrn: mrn,
+    reason: ["Cough review", "Results discussion", "Blood pressure check"][index],
+    deviceCode: REC,
+    ...DESK,
+  });
+  if (index === 0) {
+    const visit = get<{ id: string }>(`SELECT id FROM visits WHERE patient_mrn = ? LIMIT 1`, mrn);
+    if (visit) markArrived({ appointmentId: appointment, visitId: visit.id });
+  }
+}
+
+// Yesterday's clinic, closed out, so the no-show rate is a real number rather
+// than a permanent dash.
+//
+// Booked through the ordinary path and then moved back a day, because `book`
+// refuses a slot in the past — which is the rule working, not an obstacle to
+// route around with a direct insert.
+const YESTERDAY = inDays(-1);
+openClinic({ facilityId, providerId: clinicianId, date: TOMORROW, from: "14:00", to: "16:00", minutes: 20, deviceCode: REC });
+const afternoon = dbAll<{ id: string }>(
+  `SELECT id FROM slots WHERE slot_date = ? AND start_time >= '14:00' ORDER BY start_time`,
+  TOMORROW,
+);
+
+const yesterdaysAppointments: string[] = [];
+for (const [index, mrn] of [PETER, DANIEL, FAITH, GRACE].entries()) {
+  yesterdaysAppointments.push(
+    book({ slotId: afternoon[index].id, patientMrn: mrn, reason: "Review", deviceCode: REC, ...DESK }),
+  );
+}
+for (const slot of afternoon.slice(0, 4)) {
+  run(`UPDATE slots SET slot_date = ? WHERE id = ?`, YESTERDAY, slot.id);
+}
+
+// Three of the four came. The fourth is the no-show the rate is made of.
+for (const [index, mrn] of [PETER, DANIEL, FAITH].entries()) {
+  const visit = get<{ id: string }>(`SELECT id FROM visits WHERE patient_mrn = ? LIMIT 1`, mrn);
+  if (visit) markArrived({ appointmentId: yesterdaysAppointments[index], visitId: visit.id });
+}
+closeOutDay({ facilityId, date: YESTERDAY });
+
+// --------------------------------------------------------------- reporting
+
+detectNotifiable(facilityId);
+
+const period = today().slice(0, 7);
+for (const form of ["MOH705A", "MOH705B", "MOH717"] as const) {
+  generateReturn({
+    facilityId,
+    form,
+    period,
+    byUserId: adminId,
+    byUserName: "Facility Administrator",
+    deviceCode: REC,
+  });
+}
+// One submitted, so the variance panel has something to compare against; the
+// others stay draft so the "generate then submit" flow can be demonstrated.
+submitToDhis2({ facilityId, form: "MOH717", period, byUserId: adminId, byUserName: "Facility Administrator" });
+
+// Everything with a clock on it, raised onto the right desks.
+sweep(facilityId);
+
 // ------------------------------------------------------------------- summary
 
 const summary = claimsSummary();
 const chain = verifyAuditChain();
 const facility = getFacility(facilityId)!;
 
+const count = (sql: string, ...params: (string | number)[]) =>
+  get<{ n: number }>(sql, ...params)?.n ?? 0;
+
+const stock = stockValue(PHARM);
+const alerts = countOpen(facilityId);
+
 console.log(`Demo day loaded for ${facility.name} (KMHFL ${facility.kmhfl_code}).`);
+console.log(``);
 console.log(`  patients          ${PEOPLE.length}`);
 console.log(`  in the queue      ${waiting.length}`);
+console.log(`  dispensed         ${count(`SELECT COUNT(*) AS n FROM dispenses`)} · stock on the shelf ${Math.round(stock.valueCents / 100)} KES`);
+console.log(`  lab orders        ${count(`SELECT COUNT(*) AS n FROM orders`)} · ${count(`SELECT COUNT(*) AS n FROM lab_results WHERE released_at IS NOT NULL`)} results released`);
+console.log(`  admissions        ${count(`SELECT COUNT(*) AS n FROM admissions`)} · ${count(`SELECT COUNT(*) AS n FROM admissions WHERE discharged_at IS NULL`)} still in a bed`);
+console.log(`  appointments      ${count(`SELECT COUNT(*) AS n FROM appointments`)} booked`);
+console.log(`  MOH returns       ${count(`SELECT COUNT(*) AS n FROM moh_returns`)} generated, ${count(`SELECT COUNT(*) AS n FROM moh_returns WHERE status = 'submitted'`)} submitted`);
 console.log(`  claims            ${summary.total} · acceptance ${summary.acceptanceRatePercent}%`);
 console.log(`  value at risk     ${summary.valueAtRiskCents / 100} KES`);
+console.log(`  alerts            ${alerts.total} open, ${alerts.critical} critical`);
 console.log(`  audit chain       ${chain.ok ? `intact, ${chain.checked} entries` : "BROKEN"}`);
 console.log(``);
-console.log(`Sign in:  admin / a.wanjiru / j.otieno   password ChangeMe123`);
+console.log(`Sign in at http://localhost:3200 — password ChangeMe123 for all of them:`);
+console.log(`  admin       Facility Administrator  — compliance, integrations, staff, tariffs`);
+console.log(`  a.wanjiru   Dr. Achieng Wanjiru     — consultations, orders, prescribing, the ward`);
+console.log(`  j.otieno    Joseph Otieno           — reception, the queue, appointments, payment`);
+console.log(`  g.kimani    Grace Kimani            — the pharmacy counter and the controlled register`);
+console.log(`  s.mutiso    Samuel Mutiso           — the laboratory bench`);
+console.log(``);
+console.log(`Two-factor codes for admin and g.kimani come from the secret ${DEMO_MFA_SECRET}`);
+console.log(`(enter it in any authenticator app — it is a demonstration value, published on purpose).`);
 
 closeDb();

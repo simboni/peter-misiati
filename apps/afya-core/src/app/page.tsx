@@ -1,15 +1,20 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { currentUser } from "@/lib/auth.ts";
-import { facilityCompliance, getFacility, listDevices, LEVELS } from "@/lib/facility.ts";
+import { facilityCompliance, listDevices } from "@/lib/facility.ts";
 import { expiringLicences, listUsers } from "@/lib/users.ts";
-import { licenceStatus, can } from "@/lib/access.ts";
+import { can } from "@/lib/access.ts";
 import { verifyAuditChain } from "@/lib/db.ts";
 import { claimsSummary } from "@/lib/claims.ts";
-import { formatKes, etimsBacklog } from "@/lib/billing.ts";
+import { formatKes, etimsBacklog, facilityLeakage } from "@/lib/billing.ts";
 import { coverage as terminologyCoverage } from "@/lib/terminology.ts";
 import { queue } from "@/lib/frontdesk.ts";
-import { signOutAction } from "@/app/actions/session.ts";
+import { bedBoard } from "@/lib/inpatient.ts";
+import { unacknowledged, pendingOrders } from "@/lib/orders.ts";
+import { worklist } from "@/lib/pharmacy.ts";
+import { countOpen } from "@/lib/notifications.ts";
+import { listStores, reorderReport } from "@/lib/inventory.ts";
+import { Shell, Stat, Section, Banner } from "@/app/_components/shell.tsx";
 
 /**
  * The compliance dashboard.
@@ -23,17 +28,23 @@ export default async function Dashboard() {
   const user = await currentUser();
   if (!user) redirect("/sign-in");
 
-  const facility = getFacility(user.facilityId)!;
   const flags = facilityCompliance(user.facilityId);
   const expiring = expiringLicences(user.facilityId, 60);
   const staff = listUsers(user.facilityId);
   const devices = listDevices(user.facilityId);
   const chain = verifyAuditChain();
-  const myLicence = licenceStatus(user.userId);
   const claims = claimsSummary();
   const etims = etimsBacklog();
   const catalogue = terminologyCoverage();
   const waiting = queue(user.facilityId);
+  const alerts = countOpen(user.facilityId);
+  const beds = bedBoard(user.facilityId);
+  const results = unacknowledged();
+  const labBench = pendingOrders("lab");
+  const store = listStores(user.facilityId).find((s) => s.dispensing);
+  const counter = store ? worklist(store.code) : [];
+  const reorder = store ? reorderReport(store.code).order : [];
+  const leakage = facilityLeakage(user.facilityId);
 
   const critical = flags.filter((f) => f.severity === "critical");
   const warnings = flags.filter((f) => f.severity === "warning");
@@ -57,59 +68,101 @@ export default async function Dashboard() {
   }
 
   return (
-    <main className="max-w-4xl mx-auto px-5 py-8">
-      <header className="flex flex-wrap items-start justify-between gap-4 pb-5 border-b border-line">
-        <div>
-          <div className="text-[11px] font-semibold tracking-[0.16em] uppercase text-muted">Afya Core</div>
-          <h1 className="text-2xl font-bold tracking-tight mt-1">{facility.name}</h1>
-          <p className="text-sm text-muted mt-1 tnum">
-            KMHFL {facility.kmhfl_code} · Level {facility.level} — {LEVELS[facility.level]}
-            {facility.county ? ` · ${facility.county}` : ""}
-          </p>
-        </div>
-        <div className="text-right">
-          <p className="text-sm font-medium">{user.name}</p>
-          <p className="text-xs text-muted">
-            {myLicence.state === "current"
-              ? `${myLicence.regulator} ${myLicence.number} · to ${myLicence.expiresOn}`
-              : myLicence.state === "expired"
-                ? `${myLicence.regulator} licence expired ${myLicence.expiresOn}`
-                : "No licence on file"}
-          </p>
-          <form action={signOutAction}>
-            <button type="submit" className="text-xs text-brand underline underline-offset-2 mt-1.5">
-              Sign out
-            </button>
-          </form>
-        </div>
-      </header>
+    <Shell
+      user={user}
+      current="/"
+      title="Today"
+      subtitle="Am I going to get paid, and am I going to pass an inspection."
+      actions={
+        <>
+          <Link href="/queue" className="bg-brand text-white font-semibold rounded px-4 py-2 text-sm">
+            Waiting list
+          </Link>
+          {can(user.userId, "patient.register") ? (
+            <Link href="/patients/new" className="border border-brand text-brand font-semibold rounded px-4 py-2 text-sm">
+              Register a patient
+            </Link>
+          ) : null}
+        </>
+      }
+    >
+      {/* ---- the work in front of people right now ---- */}
+      <div className="mt-5 grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        <Stat
+          label="Waiting"
+          value={waiting.length}
+          note={`${waiting.filter((v) => v.priority === "emergency").length} emergency`}
+          tone={waiting.some((v) => v.priority === "emergency") ? "block" : "ink"}
+          href="/queue"
+        />
+        <Stat
+          label="At the counter"
+          value={counter.length}
+          note={`${counter.filter((c) => c.short).length} short of stock`}
+          tone={counter.some((c) => c.short) ? "clock" : "ink"}
+          href="/pharmacy"
+        />
+        <Stat
+          label="On the bench"
+          value={labBench.length}
+          note={`${labBench.filter((o) => o.priority === "stat").length} stat`}
+          tone={labBench.some((o) => o.priority === "stat") ? "block" : "ink"}
+          href="/laboratory"
+        />
+        <Stat
+          label="Results unread"
+          value={results.length}
+          note={`${results.filter((r) => r.panic).length} critical`}
+          tone={results.some((r) => r.panic) ? "block" : results.length > 0 ? "clock" : "good"}
+          href="/laboratory"
+        />
+        <Stat
+          label="Beds occupied"
+          value={beds.filter((b) => b.occupied).length}
+          note={`of ${beds.filter((b) => !b.bed.out_of_service).length} usable`}
+          href="/ward"
+        />
+        <Stat
+          label="Alerts"
+          value={alerts.total}
+          note={`${alerts.critical} critical`}
+          tone={alerts.critical > 0 ? "block" : alerts.total > 0 ? "clock" : "good"}
+          href="/notifications"
+        />
+      </div>
 
-      {/* ---- blocking items first: these stop the facility being paid ---- */}
-      <section className="mt-7">
-        <h2 className="text-sm font-semibold tracking-[0.08em] uppercase text-muted">Blocking</h2>
+      {/* ---- blocking items: these stop the facility being paid ---- */}
+      <Section title="Blocking">
         {critical.length === 0 ? (
-          <p className="mt-3 bg-good-soft border border-good/25 text-good rounded px-4 py-3 text-sm font-medium">
-            Nothing is blocking claims or invoicing.
-          </p>
+          <Banner tone="good">Nothing is blocking claims or invoicing.</Banner>
         ) : (
-          <ul className="mt-3 flex flex-col gap-2">
+          <ul className="flex flex-col gap-2">
             {critical.map((f) => (
-              <li key={f.key} className="bg-block-soft border border-block/25 rounded px-4 py-3">
-                <p className="text-sm font-semibold text-block">{f.message}</p>
+              <li key={f.key}>
+                <Banner tone="block">
+                  {f.message}{" "}
+                  {can(user.userId, "facility.configure") ? (
+                    <Link href="/admin" className="underline underline-offset-2">
+                      Fix it in administration.
+                    </Link>
+                  ) : null}
+                </Banner>
               </li>
             ))}
           </ul>
         )}
-      </section>
+      </Section>
 
       {/* ---- things that will start blocking if ignored ---- */}
       {warnings.length > 0 || expiring.length > 0 ? (
-        <section className="mt-7">
-          <h2 className="text-sm font-semibold tracking-[0.08em] uppercase text-muted">Expiring</h2>
-          <ul className="mt-3 flex flex-col gap-2">
+        <Section
+          title="Expiring"
+          note="A lapsed licence switches off prescribing, diagnosis and discharge for that person, because claims citing one are rejected."
+        >
+          <ul className="flex flex-col gap-2">
             {warnings.map((f) => (
-              <li key={f.key} className="bg-clock-soft border border-clock/25 rounded px-4 py-3">
-                <p className="text-sm font-medium text-clock">{f.message}</p>
+              <li key={f.key}>
+                <Banner tone="clock">{f.message}</Banner>
               </li>
             ))}
             {expiring.map((l) => (
@@ -122,103 +175,77 @@ export default async function Dashboard() {
                   {l.regulator} {l.licence_number}
                 </span>
                 <span className="text-sm text-clock ml-auto tnum">
-                  {l.days_left < 0
-                    ? `expired ${Math.abs(l.days_left)} days ago`
-                    : `${l.days_left} days left`}
+                  {l.days_left < 0 ? `expired ${Math.abs(l.days_left)} days ago` : `${l.days_left} days left`}
                 </span>
               </li>
             ))}
           </ul>
-          {expiring.length > 0 ? (
-            <p className="text-xs text-muted mt-2 leading-relaxed">
-              A lapsed licence switches off prescribing, diagnosis and discharge for that person, because
-              claims citing an expired licence are rejected.
-            </p>
-          ) : null}
-        </section>
+        </Section>
       ) : null}
 
-      {/* ---- the evidence an inspector asks for ---- */}
-      <section className="mt-7 grid gap-3 sm:grid-cols-3">
-        <div className="bg-white border border-line rounded px-4 py-3">
-          <div className="text-xs text-muted">Staff accounts</div>
-          <div className="text-2xl font-bold tnum mt-0.5">{staff.filter((s) => s.active).length}</div>
-          <div className="text-xs text-muted mt-0.5">{staff.length} total, no shared logins</div>
-        </div>
-        <div className="bg-white border border-line rounded px-4 py-3">
-          <div className="text-xs text-muted">Registered devices</div>
-          <div className="text-2xl font-bold tnum mt-0.5">{devices.filter((d) => !d.revoked_at).length}</div>
-          <div className="text-xs text-muted mt-0.5">
-            {devices.filter((d) => d.revoked_at).length} revoked
-          </div>
-        </div>
-        <div className="bg-white border border-line rounded px-4 py-3">
-          <div className="text-xs text-muted">Audit chain</div>
-          <div className={`text-2xl font-bold tnum mt-0.5 ${chain.ok ? "text-good" : "text-block"}`}>
-            {chain.ok ? "Intact" : "Broken"}
-          </div>
-          <div className="text-xs text-muted mt-0.5 tnum">
-            {chain.ok ? `${chain.checked} entries verified` : `breaks at entry #${chain.failedAtId}`}
-          </div>
-        </div>
-      </section>
-
       {/* ---- the money view, which is why a facility buys this ---------- */}
-      <section className="mt-7 grid gap-3 sm:grid-cols-3">
-        <Link href="/claims" className="bg-white border border-line rounded px-4 py-3 hover:border-brand">
-          <div className="text-xs text-muted">Claim acceptance</div>
-          <div className={`text-2xl font-bold tnum mt-0.5 ${
-            claims.acceptanceRatePercent === null ? "text-muted"
-              : claims.acceptanceRatePercent >= 90 ? "text-good"
-              : claims.acceptanceRatePercent >= 80 ? "text-clock" : "text-block"
-          }`}>
-            {claims.acceptanceRatePercent === null ? "—" : `${claims.acceptanceRatePercent}%`}
-          </div>
-          <div className="text-xs text-muted mt-0.5 tnum">{claims.total} claims</div>
-        </Link>
-        <Link href="/claims" className="bg-white border border-line rounded px-4 py-3 hover:border-brand">
-          <div className="text-xs text-muted">Value at risk</div>
-          <div className="text-2xl font-bold tnum mt-0.5">{formatKes(claims.valueAtRiskCents)}</div>
-          <div className="text-xs text-muted mt-0.5 tnum">
-            {claims.overdue.length > 0 ? `${claims.overdue.length} past the window` : "none overdue"}
-          </div>
-        </Link>
-        <Link href="/queue" className="bg-white border border-line rounded px-4 py-3 hover:border-brand">
-          <div className="text-xs text-muted">Waiting</div>
-          <div className="text-2xl font-bold tnum mt-0.5">{waiting.length}</div>
-          <div className="text-xs text-muted mt-0.5 tnum">
-            {waiting.filter((v) => v.priority === "emergency").length} emergency
-          </div>
-        </Link>
-      </section>
-
-      <section className="mt-7">
-        <h2 className="text-sm font-semibold tracking-[0.08em] uppercase text-muted">Today</h2>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <Link href="/queue" className="bg-brand text-white font-semibold rounded px-4 py-2.5 text-sm">
-            Waiting list
-          </Link>
-          <Link href="/patients" className="border border-brand text-brand font-semibold rounded px-4 py-2.5 text-sm">
-            Find a patient
-          </Link>
-          {can(user.userId, "patient.register") ? (
-            <Link
-              href="/patients/new"
-              className="border border-line font-semibold rounded px-4 py-2.5 text-sm"
-            >
-              Register a patient
-            </Link>
-          ) : null}
+      <Section title="Money">
+        <div className="grid gap-3 sm:grid-cols-4">
+          <Stat
+            label="Claim acceptance"
+            value={claims.acceptanceRatePercent === null ? "—" : `${claims.acceptanceRatePercent}%`}
+            tone={
+              claims.acceptanceRatePercent === null
+                ? "muted"
+                : claims.acceptanceRatePercent >= 90
+                  ? "good"
+                  : claims.acceptanceRatePercent >= 80
+                    ? "clock"
+                    : "block"
+            }
+            note={`${claims.total} claims`}
+            href="/claims"
+          />
+          <Stat
+            label="Value at risk"
+            value={formatKes(claims.valueAtRiskCents)}
+            tone={claims.overdue.length > 0 ? "block" : "ink"}
+            note={claims.overdue.length > 0 ? `${claims.overdue.length} past the window` : "none overdue"}
+            href="/claims"
+          />
+          <Stat
+            label="Revenue leakage"
+            value={formatKes(leakage.totalCents)}
+            tone={leakage.totalCents > 0 ? "clock" : "good"}
+            note={`${leakage.encounters} encounters with gaps`}
+            href="/reports"
+          />
+          <Stat
+            label="To reorder"
+            value={reorder.length}
+            tone={reorder.length > 0 ? "clock" : "good"}
+            note="products at their level"
+            href="/stock"
+          />
         </div>
-      </section>
+      </Section>
 
-      <footer className="mt-8 pt-5 border-t border-line">
-        <p className="text-xs text-muted leading-relaxed">
-          Phase 1 — Claim-Safe Core. Platform, identity, audit, offline sync, patient index, terminology,
-          encounters, prescribing, consent, queue, billing, eTIMS, payers, pre-authorisation and the claim
-          scrubber are in.
-        </p>
-      </footer>
-    </main>
+      {/* ---- the evidence an inspector asks for ---- */}
+      <Section title="Evidence">
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Stat
+            label="Staff accounts"
+            value={staff.filter((s) => s.active).length}
+            note={`${staff.length} total, no shared logins`}
+          />
+          <Stat
+            label="Registered devices"
+            value={devices.filter((d) => !d.revoked_at).length}
+            note={`${devices.filter((d) => d.revoked_at).length} revoked`}
+          />
+          <Stat
+            label="Audit chain"
+            value={chain.ok ? "Intact" : "Broken"}
+            tone={chain.ok ? "good" : "block"}
+            note={chain.ok ? `${chain.checked} entries verified` : `breaks at entry #${chain.failedAtId}`}
+          />
+        </div>
+      </Section>
+    </Shell>
   );
 }

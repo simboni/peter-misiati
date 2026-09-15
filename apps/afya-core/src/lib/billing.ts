@@ -399,6 +399,60 @@ export function leakageReport(encounterId: string): { kind: string; ref: string;
   return gaps;
 }
 
+/**
+ * Revenue leakage across the facility.
+ *
+ * Work that was done and never made it onto an invoice: a consultation with no
+ * charge, a drug dispensed and not billed, a closed encounter with nothing
+ * raised at all. This is the number a facility owner reacts to, because it is
+ * money they have already spent the staff time and the stock to earn.
+ *
+ * Counted against CLOSED encounters only. An open consultation is not leakage,
+ * it is a consultation in progress.
+ */
+export function facilityLeakage(facilityId: number, sinceDays = 90): {
+  totalCents: number;
+  encounters: number;
+  gaps: { encounterId: string; patientMrn: string; kind: string; description: string; estimateCents: number }[];
+} {
+  const since = new Date(Date.now() - sinceDays * 86_400_000).toISOString();
+  const encounters = all<{ id: string; patient_mrn: string; payer: string | null }>(
+    `SELECT e.id, e.patient_mrn,
+            (SELECT i.payer_code FROM invoices i WHERE i.encounter_id = e.id AND i.status <> 'void') AS payer
+       FROM encounters e
+      WHERE e.facility_id = ? AND e.status = 'closed' AND e.closed_at >= ?`,
+    facilityId,
+    since,
+  );
+
+  const gaps: { encounterId: string; patientMrn: string; kind: string; description: string; estimateCents: number }[] = [];
+  const touched = new Set<string>();
+
+  for (const encounter of encounters) {
+    // Priced against the payer the encounter was actually invoiced to, falling
+    // back to cash — an estimate that is honest about being one.
+    const payer = encounter.payer ?? "CASH";
+    for (const gap of leakageReport(encounter.id)) {
+      const serviceCode = gap.kind === "consultation" ? "CONSULT-OP" : null;
+      const price = serviceCode ? priceFor(payer, serviceCode)?.price_cents ?? 0 : 0;
+      gaps.push({
+        encounterId: encounter.id,
+        patientMrn: encounter.patient_mrn,
+        kind: gap.kind,
+        description: gap.description,
+        estimateCents: price,
+      });
+      touched.add(encounter.id);
+    }
+  }
+
+  return {
+    totalCents: gaps.reduce((sum, g) => sum + g.estimateCents, 0),
+    encounters: touched.size,
+    gaps: gaps.sort((a, b) => b.estimateCents - a.estimateCents).slice(0, 25),
+  };
+}
+
 // ------------------------------------------------------------------ invoices
 
 /**

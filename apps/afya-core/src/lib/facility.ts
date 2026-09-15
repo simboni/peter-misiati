@@ -158,6 +158,84 @@ export type ComplianceFlag = {
 };
 
 /**
+ * Set the identifiers the facility is regulated under.
+ *
+ * These are what the compliance dashboard complains about, and until this
+ * existed there was no way to answer it: a red flag with no remedy is worse
+ * than no flag at all.
+ *
+ * Validated, because a mistyped KRA PIN produces tax invoices that are rejected
+ * silently and a mistyped SHA code produces claims that are rejected two months
+ * later. Each is checked against the published shape, and each records who set
+ * it — an auditor asks both "what is it" and "who put it there".
+ */
+export function setIdentifiers(input: {
+  facilityId: number;
+  shaProviderCode?: string;
+  kraPin?: string;
+  odpcRegistration?: string;
+  odpcExpiresOn?: string;
+  county?: string;
+  byUserId: number | null;
+  byUserName: string;
+}): void {
+  const f = getFacility(input.facilityId);
+  if (!f) throw new FacilityError("no such facility");
+
+  const sha = input.shaProviderCode?.trim().toUpperCase();
+  const kra = input.kraPin?.trim().toUpperCase();
+  const odpc = input.odpcRegistration?.trim().toUpperCase();
+
+  // A KRA PIN is a letter, nine digits and a letter: P051234567X.
+  if (kra && !/^[A-Z]\d{9}[A-Z]$/.test(kra)) {
+    throw new FacilityError(
+      `"${kra}" is not a KRA PIN. They are a letter, nine digits and a letter, e.g. P051234567X.`,
+    );
+  }
+  if (input.odpcExpiresOn && !/^\d{4}-\d{2}-\d{2}$/.test(input.odpcExpiresOn)) {
+    throw new FacilityError("the ODPC expiry date must be YYYY-MM-DD");
+  }
+  if (odpc && !input.odpcExpiresOn) {
+    // A registration with no expiry cannot be warned about before it lapses,
+    // which is the only reason to track it.
+    throw new FacilityError("an ODPC registration must record when it expires — certificates run 24 months");
+  }
+
+  tx(() => {
+    run(
+      `UPDATE facilities SET
+         sha_provider_code = COALESCE(?, sha_provider_code),
+         kra_pin = COALESCE(?, kra_pin),
+         odpc_registration = COALESCE(?, odpc_registration),
+         odpc_expires_on = COALESCE(?, odpc_expires_on),
+         county = COALESCE(?, county)
+       WHERE id = ?`,
+      sha || null,
+      kra || null,
+      odpc || null,
+      input.odpcExpiresOn?.trim() || null,
+      input.county?.trim() || null,
+      input.facilityId,
+    );
+    audit({
+      action: "facility_identifiers_set",
+      entity: "facility",
+      entityId: input.facilityId,
+      facilityId: input.facilityId,
+      actorId: input.byUserId,
+      actorName: input.byUserName,
+      purpose: "administration",
+      detail: {
+        shaProviderCode: sha ?? null,
+        kraPin: kra ?? null,
+        odpcRegistration: odpc ?? null,
+        odpcExpiresOn: input.odpcExpiresOn ?? null,
+      },
+    });
+  });
+}
+
+/**
  * The facility-level half of the compliance dashboard.
  *
  * Deliberately blunt: a missing SHA provider code is `critical`, because every
