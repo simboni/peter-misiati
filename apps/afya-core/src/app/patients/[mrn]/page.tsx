@@ -5,6 +5,8 @@ import { openPatient, accessHistory, mergeHistory } from "@/lib/patients.ts";
 import { encountersFor, openEncounterFor } from "@/lib/encounters.ts";
 import { check } from "@/lib/access.ts";
 import { startEncounterAction } from "@/app/encounters/actions.ts";
+import { checkInAction } from "@/app/queue/actions.ts";
+import { missingConsents } from "@/lib/frontdesk.ts";
 
 /**
  * A patient record.
@@ -35,6 +37,8 @@ export default async function PatientPage(props: { params: Promise<{ mrn: string
   const visits = encountersFor(patient.mrn, 10);
   const openVisit = openEncounterFor(patient.mrn);
   const canConsult = check(user.userId, "encounter.conduct");
+  const canQueue = check(user.userId, "queue.manage");
+  const outstandingConsents = missingConsents(patient.mrn);
   const access = accessHistory(patient.mrn, 8);
   const age = patient.date_of_birth
     ? Math.floor((Date.now() - Date.parse(patient.date_of_birth)) / (365.25 * 86_400_000))
@@ -88,6 +92,21 @@ export default async function PatientPage(props: { params: Promise<{ mrn: string
           >
             Continue consultation
           </Link>
+        ) : canQueue.allowed ? (
+          <form action={checkInAction} className="flex flex-wrap items-end gap-2">
+            <input type="hidden" name="mrn" value={patient.mrn} />
+            <label className="flex flex-col gap-1 text-sm font-medium" htmlFor="priority">
+              Priority
+              <select id="priority" name="priority" defaultValue="routine" className="border border-line rounded px-3 py-2 bg-white text-sm">
+                <option value="routine">Routine</option>
+                <option value="urgent">Urgent</option>
+                <option value="emergency">Emergency</option>
+              </select>
+            </label>
+            <button type="submit" className="bg-brand text-white font-semibold rounded px-4 py-2.5 text-sm">
+              Check in
+            </button>
+          </form>
         ) : canConsult.allowed ? (
           <form action={startEncounterAction}>
             <input type="hidden" name="mrn" value={patient.mrn} />
@@ -117,6 +136,13 @@ export default async function PatientPage(props: { params: Promise<{ mrn: string
             ))}
           </ul>
         </section>
+      ) : null}
+
+      {outstandingConsents.length > 0 ? (
+        <p className="mt-3 bg-clock-soft border border-clock/25 text-clock rounded px-4 py-2.5 text-sm">
+          Consent not yet recorded for: {outstandingConsents.join(", ")}. Under the Data Protection Act this
+          has to be asked, not assumed.
+        </p>
       ) : null}
 
       {!patient.national_id && !patient.sha_number ? (

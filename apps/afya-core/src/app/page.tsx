@@ -5,6 +5,10 @@ import { facilityCompliance, getFacility, listDevices, LEVELS } from "@/lib/faci
 import { expiringLicences, listUsers } from "@/lib/users.ts";
 import { licenceStatus, can } from "@/lib/access.ts";
 import { verifyAuditChain } from "@/lib/db.ts";
+import { claimsSummary } from "@/lib/claims.ts";
+import { formatKes, etimsBacklog } from "@/lib/billing.ts";
+import { coverage as terminologyCoverage } from "@/lib/terminology.ts";
+import { queue } from "@/lib/frontdesk.ts";
 import { signOutAction } from "@/app/actions/session.ts";
 
 /**
@@ -26,9 +30,31 @@ export default async function Dashboard() {
   const devices = listDevices(user.facilityId);
   const chain = verifyAuditChain();
   const myLicence = licenceStatus(user.userId);
+  const claims = claimsSummary();
+  const etims = etimsBacklog();
+  const catalogue = terminologyCoverage();
+  const waiting = queue(user.facilityId);
 
   const critical = flags.filter((f) => f.severity === "critical");
   const warnings = flags.filter((f) => f.severity === "warning");
+
+  // A starter catalogue is a compliance fact, not a footnote: a clinician who
+  // cannot find their diagnosis picks something close, and wrong codes are a
+  // named rejection cause.
+  if (catalogue.starterOnly) {
+    warnings.push({
+      key: "icd11_catalogue",
+      severity: "warning",
+      message: `Only ${catalogue.total} ICD-11 codes are loaded. Load the full WHO release before go-live.`,
+    });
+  }
+  if (etims.queued > 0) {
+    warnings.push({
+      key: "etims_backlog",
+      severity: "warning",
+      message: `${etims.queued} invoice${etims.queued === 1 ? "" : "s"} not yet transmitted to eTIMS.`,
+    });
+  }
 
   return (
     <main className="max-w-4xl mx-auto px-5 py-8">
@@ -137,16 +163,48 @@ export default async function Dashboard() {
         </div>
       </section>
 
+      {/* ---- the money view, which is why a facility buys this ---------- */}
+      <section className="mt-7 grid gap-3 sm:grid-cols-3">
+        <Link href="/claims" className="bg-white border border-line rounded px-4 py-3 hover:border-brand">
+          <div className="text-xs text-muted">Claim acceptance</div>
+          <div className={`text-2xl font-bold tnum mt-0.5 ${
+            claims.acceptanceRatePercent === null ? "text-muted"
+              : claims.acceptanceRatePercent >= 90 ? "text-good"
+              : claims.acceptanceRatePercent >= 80 ? "text-clock" : "text-block"
+          }`}>
+            {claims.acceptanceRatePercent === null ? "—" : `${claims.acceptanceRatePercent}%`}
+          </div>
+          <div className="text-xs text-muted mt-0.5 tnum">{claims.total} claims</div>
+        </Link>
+        <Link href="/claims" className="bg-white border border-line rounded px-4 py-3 hover:border-brand">
+          <div className="text-xs text-muted">Value at risk</div>
+          <div className="text-2xl font-bold tnum mt-0.5">{formatKes(claims.valueAtRiskCents)}</div>
+          <div className="text-xs text-muted mt-0.5 tnum">
+            {claims.overdue.length > 0 ? `${claims.overdue.length} past the window` : "none overdue"}
+          </div>
+        </Link>
+        <Link href="/queue" className="bg-white border border-line rounded px-4 py-3 hover:border-brand">
+          <div className="text-xs text-muted">Waiting</div>
+          <div className="text-2xl font-bold tnum mt-0.5">{waiting.length}</div>
+          <div className="text-xs text-muted mt-0.5 tnum">
+            {waiting.filter((v) => v.priority === "emergency").length} emergency
+          </div>
+        </Link>
+      </section>
+
       <section className="mt-7">
         <h2 className="text-sm font-semibold tracking-[0.08em] uppercase text-muted">Today</h2>
         <div className="mt-3 flex flex-wrap gap-2">
-          <Link href="/patients" className="bg-brand text-white font-semibold rounded px-4 py-2.5 text-sm">
+          <Link href="/queue" className="bg-brand text-white font-semibold rounded px-4 py-2.5 text-sm">
+            Waiting list
+          </Link>
+          <Link href="/patients" className="border border-brand text-brand font-semibold rounded px-4 py-2.5 text-sm">
             Find a patient
           </Link>
           {can(user.userId, "patient.register") ? (
             <Link
               href="/patients/new"
-              className="border border-brand text-brand font-semibold rounded px-4 py-2.5 text-sm"
+              className="border border-line font-semibold rounded px-4 py-2.5 text-sm"
             >
               Register a patient
             </Link>
@@ -156,8 +214,9 @@ export default async function Dashboard() {
 
       <footer className="mt-8 pt-5 border-t border-line">
         <p className="text-xs text-muted leading-relaxed">
-          Phase 1 in progress — platform, identity, audit, offline sync and the patient index are in.
-          Encounters, billing and the claim scrubber follow.
+          Phase 1 — Claim-Safe Core. Platform, identity, audit, offline sync, patient index, terminology,
+          encounters, prescribing, consent, queue, billing, eTIMS, payers, pre-authorisation and the claim
+          scrubber are in.
         </p>
       </footer>
     </main>

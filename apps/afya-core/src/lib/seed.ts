@@ -21,6 +21,8 @@ import { registerFacility, registerDevice, setSetting } from "./facility.ts";
 import { createUser, recordLicence } from "./users.ts";
 import { importCodes, ICD11 } from "./terminology.ts";
 import { importProducts } from "./prescribing.ts";
+import { definePayer, defineBenefit } from "./payers.ts";
+import { defineService, setTariff } from "./billing.ts";
 
 /** The councils that license clinical practice in Kenya. */
 export const CADRES: { code: string; name: string; regulator: string; licensed: boolean }[] = [
@@ -228,6 +230,81 @@ export const FORMULARY_STARTER: {
   { code: "MORPH-10", name: "Morphine sulphate 10mg", genericName: "morphine", form: "tablet", strength: "10 mg", controlled: true },
 ];
 
+
+/**
+ * Payers, services and tariffs.
+ *
+ * The SHA row carries the two rules that actually bite: a seven-day submission
+ * window, and pre-authorisation on the services SHA requires it for. Prices are
+ * INTEGER CENTS and are illustrative — the real SHA tariff schedule for the
+ * contracting cycle must be loaded with `setTariff` before go-live, and every
+ * tariff records its source.
+ */
+export function seedRevenueCycle(): void {
+  definePayer({ code: "CASH", name: "Cash / self-paying", kind: "cash", byUserName: "seed" });
+  definePayer({
+    code: "SHA",
+    name: "Social Health Authority",
+    kind: "sha",
+    // A claim submitted beyond seven days is rejected automatically.
+    claimWindowDays: 7,
+    byUserName: "seed",
+  });
+
+  const services: { code: string; name: string; category: string; etims: string }[] = [
+    { code: "CONSULT-OP", name: "Outpatient consultation", category: "consultation", etims: "SRV-CONSULT" },
+    { code: "CONSULT-REV", name: "Review consultation", category: "consultation", etims: "SRV-CONSULT" },
+    { code: "LAB-MRDT", name: "Malaria rapid diagnostic test", category: "laboratory", etims: "SRV-LAB" },
+    { code: "LAB-CBC", name: "Full haemogram", category: "laboratory", etims: "SRV-LAB" },
+    { code: "LAB-URIN", name: "Urinalysis", category: "laboratory", etims: "SRV-LAB" },
+    { code: "PROC-SUTURE", name: "Suturing, minor", category: "procedure", etims: "SRV-PROC" },
+    { code: "PROC-NEB", name: "Nebulisation", category: "procedure", etims: "SRV-PROC" },
+  ];
+  for (const s of services) {
+    defineService({ code: s.code, name: s.name, category: s.category, etimsClass: s.etims });
+  }
+
+  // Dispensed products are billed under their own codes.
+  for (const p of FORMULARY_STARTER) {
+    defineService({ code: p.code, name: p.name, category: "pharmacy", etimsClass: "SRV-PHARM" });
+  }
+
+  const TARIFF_SOURCE = "illustrative starter tariff — load the SHA schedule before go-live";
+
+  // Cash prices, in cents.
+  const cash: [string, number][] = [
+    ["CONSULT-OP", 50_000], ["CONSULT-REV", 30_000],
+    ["LAB-MRDT", 20_000], ["LAB-CBC", 60_000], ["LAB-URIN", 25_000],
+    ["PROC-SUTURE", 150_000], ["PROC-NEB", 80_000],
+    ["AL-20-120", 35_000], ["PARA-500", 5_00], ["AMOX-500", 12_00], ["AMOX-125S", 25_000],
+    ["CTX-960", 8_00], ["ORS-1L", 5_000], ["ZINC-20", 3_00], ["SALB-INH", 90_000],
+    ["METRO-400", 7_00], ["IBU-400", 6_00], ["MORPH-10", 45_000],
+  ];
+  for (const [code, price] of cash) {
+    setTariff({ payerCode: "CASH", serviceCode: code, priceCents: price, effectiveFrom: "2020-01-01", source: TARIFF_SOURCE });
+  }
+
+  // SHA reimburses at its own rates, and covers a defined package.
+  for (const [code, price] of cash) {
+    setTariff({
+      payerCode: "SHA",
+      serviceCode: code,
+      // Illustrative: SHA rates sit below cash list prices.
+      priceCents: Math.round(price * 0.8),
+      effectiveFrom: "2020-01-01",
+      source: TARIFF_SOURCE,
+    });
+    defineBenefit({
+      payerCode: "SHA",
+      serviceCode: code,
+      covered: true,
+      // Minor procedures need pre-authorisation; routine outpatient care does not.
+      requiresPreauth: code.startsWith("PROC-"),
+      source: "illustrative benefit rules — load the SHA package before go-live",
+    });
+  }
+}
+
 /** Install cadres, permissions and roles. Idempotent. */
 export function seedReferenceData(): void {
   tx(() => {
@@ -276,6 +353,8 @@ export function seedReferenceData(): void {
     })),
     byUserName: "seed",
   });
+
+  seedRevenueCycle();
 }
 
 /**

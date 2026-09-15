@@ -18,6 +18,9 @@ import {
 import { activeDevice, listDevices } from "@/lib/facility.ts";
 import { getEncounter } from "@/lib/encounters.ts";
 import { prescribe, cancelPrescription, checkSafety, recordAllergy } from "@/lib/prescribing.ts";
+import { assembleCharges, issueInvoice, invoiceForEncounter } from "@/lib/billing.ts";
+import { assembleClaim, claimForEncounter } from "@/lib/claims.ts";
+import { getPayer, verifyCoverage } from "@/lib/payers.ts";
 
 async function device(sessionDevice: string | null, facilityId: number): Promise<string> {
   if (sessionDevice && activeDevice(sessionDevice)) return sessionDevice;
@@ -209,4 +212,52 @@ export async function recordAllergyAction(formData: FormData): Promise<void> {
     byUserName: user.name,
   });
   revalidatePath(`/encounters/${encounterId}`);
+}
+
+// ------------------------------------------------------- billing and claims
+
+/**
+ * Bill the encounter, invoice it, and assemble the claim — one action.
+ *
+ * Deliberately one step: a facility that has to remember three separate buttons
+ * forgets one, and a forgotten invoice is a tax compliance failure while a
+ * forgotten claim is simply unpaid work.
+ */
+export async function billEncounterAction(formData: FormData): Promise<void> {
+  const user = await requireUser();
+  const encounterId = String(formData.get("encounterId") ?? "");
+  const payerCode = String(formData.get("payerCode") ?? "CASH");
+  const deviceCode = await device(user.deviceCode, user.facilityId);
+
+  assembleCharges({
+    encounterId,
+    payerCode,
+    deviceCode,
+    byUserId: user.userId,
+    byUserName: user.name,
+  });
+
+  if (!invoiceForEncounter(encounterId)) {
+    issueInvoice({ encounterId, payerCode, deviceCode, byUserId: user.userId, byUserName: user.name });
+  }
+
+  // A cash patient is not claimed against; they pay at the counter.
+  const payer = getPayer(payerCode);
+  if (payer && payer.kind !== "cash" && !claimForEncounter(encounterId)) {
+    assembleClaim({ encounterId, payerCode, deviceCode, byUserId: user.userId, byUserName: user.name });
+  }
+
+  revalidatePath(`/encounters/${encounterId}`);
+}
+
+export async function verifyCoverageAction(formData: FormData): Promise<void> {
+  const user = await requireUser();
+  verifyCoverage({
+    patientMrn: String(formData.get("mrn") ?? ""),
+    payerCode: String(formData.get("payerCode") ?? "SHA"),
+    memberNumber: String(formData.get("memberNumber") ?? ""),
+    byUserId: user.userId,
+    byUserName: user.name,
+  });
+  revalidatePath(`/encounters/${String(formData.get("encounterId") ?? "")}`);
 }

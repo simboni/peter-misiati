@@ -24,6 +24,19 @@ SHA has made a DHA-certified HMIS mandatory for any provider that wants to parti
 | [04 — Module Register & Roadmap](04-module-roadmap.md) | **48 modules** across 8 layers, dependency map, a five-phase build plan, the next 10 working days, pricing, team and risks |
 | [05 — Architecture](05-architecture.md) | Offline-first system shape, recommended stack, FHIR data spine, sync conflict policy, integration hub, security posture, CI quality gates |
 
+## Build status
+
+The system is being built in [`apps/afya-core`](../../apps/afya-core/). As of
+15 September 2026, **Phase 1 "Claim-Safe Core" is functionally complete**:
+17 modules, 168 passing tests, and a working end-to-end flow from registration
+through triage, consultation, prescribing and billing to a scrubbed claim.
+
+The scrubber runs all nine gates live on the consultation screen while the
+patient is still in the room. What is *not* done — real payer adapters, the
+full ICD-11 and PPB registers, the SHA tariff schedule, and a scrubber rule set
+built from 50 real rejected claims — is listed honestly in the
+[app README](../../apps/afya-core/README.md#not-done-be-clear-about-this).
+
 ## Where to start
 
 1. Read [01 §3 — the ten weaknesses](01-market-research.md#3-weak-points--the-specific-things-everyone-gets-wrong). Every design decision traces back to one of them.

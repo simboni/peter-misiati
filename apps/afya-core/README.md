@@ -3,10 +3,15 @@
 Kenya-compliant hospital management system (HMIS). Built to the plan in
 [`docs/hms/`](../../docs/hms/) at the repository root.
 
-**Current state: Phase 0 complete, Phase 1 in progress** — M00 Platform Core,
-M01 Identity & Access, M02 Audit, M03 Sync Engine, M10 Patient Registry & MPI,
-M21 Terminology, M20 Encounter, M23 Prescribing. Billing, eTIMS and the claim
-scrubber are next.
+**Current state: Phase 1 "Claim-Safe Core" is functionally complete.** A patient
+can be registered, checked in, triaged, consulted, diagnosed, prescribed for,
+billed, invoiced through eTIMS and claimed for — with the scrubber checking
+every claim against nine documented SHA rejection causes before it leaves the
+building.
+
+What remains before a facility could actually run on this is listed under
+[Not done](#not-done-be-clear-about-this) — read that before showing it to a
+clinic.
 
 ## Running it
 
@@ -14,7 +19,7 @@ scrubber are next.
 npm install
 npm run seed     # creates data/afya.db with a demo clinic and staff
 npm run dev      # http://localhost:3200
-npm test         # 123 tests, no network or database server needed
+npm test         # 168 tests, no network or database server needed
 ```
 
 Sign in as `admin` / `ChangeMe123`.
@@ -46,9 +51,13 @@ tier. `src/lib/db.ts` is the only module that would change.
 | **M21** Terminology | `src/lib/terminology.ts` | Coded catalogues, verified-only coding search, favourites, coverage |
 | **M20** Encounter | `src/lib/encounters.ts` | Consultations, append-only notes, coded diagnoses, readiness |
 | **M23** Prescribing | `src/lib/prescribing.ts` | Formulary, allergies, graded safety warnings, prescriptions |
+| **M11 / M14** Consent, Queue & Triage | `src/lib/frontdesk.ts` | Versioned granular consent, priority queue, vitals |
+| **M53 / M54** Payer, Coverage, Pre-auth | `src/lib/payers.ts` | Payers, benefit rules, verification with offline fallback, pre-authorisation |
+| **M50 / M52** Billing & eTIMS | `src/lib/billing.ts` | Services, dated tariffs, charges, invoices, payments, eTIMS queue, leakage report |
+| **M55** Claims Engine | `src/lib/claims.ts` | Claim assembly, **the nine-gate scrubber**, submission, outcomes, dashboard |
 | — | `src/lib/seed.ts` | Cadres, permissions, roles, ICD-11 and formulary starter sets |
 
-## Ten rules the code enforces
+## Thirteen rules the code enforces
 
 These are compliance requirements expressed as code, not documentation. Each has
 a test that fails if it regresses.
@@ -107,6 +116,22 @@ a test that fails if it regresses.
     record claiming a prescriber overrode a warning they were never shown is a
     lie in a clinical record.
 
+11. **A payer being unreachable never blocks care.** Verification degrades
+    through online → cached → provisional → emergency, and the flag is never
+    laundered: a provisional verification reaches the scrubber as provisional.
+    When SHA's pre-authorisation platform failed nationwide in March 2026,
+    facilities had no fallback. This is that fallback.
+
+12. **Money is integer cents, and a price is fixed as of the date of service.**
+    A tariff revised last month must not silently reprice care given before it,
+    and an unpriced line is refused rather than billed at zero.
+
+13. **A claim is validated before it is created, not on day six.** Nine gates,
+    each mapped to a documented rejection cause, each naming the person who can
+    fix it. A blocked claim cannot reach the payer, and the verdict it was
+    checked against is stored so a rejection can be compared with what we
+    believed at submission.
+
 ## Testing
 
 ```bash
@@ -152,13 +177,46 @@ under 15 interactions. Measured against the running app on 15 September 2026:
 it needs a running server and a browser, and the app carries no browser-test
 dependency yet. Wiring it into CI is outstanding.
 
-## Next in Phase 1
+## The nine gates
 
-Remaining for the "Claim-Safe Core" MVP, in dependency order: M50 Billing,
-M52 eTIMS, M53 Payer & Coverage, M54 Pre-authorisation, M11 Consent,
-M14 Queue & Triage, and M55 the Claims Engine and scrubber.
+`scrub()` in `src/lib/claims.ts`. Each maps to a documented SHA rejection cause.
 
-Per the roadmap, the scrubber's rules should be built from 50 real rejected
-claims before the rest — encoding what SHA already rejected beats guessing.
-`readiness()` in `src/lib/encounters.ts` is deliberately the same shape those
-rules will take.
+| # | Gate | Fails when | Routed to |
+|---|---|---|---|
+| 1 | Member verification | No cover, inactive, or only provisionally verified | Reception |
+| 2 | Pre-authorisation | A service that needs it has no approval | Claims officer |
+| 3 | Diagnosis | No primary diagnosis, or an unverified code | Clinician |
+| 4 | Benefit package | A line the payer does not cover | Claims officer |
+| 5 | Tariff | A line with no dated tariff behind it | Administrator |
+| 6 | Dates | Service in the future, or discharge before admission | Claims officer |
+| 7 | Documentation | Names exactly what is missing, never "incomplete" | Clinician / claims |
+| 8 | Signature | No pinned licence, or the encounter is still open | Clinician |
+| 9 | Submission window | Past the payer's window — **escalates**, does not block | Claims officer |
+
+Gate 9 escalates rather than blocking because a late claim still has an appeal
+path, and hiding it helps nobody. Submitting one needs an explicit written
+reason, which is recorded.
+
+## Not done — be clear about this
+
+Phase 1 is functionally complete, but a facility cannot run on it yet:
+
+- **No real payer adapter.** `PayerProbe`, `ClaimSubmitter` and
+  `EtimsTransmitter` are injection points with deliberately honest defaults —
+  "no adapter is configured", so everything queues and stays visible. The SHA
+  and KRA specifications are needed to write the real ones.
+- **The ICD-11 catalogue is 10 verified codes**, and the **PPB registrations in
+  the formulary are placeholders**. Both are loaders; both need the real
+  registers.
+- **Tariffs and benefit rules are illustrative.** The SHA schedule for the
+  contracting cycle must be loaded before any of the pricing means anything.
+- **The scrubber's rules are inferred from documented rejection causes, not
+  from 50 real rejected claims.** The roadmap says to build them from a real
+  corpus, and that is still the right next step — `recordOutcome` captures
+  every rejection reason and `claimsSummary` ranks them by cost, so the rule
+  set improves from real data rather than guesswork.
+- **Not yet built:** dispensing and stock (M40/M41), laboratory (M30),
+  radiology, inpatient wards, theatre, maternity, DHIS2 submission, the patient
+  portal. Phases 2–5 of the roadmap.
+- **No CI.** Tests, typecheck and build all pass locally and are run on every
+  change by hand; nothing enforces that automatically.

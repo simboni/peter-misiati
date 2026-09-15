@@ -560,3 +560,303 @@ CREATE TABLE IF NOT EXISTS prescriptions (
 );
 CREATE INDEX IF NOT EXISTS idx_rx_encounter ON prescriptions(encounter_id);
 CREATE INDEX IF NOT EXISTS idx_rx_patient ON prescriptions(patient_mrn, status);
+
+-- ================================================== M53 PAYER & COVERAGE
+--
+-- MONEY IS INTEGER CENTS OF KES. Never a float, `_cents` suffix always.
+-- A rounding error in a tariff becomes a rejected claim line.
+
+CREATE TABLE IF NOT EXISTS payers (
+  code                 TEXT PRIMARY KEY,
+  name                 TEXT NOT NULL,
+  kind                 TEXT NOT NULL CHECK (kind IN ('cash','sha','private','corporate')),
+  -- SHA's rule: a claim submitted beyond this many days is rejected outright.
+  claim_window_days    INTEGER NOT NULL DEFAULT 7,
+  -- Services above this need pre-authorisation. 0 means "never by amount".
+  preauth_above_cents  INTEGER NOT NULL DEFAULT 0,
+  active               INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1)),
+  created_at           TEXT NOT NULL
+);
+
+-- A patient's cover with a payer. `verification_source` is the honest part: a
+-- result obtained while the payer was unreachable is marked provisional, not
+-- passed off as a verification.
+CREATE TABLE IF NOT EXISTS coverages (
+  id                  INTEGER PRIMARY KEY,
+  patient_mrn         TEXT NOT NULL REFERENCES patients(mrn),
+  payer_code          TEXT NOT NULL REFERENCES payers(code),
+  member_number       TEXT NOT NULL,
+  scheme_name         TEXT NOT NULL DEFAULT '',
+  -- The principal member, when this patient is a dependant.
+  principal_mrn       TEXT REFERENCES patients(mrn),
+  valid_from          TEXT,
+  valid_to            TEXT,
+  status              TEXT NOT NULL CHECK (status IN ('active','inactive','unknown')),
+  verified_at         TEXT,
+  verification_source TEXT CHECK (verification_source IN ('online','cached','provisional','emergency')),
+  created_at          TEXT NOT NULL,
+  UNIQUE (patient_mrn, payer_code, member_number)
+);
+CREATE INDEX IF NOT EXISTS idx_cov_patient ON coverages(patient_mrn, status);
+
+-- What a payer covers. Absence is not permission: a service with no rule is
+-- treated as uncovered, because guessing costs a rejection.
+CREATE TABLE IF NOT EXISTS benefit_rules (
+  id              INTEGER PRIMARY KEY,
+  payer_code      TEXT NOT NULL REFERENCES payers(code),
+  service_code    TEXT NOT NULL,
+  covered         INTEGER NOT NULL DEFAULT 1 CHECK (covered IN (0,1)),
+  requires_preauth INTEGER NOT NULL DEFAULT 0 CHECK (requires_preauth IN (0,1)),
+  limit_cents     INTEGER,
+  notes           TEXT NOT NULL DEFAULT '',
+  source          TEXT NOT NULL DEFAULT '',
+  UNIQUE (payer_code, service_code)
+);
+
+-- Verification attempts that could not reach the payer. The March 2026 SHA
+-- outage is the reason this exists: care continues, the request is queued, and
+-- the claim carries an honest provisional flag until it resolves.
+CREATE TABLE IF NOT EXISTS verification_queue (
+  id            INTEGER PRIMARY KEY,
+  patient_mrn   TEXT NOT NULL REFERENCES patients(mrn),
+  payer_code    TEXT NOT NULL REFERENCES payers(code),
+  member_number TEXT NOT NULL,
+  queued_at     TEXT NOT NULL,
+  attempts      INTEGER NOT NULL DEFAULT 0,
+  status        TEXT NOT NULL CHECK (status IN ('queued','resolved','failed')),
+  last_error    TEXT,
+  resolved_at   TEXT
+);
+
+-- ==================================================== M54 PRE-AUTHORISATION
+
+CREATE TABLE IF NOT EXISTS preauths (
+  id                   TEXT PRIMARY KEY,
+  encounter_id         TEXT REFERENCES encounters(id),
+  patient_mrn          TEXT NOT NULL REFERENCES patients(mrn),
+  payer_code           TEXT NOT NULL REFERENCES payers(code),
+  -- JSON array of service codes this authorisation covers.
+  service_codes        TEXT NOT NULL DEFAULT '[]',
+  clinical_summary     TEXT NOT NULL DEFAULT '',
+  status               TEXT NOT NULL CHECK (status IN ('draft','requested','approved','declined','expired')),
+  -- The payer's reference. A claim cites it; without it the claim is rejected.
+  reference            TEXT,
+  approved_amount_cents INTEGER,
+  valid_until          TEXT,
+  decline_reason       TEXT,
+  requested_by         INTEGER REFERENCES users(id),
+  requested_at         TEXT,
+  decided_at           TEXT,
+  created_at           TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_preauth_enc ON preauths(encounter_id, status);
+
+-- ======================================================== M50 BILLING
+
+CREATE TABLE IF NOT EXISTS services (
+  code       TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  category   TEXT NOT NULL DEFAULT 'general',
+  -- eTIMS item classification. Every billable line needs one.
+  etims_class TEXT NOT NULL DEFAULT '',
+  active     INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1))
+);
+
+-- Priced per payer, and dated. A tariff that changed last month must not
+-- silently reprice a claim for care given before it.
+CREATE TABLE IF NOT EXISTS tariffs (
+  id             INTEGER PRIMARY KEY,
+  payer_code     TEXT NOT NULL REFERENCES payers(code),
+  service_code   TEXT NOT NULL REFERENCES services(code),
+  price_cents    INTEGER NOT NULL CHECK (price_cents >= 0),
+  effective_from TEXT NOT NULL,
+  effective_to   TEXT,
+  source         TEXT NOT NULL DEFAULT '',
+  UNIQUE (payer_code, service_code, effective_from)
+);
+CREATE INDEX IF NOT EXISTS idx_tariff_lookup ON tariffs(payer_code, service_code, effective_from);
+
+-- One charge line. `source_kind`/`source_ref` are the spine: a charge always
+-- points back at the clinical event that produced it, so a bill can be defended
+-- line by line and revenue leakage becomes visible.
+CREATE TABLE IF NOT EXISTS charges (
+  id               TEXT PRIMARY KEY,
+  encounter_id     TEXT NOT NULL REFERENCES encounters(id),
+  patient_mrn      TEXT NOT NULL REFERENCES patients(mrn),
+  service_code     TEXT NOT NULL REFERENCES services(code),
+  description      TEXT NOT NULL,
+  quantity         INTEGER NOT NULL CHECK (quantity > 0),
+  unit_price_cents INTEGER NOT NULL CHECK (unit_price_cents >= 0),
+  amount_cents     INTEGER NOT NULL CHECK (amount_cents >= 0),
+  payer_code       TEXT NOT NULL REFERENCES payers(code),
+  source_kind      TEXT NOT NULL CHECK (source_kind IN ('consultation','prescription','procedure','lab','imaging','other')),
+  source_ref       TEXT,
+  tariff_source    TEXT NOT NULL DEFAULT '',
+  created_by       INTEGER REFERENCES users(id),
+  created_at       TEXT NOT NULL,
+  voided_at        TEXT,
+  voided_by        INTEGER REFERENCES users(id),
+  void_reason      TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_charge_enc ON charges(encounter_id, voided_at);
+
+CREATE TABLE IF NOT EXISTS invoices (
+  id             TEXT PRIMARY KEY,
+  encounter_id   TEXT NOT NULL REFERENCES encounters(id),
+  patient_mrn    TEXT NOT NULL REFERENCES patients(mrn),
+  payer_code     TEXT NOT NULL REFERENCES payers(code),
+  total_cents    INTEGER NOT NULL,
+  status         TEXT NOT NULL CHECK (status IN ('issued','paid','void')),
+  issued_at      TEXT NOT NULL,
+  issued_by      INTEGER REFERENCES users(id),
+  -- The KRA number, assigned on transmission. The provisional id above is what
+  -- the patient was handed; both are kept, forever.
+  etims_number   TEXT,
+  etims_status   TEXT NOT NULL DEFAULT 'queued' CHECK (etims_status IN ('queued','sent','failed','not_required')),
+  void_reason    TEXT,
+  created_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_inv_enc ON invoices(encounter_id);
+
+CREATE TABLE IF NOT EXISTS payments (
+  id           TEXT PRIMARY KEY,
+  invoice_id   TEXT NOT NULL REFERENCES invoices(id),
+  method       TEXT NOT NULL CHECK (method IN ('cash','mpesa','card','cheque','insurance','waiver')),
+  amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
+  reference    TEXT NOT NULL DEFAULT '',
+  received_by  INTEGER REFERENCES users(id),
+  received_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_pay_invoice ON payments(invoice_id);
+
+-- ========================================================== M52 eTIMS
+--
+-- Hospitals must onboard to eTIMS even though medical services are VAT-exempt,
+-- and every encounter must end in a KRA-compliant invoice. The queue is what
+-- makes that survivable offline: the invoice is issued locally and transmitted
+-- when a link exists, and the two numbers are reconciled, never conflated.
+
+CREATE TABLE IF NOT EXISTS etims_queue (
+  id                INTEGER PRIMARY KEY,
+  invoice_id        TEXT NOT NULL REFERENCES invoices(id),
+  kind              TEXT NOT NULL CHECK (kind IN ('invoice','credit_note')),
+  payload           TEXT NOT NULL,
+  status            TEXT NOT NULL CHECK (status IN ('queued','sent','failed')),
+  attempts          INTEGER NOT NULL DEFAULT 0,
+  last_error        TEXT,
+  canonical_number  TEXT,
+  queued_at         TEXT NOT NULL,
+  sent_at           TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_etims_status ON etims_queue(status);
+
+-- ==================================================== M55 CLAIMS ENGINE
+
+CREATE TABLE IF NOT EXISTS claims (
+  id             TEXT PRIMARY KEY,
+  encounter_id   TEXT NOT NULL REFERENCES encounters(id),
+  patient_mrn    TEXT NOT NULL REFERENCES patients(mrn),
+  payer_code     TEXT NOT NULL REFERENCES payers(code),
+  invoice_id     TEXT REFERENCES invoices(id),
+  -- The date of service. The submission clock runs from here, not from when
+  -- somebody got round to assembling the claim.
+  service_date   TEXT NOT NULL,
+  total_cents    INTEGER NOT NULL DEFAULT 0,
+  status         TEXT NOT NULL CHECK (status IN ('draft','ready','submitted','accepted','rejected','paid','abandoned')),
+  -- The scrubber's last verdict, as JSON. Kept so a rejection can be compared
+  -- against what we believed at submission.
+  scrub_verdict  TEXT NOT NULL DEFAULT '{}',
+  reference      TEXT,
+  submitted_at   TEXT,
+  decided_at     TEXT,
+  rejection_code TEXT,
+  rejection_reason TEXT,
+  created_at     TEXT NOT NULL,
+  updated_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_claim_status ON claims(status, service_date);
+
+CREATE TABLE IF NOT EXISTS claim_items (
+  id             INTEGER PRIMARY KEY,
+  claim_id       TEXT NOT NULL REFERENCES claims(id),
+  charge_id      TEXT REFERENCES charges(id),
+  service_code   TEXT NOT NULL,
+  description    TEXT NOT NULL,
+  quantity       INTEGER NOT NULL,
+  amount_cents   INTEGER NOT NULL,
+  diagnosis_code TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_citem_claim ON claim_items(claim_id);
+
+-- Append-only history: assembled, scrubbed, submitted, rejected, resubmitted.
+-- This is what the claims dashboard reads to compute acceptance rate and
+-- days-to-payment, and what turns "20% rejected" into a ranked list of causes.
+CREATE TABLE IF NOT EXISTS claim_events (
+  id        INTEGER PRIMARY KEY,
+  claim_id  TEXT NOT NULL REFERENCES claims(id),
+  at        TEXT NOT NULL,
+  kind      TEXT NOT NULL,
+  actor_id  INTEGER REFERENCES users(id),
+  actor_name TEXT NOT NULL DEFAULT 'system',
+  detail    TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_cevent_claim ON claim_events(claim_id, at);
+
+-- ============================================================ M11 CONSENT
+
+CREATE TABLE IF NOT EXISTS consents (
+  id           INTEGER PRIMARY KEY,
+  patient_mrn  TEXT NOT NULL REFERENCES patients(mrn),
+  -- What was consented to. Granular, because consent to treatment is not
+  -- consent to share a record with an employer.
+  purpose      TEXT NOT NULL CHECK (purpose IN ('treatment','billing','claim','research','data_sharing')),
+  -- The wording shown, versioned. Consent to text that has since changed is not
+  -- consent to the new text.
+  version      TEXT NOT NULL,
+  granted      INTEGER NOT NULL CHECK (granted IN (0,1)),
+  given_by     TEXT NOT NULL DEFAULT 'patient',
+  recorded_by  INTEGER REFERENCES users(id),
+  recorded_at  TEXT NOT NULL,
+  withdrawn_at TEXT,
+  withdrawn_reason TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_consent_patient ON consents(patient_mrn, purpose);
+
+-- ==================================================== M14 QUEUE & TRIAGE
+
+CREATE TABLE IF NOT EXISTS visits (
+  id            TEXT PRIMARY KEY,
+  facility_id   INTEGER NOT NULL REFERENCES facilities(id),
+  patient_mrn   TEXT NOT NULL REFERENCES patients(mrn),
+  -- Kenyan triage practice: emergency first, then urgent, then routine.
+  priority      TEXT NOT NULL CHECK (priority IN ('emergency','urgent','routine')),
+  state         TEXT NOT NULL CHECK (state IN ('waiting','in_triage','in_consultation','done','left')),
+  department    TEXT NOT NULL DEFAULT 'outpatient',
+  token         TEXT NOT NULL,
+  encounter_id  TEXT REFERENCES encounters(id),
+  checked_in_at TEXT NOT NULL,
+  triaged_at    TEXT,
+  seen_at       TEXT,
+  done_at       TEXT,
+  device_code   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_visit_queue ON visits(facility_id, state);
+
+CREATE TABLE IF NOT EXISTS vitals (
+  id           INTEGER PRIMARY KEY,
+  visit_id     TEXT NOT NULL REFERENCES visits(id),
+  patient_mrn  TEXT NOT NULL REFERENCES patients(mrn),
+  -- Integers in fixed units, never floats: temp in tenths of a degree C,
+  -- weight in grams, height in mm, BP in mmHg.
+  temp_tenths_c   INTEGER,
+  weight_grams    INTEGER,
+  height_mm       INTEGER,
+  systolic_mmhg   INTEGER,
+  diastolic_mmhg  INTEGER,
+  pulse_bpm       INTEGER,
+  resp_rate       INTEGER,
+  spo2_percent    INTEGER,
+  recorded_by  INTEGER REFERENCES users(id),
+  recorded_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_vitals_visit ON vitals(visit_id);

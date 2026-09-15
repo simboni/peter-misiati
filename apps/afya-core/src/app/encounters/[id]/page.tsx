@@ -8,6 +8,10 @@ import ConsultForm from "./form";
 import PrescribeForm from "./prescribe";
 import { addDiagnosisAction, removeDiagnosisAction, cancelPrescriptionAction, recordAllergyAction } from "../actions.ts";
 import { prescriptionsFor, allergiesFor, listProducts } from "@/lib/prescribing.ts";
+import { chargesFor, invoiceForEncounter, leakageReport, formatKes } from "@/lib/billing.ts";
+import { claimForEncounter, scrub } from "@/lib/claims.ts";
+import { listPayers, coveragesFor } from "@/lib/payers.ts";
+import { billEncounterAction } from "../actions.ts";
 
 /** Next.js 16: params and searchParams are Promises. */
 export default async function ConsultPage(props: {
@@ -45,6 +49,15 @@ export default async function ConsultPage(props: {
   const allergies = allergiesFor(patient.mrn);
   // A clinic formulary is a short list, so it is offered whole. Once the real
   // PPB register is loaded this becomes a type-ahead against findProducts().
+  const charges = chargesFor(encounterId);
+  const invoice = invoiceForEncounter(encounterId);
+  const claim = claimForEncounter(encounterId);
+  const verdict = claim ? scrub(claim.id) : null;
+  const leaks = leakageReport(encounterId);
+  const payers = listPayers();
+  const patientCoverage = coveragesFor(patient.mrn);
+  const total = charges.reduce((sum, c) => sum + c.amount_cents, 0);
+
   const products = listProducts().map((p) => ({
     code: p.code,
     label: `${p.name}${p.form ? ` (${p.form})` : ""}`,
@@ -282,6 +295,106 @@ export default async function ConsultPage(props: {
           plan: note?.plan ?? "",
         }}
       />
+
+      {/* ---- money and the claim ---------------------------------------- */}
+      <section className="mt-7">
+        <h2 className="text-sm font-semibold tracking-[0.08em] uppercase text-muted">Billing</h2>
+
+        {charges.length > 0 ? (
+          <div className="mt-2 border border-line rounded overflow-hidden">
+            <table className="w-full text-sm">
+              <tbody>
+                {charges.map((c) => (
+                  <tr key={c.id} className="bg-white border-b border-line last:border-0">
+                    <td className="px-3 py-2">{c.description}</td>
+                    <td className="px-3 py-2 text-muted tnum text-right">×{c.quantity}</td>
+                    <td className="px-3 py-2 tnum text-right font-medium">{formatKes(c.amount_cents)}</td>
+                  </tr>
+                ))}
+                <tr className="bg-wash">
+                  <td className="px-3 py-2 font-semibold" colSpan={2}>Total</td>
+                  <td className="px-3 py-2 tnum text-right font-bold">{formatKes(total)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="mt-2 text-sm text-muted">Nothing billed yet.</p>
+        )}
+
+        {leaks.length > 0 ? (
+          <div className="mt-2 bg-clock-soft border border-clock/25 rounded px-3 py-2">
+            <p className="text-sm font-semibold text-clock">Done but not billed</p>
+            <ul className="text-sm text-clock mt-0.5">
+              {leaks.map((l) => <li key={`${l.kind}-${l.ref}`}>{l.description}</li>)}
+            </ul>
+          </div>
+        ) : null}
+
+        {invoice ? (
+          <p className="mt-2 text-sm text-muted tnum">
+            Invoice {invoice.id} · {formatKes(invoice.total_cents)} ·{" "}
+            {invoice.etims_number
+              ? `eTIMS ${invoice.etims_number}`
+              : `eTIMS ${invoice.etims_status} — the number on the patient's slip is ${invoice.id}`}
+          </p>
+        ) : null}
+
+        {/*
+          Billing stays available AFTER the consultation closes. In a real clinic
+          the clinician finishes and the patient walks to the cashier; gating this
+          on an open encounter made the "done but not billed" warning above
+          impossible to act on, which is the exact revenue leakage (W7) the
+          warning exists to catch. Only a cancelled encounter is unbillable.
+        */}
+        {encounter.status !== "cancelled" && charges.length === 0 ? (
+          <form action={billEncounterAction} className="mt-3 flex flex-wrap items-end gap-2">
+            <input type="hidden" name="encounterId" value={encounterId} />
+            <label className="flex flex-col gap-1 text-sm font-medium" htmlFor="payerCode">
+              Payer
+              <select id="payerCode" name="payerCode" defaultValue={patientCoverage[0]?.payer_code ?? "CASH"} className="border border-line rounded px-3 py-2 bg-white text-sm">
+                {payers.map((p) => <option key={p.code} value={p.code}>{p.name}</option>)}
+              </select>
+            </label>
+            <button type="submit" className="bg-brand text-white font-semibold rounded px-4 py-2.5 text-sm">
+              Bill and assemble claim
+            </button>
+          </form>
+        ) : null}
+      </section>
+
+      {/* ---- the scrubber, live, while the patient is still here ---------- */}
+      {verdict ? (
+        <section className="mt-7">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-sm font-semibold tracking-[0.08em] uppercase text-muted">Claim check</h2>
+            <span className={`text-xs font-semibold tnum ${verdict.daysLeft < 3 ? "text-clock" : "text-muted"}`}>
+              {verdict.daysLeft >= 0 ? `${verdict.daysLeft} days to submit` : `${Math.abs(verdict.daysLeft)} days overdue`}
+            </span>
+          </div>
+
+          <ul className="mt-2 flex flex-col gap-px bg-line border border-line rounded overflow-hidden">
+            {verdict.gates.map((g) => (
+              <li key={g.gate} className="bg-white px-3 py-2 flex flex-wrap gap-x-3 gap-y-0.5 items-baseline">
+                <span className={`text-xs font-bold tnum ${
+                  g.severity === "block" ? "text-block" : g.severity === "escalate" ? "text-clock" : "text-good"
+                }`}>
+                  {g.severity === "block" ? "BLOCK" : g.severity === "escalate" ? "LATE" : "OK"}
+                </span>
+                <span className="text-sm font-medium">{g.name}</span>
+                <span className="text-sm text-muted flex-1 min-w-[16rem]">{g.message}</span>
+                {!g.passed ? <span className="text-xs text-muted">→ {g.owner}</span> : null}
+              </li>
+            ))}
+          </ul>
+
+          <p className={`mt-2 text-sm font-semibold ${verdict.ready ? "text-good" : "text-block"}`}>
+            {verdict.ready
+              ? "Ready to submit — every gate passes."
+              : `${verdict.blocking.length} thing${verdict.blocking.length === 1 ? "" : "s"} would get this rejected. Fix them before it leaves the building.`}
+          </p>
+        </section>
+      ) : null}
 
       <footer className="mt-6 pt-4 border-t border-line text-xs text-muted leading-relaxed tnum">
         {encounter.clinician_name}
