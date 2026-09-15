@@ -1211,3 +1211,208 @@ CREATE TABLE IF NOT EXISTS lab_results (
 );
 CREATE INDEX IF NOT EXISTS idx_result_order ON lab_results(order_id, superseded_at);
 CREATE INDEX IF NOT EXISTS idx_result_patient ON lab_results(patient_mrn, created_at);
+
+-- ==================================================== M13 SCHEDULING
+
+-- A bookable period of somebody's time. Slots are generated from a pattern and
+-- then booked individually, so a clinician cancelling one morning does not
+-- require unpicking a recurrence rule at the moment a patient is on the phone.
+CREATE TABLE IF NOT EXISTS slots (
+  id           TEXT PRIMARY KEY,
+  facility_id  INTEGER NOT NULL REFERENCES facilities(id),
+  provider_id  INTEGER NOT NULL REFERENCES users(id),
+  department   TEXT NOT NULL DEFAULT 'outpatient',
+  -- Local clinic date and time, not UTC: a clinic runs on the wall clock, and
+  -- a 9 a.m. slot must stay 9 a.m. whatever the server thinks.
+  slot_date    TEXT NOT NULL,
+  start_time   TEXT NOT NULL,
+  minutes      INTEGER NOT NULL DEFAULT 15,
+  -- More than one for a group session or an over-booked clinic.
+  capacity     INTEGER NOT NULL DEFAULT 1,
+  blocked      INTEGER NOT NULL DEFAULT 0 CHECK (blocked IN (0,1)),
+  block_reason TEXT,
+  created_at   TEXT NOT NULL,
+  UNIQUE (provider_id, slot_date, start_time)
+);
+CREATE INDEX IF NOT EXISTS idx_slot_day ON slots(facility_id, slot_date, start_time);
+
+CREATE TABLE IF NOT EXISTS appointments (
+  id           TEXT PRIMARY KEY,
+  slot_id      TEXT NOT NULL REFERENCES slots(id),
+  patient_mrn  TEXT NOT NULL REFERENCES patients(mrn),
+  reason       TEXT NOT NULL DEFAULT '',
+  status       TEXT NOT NULL CHECK (status IN ('booked','arrived','completed','cancelled','did_not_attend')),
+  -- The visit it turned into, so "booked" and "actually seen" can be compared.
+  visit_id     TEXT REFERENCES visits(id),
+  booked_by    INTEGER REFERENCES users(id),
+  booker_name  TEXT NOT NULL,
+  cancelled_reason TEXT,
+  reminded_at  TEXT,
+  created_at   TEXT NOT NULL,
+  updated_at   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_appt_slot ON appointments(slot_id, status);
+CREATE INDEX IF NOT EXISTS idx_appt_patient ON appointments(patient_mrn, status);
+
+-- ==================================================== M24 INPATIENT & WARD
+
+CREATE TABLE IF NOT EXISTS wards (
+  code        TEXT PRIMARY KEY,
+  facility_id INTEGER NOT NULL REFERENCES facilities(id),
+  name        TEXT NOT NULL,
+  kind        TEXT NOT NULL CHECK (kind IN ('general','maternity','paediatric','isolation','hdu')),
+  -- Which sex the ward admits, '' for mixed. A bed a patient cannot occupy is
+  -- not an empty bed, and a bed board that pretends otherwise sends a porter
+  -- up three floors for nothing.
+  admits_sex  TEXT NOT NULL DEFAULT '',
+  active      INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1)),
+  created_at  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS beds (
+  code        TEXT PRIMARY KEY,
+  ward_code   TEXT NOT NULL REFERENCES wards(code),
+  label       TEXT NOT NULL,
+  -- Out of service: broken, being cleaned, or closed for infection control.
+  out_of_service INTEGER NOT NULL DEFAULT 0 CHECK (out_of_service IN (0,1)),
+  out_reason  TEXT,
+  created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_bed_ward ON beds(ward_code, out_of_service);
+
+-- An admission is an encounter with a bed and a length of stay. The encounter
+-- carries the clinical record; this carries where the patient is.
+CREATE TABLE IF NOT EXISTS admissions (
+  id            TEXT PRIMARY KEY,
+  encounter_id  TEXT NOT NULL REFERENCES encounters(id),
+  patient_mrn   TEXT NOT NULL REFERENCES patients(mrn),
+  ward_code     TEXT NOT NULL REFERENCES wards(code),
+  bed_code      TEXT NOT NULL REFERENCES beds(code),
+  admitted_by   INTEGER REFERENCES users(id),
+  admitter_name TEXT NOT NULL,
+  admitter_licence TEXT,
+  reason        TEXT NOT NULL DEFAULT '',
+  admitted_at   TEXT NOT NULL,
+  discharged_at TEXT,
+  discharged_by INTEGER REFERENCES users(id),
+  discharge_type TEXT CHECK (discharge_type IN
+                   ('home','referred','absconded','against_advice','died')),
+  device_code   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_admission_open ON admissions(ward_code, discharged_at);
+
+-- One patient per bed, enforced by the database rather than by looking first.
+--
+-- It has to be a PARTIAL index. `UNIQUE (bed_code, discharged_at)` looks like
+-- it would do this and does not: SQLite treats NULLs as distinct, so two open
+-- admissions to the same bed both have (bed, NULL) and both are allowed. The
+-- `WHERE discharged_at IS NULL` clause is what makes it real, and it still lets
+-- the same bed be reused by every patient who ever occupies it.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_bed_one_occupant
+  ON admissions(bed_code) WHERE discharged_at IS NULL;
+
+-- Every move of a patient between beds. Append-only: "which bed was he in on
+-- Tuesday" is an infection-control question with a real answer.
+CREATE TABLE IF NOT EXISTS bed_movements (
+  id           INTEGER PRIMARY KEY,
+  admission_id TEXT NOT NULL REFERENCES admissions(id),
+  from_bed     TEXT REFERENCES beds(code),
+  to_bed       TEXT NOT NULL REFERENCES beds(code),
+  reason       TEXT NOT NULL DEFAULT '',
+  by_user_id   INTEGER REFERENCES users(id),
+  by_user_name TEXT NOT NULL,
+  at           TEXT NOT NULL
+);
+
+-- A daily bed charge is raised by a job, not by remembering. Recorded per
+-- night so a run twice on the same day cannot double-bill.
+CREATE TABLE IF NOT EXISTS bed_nights (
+  admission_id TEXT NOT NULL REFERENCES admissions(id),
+  night_date   TEXT NOT NULL,
+  charge_id    TEXT REFERENCES charges(id),
+  billed_at    TEXT NOT NULL,
+  PRIMARY KEY (admission_id, night_date)
+);
+
+-- Ward observations and drug administration. Separate from triage vitals
+-- because the questions differ: a ward round asks about trend, not admission.
+CREATE TABLE IF NOT EXISTS ward_observations (
+  id           INTEGER PRIMARY KEY,
+  admission_id TEXT NOT NULL REFERENCES admissions(id),
+  patient_mrn  TEXT NOT NULL REFERENCES patients(mrn),
+  temp_tenths_c   INTEGER,
+  systolic_mmhg   INTEGER,
+  diastolic_mmhg  INTEGER,
+  pulse_bpm       INTEGER,
+  resp_rate       INTEGER,
+  spo2_percent    INTEGER,
+  -- The aggregate early-warning score, computed and stored so a ward round can
+  -- see a trend without recomputing history under a changed scoring table.
+  news2_score  INTEGER,
+  note         TEXT NOT NULL DEFAULT '',
+  recorded_by  INTEGER REFERENCES users(id),
+  recorder_name TEXT NOT NULL,
+  recorded_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_obs_admission ON ward_observations(admission_id, recorded_at);
+
+-- The medication administration record. A prescription says what should
+-- happen; this says what did.
+CREATE TABLE IF NOT EXISTS medication_administrations (
+  id              TEXT PRIMARY KEY,
+  admission_id    TEXT NOT NULL REFERENCES admissions(id),
+  prescription_id TEXT NOT NULL REFERENCES prescriptions(id),
+  patient_mrn     TEXT NOT NULL REFERENCES patients(mrn),
+  due_at          TEXT NOT NULL,
+  given_at        TEXT,
+  -- A dose not given is as important as one given, and must say why.
+  omitted_reason  TEXT,
+  given_by        INTEGER REFERENCES users(id),
+  giver_name      TEXT,
+  created_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_mar_admission ON medication_administrations(admission_id, due_at);
+
+-- ==================================================== M70 MOH RETURNS
+
+-- A return that has been produced, with its figures frozen.
+--
+-- Frozen deliberately. A return submitted in March and re-run in June gives
+-- different numbers — late entries, corrections, a merged duplicate — and the
+-- facility must be able to show what it actually sent. The variance between
+-- the two is itself a finding, not an embarrassment to be hidden by always
+-- recomputing.
+CREATE TABLE IF NOT EXISTS moh_returns (
+  id            TEXT PRIMARY KEY,
+  facility_id   INTEGER NOT NULL REFERENCES facilities(id),
+  form          TEXT NOT NULL,
+  -- ISO month, e.g. '2026-08'.
+  period        TEXT NOT NULL,
+  status        TEXT NOT NULL CHECK (status IN ('draft','submitted','accepted','rejected')),
+  -- The figures as sent, JSON, keyed by data element.
+  values_json   TEXT NOT NULL DEFAULT '{}',
+  generated_at  TEXT NOT NULL,
+  generated_by  INTEGER REFERENCES users(id),
+  submitted_at  TEXT,
+  reference     TEXT,
+  last_error    TEXT,
+  UNIQUE (facility_id, form, period)
+);
+
+-- Notifiable diseases. The Public Health Act requires these to be reported to
+-- the county health office, and the clock runs from diagnosis, not from when
+-- somebody got round to the monthly return.
+CREATE TABLE IF NOT EXISTS notifiable_events (
+  id           TEXT PRIMARY KEY,
+  facility_id  INTEGER NOT NULL REFERENCES facilities(id),
+  patient_mrn  TEXT NOT NULL REFERENCES patients(mrn),
+  encounter_id TEXT NOT NULL REFERENCES encounters(id),
+  condition_code TEXT NOT NULL,
+  condition_term TEXT NOT NULL,
+  detected_at  TEXT NOT NULL,
+  notified_at  TEXT,
+  notified_by  INTEGER REFERENCES users(id),
+  reference    TEXT,
+  UNIQUE (encounter_id, condition_code)
+);
+CREATE INDEX IF NOT EXISTS idx_notifiable_open ON notifiable_events(facility_id, notified_at);

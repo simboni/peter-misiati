@@ -26,6 +26,7 @@ import { defineService, setTariff } from "./billing.ts";
 import { seedEndpoints } from "./integration.ts";
 import { defineStore, setReorderLevel } from "./inventory.ts";
 import { defineRange } from "./laboratory.ts";
+import { defineWard, defineBed } from "./inpatient.ts";
 
 /** The councils that license clinical practice in Kenya. */
 export const CADRES: { code: string; name: string; regulator: string; licensed: boolean }[] = [
@@ -267,6 +268,8 @@ export function seedRevenueCycle(): void {
     defineService({ code: s.code, name: s.name, category: s.category, etimsClass: s.etims });
   }
 
+  defineService({ code: "BED-DAY", name: "Bed day (general ward)", category: "inpatient", etimsClass: "SRV-BED" });
+
   // Dispensed products are billed under their own codes.
   for (const p of FORMULARY_STARTER) {
     defineService({ code: p.code, name: p.name, category: "pharmacy", etimsClass: "SRV-PHARM" });
@@ -276,7 +279,7 @@ export function seedRevenueCycle(): void {
 
   // Cash prices, in cents.
   const cash: [string, number][] = [
-    ["CONSULT-OP", 50_000], ["CONSULT-REV", 30_000],
+    ["CONSULT-OP", 50_000], ["CONSULT-REV", 30_000], ["BED-DAY", 250_000],
     ["LAB-MRDT", 20_000], ["LAB-CBC", 60_000], ["LAB-URIN", 25_000],
     ["PROC-SUTURE", 150_000], ["PROC-NEB", 80_000],
     ["AL-20-120", 35_000], ["PARA-500", 5_00], ["AMOX-500", 12_00], ["AMOX-125S", 25_000],
@@ -336,6 +339,25 @@ export function seedStores(facilityId = 1): void {
       reorderAt: p.controlled ? 10 : 50,
       reorderTo: p.controlled ? 40 : 300,
     });
+  }
+}
+
+/**
+ * A ward with beds, so an admission can be demonstrated.
+ *
+ * Small and deliberately mixed-plus-maternity: the maternity ward is what makes
+ * the sex restriction visible, and the restriction is the rule that stops a bed
+ * board promising a bed the patient cannot occupy.
+ */
+export function seedWards(facilityId = 1): void {
+  defineWard({ facilityId, code: "GEN", name: "General ward", kind: "general" });
+  defineWard({ facilityId, code: "MAT", name: "Maternity ward", kind: "maternity", admitsSex: "female" });
+
+  for (let n = 1; n <= 6; n++) {
+    defineBed({ wardCode: "GEN", code: `GEN-${n}`, label: `General bed ${n}` });
+  }
+  for (let n = 1; n <= 4; n++) {
+    defineBed({ wardCode: "MAT", code: `MAT-${n}`, label: `Maternity bed ${n}` });
   }
 }
 
@@ -450,6 +472,7 @@ export function seedDemo(): {
     const clinician = get<{ id: number }>(`SELECT id FROM users WHERE username = 'a.wanjiru'`)!;
     const reception = get<{ id: number }>(`SELECT id FROM users WHERE username = 'j.otieno'`)!;
     seedStores(existing.id);
+    seedWards(existing.id);
     const pharmacist = get<{ id: number }>(`SELECT id FROM users WHERE username = 'g.kimani'`)!;
     const labTech = get<{ id: number }>(`SELECT id FROM users WHERE username = 's.mutiso'`)!;
     return {
@@ -472,8 +495,9 @@ export function seedDemo(): {
   setSetting("session_timeout_minutes", "30");
   setSetting("claim_submission_window_days", "7");
 
-  // Stores need a facility to belong to, so they come after it exists.
+  // Stores and wards need a facility to belong to, so they come after it exists.
   seedStores(facilityId);
+  seedWards(facilityId);
 
   const adminId = createUser({
     facilityId,
