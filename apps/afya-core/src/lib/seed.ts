@@ -20,6 +20,7 @@ import { definePermission, defineRole } from "./access.ts";
 import { registerFacility, registerDevice, setSetting } from "./facility.ts";
 import { createUser, recordLicence } from "./users.ts";
 import { importCodes, ICD11 } from "./terminology.ts";
+import { importProducts } from "./prescribing.ts";
 
 /** The councils that license clinical practice in Kenya. */
 export const CADRES: { code: string; name: string; regulator: string; licensed: boolean }[] = [
@@ -199,6 +200,34 @@ export const ICD11_STARTER: { code: string; term: string; synonyms?: string }[] 
   { code: "GC08", term: "Urinary tract infection, site not specified", synonyms: "UTI,urine infection" },
 ];
 
+
+/**
+ * Starter formulary.
+ *
+ * The essential medicines a Kenyan Level 2/3 outpatient clinic actually reaches
+ * for. Like the ICD-11 starter set this is NOT the register: the PPB
+ * registration numbers here are placeholders, marked as such, and the real
+ * register must be loaded with `importProducts` before dispensing.
+ *
+ * Generic names are what matter — an allergy is to the generic, and it must
+ * match whatever brand is on the shelf that week.
+ */
+export const FORMULARY_STARTER: {
+  code: string; name: string; genericName: string; form: string; strength: string; controlled?: boolean;
+}[] = [
+  { code: "AL-20-120", name: "Artemether/Lumefantrine 20/120", genericName: "artemether lumefantrine", form: "tablet", strength: "20/120 mg" },
+  { code: "PARA-500", name: "Paracetamol 500mg", genericName: "paracetamol", form: "tablet", strength: "500 mg" },
+  { code: "AMOX-500", name: "Amoxicillin 500mg", genericName: "amoxicillin", form: "capsule", strength: "500 mg" },
+  { code: "AMOX-125S", name: "Amoxicillin suspension 125mg/5ml", genericName: "amoxicillin", form: "suspension", strength: "125 mg/5 ml" },
+  { code: "CTX-960", name: "Cotrimoxazole 960mg", genericName: "cotrimoxazole", form: "tablet", strength: "960 mg" },
+  { code: "ORS-1L", name: "Oral Rehydration Salts", genericName: "oral rehydration salts", form: "sachet", strength: "1 L" },
+  { code: "ZINC-20", name: "Zinc sulphate 20mg", genericName: "zinc sulphate", form: "tablet", strength: "20 mg" },
+  { code: "SALB-INH", name: "Salbutamol inhaler", genericName: "salbutamol", form: "inhaler", strength: "100 mcg/dose" },
+  { code: "METRO-400", name: "Metronidazole 400mg", genericName: "metronidazole", form: "tablet", strength: "400 mg" },
+  { code: "IBU-400", name: "Ibuprofen 400mg", genericName: "ibuprofen", form: "tablet", strength: "400 mg" },
+  { code: "MORPH-10", name: "Morphine sulphate 10mg", genericName: "morphine", form: "tablet", strength: "10 mg", controlled: true },
+];
+
 /** Install cadres, permissions and roles. Idempotent. */
 export function seedReferenceData(): void {
   tx(() => {
@@ -233,6 +262,18 @@ export function seedReferenceData(): void {
     // code can be told where it came from.
     source: "ICD-11 MMS (starter set, verified individually)",
     concepts: ICD11_STARTER.map((c) => ({ ...c, verified: true })),
+    byUserName: "seed",
+  });
+
+  importProducts({
+    source: "starter formulary — PPB registrations are placeholders, load the real register",
+    products: FORMULARY_STARTER.map((p) => ({
+      ...p,
+      // Placeholder registrations so the starter set is usable end to end. The
+      // real numbers come from the PPB register; `ppb_registration` being
+      // present is what lets a product be dispensed at all.
+      ppbRegistration: `PPB-PLACEHOLDER-${p.code}`,
+    })),
     byUserName: "seed",
   });
 }

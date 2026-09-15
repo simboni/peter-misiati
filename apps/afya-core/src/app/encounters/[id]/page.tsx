@@ -5,7 +5,9 @@ import { getEncounter, currentNote, activeDiagnoses, readiness, noteHistory } fr
 import { openPatient } from "@/lib/patients.ts";
 import { topCodes, coverage, searchForCoding } from "@/lib/terminology.ts";
 import ConsultForm from "./form";
-import { addDiagnosisAction, removeDiagnosisAction } from "../actions.ts";
+import PrescribeForm from "./prescribe";
+import { addDiagnosisAction, removeDiagnosisAction, cancelPrescriptionAction, recordAllergyAction } from "../actions.ts";
+import { prescriptionsFor, allergiesFor, listProducts } from "@/lib/prescribing.ts";
 
 /** Next.js 16: params and searchParams are Promises. */
 export default async function ConsultPage(props: {
@@ -39,6 +41,15 @@ export default async function ConsultPage(props: {
   const searchHits = dxQuery ? searchForCoding({ query: dxQuery, userId: user.userId }) : [];
   const cat = coverage();
   const closed = encounter.status !== "open";
+  const prescriptions = prescriptionsFor(encounterId);
+  const allergies = allergiesFor(patient.mrn);
+  // A clinic formulary is a short list, so it is offered whole. Once the real
+  // PPB register is loaded this becomes a type-ahead against findProducts().
+  const products = listProducts().map((p) => ({
+    code: p.code,
+    label: `${p.name}${p.form ? ` (${p.form})` : ""}`,
+    controlled: p.controlled === 1,
+  }));
 
   const age = patient.date_of_birth
     ? Math.floor((Date.now() - Date.parse(patient.date_of_birth)) / (365.25 * 86_400_000))
@@ -61,6 +72,57 @@ export default async function ConsultPage(props: {
         >
           {closed ? "Closed" : "In consultation"}
         </span>
+      </div>
+
+      {/* Allergies sit above everything. They are the one thing on this screen
+          that can kill someone, and they belong to the patient, not the visit. */}
+      <div className="mt-3 flex flex-wrap items-center gap-1.5">
+        {allergies.length > 0 ? (
+          allergies.map((a) => (
+            <span
+              key={a.id}
+              className={`text-xs font-semibold px-2 py-1 rounded ${
+                a.severity === "mild" ? "bg-clock-soft text-clock" : "bg-block-soft text-block"
+              }`}
+            >
+              {a.substance}
+              {a.reaction ? ` — ${a.reaction}` : ""} ({a.severity})
+            </span>
+          ))
+        ) : (
+          <span className="text-xs text-muted">No known allergies recorded</span>
+        )}
+
+        {!closed ? (
+          <form action={recordAllergyAction} className="flex flex-wrap items-center gap-1.5 ml-auto">
+            <input type="hidden" name="encounterId" value={encounterId} />
+            <input type="hidden" name="mrn" value={patient.mrn} />
+            <input
+              id="substance"
+              name="substance"
+              required
+              placeholder="Allergy (generic name)"
+              className="border border-line rounded px-2 py-1 bg-white text-xs w-40"
+            />
+            <input
+              id="reaction"
+              name="reaction"
+              placeholder="Reaction"
+              className="border border-line rounded px-2 py-1 bg-white text-xs w-28"
+            />
+            <select
+              id="severity"
+              name="severity"
+              defaultValue="severe"
+              className="border border-line rounded px-2 py-1 bg-white text-xs"
+            >
+              <option value="mild">mild</option>
+              <option value="severe">severe</option>
+              <option value="anaphylaxis">anaphylaxis</option>
+            </select>
+            <button type="submit" className="text-xs border border-line rounded px-2 py-1">Add</button>
+          </form>
+        ) : null}
       </div>
 
       {/* Diagnoses first: it is the thing that blocks the claim, and the thing
@@ -161,6 +223,49 @@ export default async function ConsultPage(props: {
             ) : null}
           </>
         ) : null}
+      </section>
+
+      <section className="mt-6">
+        <h2 className="text-sm font-semibold tracking-[0.08em] uppercase text-muted">Prescription</h2>
+
+        {prescriptions.length > 0 ? (
+          <ul className="mt-2 flex flex-col gap-1.5">
+            {prescriptions.map((rx) => (
+              <li
+                key={rx.id}
+                className={`bg-white border rounded px-3 py-2 ${
+                  rx.status === "cancelled" ? "border-line opacity-60" : "border-line"
+                }`}
+              >
+                <div className="flex flex-wrap items-baseline gap-x-3">
+                  <span className="text-sm font-medium">{rx.product_name}</span>
+                  <span className="text-sm text-muted tnum">
+                    {rx.dose} · {rx.frequency} · {rx.quantity}
+                    {rx.duration_days ? ` · ${rx.duration_days} days` : ""}
+                  </span>
+                  {rx.status === "cancelled" ? (
+                    <span className="text-xs text-muted">cancelled — {rx.cancelled_reason}</span>
+                  ) : !closed ? (
+                    <form action={cancelPrescriptionAction} className="ml-auto">
+                      <input type="hidden" name="prescriptionId" value={rx.id} />
+                      <input type="hidden" name="encounterId" value={encounterId} />
+                      <button type="submit" className="text-xs text-block underline underline-offset-2">Cancel</button>
+                    </form>
+                  ) : null}
+                </div>
+                {rx.override_reason ? (
+                  <p className="text-xs text-block mt-1">
+                    Prescribed over a warning: {rx.override_reason}
+                  </p>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-2 text-sm text-muted">Nothing prescribed yet.</p>
+        )}
+
+        {!closed ? <PrescribeForm encounterId={encounterId} products={products} /> : null}
       </section>
 
       {/* The note. One form, saved once. */}

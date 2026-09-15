@@ -16,6 +16,8 @@ import {
   openEncounter, writeNote, addDiagnosis, removeDiagnosis, closeEncounter, readiness,
 } from "@/lib/encounters.ts";
 import { activeDevice, listDevices } from "@/lib/facility.ts";
+import { getEncounter } from "@/lib/encounters.ts";
+import { prescribe, cancelPrescription, checkSafety, recordAllergy } from "@/lib/prescribing.ts";
 
 async function device(sessionDevice: string | null, facilityId: number): Promise<string> {
   if (sessionDevice && activeDevice(sessionDevice)) return sessionDevice;
@@ -105,4 +107,106 @@ export async function removeDiagnosisAction(formData: FormData): Promise<void> {
     reason: String(formData.get("reason") ?? "removed during consultation"),
   });
   revalidatePath(`/encounters/${String(formData.get("encounterId") ?? "")}`);
+}
+
+// --------------------------------------------------------------- prescribing
+
+export type PrescribeState = {
+  error?: string;
+  /** Blocking warnings the prescriber must answer before proceeding. */
+  blocked?: string[];
+  /** Advisory warnings — shown, never in the way. */
+  advice?: string[];
+  values?: Record<string, string>;
+};
+
+/**
+ * Write a prescription.
+ *
+ * A blocking warning comes back as `blocked` with the form's values intact, so
+ * the prescriber answers it in place rather than retyping. An override is only
+ * accepted with a written reason, which goes onto the prescription permanently.
+ */
+export async function prescribeAction(_prev: PrescribeState, formData: FormData): Promise<PrescribeState> {
+  const user = await requireUser();
+  const encounterId = String(formData.get("encounterId") ?? "");
+
+  const values = {
+    productCode: String(formData.get("productCode") ?? "").trim(),
+    dose: String(formData.get("dose") ?? "").trim(),
+    frequency: String(formData.get("frequency") ?? "").trim(),
+    quantity: String(formData.get("quantity") ?? "").trim(),
+    durationDays: String(formData.get("durationDays") ?? "").trim(),
+    instructions: String(formData.get("instructions") ?? "").trim(),
+  };
+  const overrideReason = String(formData.get("overrideReason") ?? "").trim();
+
+  if (!values.productCode) return { error: "Choose a product.", values };
+
+  try {
+    const deviceCode = await device(user.deviceCode, user.facilityId);
+    const encounter = getEncounter(encounterId);
+    if (!encounter) return { error: "No such encounter.", values };
+
+    // Show advisory warnings even on the happy path — a mild allergy is worth
+    // knowing, just not worth blocking on.
+    const warnings = checkSafety({ patientMrn: encounter.patient_mrn, productCode: values.productCode });
+    const advice = warnings.filter((w) => !w.blocking).map((w) => w.message);
+    const blocking = warnings.filter((w) => w.blocking).map((w) => w.message);
+
+    if (blocking.length > 0 && !overrideReason) {
+      return { blocked: blocking, advice, values };
+    }
+
+    prescribe({
+      encounterId,
+      productCode: values.productCode,
+      dose: values.dose,
+      frequency: values.frequency,
+      quantity: Number(values.quantity),
+      durationDays: values.durationDays ? Number(values.durationDays) : null,
+      instructions: values.instructions,
+      overrideReason: overrideReason || undefined,
+      prescriberId: user.userId,
+      prescriberName: user.name,
+      deviceCode,
+    });
+
+    revalidatePath(`/encounters/${encounterId}`);
+    return { advice };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not prescribe.", values };
+  }
+}
+
+export async function cancelPrescriptionAction(formData: FormData): Promise<void> {
+  const user = await requireUser();
+  cancelPrescription({
+    prescriptionId: String(formData.get("prescriptionId") ?? ""),
+    reason: String(formData.get("reason") ?? "cancelled during consultation"),
+    byUserId: user.userId,
+    byUserName: user.name,
+  });
+  revalidatePath(`/encounters/${String(formData.get("encounterId") ?? "")}`);
+}
+
+/**
+ * Record an allergy.
+ *
+ * Lives on the consultation screen because that is where a patient says "the
+ * last tablets gave me a rash" — an allergy captured later, at a desk, is an
+ * allergy not captured.
+ */
+export async function recordAllergyAction(formData: FormData): Promise<void> {
+  const user = await requireUser();
+  const encounterId = String(formData.get("encounterId") ?? "");
+  recordAllergy({
+    patientMrn: String(formData.get("mrn") ?? ""),
+    substance: String(formData.get("substance") ?? ""),
+    reaction: String(formData.get("reaction") ?? ""),
+    severity: (String(formData.get("severity") ?? "severe") as "mild" | "severe" | "anaphylaxis"),
+    byUserId: user.userId,
+    byUserName: user.name,
+  });
+  revalidatePath(`/encounters/${encounterId}`);
 }

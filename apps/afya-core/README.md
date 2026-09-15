@@ -5,7 +5,8 @@ Kenya-compliant hospital management system (HMIS). Built to the plan in
 
 **Current state: Phase 0 complete, Phase 1 in progress** — M00 Platform Core,
 M01 Identity & Access, M02 Audit, M03 Sync Engine, M10 Patient Registry & MPI,
-M21 Terminology, M20 Encounter. Billing, eTIMS and the claim scrubber are next.
+M21 Terminology, M20 Encounter, M23 Prescribing. Billing, eTIMS and the claim
+scrubber are next.
 
 ## Running it
 
@@ -13,7 +14,7 @@ M21 Terminology, M20 Encounter. Billing, eTIMS and the claim scrubber are next.
 npm install
 npm run seed     # creates data/afya.db with a demo clinic and staff
 npm run dev      # http://localhost:3200
-npm test         # 104 tests, no network or database server needed
+npm test         # 123 tests, no network or database server needed
 ```
 
 Sign in as `admin` / `ChangeMe123`.
@@ -44,9 +45,10 @@ tier. `src/lib/db.ts` is the only module that would change.
 | **M10** Patient Registry & MPI | `src/lib/patients.ts` | Patients, identifier normalisation, duplicate matching, merge and unmerge |
 | **M21** Terminology | `src/lib/terminology.ts` | Coded catalogues, verified-only coding search, favourites, coverage |
 | **M20** Encounter | `src/lib/encounters.ts` | Consultations, append-only notes, coded diagnoses, readiness |
-| — | `src/lib/seed.ts` | Cadres, the permission catalogue, default roles, ICD-11 starter set |
+| **M23** Prescribing | `src/lib/prescribing.ts` | Formulary, allergies, graded safety warnings, prescriptions |
+| — | `src/lib/seed.ts` | Cadres, permissions, roles, ICD-11 and formulary starter sets |
 
-## Eight rules the code enforces
+## Ten rules the code enforces
 
 These are compliance requirements expressed as code, not documentation. Each has
 a test that fails if it regresses.
@@ -94,6 +96,17 @@ a test that fails if it regresses.
    still with the patient — the cheapest moment in the whole revenue cycle to
    fix it.
 
+9. **Only one grade of warning interrupts.** A severe or anaphylactic allergy
+   blocks prescribing and needs a written override; a mild allergy informs and
+   stops nothing; a controlled drug flags the pharmacy, not the prescriber. A
+   system that blocks on everything teaches clinicians to override reflexively,
+   and then the warning that mattered is overridden too.
+
+10. **An override is only recorded when something was actually overridden.** A
+    stale reason carried forward from a previous attempt is dropped, because a
+    record claiming a prescriber overrode a warning they were never shown is a
+    lie in a clinical record.
+
 ## Testing
 
 ```bash
@@ -111,7 +124,11 @@ published MMS classification. Codes that could not be confirmed were left out
 rather than guessed, because an invented code causes exactly the rejection this
 system exists to prevent.
 
-That is not a catalogue. Before go-live, load the full WHO ICD-11 MMS release:
+That is not a catalogue. The same applies to the **starter formulary**: its PPB
+registration numbers are placeholders, and the real PPB register must be loaded
+with `importProducts` before anything is dispensed.
+
+Before go-live, load the full WHO ICD-11 MMS release:
 
 ```ts
 importCodes({ system: ICD11, source: "WHO ICD-11 MMS <release>", concepts: [...] });
@@ -137,9 +154,9 @@ dependency yet. Wiring it into CI is outstanding.
 
 ## Next in Phase 1
 
-Remaining for the "Claim-Safe Core" MVP, in dependency order: M23 Prescribing,
-M11 Consent, M14 Queue & Triage, M50 Billing, M52 eTIMS, M53 Payer & Coverage,
-M54 Pre-authorisation, and M55 the Claims Engine and scrubber.
+Remaining for the "Claim-Safe Core" MVP, in dependency order: M50 Billing,
+M52 eTIMS, M53 Payer & Coverage, M54 Pre-authorisation, M11 Consent,
+M14 Queue & Triage, and M55 the Claims Engine and scrubber.
 
 Per the roadmap, the scrubber's rules should be built from 50 real rejected
 claims before the rest — encoding what SHA already rejected beats guessing.

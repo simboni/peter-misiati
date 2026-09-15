@@ -481,3 +481,82 @@ CREATE TABLE IF NOT EXISTS encounter_diagnoses (
   removed_by   INTEGER REFERENCES users(id)
 );
 CREATE INDEX IF NOT EXISTS idx_dx_encounter ON encounter_diagnoses(encounter_id, removed_at);
+
+-- ========================================================= M23 PRESCRIBING
+--
+-- Only PPB-registered products may be dispensed, so the catalogue is keyed to
+-- the registration rather than to a name someone typed. Names repeat across
+-- manufacturers; a registration number does not.
+--
+-- `controlled` drives a separate register and a second signature at dispensing.
+
+CREATE TABLE IF NOT EXISTS products (
+  code             TEXT PRIMARY KEY,
+  name             TEXT    NOT NULL,          -- as it appears on the pack
+  generic_name     TEXT    NOT NULL,          -- what an allergy is actually to
+  form             TEXT    NOT NULL DEFAULT '', -- tablet, suspension, injection
+  strength         TEXT    NOT NULL DEFAULT '',
+  -- Pharmacy and Poisons Board registration. Without it the product must not be
+  -- dispensed, whatever is sitting on the shelf.
+  ppb_registration TEXT,
+  controlled       INTEGER NOT NULL DEFAULT 0 CHECK (controlled IN (0,1)),
+  active           INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1)),
+  source           TEXT    NOT NULL DEFAULT '',
+  loaded_at        TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_prod_generic ON products(generic_name);
+
+-- Allergies belong to the patient, not the visit: they must be visible at every
+-- encounter, forever, by whoever is prescribing.
+CREATE TABLE IF NOT EXISTS allergies (
+  id           INTEGER PRIMARY KEY,
+  patient_mrn  TEXT    NOT NULL REFERENCES patients(mrn),
+  -- Recorded as a generic substance so it matches across brands.
+  substance    TEXT    NOT NULL,
+  reaction     TEXT    NOT NULL DEFAULT '',
+  severity     TEXT    NOT NULL CHECK (severity IN ('mild','severe','anaphylaxis')),
+  recorded_by  INTEGER REFERENCES users(id),
+  recorded_at  TEXT    NOT NULL,
+  -- Marked, never deleted: a retracted allergy is still clinically relevant.
+  removed_at   TEXT,
+  removed_by   INTEGER REFERENCES users(id),
+  removed_reason TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_allergy_patient ON allergies(patient_mrn, removed_at);
+
+CREATE TABLE IF NOT EXISTS prescriptions (
+  id                TEXT PRIMARY KEY,          -- device-prefixed
+  encounter_id      TEXT    NOT NULL REFERENCES encounters(id),
+  patient_mrn       TEXT    NOT NULL REFERENCES patients(mrn),
+
+  product_code      TEXT    NOT NULL REFERENCES products(code),
+  -- Pinned as it read when prescribed. Catalogues get re-released and a
+  -- dispensing error is argued over the words on the prescription.
+  product_name      TEXT    NOT NULL,
+  generic_name      TEXT    NOT NULL,
+
+  dose              TEXT    NOT NULL,
+  route             TEXT    NOT NULL DEFAULT 'oral',
+  frequency         TEXT    NOT NULL,
+  duration_days     INTEGER,
+  quantity          INTEGER NOT NULL,
+  instructions      TEXT    NOT NULL DEFAULT '',
+
+  prescriber_id     INTEGER REFERENCES users(id),
+  prescriber_name   TEXT    NOT NULL,
+  -- Pinned like the encounter's: a claim cites the prescriber's registration as
+  -- it stood on the day.
+  prescriber_licence TEXT,
+
+  -- Recorded when the prescriber knowingly overrode a warning. This is the
+  -- entry a coroner or a claims auditor asks for.
+  override_reason   TEXT,
+
+  status            TEXT    NOT NULL CHECK (status IN ('active','dispensed','cancelled')),
+  cancelled_reason  TEXT,
+  device_code       TEXT,
+  created_at        TEXT    NOT NULL,
+  updated_at        TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_rx_encounter ON prescriptions(encounter_id);
+CREATE INDEX IF NOT EXISTS idx_rx_patient ON prescriptions(patient_mrn, status);
