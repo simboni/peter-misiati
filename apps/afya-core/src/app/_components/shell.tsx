@@ -15,6 +15,7 @@ import { deadLetters } from "@/lib/integration.ts";
 import { unsettledClaims } from "@/lib/remittance.ts";
 import { defaulters } from "@/lib/programmes.ts";
 import { ancDefaulters } from "@/lib/maternity.ts";
+import { board as casualtyBoard, listIncidents } from "@/lib/emergency.ts";
 import { signOutAction } from "@/app/actions/session.ts";
 import { navFor, type BadgeKey } from "./nav.ts";
 import type { CurrentUser } from "@/lib/auth.ts";
@@ -50,6 +51,8 @@ function counts(facilityId: number): Record<BadgeKey, { text: string; tone: "blo
   const unsettled = unsettledClaims(facilityId, 30);
   const missed = defaulters();
   const ancMissed = ancDefaulters();
+  const casualty = casualtyBoard(facilityId);
+  const liveIncidents = listIncidents(facilityId).filter((i) => !i.stood_down_at);
   const waiting = queue(facilityId);
 
   const n = (
@@ -76,6 +79,13 @@ function counts(facilityId: number): Record<BadgeKey, { text: string; tone: "blo
     unsettled: n(unsettled.length, unsettled.some((c) => c.days > 60) ? "block" : "clock"),
     defaulters: n(missed.length, missed.some((d) => d.lost) ? "block" : "clock"),
     antenatal: n(ancMissed.length, "clock"),
+    // A breach or an untriaged patient turns the casualty badge red: those
+    // are the two states where the number beside the link is the point.
+    casualty: n(
+      casualty.length,
+      casualty.some((r) => r.untriaged || r.breached) ? "block" : "quiet",
+    ),
+    incidents: n(liveIncidents.length, "block"),
     alerts: n(alerts.total, alerts.critical > 0 ? "block" : "clock"),
   };
 }

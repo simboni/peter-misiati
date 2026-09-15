@@ -141,26 +141,74 @@ Three questions, in the order they matter:
    clinician can check in five minutes, and the only one where being out of
    date silently produces wrong work every day.
 
-## 8. Public health
+## 8. Emergency and casualty
+
+The triage scale here decides who is seen first. It is the highest-consequence
+table in the system and it is entirely a clinical judgement, not an
+engineering one.
 
 | # | Rule | Where | Source | Status |
 |---|---|---|---|---|
-| 8.1 | Notifiable conditions are detected from coded diagnoses as they are made, because the Act's clock runs from diagnosis | `reporting.ts` | Public Health Act | ✅ |
-| 8.2 | **The notifiable list is four conditions** — malaria, tuberculosis, cholera, measles. The full schedule must be loaded | `reporting.ts` `NOTIFIABLE_PREFIXES` | — | 🔴 |
-| 8.3 | Reporting one requires the county's reference — it is the proof it was made | `reporting.ts` | Design rule | ✅ |
-| 8.4 | MOH 705A is under five, 705B is five and over, split by age **on the day of the visit** | `reporting.ts` | MOH forms | ✅ |
-| 8.5 | A condition is counted whichever code in its ICD-11 family the clinician used | `reporting.ts` `MOH705_CONDITIONS` | Design rule | ⚠️ |
-| 8.6 | **The 705 condition list is six conditions.** The real form has many more rows | `reporting.ts` | — | 🔴 |
+| 8.1 | **Emergency treatment is never gated on payment.** `openAttendance` performs no payer check, no deposit, no coverage probe and no consent form, and will open an attendance with no name at all | `emergency.ts`, `casualty/actions.ts` | Constitution Art. 43(2); Health Act 2017 s.7 | ✅ |
+| 8.2 | Triage is the **South African Triage Scale**: a Triage Early Warning Score plus discriminators | `emergency.ts` `tews` | SATS, as published | ⚠️ |
+| 8.3 | TEWS components: mobility, respiratory rate, pulse, systolic, temperature, AVPU, trauma | `emergency.ts` | SATS | ⚠️ |
+| 8.4 | **Score bands: 7+ red, 5–6 orange, 3–4 yellow, 0–2 green** | `emergency.ts` `triageFromScore` | SATS | ⚠️ |
+| 8.5 | **Time targets: red immediate, orange 10 min, yellow 60 min, green 240 min** | `emergency.ts` `TARGET_MINUTES` | SATS | ⚠️ |
+| 8.6 | **A discriminator can only raise a colour, never lower it.** The failure that kills people is a sick patient talked into a lower queue | `emergency.ts` `worst` | Design rule | ✅ |
+| 8.7 | Raising a triage by hand must record what was seen | `emergency.ts` | Design rule | ✅ |
+| 8.8 | A partial set of observations scores only what was recorded, so it **under-reads rather than over-reads** — the safe direction for a score only a discriminator can raise | `emergency.ts` | Design rule | ⚠️ |
+| 8.9 | **TEWS treats a respiratory rate of 15–20 as abnormal** (its normal band is 9–14), so a rate most charts print as normal scores 1. This surprises people and is pinned by a test | `emergency.ts` | SATS | ⚠️ |
+| 8.10 | **Re-triage does not reset the clock.** Handing a long-waiting patient a fresh target would erase the wait | `emergency.ts` `triagePatient` | Design rule | ✅ |
+| 8.11 | Every triage assessment is kept; the first is evidence of what was known then | `emergency.ts` | Design rule | ✅ |
+| 8.12 | A red triage raises a **critical alert at the moment of assessment** | `emergency.ts` | Design rule | ✅ |
+| 8.13 | Blue is dead on arrival and is **not a queue position** | `emergency.ts` | SATS | ⚠️ |
+| 8.14 | Observations outside a plausible range are **refused, not scored** — a transposed digit must not become a triage colour | `emergency.ts` | Design rule | ✅ |
+| 8.15 | A patient who cannot say who they are gets a real record under a deliberately provisional name; **identifying them later is a merge, not an edit** | `emergency.ts` `openUnidentified`, `identify` | Design rule | ✅ |
+| 8.16 | An estimated age is stored as `dob_estimated`, never as a birthday | `emergency.ts` | Design rule | ✅ |
+| 8.17 | **`left_without_being_seen` is a first-class outcome**, not a tidy-up. It is the number that tells a department it is too slow | `emergency.ts` `recordDisposition` | Design rule | ✅ |
+| 8.18 | An untriaged patient sorts **above every colour** on the board — an unknown colour is not a mild one | `emergency.ts` `board` | Design rule | ✅ |
+| 8.19 | An admission from casualty must name the admission; a referral and a death must each record why | `emergency.ts` | Design rule | ✅ |
+| 8.20 | Medico-legal cases are kept **separate from the clinical record**, because the P3 is disclosed to the police and the notes are not | `schema.sql`, `emergency.ts` | DPA 2019; practice | ⚠️ |
+| 8.21 | Issuing a P3 records who took it, cannot be done twice, and is written to the audit chain as a disclosure | `emergency.ts` `issueP3` | DPA 2019 | ✅ |
+| 8.22 | **Sexual violence and child protection raise a critical alert on opening**, because each has a care pathway and a clock of its own | `emergency.ts` | Practice | 🔴 |
+| 8.23 | The median wait and the within-target rate are reported as **absent, not zero**, when nobody was seen | `emergency.ts` `emergencySummary` | Design rule | ✅ |
 
-## 9. Revenue (for the claims specialist, not the clinician)
+### What an emergency clinician should be asked first
+
+1. **Is SATS the right scale for this facility?** Some Kenyan units run their
+   own colour scheme or a locally adapted version. The scale, its bands and its
+   targets are three constants in one file, but changing them changes who is
+   seen first — which is the whole module.
+2. **Are the time targets the ones this facility is held to?** 10/60/240
+   minutes are the SATS defaults. If the county or the facility's own charter
+   sets different ones, the breach list is measuring the wrong thing, and the
+   breach list is the screen the department runs on.
+3. **What should happen on a sexual violence case, minute by minute?** Marked
+   🔴 because the system currently raises an alert and stops. There is a
+   national post-rape care pathway — PRC form, forensic sampling window,
+   PEP timing — and none of it is modelled. It needs to be, or the alert is
+   the only thing standing between the patient and the general queue.
+
+## 9. Public health
 
 | # | Rule | Where | Source | Status |
 |---|---|---|---|---|
-| 9.1 | Nine scrubber gates, each mapped to a documented SHA rejection cause | `claims.ts` `scrub` | SHA published causes | ⚠️ |
-| 9.2 | **The gates are inferred from documented causes, not from 50 real rejected claims.** The roadmap says to build them from a real corpus and that is still the right next step | — | — | 🔴 |
-| 9.3 | A claim beyond the payer's submission window (SHA: 7 days) escalates rather than blocking, because a late claim still has an appeal path | `claims.ts` | SHA | ⚠️ |
-| 9.4 | Tariffs and benefit rules are **illustrative**. The SHA schedule for the contracting cycle must be loaded | `seed.ts` | — | 🔴 |
-| 9.5 | Money is integer cents throughout, and a price is fixed as of the date of service | `billing.ts` | Design rule | ✅ |
+| 9.1 | Notifiable conditions are detected from coded diagnoses as they are made, because the Act's clock runs from diagnosis | `reporting.ts` | Public Health Act | ✅ |
+| 9.2 | **The notifiable list is four conditions** — malaria, tuberculosis, cholera, measles. The full schedule must be loaded | `reporting.ts` `NOTIFIABLE_PREFIXES` | — | 🔴 |
+| 9.3 | Reporting one requires the county's reference — it is the proof it was made | `reporting.ts` | Design rule | ✅ |
+| 9.4 | MOH 705A is under five, 705B is five and over, split by age **on the day of the visit** | `reporting.ts` | MOH forms | ✅ |
+| 9.5 | A condition is counted whichever code in its ICD-11 family the clinician used | `reporting.ts` `MOH705_CONDITIONS` | Design rule | ⚠️ |
+| 9.6 | **The 705 condition list is six conditions.** The real form has many more rows | `reporting.ts` | — | 🔴 |
+
+## 10. Revenue (for the claims specialist, not the clinician)
+
+| # | Rule | Where | Source | Status |
+|---|---|---|---|---|
+| 10.1 | Nine scrubber gates, each mapped to a documented SHA rejection cause | `claims.ts` `scrub` | SHA published causes | ⚠️ |
+| 10.2 | **The gates are inferred from documented causes, not from 50 real rejected claims.** The roadmap says to build them from a real corpus and that is still the right next step | — | — | 🔴 |
+| 10.3 | A claim beyond the payer's submission window (SHA: 7 days) escalates rather than blocking, because a late claim still has an appeal path | `claims.ts` | SHA | ⚠️ |
+| 10.4 | Tariffs and benefit rules are **illustrative**. The SHA schedule for the contracting cycle must be loaded | `seed.ts` | — | 🔴 |
+| 10.5 | Money is integer cents throughout, and a price is fixed as of the date of service | `billing.ts` | Design rule | ✅ |
 
 ---
 
@@ -183,3 +231,7 @@ Everything marked 🔴, in one list:
 12. The childhood immunisation schedule, against the current KEPI schedule
 13. A midwife's answer on the antenatal contact schedule (8 contacts or 4) and
     on the blood-pressure and haemoglobin alert thresholds
+14. The national post-rape care pathway — PRC form, forensic sampling window,
+    PEP timing. Casualty currently raises an alert and models nothing further
+15. An emergency clinician's answer on the triage scale, its score bands and
+    its time targets

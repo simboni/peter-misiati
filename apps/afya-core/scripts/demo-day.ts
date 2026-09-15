@@ -38,6 +38,10 @@ import {
   maternitySummary, PNC_SCHEDULE,
 } from "../src/lib/maternity.ts";
 import { importRemittance, reconcile, reconciliation } from "../src/lib/remittance.ts";
+import {
+  openAttendance, openUnidentified, identify, triagePatient, startTreatment,
+  recordDisposition, openMedicolegalCase, issueP3, declareIncident, emergencySummary,
+} from "../src/lib/emergency.ts";
 import { closeDb, run, get, all as dbAll, verifyAuditChain, today } from "../src/lib/db.ts";
 
 const { facilityId, adminId, clinicianId, receptionistId, pharmacistId, labTechId } = seedDemo();
@@ -982,6 +986,142 @@ for (const record of DELIVERED) {
   }
 }
 
+
+// ------------------------------------------------------------------ casualty
+//
+// A road traffic collision, which is what a Kenyan casualty department
+// actually deals with. Four casualties from one matatu, one of whom cannot say
+// who she is and is identified by a relative an hour later; plus three walk-ins
+// including one who gave up and went home, because a department that only
+// records the patients it treated can never see that it is too slow.
+//
+// Nothing below performs a payer check, a deposit or a consent form before
+// treatment, and that is the point: Article 43(2) of the Constitution.
+
+const CAS = { byUserId: clinicianId, byUserName: DOC.byUserName, deviceCode: REC };
+const minutesAgo = (n: number) => new Date(Date.now() - n * 60_000).toISOString();
+
+let casNid = 45_000_000;
+const casualtyPatient = (given: string, family: string, sex: "male" | "female", dob: string) => {
+  const mrn = registerPatient({
+    facilityId, deviceCode: REC, givenName: given, familyName: family, sex,
+    dateOfBirth: dob, nationalId: String(++casNid), county: "Nairobi", ...DESK,
+  });
+  recordConsent({ patientMrn: mrn, purpose: "treatment", granted: true, ...DESK });
+  return mrn;
+};
+
+const INCIDENT = declareIncident({
+  facilityId,
+  reference: "MCI-2026-014",
+  kind: "Road traffic collision",
+  description: "Matatu and lorry, Thika Road southbound. Four casualties by ambulance.",
+  declaredAt: minutesAgo(95),
+  byUserId: adminId,
+  byUserName: "Facility Administrator",
+});
+
+// The critical one: taken straight through, no wait at all.
+const crashCritical = openAttendance({
+  facilityId, patientMrn: casualtyPatient("Daniel", "Kiprono", "male", "1990-06-14"),
+  arrivalMode: "ambulance", arrivedAt: minutesAgo(92), incidentRef: INCIDENT,
+  presenting: "Chest and abdominal injury, matatu passenger", ...CAS,
+});
+triagePatient({
+  attendanceId: crashCritical, assessedAt: minutesAgo(90),
+  observations: { mobility: "stretcher", respRate: 32, pulseBpm: 138, systolicMmhg: 76, tempTenthsC: 361, avpu: "pain", trauma: true },
+  ...CAS,
+});
+startTreatment({ attendanceId: crashCritical, seenAt: minutesAgo(90), byUserId: clinicianId, byUserName: DOC.byUserName });
+openMedicolegalCase({
+  attendanceId: crashCritical, kind: "road_traffic", policeStation: "Kasarani",
+  obNumber: "OB/118/2026", note: "Matatu passenger, Thika Road", ...CAS,
+});
+recordDisposition({
+  attendanceId: crashCritical, disposition: "theatre", at: minutesAgo(62),
+  note: "Laparotomy for free fluid on FAST", byUserId: clinicianId, byUserName: DOC.byUserName,
+});
+
+// The one who arrived without a name, and was identified by her sister.
+const unknown = openUnidentified({
+  facilityId, sex: "female", estimatedAge: 26, arrivalMode: "ambulance",
+  arrivedAt: minutesAgo(91), incidentRef: INCIDENT,
+  presenting: "Head injury, unresponsive at the scene", ...CAS,
+});
+triagePatient({
+  attendanceId: unknown.attendanceId, assessedAt: minutesAgo(88),
+  observations: { mobility: "stretcher", respRate: 24, pulseBpm: 112, systolicMmhg: 104, avpu: "voice", trauma: true },
+  discriminator: "Head injury with reduced consciousness", discriminatorTriage: "red",
+  ...CAS,
+});
+startTreatment({ attendanceId: unknown.attendanceId, seenAt: minutesAgo(86), byUserId: clinicianId, byUserName: DOC.byUserName });
+identify({
+  attendanceId: unknown.attendanceId,
+  realPatientMrn: casualtyPatient("Winnie", "Akinyi", "female", "2000-03-22"),
+  reason: "Her sister came to casualty and identified her by a scar and her clothing",
+  deviceCode: REC, byUserId: adminId, byUserName: "Facility Administrator",
+});
+
+// Two walking wounded from the same crash, still waiting.
+const crashWalking = [
+  { given: "Peter", family: "Mwangi", dob: "1987-01-09", obs: { mobility: "with_help" as const, respRate: 22, pulseBpm: 104, systolicMmhg: 128, trauma: true } },
+  { given: "Alice", family: "Njeri", dob: "1996-10-02", obs: { mobility: "walking" as const, respRate: 18, pulseBpm: 88, systolicMmhg: 118, trauma: true } },
+];
+for (const [index, person] of crashWalking.entries()) {
+  const id = openAttendance({
+    facilityId,
+    patientMrn: casualtyPatient(person.given, person.family, index === 0 ? "male" : "female", person.dob),
+    arrivalMode: "ambulance", arrivedAt: minutesAgo(90 - index * 2), incidentRef: INCIDENT,
+    presenting: "Walking wounded, same collision", ...CAS,
+  });
+  triagePatient({ attendanceId: id, assessedAt: minutesAgo(85 - index * 2), observations: person.obs, ...CAS });
+}
+
+// A walk-in stabbing: a police case with a P3 already handed over.
+const stabbing = openAttendance({
+  facilityId, patientMrn: casualtyPatient("Brian", "Omondi", "male", "1998-12-30"),
+  arrivalMode: "police", arrivedAt: minutesAgo(140), presenting: "Stab wound to the left arm", ...CAS,
+});
+triagePatient({
+  attendanceId: stabbing, assessedAt: minutesAgo(138),
+  observations: { mobility: "walking", respRate: 20, pulseBpm: 98, systolicMmhg: 122, trauma: true },
+  discriminator: "Penetrating trauma", discriminatorTriage: "orange", ...CAS,
+});
+startTreatment({ attendanceId: stabbing, seenAt: minutesAgo(131), byUserId: clinicianId, byUserName: DOC.byUserName });
+const stabCase = openMedicolegalCase({
+  attendanceId: stabbing, kind: "stabbing", policeStation: "Kilimani", obNumber: "OB/94/2026", ...CAS,
+});
+issueP3({ caseId: stabCase, issuedTo: "PC Wanjala, Kilimani", byUserId: adminId, byUserName: "Facility Administrator" });
+recordDisposition({
+  attendanceId: stabbing, disposition: "discharged", at: minutesAgo(70),
+  note: "Wound explored and sutured, tetanus given, review in 3 days",
+  byUserId: clinicianId, byUserName: DOC.byUserName,
+});
+
+// Somebody who waited four hours and went home. This is the number a
+// department needs to see, and a system that records only treated patients
+// never shows it.
+const gaveUp = openAttendance({
+  facilityId, patientMrn: casualtyPatient("Susan", "Wanjiku", "female", "1979-05-18"),
+  arrivalMode: "walk_in", arrivedAt: minutesAgo(300), presenting: "Ankle pain after a fall", ...CAS,
+});
+triagePatient({
+  attendanceId: gaveUp, assessedAt: minutesAgo(295),
+  observations: { mobility: "with_help", respRate: 16, pulseBpm: 82, systolicMmhg: 126, trauma: true }, ...CAS,
+});
+recordDisposition({
+  attendanceId: gaveUp, disposition: "left_without_being_seen", at: minutesAgo(55),
+  note: "Called three times at the 4pm round, not in the waiting area",
+  byUserId: clinicianId, byUserName: DOC.byUserName,
+});
+
+// And one waiting right now with nobody having looked at her at all — the
+// worst state a casualty board can be in, and the one the badge turns red for.
+openAttendance({
+  facilityId, patientMrn: casualtyPatient("Grace", "Muthoni", "female", "1992-08-11"),
+  arrivalMode: "walk_in", arrivedAt: minutesAgo(18), presenting: "Severe abdominal pain", ...CAS,
+});
+
 // ------------------------------------------------------------- remittance
 //
 // A payment advice from SHA covering the submitted claims: most paid in full,
@@ -1128,6 +1268,7 @@ console.log(`  lab orders        ${count(`SELECT COUNT(*) AS n FROM orders`)} ·
 console.log(`  admissions        ${count(`SELECT COUNT(*) AS n FROM admissions`)} · ${count(`SELECT COUNT(*) AS n FROM admissions WHERE discharged_at IS NULL`)} still in a bed`);
 console.log(`  appointments      ${count(`SELECT COUNT(*) AS n FROM appointments`)} booked`);
 console.log(`  programmes        ${count(`SELECT COUNT(*) AS n FROM enrolments WHERE status = 'active'`)} on the registers · HIV retention ${cohortReport("HIV")[0]?.retentionPercent ?? 0}%`);
+console.log(`  casualty          ${emergencySummary(facilityId).open} in the department · ${emergencySummary(facilityId).breached + emergencySummary(facilityId).untriaged} past target · ${emergencySummary(facilityId).withinTargetPercent ?? 0}% seen in time`);
 console.log(`  maternity         ${maternitySummary().activePregnancies} pregnancies booked · ${maternitySummary().deliveries} deliveries · caesarean rate ${maternitySummary().caesareanRatePercent ?? 0}%`);
 console.log(`  child health      ${count(`SELECT COUNT(*) AS n FROM births WHERE patient_mrn IS NOT NULL AND outcome = 'live'`)} babies with their own file · ${count(`SELECT COUNT(*) AS n FROM immunisations`)} vaccines given`);
 console.log(`  MOH returns       ${count(`SELECT COUNT(*) AS n FROM moh_returns`)} generated, ${count(`SELECT COUNT(*) AS n FROM moh_returns WHERE status = 'submitted'`)} submitted`);
