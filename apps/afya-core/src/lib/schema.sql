@@ -1478,3 +1478,63 @@ CREATE TABLE IF NOT EXISTS remittance_lines (
 );
 CREATE INDEX IF NOT EXISTS idx_remit_line ON remittance_lines(remittance_id);
 CREATE INDEX IF NOT EXISTS idx_remit_claim ON remittance_lines(claim_id);
+
+-- ==================================================== M27 PROGRAMME REGISTERS
+
+-- A programme is a long-running course of care with its own register, its own
+-- reporting, and its own donor. HIV, TB and the NCD clinics are the three a
+-- Kenyan facility runs; each has cohort reporting the county and the programme
+-- both ask for, and neither can be produced from ordinary encounter data alone.
+CREATE TABLE IF NOT EXISTS programmes (
+  code         TEXT PRIMARY KEY,
+  name         TEXT NOT NULL,
+  -- What the programme reports on: a cohort is followed from enrolment.
+  cohort_months INTEGER NOT NULL DEFAULT 12,
+  active       INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1)),
+  notes        TEXT NOT NULL DEFAULT '',
+  created_at   TEXT NOT NULL
+);
+
+-- One patient's enrolment in one programme.
+--
+-- `programme_number` is the number the PROGRAMME knows them by — a CCC number,
+-- a TB register number — which is not the facility's file number and is what
+-- appears on every return and every transfer letter.
+CREATE TABLE IF NOT EXISTS enrolments (
+  id             TEXT PRIMARY KEY,
+  programme_code TEXT NOT NULL REFERENCES programmes(code),
+  patient_mrn    TEXT NOT NULL REFERENCES patients(mrn),
+  programme_number TEXT NOT NULL,
+  enrolled_on    TEXT NOT NULL,
+  -- The cohort a patient belongs to for reporting: the month they started.
+  cohort         TEXT NOT NULL,
+  status         TEXT NOT NULL CHECK (status IN
+                   ('active','transferred_out','lost','stopped','completed','died')),
+  outcome_on     TEXT,
+  outcome_note   TEXT,
+  enrolled_by    INTEGER REFERENCES users(id),
+  device_code    TEXT,
+  created_at     TEXT NOT NULL,
+  UNIQUE (programme_code, patient_mrn),
+  UNIQUE (programme_code, programme_number)
+);
+CREATE INDEX IF NOT EXISTS idx_enrol_cohort ON enrolments(programme_code, cohort, status);
+
+-- A programme visit: the review a patient comes back for, and the appointment
+-- for the next one. Missing one is what "lost to follow-up" is counted from,
+-- and it is the single number these programmes are judged on.
+CREATE TABLE IF NOT EXISTS programme_visits (
+  id            TEXT PRIMARY KEY,
+  enrolment_id  TEXT NOT NULL REFERENCES enrolments(id),
+  encounter_id  TEXT REFERENCES encounters(id),
+  visit_date    TEXT NOT NULL,
+  -- When they are expected back. The whole follow-up system hangs on this.
+  next_due      TEXT,
+  -- Programme-specific findings, as JSON: viral load, sputum result, BP, HbA1c.
+  findings      TEXT NOT NULL DEFAULT '{}',
+  note          TEXT NOT NULL DEFAULT '',
+  seen_by       INTEGER REFERENCES users(id),
+  seen_by_name  TEXT NOT NULL,
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_pvisit_due ON programme_visits(enrolment_id, next_due);

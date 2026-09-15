@@ -13,6 +13,7 @@ import { preauthWorklist } from "@/lib/payers.ts";
 import { outstandingNotifications } from "@/lib/reporting.ts";
 import { deadLetters } from "@/lib/integration.ts";
 import { unsettledClaims } from "@/lib/remittance.ts";
+import { defaulters } from "@/lib/programmes.ts";
 import { signOutAction } from "@/app/actions/session.ts";
 import { navFor, type BadgeKey } from "./nav.ts";
 import type { CurrentUser } from "@/lib/auth.ts";
@@ -46,6 +47,7 @@ function counts(facilityId: number): Record<BadgeKey, { text: string; tone: "blo
   const dead = deadLetters();
   const alerts = countOpen(facilityId);
   const unsettled = unsettledClaims(facilityId, 30);
+  const missed = defaulters();
   const waiting = queue(facilityId);
 
   const n = (
@@ -70,6 +72,7 @@ function counts(facilityId: number): Record<BadgeKey, { text: string; tone: "blo
     notifiable: n(notifiable.length, notifiable.some((x) => x.daysWaiting > 2) ? "block" : "clock"),
     deadLetters: n(dead.length, "block"),
     unsettled: n(unsettled.length, unsettled.some((c) => c.days > 60) ? "block" : "clock"),
+    defaulters: n(missed.length, missed.some((d) => d.lost) ? "block" : "clock"),
     alerts: n(alerts.total, alerts.critical > 0 ? "block" : "clock"),
   };
 }

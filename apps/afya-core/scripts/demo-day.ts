@@ -32,6 +32,7 @@ import { admit, recordObservation, scheduleDoses, recordAdministration, billBedN
 import { openClinic, book, availability, sendReminders, closeOutDay, markArrived } from "../src/lib/scheduling.ts";
 import { generateReturn, submitToDhis2, detectNotifiable } from "../src/lib/reporting.ts";
 import { sweep, countOpen } from "../src/lib/notifications.ts";
+import { enrol, recordVisit, recordOutcome, sweepDefaulters, cohortReport } from "../src/lib/programmes.ts";
 import { importRemittance, reconcile, reconciliation } from "../src/lib/remittance.ts";
 import { closeDb, run, get, all as dbAll, verifyAuditChain, today } from "../src/lib/db.ts";
 
@@ -701,6 +702,109 @@ for (const [index, mrn] of [PETER, DANIEL, FAITH].entries()) {
 }
 closeOutDay({ facilityId, date: YESTERDAY });
 
+// ------------------------------------------------------- programme registers
+//
+// An HIV cohort with the shape a real one has: most retained, one transferred,
+// one lost, one still coming but overdue. The defaulter list is the number
+// these programmes are judged on, so it must not be empty on the screen.
+
+const PROGRAMME_PEOPLE = [
+  { given: "Esther", family: "Nyambura", sex: "female" as const, dob: "1988-05-12", ccc: "CCC-04412" },
+  { given: "Joseph", family: "Kamau", sex: "male" as const, dob: "1979-11-30", ccc: "CCC-04418" },
+  { given: "Rose", family: "Atieno", sex: "female" as const, dob: "1994-02-08", ccc: "CCC-04431" },
+  { given: "Michael", family: "Otieno", sex: "male" as const, dob: "1985-08-21", ccc: "CCC-04440" },
+  { given: "Hannah", family: "Cherono", sex: "female" as const, dob: "1991-07-03", ccc: "CCC-04455" },
+];
+
+const enrolments: string[] = [];
+let ccNid = 41_000_000;
+
+for (const [index, person] of PROGRAMME_PEOPLE.entries()) {
+  const mrn = registerPatient({
+    facilityId,
+    deviceCode: REC,
+    givenName: person.given,
+    familyName: person.family,
+    sex: person.sex,
+    dateOfBirth: person.dob,
+    nationalId: String(++ccNid),
+    county: "Nairobi",
+    ...DESK,
+  });
+  recordConsent({ patientMrn: mrn, purpose: "treatment", granted: true, ...DESK });
+
+  // Spread across three cohorts so the cohort report has rows to compare.
+  const monthsAgo = [10, 10, 7, 4, 4][index];
+  const enrolledOn = inDays(-monthsAgo * 30);
+
+  const id = enrol({
+    programmeCode: "HIV",
+    patientMrn: mrn,
+    programmeNumber: person.ccc,
+    enrolledOn,
+    byUserId: clinicianId,
+    byUserName: DOC.byUserName,
+    deviceCode: REC,
+  });
+  enrolments.push(id);
+
+  // Quarterly reviews up to now, each with the next one booked.
+  for (let visit = 1; visit <= Math.floor(monthsAgo / 3); visit++) {
+    const seen = inDays(-(monthsAgo - visit * 3) * 30);
+    recordVisit({
+      enrolmentId: id,
+      visitDate: seen,
+      // The last review books an appointment; for two people it has passed.
+      nextDue: inDays(-(monthsAgo - (visit + 1) * 3) * 30),
+      findings: {
+        viralLoad: visit === 1 ? "Detectable, 840 copies/ml" : "Undetectable",
+        adherence: index === 2 ? "Missed doses reported" : "Good",
+      },
+      note: visit === 1 ? "Started first-line. Counselled on adherence." : "Stable.",
+      byUserId: clinicianId,
+      byUserName: DOC.byUserName,
+      deviceCode: REC,
+    });
+  }
+}
+
+// One transferred out, one lost — a cohort with no exits is not a real cohort.
+recordOutcome({
+  enrolmentId: enrolments[1],
+  status: "transferred_out",
+  outcomeOn: inDays(-45),
+  note: "Moved to Nakuru. Transfer letter issued to PGH Nakuru CCC.",
+  byUserId: clinicianId,
+  byUserName: DOC.byUserName,
+});
+recordOutcome({
+  enrolmentId: enrolments[2],
+  status: "lost",
+  outcomeOn: inDays(-20),
+  note: "Three tracing attempts by telephone and one home visit. No contact.",
+  byUserId: clinicianId,
+  byUserName: DOC.byUserName,
+});
+
+// And a TB patient mid-course, so the second register is not empty.
+const tbMrn = registerPatient({
+  facilityId, deviceCode: REC, givenName: "Patrick", familyName: "Wafula",
+  sex: "male", dateOfBirth: "1982-03-19", nationalId: String(++ccNid), county: "Nairobi", ...DESK,
+});
+recordConsent({ patientMrn: tbMrn, purpose: "treatment", granted: true, ...DESK });
+const tbEnrolment = enrol({
+  programmeCode: "TB", patientMrn: tbMrn, programmeNumber: "TB-2026-0117",
+  enrolledOn: inDays(-75), byUserId: clinicianId, byUserName: DOC.byUserName, deviceCode: REC,
+});
+recordVisit({
+  enrolmentId: tbEnrolment, visitDate: inDays(-45), nextDue: inDays(-16),
+  findings: { sputum: "Negative", weightKg: 58 },
+  note: "Two months of intensive phase complete. Converted.",
+  byUserId: clinicianId, byUserName: DOC.byUserName, deviceCode: REC,
+});
+
+sweepDefaulters(facilityId);
+
 // ------------------------------------------------------------- remittance
 //
 // A payment advice from SHA covering the submitted claims: most paid in full,
@@ -846,6 +950,7 @@ console.log(`  dispensed         ${count(`SELECT COUNT(*) AS n FROM dispenses`)}
 console.log(`  lab orders        ${count(`SELECT COUNT(*) AS n FROM orders`)} · ${count(`SELECT COUNT(*) AS n FROM lab_results WHERE released_at IS NOT NULL`)} results released`);
 console.log(`  admissions        ${count(`SELECT COUNT(*) AS n FROM admissions`)} · ${count(`SELECT COUNT(*) AS n FROM admissions WHERE discharged_at IS NULL`)} still in a bed`);
 console.log(`  appointments      ${count(`SELECT COUNT(*) AS n FROM appointments`)} booked`);
+console.log(`  programmes        ${count(`SELECT COUNT(*) AS n FROM enrolments WHERE status = 'active'`)} on the registers · HIV retention ${cohortReport("HIV")[0]?.retentionPercent ?? 0}%`);
 console.log(`  MOH returns       ${count(`SELECT COUNT(*) AS n FROM moh_returns`)} generated, ${count(`SELECT COUNT(*) AS n FROM moh_returns WHERE status = 'submitted'`)} submitted`);
 console.log(`  taken today       ${Math.round(takings(facilityId).reduce((sum, t) => sum + t.netCents, 0) / 100)} KES`);
 console.log(`  owed              ${Math.round(outstandingInvoices(facilityId).reduce((sum, o) => sum + o.balanceCents, 0) / 100)} KES across ${outstandingInvoices(facilityId).length} invoices`);

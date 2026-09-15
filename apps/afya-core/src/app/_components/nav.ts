@@ -38,6 +38,7 @@ export type BadgeKey =
   | "notifiable"
   | "deadLetters"
   | "unsettled"
+  | "defaulters"
   | "alerts";
 
 export const NAV: NavGroup[] = [
@@ -58,6 +59,8 @@ export const NAV: NavGroup[] = [
       { href: "/ward?view=charts", label: "Drug charts", permission: ["patient.read"] },
       { href: "/laboratory", label: "Laboratory bench", permission: ["lab.result.release", "report.read"], badge: "bench" },
       { href: "/laboratory?view=unread", label: "Results to acknowledge", permission: ["patient.read"], badge: "unread" },
+      { href: "/programmes", label: "Programme registers", permission: ["patient.read"] },
+      { href: "/programmes?view=defaulters", label: "Not come back", permission: ["patient.read"], badge: "defaulters" },
     ],
   },
   {

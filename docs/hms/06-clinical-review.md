@@ -82,26 +82,40 @@ clinician's judgement · 🔴 placeholder, must be replaced before go-live
 | 5.2 | **No formal triage scale** (no MTS, no ESI, no South African Triage Scale). Priority is set by a person | — | — | ⚠️ |
 | 5.3 | Vitals are stored as integers in fixed units: temperature in tenths of °C, weight in grams, height in mm | `frontdesk.ts` | Design rule | ✅ |
 
-## 6. Public health
+## 6. Programme registers (HIV, TB, NCD)
 
 | # | Rule | Where | Source | Status |
 |---|---|---|---|---|
-| 6.1 | Notifiable conditions are detected from coded diagnoses as they are made, because the Act's clock runs from diagnosis | `reporting.ts` | Public Health Act | ✅ |
-| 6.2 | **The notifiable list is four conditions** — malaria, tuberculosis, cholera, measles. The full schedule must be loaded | `reporting.ts` `NOTIFIABLE_PREFIXES` | — | 🔴 |
-| 6.3 | Reporting one requires the county's reference — it is the proof it was made | `reporting.ts` | Design rule | ✅ |
-| 6.4 | MOH 705A is under five, 705B is five and over, split by age **on the day of the visit** | `reporting.ts` | MOH forms | ✅ |
-| 6.5 | A condition is counted whichever code in its ICD-11 family the clinician used | `reporting.ts` `MOH705_CONDITIONS` | Design rule | ⚠️ |
-| 6.6 | **The 705 condition list is six conditions.** The real form has many more rows | `reporting.ts` | — | 🔴 |
+| 6.1 | Lost to follow-up after **28 days** on HIV care | `programmes.ts` `LOST_AFTER_DAYS` | General practice | ⚠️ |
+| 7.2 | Lost to follow-up after **14 days** on TB treatment — a fortnight off treatment risks resistance | `programmes.ts` | General practice | ⚠️ |
+| 7.3 | Lost to follow-up after **60 days** on the NCD clinic | `programmes.ts` | General practice | ⚠️ |
+| 7.4 | HIV and NCD cohorts run **12 months**; TB runs **6**, because treatment is a fixed course | `programmes.ts` `seedProgrammes` | General practice | ⚠️ |
+| 7.5 | The cohort is the month of enrolment, stamped then and never moved | `programmes.ts` | Programme reporting | ✅ |
+| 7.6 | **Transferred out counts as RETAINED** in the retention figure — they are in care, elsewhere. Getting this wrong understates every facility that refers | `programmes.ts` `cohortReport` | Programme reporting | ⚠️ |
+| 6.7 | A patient cannot hold two enrolments in one programme, and a programme number cannot be re-used | `programmes.ts` | Design rule | ✅ |
+| 6.8 | Findings recorded per programme: HIV viral load and adherence, TB sputum, NCD blood pressure and HbA1c | `programmes/page.tsx` | General practice | ⚠️ |
+| 6.9 | **These thresholds and cohort lengths are from general practice, NOT from Kenya's current programme guidelines.** They are data, changeable in one place | — | — | 🔴 |
 
-## 7. Revenue (for the claims specialist, not the clinician)
+## 7. Public health
 
 | # | Rule | Where | Source | Status |
 |---|---|---|---|---|
-| 7.1 | Nine scrubber gates, each mapped to a documented SHA rejection cause | `claims.ts` `scrub` | SHA published causes | ⚠️ |
-| 7.2 | **The gates are inferred from documented causes, not from 50 real rejected claims.** The roadmap says to build them from a real corpus and that is still the right next step | — | — | 🔴 |
-| 7.3 | A claim beyond the payer's submission window (SHA: 7 days) escalates rather than blocking, because a late claim still has an appeal path | `claims.ts` | SHA | ⚠️ |
-| 7.4 | Tariffs and benefit rules are **illustrative**. The SHA schedule for the contracting cycle must be loaded | `seed.ts` | — | 🔴 |
-| 7.5 | Money is integer cents throughout, and a price is fixed as of the date of service | `billing.ts` | Design rule | ✅ |
+| 7.1 | Notifiable conditions are detected from coded diagnoses as they are made, because the Act's clock runs from diagnosis | `reporting.ts` | Public Health Act | ✅ |
+| 7.2 | **The notifiable list is four conditions** — malaria, tuberculosis, cholera, measles. The full schedule must be loaded | `reporting.ts` `NOTIFIABLE_PREFIXES` | — | 🔴 |
+| 7.3 | Reporting one requires the county's reference — it is the proof it was made | `reporting.ts` | Design rule | ✅ |
+| 7.4 | MOH 705A is under five, 705B is five and over, split by age **on the day of the visit** | `reporting.ts` | MOH forms | ✅ |
+| 7.5 | A condition is counted whichever code in its ICD-11 family the clinician used | `reporting.ts` `MOH705_CONDITIONS` | Design rule | ⚠️ |
+| 7.6 | **The 705 condition list is six conditions.** The real form has many more rows | `reporting.ts` | — | 🔴 |
+
+## 8. Revenue (for the claims specialist, not the clinician)
+
+| # | Rule | Where | Source | Status |
+|---|---|---|---|---|
+| 8.1 | Nine scrubber gates, each mapped to a documented SHA rejection cause | `claims.ts` `scrub` | SHA published causes | ⚠️ |
+| 8.2 | **The gates are inferred from documented causes, not from 50 real rejected claims.** The roadmap says to build them from a real corpus and that is still the right next step | — | — | 🔴 |
+| 8.3 | A claim beyond the payer's submission window (SHA: 7 days) escalates rather than blocking, because a late claim still has an appeal path | `claims.ts` | SHA | ⚠️ |
+| 8.4 | Tariffs and benefit rules are **illustrative**. The SHA schedule for the contracting cycle must be loaded | `seed.ts` | — | 🔴 |
+| 8.5 | Money is integer cents throughout, and a price is fixed as of the date of service | `billing.ts` | Design rule | ✅ |
 
 ---
 
@@ -119,3 +133,5 @@ Everything marked 🔴, in one list:
 8. Drug–drug interaction checking
 9. Paediatric dose calculation
 10. A scrubber rule set built from 50 real rejected claims
+11. Programme lost-to-follow-up thresholds and cohort lengths, against Kenya's
+    current HIV, TB and NCD programme guidelines
