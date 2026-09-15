@@ -22,7 +22,12 @@ import {
  * answered. A red flag with no remedy is worse than no flag, so the identifiers
  * form is first and the rest follows.
  */
-export default async function AdminPage() {
+export default async function AdminPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>;
+}) {
+  const { error } = await searchParams;
   const user = await currentUser();
   if (!user) redirect("/sign-in");
   if (!can(user.userId, "facility.configure")) redirect("/");
@@ -50,6 +55,7 @@ export default async function AdminPage() {
     <Shell
       user={user}
       current="/admin"
+      error={error}
       title="Administration"
       subtitle={`${facility.name} · KMHFL ${facility.kmhfl_code}`}
     >

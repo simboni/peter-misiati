@@ -45,6 +45,7 @@ export function Shell({
   subtitle,
   children,
   actions,
+  error,
 }: {
   user: CurrentUser;
   current: string;
@@ -52,6 +53,8 @@ export function Shell({
   subtitle?: string;
   children: React.ReactNode;
   actions?: React.ReactNode;
+  /** A refusal from a server action, carried back on the URL by `act`. */
+  error?: string;
 }) {
   const facility = getFacility(user.facilityId)!;
   const licence = licenceStatus(user.userId);
@@ -137,6 +140,15 @@ export function Shell({
           </div>
           {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
         </div>
+
+        {/* The domain modules refuse things in sentences meant to be read. This
+            is where those sentences land. */}
+        {error ? (
+          <div className="mt-4">
+            <Banner tone="block">{error}</Banner>
+          </div>
+        ) : null}
+
         {children}
       </main>
     </div>

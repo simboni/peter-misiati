@@ -14,7 +14,12 @@ import { actOnAction, sweepAction, acknowledgeAction } from "./actions.ts";
  * on THIS person's desk first and the rest of the facility's below. A list
  * where everything is everybody's is a list nobody works.
  */
-export default async function NotificationsPage() {
+export default async function NotificationsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>;
+}) {
+  const { error } = await searchParams;
   const user = await currentUser();
   if (!user) redirect("/sign-in");
 
@@ -83,6 +88,7 @@ export default async function NotificationsPage() {
     <Shell
       user={user}
       current="/notifications"
+      error={error}
       title="Alerts"
       subtitle="Everything with a clock on it, on the desk that can act."
       actions={

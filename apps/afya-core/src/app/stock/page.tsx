@@ -18,12 +18,12 @@ import { FORMULARY_STARTER } from "@/lib/seed.ts";
 export default async function StockPage({
   searchParams,
 }: {
-  searchParams: Promise<{ store?: string }>;
+  searchParams: Promise<{ store?: string; error?: string }>;
 }) {
   const user = await currentUser();
   if (!user) redirect("/sign-in");
 
-  const { store: requested } = await searchParams;
+  const { store: requested, error } = await searchParams;
   const stores = listStores(user.facilityId);
   // Default to the dispensing point: it is where the stock a clinic worries
   // about actually sits, and opening on an empty main store reads as a system
@@ -50,6 +50,7 @@ export default async function StockPage({
     <Shell
       user={user}
       current="/stock"
+      error={error}
       title="Stores"
       subtitle={`${store.name}${store.dispensing ? " — dispensing point" : ""}`}
       actions={stores.map((s) => (

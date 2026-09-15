@@ -16,7 +16,12 @@ import { dispenseAction } from "./actions.ts";
  * position and the batch that would go out, before anything is committed. A
  * pharmacist who finds out by trying is a pharmacist with a queue.
  */
-export default async function PharmacyPage() {
+export default async function PharmacyPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>;
+}) {
+  const { error } = await searchParams;
   const user = await currentUser();
   if (!user) redirect("/sign-in");
 
@@ -24,7 +29,8 @@ export default async function PharmacyPage() {
   const store = stores[0];
   if (!store) {
     return (
-      <Shell user={user} current="/pharmacy" title="Pharmacy">
+      <Shell user={user} current="/pharmacy"
+      error={error} title="Pharmacy">
         <Banner tone="block">
           No dispensing point is configured. An administrator must define a pharmacy store before
           medicine can be handed over.
@@ -42,6 +48,7 @@ export default async function PharmacyPage() {
     <Shell
       user={user}
       current="/pharmacy"
+      error={error}
       title="Pharmacy counter"
       subtitle={`${store.name} — dispensing point`}
       actions={

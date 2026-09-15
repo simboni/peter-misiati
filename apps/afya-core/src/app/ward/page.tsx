@@ -4,7 +4,7 @@ import { currentUser } from "@/lib/auth.ts";
 import { can } from "@/lib/access.ts";
 import {
   bedBoard, census, currentAdmission, observationsFor, drugChart, missedDoses,
-  bedHistory, NEWS2_ESCALATION,
+  bedHistory, bedsAvailableFor, NEWS2_ESCALATION,
 } from "@/lib/inpatient.ts";
 import { searchPatients } from "@/lib/patients.ts";
 import { listPayers } from "@/lib/payers.ts";
@@ -22,12 +22,12 @@ import { admitAction, transferAction, observationAction, dischargeAction, billNi
 export default async function WardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ bed?: string; q?: string }>;
+  searchParams: Promise<{ bed?: string; q?: string; error?: string }>;
 }) {
   const user = await currentUser();
   if (!user) redirect("/sign-in");
 
-  const { bed: selectedBed, q } = await searchParams;
+  const { bed: selectedBed, q, error } = await searchParams;
   const board = bedBoard(user.facilityId);
   const wards = census(user.facilityId);
   const missed = missedDoses(user.facilityId);
@@ -44,6 +44,7 @@ export default async function WardPage({
     <Shell
       user={user}
       current="/ward"
+      error={error}
       title="Ward"
       subtitle="The bed board, the observations, and the drug chart."
       actions={
@@ -153,7 +154,9 @@ export default async function WardPage({
           bedCode={chosen.bed.code}
           patientMrn={chosen.patientMrn}
           patientName={chosen.patientName ?? chosen.patientMrn}
-          freeBeds={freeBeds.map((b) => b.bed.code)}
+          // Only beds this patient could actually occupy. Offering a male
+          // patient a maternity bed is the same mistake as counting it empty.
+          freeBeds={bedsAvailableFor(user.facilityId, chosen.patientMrn).map((b) => b.bed.code)}
           canDischarge={canDischarge}
         />
       ) : chosen && !chosen.occupied && canAdmit ? (
@@ -215,6 +218,20 @@ export default async function WardPage({
   );
 }
 
+/**
+ * Blood pressure as a person writes it.
+ *
+ * A systolic with no diastolic is a real reading — an automated cuff that only
+ * caught one number, or a manual palpated systolic — and it must not render as
+ * "118/null", which reads on a ward round as a broken machine.
+ */
+function bp(systolic: number | null, diastolic: number | null): string {
+  if (systolic === null && diastolic === null) return "";
+  if (systolic === null) return `?/${diastolic}`;
+  if (diastolic === null) return `${systolic}/–`;
+  return `${systolic}/${diastolic}`;
+}
+
 /** One admitted patient: observations, the chart, transfer and discharge. */
 function PatientPanel({
   bedCode,
@@ -259,7 +276,7 @@ function PatientPanel({
             <span className="text-muted tnum">
               {" "}
               · {latest.temp_tenths_c !== null ? `${(latest.temp_tenths_c / 10).toFixed(1)}°C ` : ""}
-              {latest.systolic_mmhg !== null ? `${latest.systolic_mmhg}/${latest.diastolic_mmhg} ` : ""}
+              {bp(latest.systolic_mmhg, latest.diastolic_mmhg)}{latest.systolic_mmhg !== null ? " " : ""}
               {latest.pulse_bpm !== null ? `${latest.pulse_bpm}bpm ` : ""}
               {latest.spo2_percent !== null ? `SpO₂ ${latest.spo2_percent}% ` : ""}
               at {latest.recorded_at.slice(11, 16)}
@@ -324,7 +341,7 @@ function PatientPanel({
                 <tr key={o.id} className="border-t border-line">
                   <td className="px-3 py-1.5 tnum text-muted">{o.recorded_at.slice(5, 16).replace("T", " ")}</td>
                   <td className="px-3 py-1.5 text-right tnum">{o.temp_tenths_c !== null ? (o.temp_tenths_c / 10).toFixed(1) : "—"}</td>
-                  <td className="px-3 py-1.5 text-right tnum">{o.systolic_mmhg !== null ? `${o.systolic_mmhg}/${o.diastolic_mmhg}` : "—"}</td>
+                  <td className="px-3 py-1.5 text-right tnum">{bp(o.systolic_mmhg, o.diastolic_mmhg) || "—"}</td>
                   <td className="px-3 py-1.5 text-right tnum">{o.pulse_bpm ?? "—"}</td>
                   <td className="px-3 py-1.5 text-right tnum">{o.resp_rate ?? "—"}</td>
                   <td className="px-3 py-1.5 text-right tnum">{o.spo2_percent ?? "—"}</td>
@@ -376,10 +393,18 @@ function PatientPanel({
           <input type="hidden" name="admissionId" value={admission.id} />
           <label className="text-xs text-muted">
             Move to
-            <select name="toBedCode" className="block border border-line rounded px-2 py-1.5 text-sm bg-white">
-              {freeBeds.map((b) => (
-                <option key={b} value={b}>{b}</option>
-              ))}
+            <select
+              name="toBedCode"
+              disabled={freeBeds.length === 0}
+              className="block border border-line rounded px-2 py-1.5 text-sm bg-white"
+            >
+              {freeBeds.length === 0 ? (
+                <option value="">no bed this patient can occupy</option>
+              ) : (
+                freeBeds.map((b) => (
+                  <option key={b} value={b}>{b}</option>
+                ))
+              )}
             </select>
           </label>
           <label className="text-xs text-muted flex-1 min-w-[8rem]">

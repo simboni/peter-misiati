@@ -18,7 +18,7 @@ import { openClinicAction, bookAction, cancelAction, arriveAction, remindAction,
 export default async function AppointmentsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ date?: string; q?: string; slot?: string }>;
+  searchParams: Promise<{ date?: string; q?: string; slot?: string; error?: string }>;
 }) {
   const user = await currentUser();
   if (!user) redirect("/sign-in");
@@ -51,6 +51,7 @@ export default async function AppointmentsPage({
     <Shell
       user={user}
       current="/appointments"
+      error={params.error}
       title="Appointments"
       subtitle={date === today() ? "Today" : date}
       actions={

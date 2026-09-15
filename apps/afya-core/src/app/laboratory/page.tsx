@@ -15,7 +15,12 @@ import { collectAction, rejectAction, enterResultAction, releaseAction } from ".
  * licence-gated — so if this user cannot release, the screen says so at the top
  * rather than failing at the last click.
  */
-export default async function LaboratoryPage() {
+export default async function LaboratoryPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>;
+}) {
+  const { error } = await searchParams;
   const user = await currentUser();
   if (!user) redirect("/sign-in");
 
@@ -37,6 +42,7 @@ export default async function LaboratoryPage() {
     <Shell
       user={user}
       current="/laboratory"
+      error={error}
       title="Laboratory"
       subtitle="Collect, read, release. Nothing reaches a clinician until it is released."
     >

@@ -631,20 +631,29 @@ export function observationsFor(admissionId: string) {
 
 // -------------------------------------------- medication administration record
 
-/** Schedule the doses a prescription implies, so the chart has rows to sign. */
+/**
+ * Schedule the doses a prescription implies, so the chart has rows to sign.
+ *
+ * Starts from `from`, defaulting to the admission date. A drug started on the
+ * third day of a stay is charted from the third day — back-dating it would put
+ * rows on the chart for days nobody could have given it, which reads at a
+ * glance as a fortnight of missed doses.
+ */
 export function scheduleDoses(input: {
   admissionId: string;
   prescriptionId: string;
   /** Local times the dose is due, e.g. ["08:00", "20:00"]. */
   times: string[];
   days: number;
+  /** ISO date the chart starts. Defaults to the day of admission. */
+  from?: string;
   deviceCode: string;
 }): number {
   const admission = getAdmission(input.admissionId);
   if (!admission) throw new WardError("no such admission");
   if (input.times.length === 0) throw new WardError("a drug chart needs the times the dose is due");
 
-  const start = new Date(admission.admitted_at.slice(0, 10));
+  const start = new Date(input.from ?? admission.admitted_at.slice(0, 10));
   let created = 0;
 
   tx(() => {

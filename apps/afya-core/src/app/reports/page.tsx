@@ -29,7 +29,7 @@ const FORMS: { code: FormCode; name: string }[] = [
 export default async function ReportsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ period?: string; form?: string }>;
+  searchParams: Promise<{ period?: string; form?: string; error?: string }>;
 }) {
   const user = await currentUser();
   if (!user) redirect("/sign-in");
@@ -55,6 +55,7 @@ export default async function ReportsPage({
     <Shell
       user={user}
       current="/reports"
+      error={params.error}
       title="Reports"
       subtitle="Generated from what the facility recorded. Nothing here is typed twice."
     >

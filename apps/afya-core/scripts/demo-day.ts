@@ -470,18 +470,27 @@ const admission = admit({
 run(`UPDATE admissions SET admitted_at = ? WHERE id = ?`, `${inDays(-2)}T14:20:00.000Z`, admission);
 
 // A patient who arrived unwell and is improving — the trend a ward round reads.
-for (const obs of [
-  { respRate: 26, spo2: 92, systolic: 104, pulse: 112, temp: 38.9, note: "On admission. Started IV ceftriaxone." },
-  { respRate: 22, spo2: 94, systolic: 112, pulse: 96, temp: 38.1, note: "Overnight. Settled." },
-  { respRate: 18, spo2: 96, systolic: 118, pulse: 84, temp: 37.2, note: "Morning round. Much improved." },
-]) {
-  recordObservation({
+// Stamped hours apart, because three observations at the same minute read as a
+// data-entry exercise rather than a patient getting better.
+const rounds = [
+  { hoursAgo: 44, obs: { respRate: 26, spo2: 92, systolic: 104, diastolic: 62, pulse: 112, temp: 38.9 }, note: "On admission. Started IV ceftriaxone." },
+  { hoursAgo: 20, obs: { respRate: 22, spo2: 94, systolic: 112, diastolic: 70, pulse: 96, temp: 38.1 }, note: "Overnight. Settled, sleeping." },
+  { hoursAgo: 2, obs: { respRate: 18, spo2: 96, systolic: 118, diastolic: 76, pulse: 84, temp: 37.2 }, note: "Morning round. Much improved, eating." },
+];
+
+for (const round of rounds) {
+  const recorded = recordObservation({
     admissionId: admission,
-    observation: obs,
-    note: obs.note,
+    observation: round.obs,
+    note: round.note,
     byUserId: clinicianId,
     byUserName: DOC.byUserName,
   });
+  run(
+    `UPDATE ward_observations SET recorded_at = ? WHERE id = ?`,
+    new Date(Date.now() - round.hoursAgo * 3_600_000).toISOString(),
+    recorded.id,
+  );
 }
 
 const wardRx = prescribe({
@@ -495,7 +504,17 @@ const wardRx = prescribe({
   prescriberId: clinicianId,
   prescriberName: DOC.byUserName,
 });
-scheduleDoses({ admissionId: admission, prescriptionId: wardRx, times: ["08:00", "14:00", "20:00"], days: 3, deviceCode: "WRD1" });
+// Charted from today — the antibiotic was started on this morning's round, and
+// back-dating it would put rows on the chart for days nobody could have given
+// it, which reads at a glance as a week of missed doses.
+scheduleDoses({
+  admissionId: admission,
+  prescriptionId: wardRx,
+  times: ["08:00", "14:00", "20:00"],
+  days: 3,
+  from: today(),
+  deviceCode: "WRD1",
+});
 
 // The morning's doses signed for — one given, one refused, the rest still due.
 const doses = dbAll<{ id: string }>(
