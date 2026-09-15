@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Afya Core \u2014 Kenya-compliant hospital management system (HMIS)",
+  "description": "Afya Core — Kenya-compliant hospital management system (HMIS)",
   "scripts": {
     "dev": "next dev --port 3200",
     "build": "next build",

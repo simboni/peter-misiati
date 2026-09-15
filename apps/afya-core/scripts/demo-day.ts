@@ -19,7 +19,10 @@ import { recordConsent, checkIn, recordVitals, setPriority, advanceVisit } from 
 import { openEncounter, addDiagnosis, writeNote, closeEncounter } from "../src/lib/encounters.ts";
 import { prescribe, recordAllergy } from "../src/lib/prescribing.ts";
 import { verifyCoverage, type PayerProbe } from "../src/lib/payers.ts";
-import { assembleCharges, issueInvoice, addCharge, flushEtims } from "../src/lib/billing.ts";
+import {
+  assembleCharges, issueInvoice, addCharge, flushEtims,
+  recordPayment, refundPayment, outstandingInvoices, takings,
+} from "../src/lib/billing.ts";
 import { assembleClaim, submitClaim, recordOutcome, claimsSummary } from "../src/lib/claims.ts";
 import { receiveStock, quarantineBatch, recordCount, pickable, onHand, stockValue } from "../src/lib/inventory.ts";
 import { dispense } from "../src/lib/pharmacy.ts";
@@ -194,6 +197,23 @@ const CASES: Case[] = [
     extra: "LAB-URIN",
     rejection: { code: "E07", reason: "Laboratory report not attached" },
   },
+  // Two self-paying patients. Not every patient has cover, and a till with
+  // nothing on it demonstrates nothing.
+  {
+    mrn: DANIEL, code: "1A40", payer: "CASH",
+    complaint: "Vomiting and loose stool since last night",
+    assessment: "Acute gastroenteritis, mild dehydration",
+    plan: "ORS and zinc, review if unable to keep fluids down",
+    rx: { product: "ORS-1L", dose: "1 sachet", frequency: "after each stool", quantity: 6 },
+  },
+  {
+    mrn: FAITH, code: "CA07", payer: "CASH",
+    complaint: "Cough and runny nose for two days",
+    assessment: "Upper respiratory infection, viral",
+    plan: "Symptomatic care. No antibiotic indicated",
+    rx: { product: "PARA-500", dose: "250 mg", frequency: "three times daily", quantity: 12 },
+    extra: "PROC-NEB",
+  },
 ];
 
 let n = 0;
@@ -240,7 +260,7 @@ for (const c of CASES) {
       encounterId: enc,
       serviceCode: c.extra,
       payerCode: c.payer,
-      sourceKind: "lab",
+      sourceKind: c.extra.startsWith("PROC-") ? "procedure" : "lab",
       deviceCode: CONS,
       ...DOC,
     });
@@ -675,6 +695,65 @@ submitToDhis2({ facilityId, form: "MOH717", period, byUserId: adminId, byUserNam
 // Everything with a clock on it, raised onto the right desks.
 sweep(facilityId);
 
+// --------------------------------------------------------------------- the till
+//
+// Cash invoices in the states a cashier actually sees on a Monday: one settled
+// in full, one part-paid, one paid then partly refunded, and one left old
+// enough to land in the ageing report.
+
+const cashOwed = outstandingInvoices(facilityId).filter((o) => !o.payerOwes);
+
+if (cashOwed[0]) {
+  recordPayment({
+    invoiceId: cashOwed[0].invoice.id,
+    method: "mpesa",
+    amountCents: cashOwed[0].balanceCents,
+    reference: "QK71HJ2P9A",
+    deviceCode: REC,
+    ...DESK,
+  });
+}
+
+if (cashOwed[1]) {
+  // Part-paid: the patient had some of it and will bring the rest.
+  recordPayment({
+    invoiceId: cashOwed[1].invoice.id,
+    method: "cash",
+    amountCents: Math.round(cashOwed[1].balanceCents / 2),
+    deviceCode: REC,
+    ...DESK,
+  });
+}
+
+if (cashOwed[2]) {
+  const paid = recordPayment({
+    invoiceId: cashOwed[2].invoice.id,
+    method: "cash",
+    amountCents: cashOwed[2].balanceCents,
+    deviceCode: REC,
+    ...DESK,
+  });
+  // And a refund, so the negative row and the reason are visible on screen.
+  refundPayment({
+    paymentId: paid,
+    amountCents: 20_000,
+    reason: "Nebulisation charged but not given — child settled before it was set up",
+    deviceCode: REC,
+    byUserId: adminId,
+    byUserName: "Facility Administrator",
+  });
+}
+
+// One invoice aged so the debtor ageing is not four empty buckets.
+const stillOwed = outstandingInvoices(facilityId).filter((o) => !o.payerOwes);
+if (stillOwed.at(-1)) {
+  run(
+    `UPDATE invoices SET issued_at = ? WHERE id = ?`,
+    `${inDays(-97)}T11:20:00.000Z`,
+    stillOwed.at(-1)!.invoice.id,
+  );
+}
+
 // ------------------------------------------------------------------- summary
 
 const summary = claimsSummary();
@@ -696,6 +775,8 @@ console.log(`  lab orders        ${count(`SELECT COUNT(*) AS n FROM orders`)} ·
 console.log(`  admissions        ${count(`SELECT COUNT(*) AS n FROM admissions`)} · ${count(`SELECT COUNT(*) AS n FROM admissions WHERE discharged_at IS NULL`)} still in a bed`);
 console.log(`  appointments      ${count(`SELECT COUNT(*) AS n FROM appointments`)} booked`);
 console.log(`  MOH returns       ${count(`SELECT COUNT(*) AS n FROM moh_returns`)} generated, ${count(`SELECT COUNT(*) AS n FROM moh_returns WHERE status = 'submitted'`)} submitted`);
+console.log(`  taken today       ${Math.round(takings(facilityId).reduce((sum, t) => sum + t.netCents, 0) / 100)} KES`);
+console.log(`  owed              ${Math.round(outstandingInvoices(facilityId).reduce((sum, o) => sum + o.balanceCents, 0) / 100)} KES across ${outstandingInvoices(facilityId).length} invoices`);
 console.log(`  claims            ${summary.total} · acceptance ${summary.acceptanceRatePercent}%`);
 console.log(`  value at risk     ${summary.valueAtRiskCents / 100} KES`);
 console.log(`  alerts            ${alerts.total} open, ${alerts.critical} critical`);

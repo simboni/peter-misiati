@@ -26,7 +26,7 @@ import { all, get, run, tx, audit, now } from "./db.ts";
 
 export class IntegrationError extends Error {}
 
-export type EndpointKind = "payer" | "tax" | "hie" | "sms" | "dhis2";
+export type EndpointKind = "payer" | "tax" | "hie" | "sms" | "dhis2" | "money";
 export type EndpointMode = "demo" | "live" | "disabled";
 
 export interface Endpoint {
@@ -327,6 +327,16 @@ function reference(prefix: string, seed: string): string {
   return `${prefix}-${String(n).padStart(6, "0")}`;
 }
 
+/** Ten alphanumerics, the shape M-Pesa actually issues. Deterministic. */
+function mpesaReceipt(seed: string): string {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  let out = "";
+  for (let i = 0; i < 10; i++) {
+    out += alphabet[Math.floor(hashUnit(`${seed}:${i}`) * alphabet.length)];
+  }
+  return out;
+}
+
 /**
  * SHA, simulated.
  *
@@ -457,11 +467,75 @@ const demoDhis2: Adapter = (operation, request) => {
   return { ok: true, simulated: true, data: { imported: values.length, period: request.period ?? "", conflicts: 0 } };
 };
 
+/**
+ * M-Pesa, simulated.
+ *
+ * A customer-initiated push: the till asks, the phone is prompted, the customer
+ * enters their PIN. So the interesting cases are the ones that are not success —
+ * a wrong number, a cancelled prompt, an empty wallet — and they are what the
+ * demonstration needs to show, because a cashier who has only ever seen the
+ * happy path does not know what to do when the prompt times out.
+ */
+const demoMoney: Adapter = (operation, request) => {
+  const sim = true;
+  if (operation !== "requestPayment") {
+    return { ok: false, error: `unsupported payment operation ${operation}`, retryable: false, simulated: sim };
+  }
+
+  const phone = String(request.phone ?? "").trim().replace(/\s/g, "");
+  if (!/^254[71]\d{8}$/.test(phone)) {
+    return {
+      ok: false,
+      error: `"${phone}" is not a Kenyan mobile number. It must be 2547XXXXXXXX or 2541XXXXXXXX.`,
+      retryable: false,
+      simulated: sim,
+    };
+  }
+
+  const amount = Number(request.amountCents ?? 0);
+  if (!Number.isInteger(amount) || amount <= 0) {
+    return { ok: false, error: "the amount is not a whole number of cents", retryable: false, simulated: sim };
+  }
+
+  // One in eight prompts is not completed — the customer cancels, walks off, or
+  // has no balance. Deterministic, so a demonstration replays identically.
+  const roll = hashUnit(`m:${phone}:${amount}`);
+  if (roll < 0.12) {
+    const reasons = [
+      "The customer cancelled the prompt on their phone.",
+      "The prompt timed out with no response.",
+      "Insufficient balance in the customer's M-Pesa account.",
+    ];
+    return {
+      ok: false,
+      error: reasons[Math.floor(hashUnit(`mr:${phone}`) * reasons.length)],
+      // Retryable: the cashier can send the prompt again, and usually does.
+      retryable: true,
+      simulated: sim,
+    };
+  }
+
+  return {
+    ok: true,
+    simulated: sim,
+    data: {
+      // M-Pesa receipts are ten alphanumeric characters. The patient reads this
+      // off their own SMS, so it has to look like one — a code padded with X
+      // tells a cashier at a glance that the system is pretending.
+      receipt: mpesaReceipt(`${phone}:${amount}`),
+      phone,
+      amountCents: amount,
+      confirmedAt: now(),
+    },
+  };
+};
+
 const DEMO_ADAPTERS: Record<string, Adapter> = {
   SHA: demoPayer,
   ETIMS: demoTax,
   SMS: demoSms,
   DHIS2: demoDhis2,
+  MPESA: demoMoney,
 };
 
 /** Install the endpoints a Kenyan facility needs. Idempotent. */
@@ -486,6 +560,13 @@ export function seedEndpoints(): void {
     kind: "sms",
     mode: "demo",
     notes: "Appointment reminders and result notifications. Needs a licensed Kenyan aggregator.",
+  });
+  defineEndpoint({
+    code: "MPESA",
+    name: "M-Pesa",
+    kind: "money",
+    mode: "demo",
+    notes: "Customer-initiated payment at the till. Needs a Daraja paybill or till and API credentials.",
   });
   defineEndpoint({
     code: "DHIS2",

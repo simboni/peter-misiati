@@ -29,6 +29,7 @@ const NAV: NavItem[] = [
   { href: "/queue", label: "Queue", permission: "queue.manage" },
   { href: "/appointments", label: "Appointments", permission: "queue.manage" },
   { href: "/patients", label: "Patients", permission: "patient.read" },
+  { href: "/payments", label: "Payments", permission: "payment.receive" },
   { href: "/ward", label: "Ward", permission: "patient.read" },
   { href: "/pharmacy", label: "Pharmacy", permission: "dispense.perform" },
   { href: "/laboratory", label: "Laboratory", permission: "lab.result.release" },

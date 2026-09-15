@@ -893,7 +893,7 @@ CREATE INDEX IF NOT EXISTS idx_vitals_visit ON vitals(visit_id);
 CREATE TABLE IF NOT EXISTS integration_endpoints (
   code       TEXT PRIMARY KEY,
   name       TEXT NOT NULL,
-  kind       TEXT NOT NULL CHECK (kind IN ('payer','tax','hie','sms','dhis2')),
+  kind       TEXT NOT NULL CHECK (kind IN ('payer','tax','hie','sms','dhis2','money')),
   mode       TEXT NOT NULL CHECK (mode IN ('demo','live','disabled')),
   base_url   TEXT NOT NULL DEFAULT '',
   notes      TEXT NOT NULL DEFAULT '',

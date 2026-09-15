@@ -14,6 +14,7 @@ import { unacknowledged, pendingOrders } from "@/lib/orders.ts";
 import { worklist } from "@/lib/pharmacy.ts";
 import { countOpen } from "@/lib/notifications.ts";
 import { listStores, reorderReport } from "@/lib/inventory.ts";
+import { outstandingInvoices } from "@/lib/billing.ts";
 import { Shell, Stat, Section, Banner } from "@/app/_components/shell.tsx";
 
 /**
@@ -45,6 +46,7 @@ export default async function Dashboard() {
   const counter = store ? worklist(store.code) : [];
   const reorder = store ? reorderReport(store.code).order : [];
   const leakage = facilityLeakage(user.facilityId);
+  const owed = outstandingInvoices(user.facilityId);
 
   const critical = flags.filter((f) => f.severity === "critical");
   const warnings = flags.filter((f) => f.severity === "warning");
@@ -216,11 +218,11 @@ export default async function Dashboard() {
             href="/reports"
           />
           <Stat
-            label="To reorder"
-            value={reorder.length}
-            tone={reorder.length > 0 ? "clock" : "good"}
-            note="products at their level"
-            href="/stock"
+            label="Owed to the facility"
+            value={formatKes(owed.reduce((sum, o) => sum + o.balanceCents, 0))}
+            tone={owed.some((o) => o.ageDays > 90) ? "block" : owed.length > 0 ? "clock" : "good"}
+            note={`${owed.filter((o) => !o.payerOwes).length} at the desk, ${owed.filter((o) => o.payerOwes).length} with payers`}
+            href="/payments"
           />
         </div>
       </Section>

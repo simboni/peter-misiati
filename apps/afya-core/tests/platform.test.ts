@@ -36,7 +36,7 @@ const BY = { byUserId: adminId, byUserName: "Facility Administrator" };
 
 test("the endpoints a Kenyan facility needs are installed, in demo mode", () => {
   const codes = I.listEndpoints().map((e) => e.code).sort();
-  assert.deepEqual(codes, ["DHIS2", "ETIMS", "SHA", "SMS"]);
+  assert.deepEqual(codes, ["DHIS2", "ETIMS", "MPESA", "SHA", "SMS"]);
   assert.equal(I.getEndpoint("sha")!.mode, "demo", "case-insensitive lookup, demo by default");
   assert.ok(I.listEndpoints().every((e) => e.mode === "demo"));
 });

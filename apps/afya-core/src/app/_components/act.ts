@@ -21,7 +21,11 @@ export async function act(path: string, work: () => void | Promise<void>): Promi
     // `redirect()` throws by design; it must not be caught and reported.
     if (isRedirectError(err)) throw err;
     const message = err instanceof Error ? err.message : "That did not work.";
-    redirect(`${path}?error=${encodeURIComponent(message)}`);
+    // The path may already carry a query — an invoice being settled, a ward bed
+    // being viewed — and losing it would drop the person back to a list with no
+    // idea what they were doing.
+    const separator = path.includes("?") ? "&" : "?";
+    redirect(`${path}${separator}error=${encodeURIComponent(message)}`);
   }
   redirect(path);
 }

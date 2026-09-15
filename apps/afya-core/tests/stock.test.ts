@@ -500,6 +500,46 @@ test("nothing moves at all when one of the four would fail", () => {
   assert.equal(B.chargesFor(enc).filter((c) => c.service_code === "PARA-500").length, 0);
 });
 
+test("a patient billed for a prescription is not billed again when it is dispensed", () => {
+  const { rx, enc } = prescribed("PARA-500", 12);
+
+  // The clinic bills at the point of prescribing, before the patient walks to
+  // the pharmacy. Both flows are real; being charged twice is not.
+  B.assembleCharges({ encounterId: enc, payerCode: "CASH", deviceCode: DEV, ...KEEPER });
+  const ordered = B.chargesFor(enc).filter((c) => c.service_code === "PARA-500");
+  assert.equal(ordered.length, 1, "billed once when written");
+
+  Ph.dispense({ prescriptionId: rx, storeCode: STORE, payerCode: "CASH", deviceCode: DEV, ...PHARMACIST });
+
+  const live = B.chargesFor(enc).filter((c) => c.service_code === "PARA-500");
+  assert.equal(live.length, 1, "and still once when handed over");
+  assert.notEqual(live[0].id, ordered[0].id, "replaced by what was actually dispensed");
+  assert.equal(live[0].source_ref, Ph.dispensesFor(rx)[0].id);
+
+  // The ordered charge is voided, not deleted — the bill has a history.
+  const voided = get<{ void_reason: string }>(
+    `SELECT void_reason FROM charges WHERE id = ?`, ordered[0].id,
+  )!;
+  assert.match(voided.void_reason, /Replaced by what was dispensed/);
+});
+
+test("a second, partial collection adds its own line", () => {
+  const { rx, enc } = prescribed("ORS-1L", 10);
+  S.receiveStock({
+    storeCode: STORE, productCode: "ORS-1L", batchNumber: "OR-NEW", expiresOn: inDays(300),
+    quantity: 40, deviceCode: DEV, ...KEEPER,
+  });
+  B.assembleCharges({ encounterId: enc, payerCode: "CASH", deviceCode: DEV, ...KEEPER });
+
+  // The pharmacy gives four now and the rest when the patient comes back.
+  Ph.dispense({ prescriptionId: rx, storeCode: STORE, quantity: 4, payerCode: "CASH", deviceCode: DEV, ...PHARMACIST });
+  Ph.dispense({ prescriptionId: rx, storeCode: STORE, quantity: 6, payerCode: "CASH", deviceCode: DEV, ...PHARMACIST });
+
+  const lines = B.chargesFor(enc).filter((c) => c.service_code === "ORS-1L");
+  assert.equal(lines.length, 2, "two collections, two quantities, two lines");
+  assert.equal(lines.reduce((sum, l) => sum + l.quantity, 0), 10, "and they add up to what was prescribed");
+});
+
 test("the audit chain survives the whole stock and dispensing cycle", () => {
   const v = verifyAuditChain();
   assert.equal(v.ok, true, v.ok ? "" : `broken at entry ${v.failedAtId}`);

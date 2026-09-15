@@ -30,7 +30,7 @@ import { all, get, run, tx, audit, now } from "./db.ts";
 import { mintLocalId } from "./ids.ts";
 import { check, explain, licenceStatus } from "./access.ts";
 import { getProduct, type Prescription } from "./prescribing.ts";
-import { addCharge } from "./billing.ts";
+import { addCharge, chargesFor, voidCharge } from "./billing.ts";
 import { allocate, consume, getStore, onHand, type Allocation } from "./inventory.ts";
 
 export class PharmacyError extends Error {}
@@ -319,8 +319,31 @@ export function dispense(input: {
       byUserName: input.dispenserName,
     });
 
-    // 2. On the bill. The charge cites the dispensing event, so a query about a
-    //    line on an invoice leads back to the pack that was handed over.
+    // 2. On the bill — as what was ACTUALLY handed over.
+    //
+    //    `assembleCharges` may already have billed this prescription when it was
+    //    written. That charge is what was ordered; this one is what was given,
+    //    and they are not always the same quantity or even the same product. So
+    //    the ordered charge is voided and replaced rather than added to, because
+    //    a patient billed twice for one box of amoxicillin is the kind of error
+    //    that ends a pilot.
+    //
+    //    Only on the first dispense: a second, partial dispense adds its own
+    //    line, which is correct — two collections, two quantities.
+    const ordered = chargesFor(rx.encounter_id).find(
+      (c) => c.source_kind === "prescription" && c.source_ref === rx.id,
+    );
+    if (ordered) {
+      voidCharge({
+        chargeId: ordered.id,
+        reason: `Replaced by what was dispensed (${id})`,
+        byUserId: input.dispenserId,
+        byUserName: input.dispenserName,
+      });
+    }
+
+    //    The charge cites the dispensing event, so a query about a line on an
+    //    invoice leads back to the pack that was handed over.
     addCharge({
       encounterId: rx.encounter_id,
       serviceCode: productCode,

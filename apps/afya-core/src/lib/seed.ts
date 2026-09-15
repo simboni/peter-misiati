@@ -113,6 +113,9 @@ export const ROLES: { code: string; name: string; description: string; permissio
     permissions: [
       "user.manage", "role.manage", "device.manage", "facility.configure",
       "audit.read", "report.read", "tariff.manage", "patient.merge",
+      // Money going back out is an authorisation, not a till operation. A
+      // cashier can refund their own mistake; this is who signs off the rest.
+      "payment.refund",
     ],
   },
   {
