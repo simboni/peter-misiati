@@ -861,6 +861,57 @@ export function takings(facilityId: number, onDate = today()): {
     .sort((a, b) => b.netCents - a.netCents);
 }
 
+/** Every invoice, for the invoice register. */
+export function listInvoices(facilityId: number, limit = 200): (Invoice & {
+  patient_name: string;
+  paid_cents: number;
+})[] {
+  return all(
+    `SELECT i.*,
+            p.given_name || ' ' || p.family_name AS patient_name,
+            COALESCE((SELECT SUM(pay.amount_cents) FROM payments pay WHERE pay.invoice_id = i.id), 0) AS paid_cents
+       FROM invoices i
+       JOIN encounters e ON e.id = i.encounter_id
+       JOIN patients p ON p.mrn = i.patient_mrn
+      WHERE e.facility_id = ?
+      ORDER BY i.issued_at DESC LIMIT ?`,
+    facilityId,
+    limit,
+  );
+}
+
+/** The eTIMS queue itself, not just its count. */
+export function etimsQueue(limit = 100): (EtimsEntry & { patient_mrn: string; total_cents: number })[] {
+  return all(
+    `SELECT q.*, i.patient_mrn, i.total_cents
+       FROM etims_queue q JOIN invoices i ON i.id = q.invoice_id
+      ORDER BY CASE q.status WHEN 'queued' THEN 0 WHEN 'failed' THEN 1 ELSE 2 END, q.queued_at DESC
+      LIMIT ?`,
+    limit,
+  );
+}
+
+/** Every price on file, for the tariff screen. */
+export function listTariffs(payerCode?: string): {
+  payer_code: string;
+  service_code: string;
+  service_name: string;
+  price_cents: number;
+  effective_from: string;
+  effective_to: string | null;
+  source: string;
+}[] {
+  return all(
+    `SELECT t.payer_code, t.service_code, s.name AS service_name, t.price_cents,
+            t.effective_from, t.effective_to, t.source
+       FROM tariffs t JOIN services s ON s.code = t.service_code
+      WHERE (? IS NULL OR t.payer_code = ?)
+      ORDER BY t.payer_code, s.name, t.effective_from DESC`,
+    payerCode ?? null,
+    payerCode ?? null,
+  );
+}
+
 // --------------------------------------------------------------------- eTIMS
 
 export interface EtimsEntry {

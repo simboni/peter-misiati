@@ -4,7 +4,7 @@ import {
   listStores, stockPosition, reorderReport, expiryReport, stockValue, controlledRegister,
 } from "@/lib/inventory.ts";
 import { formatKes } from "@/lib/billing.ts";
-import { Shell, Stat, Section, Empty } from "@/app/_components/shell.tsx";
+import { Shell, Stat, Section, Empty, Views } from "@/app/_components/shell.tsx";
 import { receiveStockAction } from "@/app/pharmacy/actions.ts";
 import { FORMULARY_STARTER } from "@/lib/seed.ts";
 
@@ -15,15 +15,23 @@ import { FORMULARY_STARTER } from "@/lib/seed.ts";
  * checks none of them: what is there, what runs out, what expires, and what the
  * Pharmacy and Poisons Board will ask to see.
  */
+const TITLES: Record<string, string> = {
+  position: "Stock position",
+  receive: "Take delivery",
+  expiry: "Expiring stock",
+  reorder: "Reorder report",
+  controlled: "Controlled drug register",
+};
+
 export default async function StockPage({
   searchParams,
 }: {
-  searchParams: Promise<{ store?: string; error?: string }>;
+  searchParams: Promise<{ store?: string; view?: string; error?: string }>;
 }) {
   const user = await currentUser();
   if (!user) redirect("/sign-in");
 
-  const { store: requested, error } = await searchParams;
+  const { store: requested, view = "position", error } = await searchParams;
   const stores = listStores(user.facilityId);
   // Default to the dispensing point: it is where the stock a clinic worries
   // about actually sits, and opening on an empty main store reads as a system
@@ -49,9 +57,9 @@ export default async function StockPage({
   return (
     <Shell
       user={user}
-      current="/stock"
+      current={view === "position" ? "/stock" : `/stock?view=${view}`}
       error={error}
-      title="Stores"
+      title={TITLES[view] ?? "Stores"}
       subtitle={`${store.name}${store.dispensing ? " — dispensing point" : ""}`}
       actions={stores.map((s) => (
         <a
@@ -87,6 +95,18 @@ export default async function StockPage({
         />
       </div>
 
+      <Views
+        current={view}
+        views={[
+          { key: "position", label: "Everything", href: `/stock?store=${store.code}` },
+          { key: "receive", label: "Take delivery", href: `/stock?store=${store.code}&view=receive` },
+          { key: "expiry", label: "Expiring", href: `/stock?store=${store.code}&view=expiry` },
+          { key: "reorder", label: "Reorder", href: `/stock?store=${store.code}&view=reorder` },
+          { key: "controlled", label: "Controlled register", href: `/stock?store=${store.code}&view=controlled` },
+        ]}
+      />
+
+      {view === "position" || view === "receive" ? (
       <Section title="Take delivery" note="A batch number and an expiry date are not optional.">
         <form action={receiveStockAction} className="bg-white border border-line rounded px-4 py-3 flex flex-wrap items-end gap-2">
           <input type="hidden" name="storeCode" value={store.code} />
@@ -143,8 +163,10 @@ export default async function StockPage({
           </button>
         </form>
       </Section>
+      ) : null}
 
-      <Section title="Stock position">
+      {view === "position" || view === "reorder" ? (
+      <Section title={view === "reorder" ? "What to order" : "Stock position"}>
         {position.length === 0 ? (
           <Empty>Nothing has been received into this store yet.</Empty>
         ) : (
@@ -161,7 +183,7 @@ export default async function StockPage({
                 </tr>
               </thead>
               <tbody>
-                {position.map((line) => (
+                {(view === "reorder" ? position.filter((l) => l.orderQuantity) : position).map((line) => (
                   <tr key={line.productCode} className="border-t border-line">
                     <td className="px-3 py-2">
                       {line.productName}
@@ -197,7 +219,41 @@ export default async function StockPage({
           </div>
         )}
       </Section>
+      ) : null}
 
+      {view === "position" || view === "expiry" ? (
+        <Section
+          title="Expiring within ninety days"
+          note="What turns into a write-off if it is not used or moved. Soonest first."
+        >
+          {expiring.length === 0 ? (
+            <Empty>Nothing on the shelf expires within ninety days.</Empty>
+          ) : (
+            <table className="w-full text-sm bg-white border border-line rounded">
+              <thead>
+                <tr className="text-xs text-muted text-left">
+                  <th className="px-3 py-2 font-medium">Product</th>
+                  <th className="px-3 py-2 font-medium">Batch</th>
+                  <th className="px-3 py-2 font-medium text-right">Quantity</th>
+                  <th className="px-3 py-2 font-medium text-right">Expires</th>
+                </tr>
+              </thead>
+              <tbody>
+                {expiring.map((b) => (
+                  <tr key={b.id} className="border-t border-line">
+                    <td className="px-3 py-2">{b.product_name}</td>
+                    <td className="px-3 py-2 font-mono text-xs tnum">{b.batch_number}</td>
+                    <td className="px-3 py-2 text-right tnum">{b.quantity}</td>
+                    <td className="px-3 py-2 text-right tnum text-clock">{b.expires_on}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </Section>
+      ) : null}
+
+      {view === "position" || view === "controlled" ? (
       <Section
         title="Controlled drug register"
         note="Every movement of a controlled product, in date order. This is what the PPB inspects."
@@ -239,6 +295,7 @@ export default async function StockPage({
           </div>
         )}
       </Section>
+      ) : null}
     </Shell>
   );
 }

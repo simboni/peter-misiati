@@ -309,6 +309,92 @@ export type ChainResult =
  * link. This is what turns "immutable" into something demonstrable to an
  * inspector, and it is cheap enough to run on every audit-pack export.
  */
+export interface AuditRow {
+  id: number;
+  at: string;
+  action: string;
+  entity: string;
+  entity_id: string | null;
+  patient_id: string | null;
+  actor_id: number | null;
+  actor_name: string;
+  purpose: string;
+  device_code: string | null;
+  detail: string;
+}
+
+/**
+ * Read the audit log.
+ *
+ * The log has been written since the first commit and never had a screen. An
+ * audit trail nobody can read is a compliance claim, not a compliance control:
+ * the ODPC asks who opened a record, and the answer has to be producible by the
+ * facility, not by an engineer with a database client.
+ */
+export function auditLog(
+  filter: {
+    action?: string;
+    actorId?: number;
+    patientId?: string;
+    purpose?: string;
+    from?: string;
+    to?: string;
+    search?: string;
+  } = {},
+  limit = 100,
+  offset = 0,
+): AuditRow[] {
+  const clauses: string[] = [];
+  const params: (string | number)[] = [];
+
+  if (filter.action) {
+    clauses.push("action = ?");
+    params.push(filter.action);
+  }
+  if (filter.actorId) {
+    clauses.push("actor_id = ?");
+    params.push(filter.actorId);
+  }
+  if (filter.patientId) {
+    clauses.push("patient_id = ?");
+    params.push(filter.patientId);
+  }
+  if (filter.purpose) {
+    clauses.push("purpose = ?");
+    params.push(filter.purpose);
+  }
+  if (filter.from) {
+    clauses.push("at >= ?");
+    params.push(`${filter.from}T00:00:00.000Z`);
+  }
+  if (filter.to) {
+    clauses.push("at <= ?");
+    params.push(`${filter.to}T23:59:59.999Z`);
+  }
+  if (filter.search?.trim()) {
+    clauses.push("(actor_name LIKE ? OR entity_id LIKE ? OR patient_id LIKE ?)");
+    const like = `%${filter.search.trim()}%`;
+    params.push(like, like, like);
+  }
+
+  return all<AuditRow>(
+    `SELECT id, at, action, entity, entity_id, patient_id, actor_id, actor_name, purpose, device_code, detail
+       FROM audit_log
+      ${clauses.length ? `WHERE ${clauses.join(" AND ")}` : ""}
+      ORDER BY id DESC LIMIT ? OFFSET ?`,
+    ...params,
+    limit,
+    offset,
+  );
+}
+
+/** The distinct actions in the log, for the filter. */
+export function auditActions(): { action: string; n: number }[] {
+  return all<{ action: string; n: number }>(
+    `SELECT action, COUNT(*) AS n FROM audit_log GROUP BY action ORDER BY n DESC`,
+  );
+}
+
 export function verifyAuditChain(): ChainResult {
   const rows = all<AuditRow>(`SELECT * FROM audit_log ORDER BY id ASC`);
 

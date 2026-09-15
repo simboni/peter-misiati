@@ -1,7 +1,7 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { currentUser } from "@/lib/auth.ts";
 import { check, explain } from "@/lib/access.ts";
+import { Shell, Banner } from "@/app/_components/shell.tsx";
 import RegisterForm from "./form";
 
 export default async function NewPatientPage() {
@@ -9,26 +9,23 @@ export default async function NewPatientPage() {
   if (!user) redirect("/sign-in");
 
   const decision = check(user.userId, "patient.register");
-  if (!decision.allowed) {
-    return (
-      <main className="max-w-xl mx-auto px-5 py-10">
-        <Link href="/patients" className="text-xs text-brand underline underline-offset-2">← Find a patient</Link>
-        <p className="mt-4 bg-block-soft border border-block/25 text-block rounded px-4 py-3 text-sm font-medium">
-          {explain(decision)}
-        </p>
-      </main>
-    );
-  }
 
   return (
-    <main className="max-w-xl mx-auto px-5 py-8">
-      <Link href="/patients" className="text-xs text-brand underline underline-offset-2">← Find a patient</Link>
-      <h1 className="text-2xl font-bold tracking-tight mt-2">Register a patient</h1>
-      <p className="text-sm text-muted mt-2 leading-relaxed">
-        A national ID or SHA number makes this person findable forever. Without one, a phone number is the
-        next best thing.
-      </p>
-      <RegisterForm />
-    </main>
+    <Shell
+      user={user}
+      current="/patients/new"
+      title="Register a patient"
+      subtitle="A national ID or SHA number makes this person findable forever. Without one, a phone number is the next best thing."
+    >
+      {!decision.allowed ? (
+        <div className="mt-5">
+          <Banner tone="block">{explain(decision)}</Banner>
+        </div>
+      ) : (
+        <div className="max-w-xl">
+          <RegisterForm />
+        </div>
+      )}
+    </Shell>
   );
 }

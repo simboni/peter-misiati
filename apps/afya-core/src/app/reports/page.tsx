@@ -9,8 +9,15 @@ import { formatKes, facilityLeakage } from "@/lib/billing.ts";
 import { turnaround } from "@/lib/orders.ts";
 import { attendance } from "@/lib/scheduling.ts";
 import { today } from "@/lib/db.ts";
-import { Shell, Stat, Section, Empty, Banner } from "@/app/_components/shell.tsx";
+import { Shell, Stat, Section, Empty, Banner, Views } from "@/app/_components/shell.tsx";
 import { generateAction, submitAction, detectAction, notifyAction } from "./actions.ts";
+
+const REPORT_TITLES: Record<string, string> = {
+  returns: "MOH returns",
+  notifiable: "Notifiable diseases",
+  revenue: "Revenue & leakage",
+  clinical: "Clinical activity",
+};
 
 const FORMS: { code: FormCode; name: string }[] = [
   { code: "MOH705A", name: "MOH 705A — outpatient, under five" },
@@ -29,7 +36,7 @@ const FORMS: { code: FormCode; name: string }[] = [
 export default async function ReportsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ period?: string; form?: string; error?: string }>;
+  searchParams: Promise<{ period?: string; form?: string; view?: string; error?: string }>;
 }) {
   const user = await currentUser();
   if (!user) redirect("/sign-in");
@@ -37,6 +44,7 @@ export default async function ReportsPage({
   const params = await searchParams;
   const period = params.period && /^\d{4}-\d{2}$/.test(params.period) ? params.period : today().slice(0, 7);
   const form = (FORMS.find((f) => f.code === params.form)?.code ?? "MOH717") as FormCode;
+  const rview = params.view ?? "returns";
 
   const live = computeReturn({ facilityId: user.facilityId, form, period });
   const stored = getReturn(user.facilityId, form, period);
@@ -54,12 +62,22 @@ export default async function ReportsPage({
   return (
     <Shell
       user={user}
-      current="/reports"
+      current={rview === "returns" ? "/reports" : `/reports?view=${rview}`}
       error={params.error}
-      title="Reports"
+      title={REPORT_TITLES[rview] ?? "Reports"}
       subtitle="Generated from what the facility recorded. Nothing here is typed twice."
     >
-      <div className="mt-5 grid gap-3 sm:grid-cols-4">
+      <Views
+        current={rview}
+        views={[
+          { key: "returns", label: "MOH returns", href: "/reports" },
+          { key: "notifiable", label: "Notifiable diseases", href: "/reports?view=notifiable" },
+          { key: "revenue", label: "Revenue & leakage", href: "/reports?view=revenue" },
+          { key: "clinical", label: "Clinical activity", href: "/reports?view=clinical" },
+        ]}
+      />
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-4">
         <Stat
           label="Claim acceptance"
           value={claims.acceptanceRatePercent === null ? "—" : `${claims.acceptanceRatePercent}%`}
@@ -95,6 +113,8 @@ export default async function ReportsPage({
         />
       </div>
 
+      {rview === "returns" ? (
+      <>
       <Section title="MOH return">
         <form className="bg-white border border-line rounded px-4 py-3 flex flex-wrap items-end gap-2">
           <label className="text-xs text-muted">
@@ -189,6 +209,10 @@ export default async function ReportsPage({
         </div>
       </Section>
 
+      </>
+      ) : null}
+
+      {rview === "returns" || rview === "notifiable" ? (
       <Section
         title="Notifiable diseases"
         note="The Public Health Act clock runs from diagnosis, not from the monthly return."
@@ -234,6 +258,9 @@ export default async function ReportsPage({
         )}
       </Section>
 
+      ) : null}
+
+      {rview === "returns" ? (
       <Section title="Returns filed">
         {history.length === 0 ? (
           <Empty>No return has been generated yet.</Empty>
@@ -274,6 +301,86 @@ export default async function ReportsPage({
           </table>
         )}
       </Section>
+      ) : null}
+
+      {rview === "revenue" ? (
+        <Section title="Where the money is not arriving" note="Work that was done and never reached an invoice.">
+          {leakage.gaps.length === 0 ? (
+            <Empty>Every closed encounter this quarter is fully billed.</Empty>
+          ) : (
+            <table className="w-full text-sm bg-white border border-line rounded">
+              <thead>
+                <tr className="text-xs text-muted text-left">
+                  <th className="px-3 py-2 font-medium">Patient</th>
+                  <th className="px-3 py-2 font-medium">What is missing</th>
+                  <th className="px-3 py-2 font-medium text-right">Estimate</th>
+                </tr>
+              </thead>
+              <tbody>
+                {leakage.gaps.map((g, i) => (
+                  <tr key={`${g.encounterId}-${i}`} className="border-t border-line">
+                    <td className="px-3 py-2 font-mono text-xs tnum">{g.patientMrn}</td>
+                    <td className="px-3 py-2">{g.description}</td>
+                    <td className="px-3 py-2 text-right tnum">
+                      {g.estimateCents ? formatKes(g.estimateCents) : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          <p className="text-xs text-muted mt-3 leading-relaxed">
+            This is money the facility already spent the staff time and the stock to earn. The estimate prices
+            the gap against the payer the encounter was invoiced to, and says so rather than pretending to be
+            exact.
+          </p>
+        </Section>
+      ) : null}
+
+      {rview === "clinical" ? (
+        <>
+          <Section title="Laboratory turnaround" note="Median hours from order to reported result. Slowest first.">
+            {lab.length === 0 ? (
+              <Empty>Nothing has been reported yet.</Empty>
+            ) : (
+              <table className="w-full text-sm bg-white border border-line rounded">
+                <thead>
+                  <tr className="text-xs text-muted text-left">
+                    <th className="px-3 py-2 font-medium">Investigation</th>
+                    <th className="px-3 py-2 font-medium text-right">Reported</th>
+                    <th className="px-3 py-2 font-medium text-right">Median hours</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lab.map((t) => (
+                    <tr key={t.serviceCode} className="border-t border-line">
+                      <td className="px-3 py-2">{t.serviceName}</td>
+                      <td className="px-3 py-2 text-right tnum text-muted">{t.n}</td>
+                      <td className={`px-3 py-2 text-right tnum font-semibold ${t.medianHours > 24 ? "text-clock" : ""}`}>
+                        {t.medianHours}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </Section>
+
+          <Section title="Clinic attendance" note="Booked against seen. The difference is the no-show rate.">
+            <div className="grid gap-3 sm:grid-cols-4">
+              <Stat label="Booked" value={clinic.booked} />
+              <Stat label="Attended" value={clinic.attended} tone="good" />
+              <Stat label="Did not attend" value={clinic.didNotAttend} tone={clinic.didNotAttend > 0 ? "block" : "good"} />
+              <Stat
+                label="Slot utilisation"
+                value={clinic.utilisationPercent === null ? "—" : `${clinic.utilisationPercent}%`}
+                tone="muted"
+                note="of the slots opened"
+              />
+            </div>
+          </Section>
+        </>
+      ) : null}
     </Shell>
   );
 }

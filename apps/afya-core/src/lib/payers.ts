@@ -632,6 +632,36 @@ export function recordPreauthDecision(input: {
   });
 }
 
+/**
+ * The pre-authorisation worklist.
+ *
+ * Requested-and-not-decided first, because a claim citing an approval that
+ * never came back is an automatic rejection, and the days it has been waiting
+ * is the only thing that makes anyone chase it.
+ */
+export function preauthWorklist(limit = 100): (Preauth & { patient_name: string; daysWaiting: number })[] {
+  const rows = all<Preauth & { patient_name: string }>(
+    `SELECT a.*, p.given_name || ' ' || p.family_name AS patient_name
+       FROM preauths a JOIN patients p ON p.mrn = a.patient_mrn
+      ORDER BY a.created_at DESC LIMIT ?`,
+    limit,
+  );
+
+  const rank = { requested: 0, draft: 1, declined: 2, expired: 3, approved: 4 } as const;
+  return rows
+    .map((row) => ({
+      ...row,
+      daysWaiting: Math.round(
+        (Date.now() - Date.parse(row.requested_at ?? row.created_at)) / 86_400_000,
+      ),
+    }))
+    .sort(
+      (a, b) =>
+        rank[a.status as keyof typeof rank] - rank[b.status as keyof typeof rank] ||
+        b.daysWaiting - a.daysWaiting,
+    );
+}
+
 export function preauthsFor(encounterId: string): Preauth[] {
   return all<Preauth>(`SELECT * FROM preauths WHERE encounter_id = ? ORDER BY created_at`, encounterId);
 }

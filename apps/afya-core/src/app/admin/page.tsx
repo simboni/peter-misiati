@@ -9,7 +9,8 @@ import { verifyAuditChain } from "@/lib/db.ts";
 import { coverage as terminologyCoverage } from "@/lib/terminology.ts";
 import { listPayers } from "@/lib/payers.ts";
 import { CADRES, ROLES } from "@/lib/seed.ts";
-import { Shell, Stat, Section, Empty, Banner } from "@/app/_components/shell.tsx";
+import { Shell, Stat, Section, Empty, Banner, Views } from "@/app/_components/shell.tsx";
+import { listTariffs, formatKes } from "@/lib/billing.ts";
 import {
   identifiersAction, deviceAction, revokeDeviceAction, userAction, toggleUserAction,
   endpointModeAction, resolveDeadLetterAction, tariffAction,
@@ -22,12 +23,20 @@ import {
  * answered. A red flag with no remedy is worse than no flag, so the identifiers
  * form is first and the rest follows.
  */
+const TITLES: Record<string, string> = {
+  facility: "Facility & compliance",
+  staff: "Staff & licences",
+  devices: "Devices",
+  integrations: "Integrations",
+  tariffs: "Tariffs & services",
+};
+
 export default async function AdminPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ view?: string; error?: string }>;
 }) {
-  const { error } = await searchParams;
+  const { view = "facility", error } = await searchParams;
   const user = await currentUser();
   if (!user) redirect("/sign-in");
   if (!can(user.userId, "facility.configure")) redirect("/");
@@ -44,6 +53,7 @@ export default async function AdminPage({
   const chain = verifyAuditChain();
   const catalogue = terminologyCoverage();
   const payers = listPayers();
+  const tariffs = view === "tariffs" ? listTariffs() : [];
 
   const modeTone: Record<string, string> = {
     live: "text-good",
@@ -54,9 +64,9 @@ export default async function AdminPage({
   return (
     <Shell
       user={user}
-      current="/admin"
+      current={view === "facility" ? "/admin" : `/admin?view=${view}`}
       error={error}
-      title="Administration"
+      title={TITLES[view] ?? "Administration"}
       subtitle={`${facility.name} · KMHFL ${facility.kmhfl_code}`}
     >
       <div className="mt-5 grid gap-3 sm:grid-cols-4">
@@ -80,7 +90,18 @@ export default async function AdminPage({
         />
       </div>
 
-      {flags.length > 0 ? (
+      <Views
+        current={view}
+        views={[
+          { key: "facility", label: "Facility", href: "/admin" },
+          { key: "staff", label: "Staff", href: "/admin?view=staff" },
+          { key: "devices", label: "Devices", href: "/admin?view=devices" },
+          { key: "integrations", label: "Integrations", href: "/admin?view=integrations" },
+          { key: "tariffs", label: "Tariffs", href: "/admin?view=tariffs" },
+        ]}
+      />
+
+      {view === "facility" && flags.length > 0 ? (
         <Section title="Answer the compliance flags">
           <ul className="flex flex-col gap-2 mb-3">
             {flags.map((f) => (
@@ -92,6 +113,7 @@ export default async function AdminPage({
         </Section>
       ) : null}
 
+      {view === "facility" ? (
       <Section title="Facility identifiers" note="What the facility is regulated under. Leave a field blank to keep it.">
         <form action={identifiersAction} className="bg-white border border-line rounded px-4 py-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <label className="text-xs text-muted">
@@ -146,6 +168,9 @@ export default async function AdminPage({
         </form>
       </Section>
 
+      ) : null}
+
+      {view === "integrations" ? (
       <Section
         title="Integrations"
         note="Every way out of the building. A simulated answer is never mistakable for a real one."
@@ -268,6 +293,9 @@ export default async function AdminPage({
         ) : null}
       </Section>
 
+      ) : null}
+
+      {view === "staff" ? (
       <Section title="Staff" note="No shared logins. Every action is attributable to a person.">
         <div className="overflow-x-auto">
           <table className="w-full text-sm bg-white border border-line rounded">
@@ -369,6 +397,9 @@ export default async function AdminPage({
         </form>
       </Section>
 
+      ) : null}
+
+      {view === "devices" ? (
       <Section title="Devices" note="Every identifier the system mints carries its device prefix.">
         <ul className="flex flex-col gap-2">
           {devices.map((d) => (
@@ -422,6 +453,9 @@ export default async function AdminPage({
         </form>
       </Section>
 
+      ) : null}
+
+      {view === "tariffs" ? (
       <Section title="Tariff" note="Every price records where it came from and when it takes effect.">
         <form action={tariffAction} className="bg-white border border-line rounded px-4 py-3 flex flex-wrap items-end gap-2">
           <label className="text-xs text-muted">
@@ -468,6 +502,39 @@ export default async function AdminPage({
             Set
           </button>
         </form>
+        {tariffs.length > 0 ? (
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full text-sm bg-white border border-line rounded">
+              <thead>
+                <tr className="text-xs text-muted text-left">
+                  <th className="px-3 py-2 font-medium">Payer</th>
+                  <th className="px-3 py-2 font-medium">Service</th>
+                  <th className="px-3 py-2 font-medium">Code</th>
+                  <th className="px-3 py-2 font-medium text-right">Price</th>
+                  <th className="px-3 py-2 font-medium text-right">From</th>
+                  <th className="px-3 py-2 font-medium">Source</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tariffs.map((t, i) => (
+                  <tr key={`${t.payer_code}-${t.service_code}-${i}`} className="border-t border-line">
+                    <td className="px-3 py-2 text-muted">{t.payer_code}</td>
+                    <td className="px-3 py-2">{t.service_name}</td>
+                    <td className="px-3 py-2 font-mono text-xs">{t.service_code}</td>
+                    <td className="px-3 py-2 text-right tnum font-semibold">{formatKes(t.price_cents)}</td>
+                    <td className="px-3 py-2 text-right tnum text-muted">{t.effective_from}</td>
+                    <td className="px-3 py-2 text-xs text-muted">{t.source}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="text-xs text-muted mt-2 leading-relaxed">
+              Every price records where it came from and the date it takes effect, so a tariff revised last
+              month cannot silently reprice care given before it.
+            </p>
+          </div>
+        ) : null}
+
         {catalogue.starterOnly ? (
           <div className="mt-3">
             <Banner tone="clock">
@@ -478,6 +545,7 @@ export default async function AdminPage({
           </div>
         ) : null}
       </Section>
+      ) : null}
     </Shell>
   );
 }

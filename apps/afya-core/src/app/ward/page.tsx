@@ -8,7 +8,7 @@ import {
 } from "@/lib/inpatient.ts";
 import { searchPatients } from "@/lib/patients.ts";
 import { listPayers } from "@/lib/payers.ts";
-import { Shell, Stat, Section, Empty, Banner } from "@/app/_components/shell.tsx";
+import { Shell, Stat, Section, Empty, Banner, Views } from "@/app/_components/shell.tsx";
 import { admitAction, transferAction, observationAction, dischargeAction, billNightsAction } from "./actions.ts";
 
 /**
@@ -22,12 +22,12 @@ import { admitAction, transferAction, observationAction, dischargeAction, billNi
 export default async function WardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ bed?: string; q?: string; error?: string }>;
+  searchParams: Promise<{ bed?: string; q?: string; view?: string; error?: string }>;
 }) {
   const user = await currentUser();
   if (!user) redirect("/sign-in");
 
-  const { bed: selectedBed, q, error } = await searchParams;
+  const { bed: selectedBed, q, view = "beds", error } = await searchParams;
   const board = bedBoard(user.facilityId);
   const wards = census(user.facilityId);
   const missed = missedDoses(user.facilityId);
@@ -43,9 +43,9 @@ export default async function WardPage({
   return (
     <Shell
       user={user}
-      current="/ward"
+      current={view === "charts" ? "/ward?view=charts" : "/ward"}
       error={error}
-      title="Ward"
+      title={view === "charts" ? "Drug charts" : "Ward"}
       subtitle="The bed board, the observations, and the drug chart."
       actions={
         <form action={billNightsAction} className="flex items-end gap-2">
@@ -98,6 +98,57 @@ export default async function WardPage({
         </div>
       ) : null}
 
+      <Views
+        current={view}
+        views={[
+          { key: "beds", label: "Bed board", href: "/ward" },
+          { key: "charts", label: "Drug charts", href: "/ward?view=charts" },
+        ]}
+      />
+
+      {view === "charts" ? (
+        <Section
+          title="Doses past due and unsigned"
+          note="What a shift handover asks about. A dose not given is a record, not a blank."
+        >
+          {missed.length === 0 ? (
+            <Empty>Every dose due so far has been signed for.</Empty>
+          ) : (
+            <table className="w-full text-sm bg-white border border-line rounded">
+              <thead>
+                <tr className="text-xs text-muted text-left">
+                  <th className="px-3 py-2 font-medium">Due</th>
+                  <th className="px-3 py-2 font-medium">Bed</th>
+                  <th className="px-3 py-2 font-medium">Patient</th>
+                  <th className="px-3 py-2 font-medium">Medicine</th>
+                </tr>
+              </thead>
+              <tbody>
+                {missed.map((m) => (
+                  <tr key={m.id} className="border-t border-line">
+                    <td className="px-3 py-2 tnum text-block font-semibold">
+                      {m.due_at.slice(5, 16).replace("T", " ")}
+                    </td>
+                    <td className="px-3 py-2 font-mono text-xs">
+                      <Link href={`/ward?bed=${m.bed_code}`} className="text-brand underline underline-offset-2">
+                        {m.bed_code}
+                      </Link>
+                    </td>
+                    <td className="px-3 py-2 font-mono text-xs tnum">{m.patient_mrn}</td>
+                    <td className="px-3 py-2">{m.product_name}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          <p className="text-xs text-muted mt-3 leading-relaxed">
+            Open a bed from the board to sign for a dose, or to record why one was withheld — refused,
+            vomited, absent and forgotten are entirely different things at an inquest.
+          </p>
+        </Section>
+      ) : null}
+
+      {view === "beds" ? (
       <Section title="Bed board">
         {wards.map((ward) => (
           <div key={ward.wardCode} className="mb-5">
@@ -147,6 +198,8 @@ export default async function WardPage({
           </div>
         ))}
       </Section>
+
+      ) : null}
 
       {/* ---- one patient, when a bed is chosen ---- */}
       {chosen?.occupied && chosen.patientMrn ? (

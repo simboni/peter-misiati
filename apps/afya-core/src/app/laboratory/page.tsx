@@ -4,7 +4,7 @@ import { currentUser } from "@/lib/auth.ts";
 import { check, explain } from "@/lib/access.ts";
 import { pendingOrders, unacknowledged, turnaround } from "@/lib/orders.ts";
 import { specimensFor, resultsFor, formatValue } from "@/lib/laboratory.ts";
-import { Shell, Stat, Section, Empty, Banner } from "@/app/_components/shell.tsx";
+import { Shell, Stat, Section, Empty, Banner, Views } from "@/app/_components/shell.tsx";
 import { collectAction, rejectAction, enterResultAction, releaseAction } from "./actions.ts";
 
 /**
@@ -18,9 +18,9 @@ import { collectAction, rejectAction, enterResultAction, releaseAction } from ".
 export default async function LaboratoryPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ view?: string; error?: string }>;
 }) {
-  const { error } = await searchParams;
+  const { view = "bench", error } = await searchParams;
   const user = await currentUser();
   if (!user) redirect("/sign-in");
 
@@ -41,9 +41,9 @@ export default async function LaboratoryPage({
   return (
     <Shell
       user={user}
-      current="/laboratory"
+      current={view === "unread" ? "/laboratory?view=unread" : "/laboratory"}
       error={error}
-      title="Laboratory"
+      title={view === "unread" ? "Results to acknowledge" : "Laboratory"}
       subtitle="Collect, read, release. Nothing reaches a clinician until it is released."
     >
       <div className="mt-5 grid gap-3 sm:grid-cols-4">
@@ -77,6 +77,15 @@ export default async function LaboratoryPage({
         </div>
       ) : null}
 
+      <Views
+        current={view}
+        views={[
+          { key: "bench", label: "On the bench", href: "/laboratory" },
+          { key: "unread", label: "Results to acknowledge", href: "/laboratory?view=unread" },
+        ]}
+      />
+
+      {view === "bench" ? (
       <Section title="On the bench" note="Stat first, then urgent, then oldest.">
         {pending.length === 0 ? (
           <Empty>Nothing waiting. Orders appear here as clinicians place them.</Empty>
@@ -260,6 +269,8 @@ export default async function LaboratoryPage({
           </ul>
         )}
       </Section>
+
+      ) : null}
 
       <Section
         title="Reported and not read"

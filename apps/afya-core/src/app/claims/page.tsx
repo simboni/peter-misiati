@@ -3,7 +3,8 @@ import { redirect } from "next/navigation";
 import { currentUser } from "@/lib/auth.ts";
 import { check, explain } from "@/lib/access.ts";
 import { claimsSummary, scrub, getClaim } from "@/lib/claims.ts";
-import { Shell, Banner } from "@/app/_components/shell.tsx";
+import { Shell, Banner, Section, Empty, Views } from "@/app/_components/shell.tsx";
+import { preauthWorklist } from "@/lib/payers.ts";
 import { formatKes, etimsBacklog } from "@/lib/billing.ts";
 import { pendingVerifications } from "@/lib/payers.ts";
 import { resolvePatient } from "@/lib/patients.ts";
@@ -15,7 +16,12 @@ import { resolvePatient } from "@/lib/patients.ts";
  * watches, and the one no incumbent publishes. Everything else on this page
  * exists to explain that number or to stop it falling.
  */
-export default async function ClaimsPage() {
+export default async function ClaimsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ view?: string; error?: string }>;
+}) {
+  const { view = "claims", error } = await searchParams;
   const user = await currentUser();
   if (!user) redirect("/sign-in");
 
@@ -31,17 +37,91 @@ export default async function ClaimsPage() {
   }
 
   const s = claimsSummary();
+  const preauths = preauthWorklist();
   const etims = etimsBacklog();
   const unverified = pendingVerifications();
 
   return (
     <Shell
       user={user}
-      current="/claims"
-      title="Claims"
+      current={view === "preauth" ? "/claims?view=preauth" : "/claims"}
+      error={error}
+      title={view === "preauth" ? "Pre-authorisations" : "Claims"}
       subtitle="Every gate maps to a documented reason SHA rejects a claim."
     >
 
+      <Views
+        current={view}
+        views={[
+          { key: "claims", label: "Claims", href: "/claims" },
+          { key: "preauth", label: "Pre-authorisations", href: "/claims?view=preauth" },
+        ]}
+      />
+
+      {view === "preauth" ? (
+        <Section
+          title="Pre-authorisation worklist"
+          note="Waiting longest first. A claim citing an approval that never came back is an automatic rejection."
+        >
+          {preauths.length === 0 ? (
+            <Empty>Nothing has been requested.</Empty>
+          ) : (
+            <table className="w-full text-sm bg-white border border-line rounded">
+              <thead>
+                <tr className="text-xs text-muted text-left">
+                  <th className="px-3 py-2 font-medium">Requested</th>
+                  <th className="px-3 py-2 font-medium">Patient</th>
+                  <th className="px-3 py-2 font-medium">Payer</th>
+                  <th className="px-3 py-2 font-medium">Services</th>
+                  <th className="px-3 py-2 font-medium">Status</th>
+                  <th className="px-3 py-2 font-medium">Reference</th>
+                  <th className="px-3 py-2 font-medium text-right">Valid to</th>
+                </tr>
+              </thead>
+              <tbody>
+                {preauths.map((a) => (
+                  <tr key={a.id} className="border-t border-line align-top">
+                    <td className="px-3 py-2 tnum text-muted whitespace-nowrap">
+                      {(a.requested_at ?? a.created_at).slice(0, 10)}
+                      {a.status === "requested" && a.daysWaiting > 0 ? (
+                        <div className={`text-xs ${a.daysWaiting > 2 ? "text-block" : "text-clock"}`}>
+                          {a.daysWaiting}d waiting
+                        </div>
+                      ) : null}
+                    </td>
+                    <td className="px-3 py-2">{a.patient_name}</td>
+                    <td className="px-3 py-2 text-muted">{a.payer_code}</td>
+                    <td className="px-3 py-2 font-mono text-xs">
+                      {(JSON.parse(a.service_codes) as string[]).join(", ")}
+                    </td>
+                    <td
+                      className={`px-3 py-2 font-medium ${
+                        a.status === "approved"
+                          ? "text-good"
+                          : a.status === "declined" || a.status === "expired"
+                            ? "text-block"
+                            : "text-clock"
+                      }`}
+                    >
+                      {a.status}
+                      {a.decline_reason ? (
+                        <div className="text-xs text-muted font-normal">{a.decline_reason}</div>
+                      ) : null}
+                    </td>
+                    <td className="px-3 py-2 font-mono text-xs tnum">{a.reference ?? "—"}</td>
+                    <td className="px-3 py-2 text-right tnum text-muted">{a.valid_until ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          <p className="text-xs text-muted mt-3 leading-relaxed">
+            An approval is only usable with the payer&apos;s own reference on it — a claim citing an approval
+            without one is rejected, so the system refuses to record an approval that has no reference.
+          </p>
+        </Section>
+      ) : (
+      <>
       <section className="mt-6 grid gap-3 sm:grid-cols-3">
         <div className="bg-white border border-line rounded px-4 py-3">
           <div className="text-xs text-muted">Acceptance rate</div>
@@ -155,6 +235,8 @@ export default async function ClaimsPage() {
           not be reached. Claims for those patients will block until they resolve.
         </p>
       ) : null}
+      </>
+      )}
     </Shell>
   );
 }
