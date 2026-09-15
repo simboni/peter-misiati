@@ -40,7 +40,7 @@ Each module is a bounded context: it owns its data, exposes an API, and is indep
 | **M23** | Prescribing | Prescriptions, dose calculators, interaction/allergy checks | M20, M21, M01 |
 | **M24** | Inpatient & Ward | Admission, beds, wards, transfers, rounds, observations, MAR, discharge summary | M20, M22, M23 |
 | **M25** | Theatre & Surgery | Booking, pre-op checklist, operation notes, post-op, theatre stock | M20, M24 |
-| **M26** | Maternity & Child Health | ANC, labour & delivery, postnatal, Linda Mama, immunisation, growth monitoring | M20, M10 |
+| **M26** | Maternity & Child Health | ANC, labour & delivery, postnatal, maternity cover under SHA, immunisation, growth monitoring | M20, M10 |
 | **M27** | Programme Registers | HIV, TB, NCD, malaria registers and their reporting data elements | M20, M21 |
 | **M28** | Emergency & Casualty | Emergency triage, unidentified-patient handling, SHA emergency pathway | M20, M14, M41 |
 | **M29** | Referrals | Inbound/outbound referrals, FHIR referral bundles | M20, M04 |
@@ -254,7 +254,7 @@ Turns the MVP into a system a health centre and a small hospital can run on.
 | Module | Unlocks |
 |---|---|
 | M25 Theatre & Surgery | Surgical facilities |
-| M26 Maternity & Child Health | Maternity homes, Linda Mama |
+| M26 Maternity & Child Health | Maternity homes, SHA maternity package |
 | M27 Programme Registers | Mission and public facilities, donor programmes |
 | M29 Referrals | Facility networks |
 | M31 Analyser Interface | Mid-size labs |

@@ -1538,3 +1538,165 @@ CREATE TABLE IF NOT EXISTS programme_visits (
   created_at    TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_pvisit_due ON programme_visits(enrolment_id, next_due);
+
+-- ==================================================== M26 MATERNITY & CHILD HEALTH
+
+-- A pregnancy, followed from booking to delivery to six weeks after.
+--
+-- Kept separately from the encounter record because the questions are
+-- longitudinal: how many antenatal contacts has this woman had, is the
+-- pregnancy dated, is she due. None of that can be reconstructed from a pile of
+-- consultations afterwards.
+CREATE TABLE IF NOT EXISTS pregnancies (
+  id              TEXT PRIMARY KEY,
+  patient_mrn     TEXT NOT NULL REFERENCES patients(mrn),
+  -- The payer's own reference for this pregnancy's maternity cover, when there
+  -- is one — a SHA authorisation, a scheme's antenatal booking reference. There
+  -- is deliberately no Linda Mama column: that scheme ended with NHIF when SHA
+  -- took over, and maternity is now a benefit inside the SHA package claimed
+  -- against the mother's SHA number on her patient record, not a separate
+  -- registration. Keep this free-text — every payer numbers it differently.
+  cover_ref       TEXT,
+  -- Last menstrual period. The expected date is derived from it, never stored
+  -- independently, so the two can never disagree.
+  lmp             TEXT,
+  -- When a scan dates the pregnancy differently, the scan wins and says so.
+  edd_override    TEXT,
+  edd_source      TEXT NOT NULL DEFAULT 'lmp' CHECK (edd_source IN ('lmp','scan','unknown')),
+  gravida         INTEGER,
+  para            INTEGER,
+  booked_on       TEXT NOT NULL,
+  status          TEXT NOT NULL CHECK (status IN ('booked','delivered','miscarried','terminated','transferred','lost')),
+  outcome_on      TEXT,
+  outcome_note    TEXT,
+  booked_by       INTEGER REFERENCES users(id),
+  device_code     TEXT,
+  created_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_preg_patient ON pregnancies(patient_mrn, status);
+
+-- One antenatal contact. WHO counts contacts, not "visits", and the count is
+-- what the return and the quality measure are both built on.
+CREATE TABLE IF NOT EXISTS anc_contacts (
+  id            TEXT PRIMARY KEY,
+  pregnancy_id  TEXT NOT NULL REFERENCES pregnancies(id),
+  encounter_id  TEXT REFERENCES encounters(id),
+  contact_number INTEGER NOT NULL,
+  contact_date  TEXT NOT NULL,
+  -- Gestation in WEEKS at this contact, computed and stored: recomputing it
+  -- later against a changed date would rewrite what was known at the time.
+  gestation_weeks INTEGER,
+  -- Integers in fixed units, like every other observation in the system.
+  weight_grams    INTEGER,
+  systolic_mmhg   INTEGER,
+  diastolic_mmhg  INTEGER,
+  fundal_height_cm INTEGER,
+  haemoglobin_milli INTEGER,
+  -- The interventions the return counts, each a plain yes or no.
+  tt_given        INTEGER NOT NULL DEFAULT 0 CHECK (tt_given IN (0,1)),
+  iptp_given      INTEGER NOT NULL DEFAULT 0 CHECK (iptp_given IN (0,1)),
+  iron_given      INTEGER NOT NULL DEFAULT 0 CHECK (iron_given IN (0,1)),
+  llin_given      INTEGER NOT NULL DEFAULT 0 CHECK (llin_given IN (0,1)),
+  hiv_tested      INTEGER NOT NULL DEFAULT 0 CHECK (hiv_tested IN (0,1)),
+  -- Danger signs found. Free text, because the list is long and a clinician
+  -- writing "reduced fetal movements" must not be forced into a checkbox.
+  danger_signs    TEXT NOT NULL DEFAULT '',
+  next_due        TEXT,
+  note            TEXT NOT NULL DEFAULT '',
+  seen_by         INTEGER REFERENCES users(id),
+  seen_by_name    TEXT NOT NULL,
+  created_at      TEXT NOT NULL,
+  UNIQUE (pregnancy_id, contact_number)
+);
+
+-- The delivery itself.
+CREATE TABLE IF NOT EXISTS deliveries (
+  id              TEXT PRIMARY KEY,
+  pregnancy_id    TEXT NOT NULL REFERENCES pregnancies(id),
+  encounter_id    TEXT REFERENCES encounters(id),
+  admission_id    TEXT REFERENCES admissions(id),
+  delivered_at    TEXT NOT NULL,
+  mode            TEXT NOT NULL CHECK (mode IN
+                    ('spontaneous_vertex','assisted','caesarean','breech','other')),
+  place           TEXT NOT NULL DEFAULT 'facility' CHECK (place IN ('facility','home','in_transit','other')),
+  gestation_weeks INTEGER,
+  -- Recorded because it drives the postnatal schedule and the claim.
+  blood_loss_ml   INTEGER,
+  complications   TEXT NOT NULL DEFAULT '',
+  mother_outcome  TEXT NOT NULL DEFAULT 'alive' CHECK (mother_outcome IN ('alive','died')),
+  attended_by     INTEGER REFERENCES users(id),
+  attendant_name  TEXT NOT NULL,
+  attendant_licence TEXT,
+  device_code     TEXT,
+  created_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_delivery_preg ON deliveries(pregnancy_id);
+
+-- A baby. One row per baby, because twins are not an edge case.
+--
+-- `patient_mrn` is the baby's OWN record, registered at birth. A newborn with
+-- no record of their own cannot be immunised, weighed or treated, and giving
+-- them one at birth is the single thing that makes child health work.
+CREATE TABLE IF NOT EXISTS births (
+  id            TEXT PRIMARY KEY,
+  delivery_id   TEXT NOT NULL REFERENCES deliveries(id),
+  patient_mrn   TEXT REFERENCES patients(mrn),
+  birth_order   INTEGER NOT NULL DEFAULT 1,
+  sex           TEXT NOT NULL CHECK (sex IN ('male','female','unknown')),
+  birth_weight_grams INTEGER,
+  -- Apgar at one and five minutes.
+  apgar_1       INTEGER,
+  apgar_5       INTEGER,
+  outcome       TEXT NOT NULL CHECK (outcome IN ('live','stillbirth_fresh','stillbirth_macerated','died')),
+  -- The birth notification number, which is what a birth certificate is got with.
+  notification_no TEXT,
+  note          TEXT NOT NULL DEFAULT '',
+  created_at    TEXT NOT NULL,
+  UNIQUE (delivery_id, birth_order)
+);
+
+-- A postnatal contact, for the mother and the baby together — which is how they
+-- are actually seen.
+CREATE TABLE IF NOT EXISTS pnc_contacts (
+  id            TEXT PRIMARY KEY,
+  delivery_id   TEXT NOT NULL REFERENCES deliveries(id),
+  encounter_id  TEXT REFERENCES encounters(id),
+  contact_date  TEXT NOT NULL,
+  -- Which of the scheduled contacts this is, in hours or days after birth.
+  scheduled_at  TEXT NOT NULL,
+  mother_findings TEXT NOT NULL DEFAULT '',
+  baby_findings   TEXT NOT NULL DEFAULT '',
+  danger_signs  TEXT NOT NULL DEFAULT '',
+  next_due      TEXT,
+  seen_by       INTEGER REFERENCES users(id),
+  seen_by_name  TEXT NOT NULL,
+  created_at    TEXT NOT NULL
+);
+
+-- Immunisation given. The schedule itself is data, so a change to the national
+-- schedule is a data load rather than a release.
+CREATE TABLE IF NOT EXISTS immunisation_schedule (
+  code          TEXT PRIMARY KEY,
+  name          TEXT NOT NULL,
+  -- Age in weeks at which it is due. 0 is at birth.
+  due_weeks     INTEGER NOT NULL,
+  sequence      INTEGER NOT NULL DEFAULT 1,
+  source        TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS immunisations (
+  id            TEXT PRIMARY KEY,
+  patient_mrn   TEXT NOT NULL REFERENCES patients(mrn),
+  vaccine_code  TEXT NOT NULL REFERENCES immunisation_schedule(code),
+  given_on      TEXT NOT NULL,
+  -- The batch matters: a recall names one, exactly as it does for medicine.
+  batch_id      TEXT REFERENCES stock_batches(id),
+  batch_number  TEXT NOT NULL DEFAULT '',
+  site          TEXT NOT NULL DEFAULT '',
+  given_by      INTEGER REFERENCES users(id),
+  giver_name    TEXT NOT NULL,
+  device_code   TEXT,
+  created_at    TEXT NOT NULL,
+  UNIQUE (patient_mrn, vaccine_code)
+);
+CREATE INDEX IF NOT EXISTS idx_imm_patient ON immunisations(patient_mrn);

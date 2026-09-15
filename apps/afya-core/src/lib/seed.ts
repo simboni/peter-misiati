@@ -28,6 +28,7 @@ import { defineStore, setReorderLevel } from "./inventory.ts";
 import { defineRange } from "./laboratory.ts";
 import { defineWard, defineBed } from "./inpatient.ts";
 import { seedProgrammes } from "./programmes.ts";
+import { seedImmunisationSchedule } from "./maternity.ts";
 
 /** The councils that license clinical practice in Kenya. */
 export const CADRES: { code: string; name: string; regulator: string; licensed: boolean }[] = [
@@ -442,6 +443,7 @@ export function seedReferenceData(): void {
   seedRevenueCycle();
   seedReferenceRanges();
   seedProgrammes();
+  seedImmunisationSchedule();
 
   // Every way out of the building, installed in demo mode. Nothing calls a real
   // payer or the tax authority until an operator switches an endpoint to live,

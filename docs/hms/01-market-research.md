@@ -30,7 +30,7 @@ Kenya's health sector is in a forced digitisation window. This is not a "nice to
 | Vendor | Position | Observed weaknesses |
 |---|---|---|
 | **AfyaPro** | Established, strong on NHIF/SHA e-claims, verification and preauthorisation | No full offline capability; requires manual data sync |
-| **Slade360 (Savannah Informatics)** | Large, insurer-adjacent, strong payer network | No full offline or partial offline mode; limited Linda Mama support |
+| **Slade360 (Savannah Informatics)** | Large, insurer-adjacent, strong payer network | No full offline or partial offline mode; limited maternity-package support |
 | **Medbook / AphiaOne** | Aggressive marketing, clinic-to-hospital range | Feature breadth advertised over clinical depth; heavy sales-led motion |
 | **Hanmak** | Positions on DHA certification and eTIMS compliance | Compliance-first positioning; thin on clinical workflow |
 | **Smart Applications Intl.** | Long-standing, card/biometric heritage | Legacy architecture; historically hardware-coupled |

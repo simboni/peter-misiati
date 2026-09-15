@@ -39,6 +39,7 @@ export type BadgeKey =
   | "deadLetters"
   | "unsettled"
   | "defaulters"
+  | "antenatal"
   | "alerts";
 
 export const NAV: NavGroup[] = [
@@ -61,6 +62,10 @@ export const NAV: NavGroup[] = [
       { href: "/laboratory?view=unread", label: "Results to acknowledge", permission: ["patient.read"], badge: "unread" },
       { href: "/programmes", label: "Programme registers", permission: ["patient.read"] },
       { href: "/programmes?view=defaulters", label: "Not come back", permission: ["patient.read"], badge: "defaulters" },
+      { href: "/maternity", label: "Antenatal clinic", permission: ["patient.read"], badge: "antenatal" },
+      { href: "/maternity?view=births", label: "Deliveries & births", permission: ["patient.read"] },
+      { href: "/maternity?view=postnatal", label: "Postnatal follow-up", permission: ["patient.read"] },
+      { href: "/maternity?view=immunisation", label: "Immunisation", permission: ["patient.read"] },
     ],
   },
   {

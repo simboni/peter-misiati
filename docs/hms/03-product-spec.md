@@ -263,7 +263,7 @@ Duplicate merges are an explicit, permissioned, fully audited and **reversible**
 - Structured discharge summary — mandatory before discharge completes
 - Referral in/out, with FHIR referral bundle
 - Theatre: booking, pre-op checklist, operation notes, post-op
-- Maternity: ANC, labour and delivery, postnatal, Linda Mama
+- Maternity: ANC, labour and delivery, postnatal, SHA maternity package
 - Child health: immunisation schedule, growth monitoring, defaulter tracing
 - Programme registers: HIV, TB, NCD, malaria
 - Emergency/casualty flow with the SHA emergency pathway

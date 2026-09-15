@@ -33,6 +33,10 @@ import { openClinic, book, availability, sendReminders, closeOutDay, markArrived
 import { generateReturn, submitToDhis2, detectNotifiable } from "../src/lib/reporting.ts";
 import { sweep, countOpen } from "../src/lib/notifications.ts";
 import { enrol, recordVisit, recordOutcome, sweepDefaulters, cohortReport } from "../src/lib/programmes.ts";
+import {
+  bookPregnancy, recordAncContact, recordDelivery, recordPncContact, recordImmunisation,
+  maternitySummary, PNC_SCHEDULE,
+} from "../src/lib/maternity.ts";
 import { importRemittance, reconcile, reconciliation } from "../src/lib/remittance.ts";
 import { closeDb, run, get, all as dbAll, verifyAuditChain, today } from "../src/lib/db.ts";
 
@@ -805,6 +809,179 @@ recordVisit({
 
 sweepDefaulters(facilityId);
 
+// --------------------------------------------------- maternity & child health
+//
+// An antenatal clinic with the shape a real one has: women at every gestation,
+// one whose blood pressure is rising and has raised an alert, one overdue for a
+// contact, and deliveries behind them — including a caesarean and a low birth
+// weight twin pair, because those are the numbers a maternity unit is judged on
+// and a screen of uncomplicated normal deliveries proves nothing.
+//
+// Maternity is claimed inside the SHA package against the mother's own SHA
+// number. Linda Mama, which used to pay for this separately, ended with NHIF.
+
+const MOTHERS = [
+  // given, family, weeks pregnant today, gravida, para
+  { given: "Faith", family: "Wairimu", weeks: 12, gravida: 1, para: 0 },
+  { given: "Mercy", family: "Adhiambo", weeks: 26, gravida: 3, para: 2 },
+  { given: "Lydia", family: "Chepkoech", weeks: 34, gravida: 2, para: 1 },
+  { given: "Beatrice", family: "Mwende", weeks: 38, gravida: 4, para: 3 },
+];
+
+let matNid = 43_000_000;
+const MIDWIFE = { byUserId: clinicianId, byUserName: DOC.byUserName, deviceCode: REC };
+
+const bookedMothers: { mrn: string; pregnancyId: string; weeks: number }[] = [];
+
+for (const mother of MOTHERS) {
+  const mrn = registerPatient({
+    facilityId, deviceCode: REC, givenName: mother.given, familyName: mother.family,
+    sex: "female", dateOfBirth: "1995-04-17", nationalId: String(++matNid), county: "Nairobi", ...DESK,
+  });
+  recordConsent({ patientMrn: mrn, purpose: "treatment", granted: true, ...DESK });
+
+  // Booked at the first contact, which is where the dating comes from.
+  const pregnancyId = bookPregnancy({
+    patientMrn: mrn,
+    lmp: inDays(-mother.weeks * 7),
+    gravida: mother.gravida,
+    para: mother.para,
+    bookedOn: inDays(-(mother.weeks - 10) * 7),
+    ...MIDWIFE,
+  });
+  bookedMothers.push({ mrn, pregnancyId, weeks: mother.weeks });
+
+  // A contact roughly every six weeks since booking, with the last one booking
+  // the next. Beatrice's is overdue, so the defaulter list is not empty.
+  const contacts = Math.max(1, Math.floor((mother.weeks - 10) / 6));
+  for (let contact = 1; contact <= contacts; contact++) {
+    const weeksThen = 10 + contact * 6;
+    const rising = mother.given === "Lydia" && contact === contacts;
+    recordAncContact({
+      pregnancyId,
+      contactDate: inDays(-(mother.weeks - weeksThen) * 7),
+      weightGrams: 58_000 + weeksThen * 300,
+      systolic: rising ? 148 : 112 + contact * 2,
+      diastolic: rising ? 96 : 72,
+      fundalHeightCm: weeksThen,
+      haemoglobin: contact === 1 ? 10.8 : 11.6,
+      ttGiven: contact === 1,
+      iptpGiven: weeksThen >= 16,
+      ironGiven: true,
+      llinGiven: contact === 1,
+      hivTested: contact === 1,
+      // Overdue on purpose for the woman at 38 weeks: she is the one a clinic
+      // most needs to find, and she is the one most easily lost.
+      nextDue: contact === contacts
+        ? inDays(mother.given === "Beatrice" ? -9 : 14)
+        : inDays(-(mother.weeks - weeksThen - 6) * 7),
+      facilityId, ...MIDWIFE,
+    });
+  }
+}
+
+// Three women who have already delivered: a normal delivery, a caesarean with
+// twins under 2500 g, and one that ended in a stillbirth. Each is booked and
+// delivered in sequence so the dating on the record is real.
+const DELIVERED = [
+  {
+    given: "Agnes", family: "Njoki", gestation: 39, mode: "spontaneous_vertex" as const, daysAgo: 12,
+    bloodLossMl: 250,
+    babies: [{ sex: "female" as const, birthWeightGrams: 3250, apgar1: 8, apgar5: 9, outcome: "live" as const }],
+  },
+  {
+    given: "Sarah", family: "Kerubo", gestation: 35, mode: "caesarean" as const, daysAgo: 63,
+    bloodLossMl: 620, complications: "Twin pregnancy, elective section at 35 weeks",
+    babies: [
+      { sex: "male" as const, birthWeightGrams: 2280, apgar1: 7, apgar5: 9, outcome: "live" as const },
+      { sex: "female" as const, birthWeightGrams: 2150, apgar1: 7, apgar5: 8, outcome: "live" as const },
+    ],
+  },
+  {
+    given: "Purity", family: "Nduta", gestation: 33, mode: "spontaneous_vertex" as const, daysAgo: 21,
+    bloodLossMl: 400, complications: "Reduced fetal movements on admission, no heartbeat found",
+    babies: [{ sex: "male" as const, birthWeightGrams: 1900, outcome: "stillbirth_macerated" as const }],
+  },
+];
+
+for (const record of DELIVERED) {
+  const mrn = registerPatient({
+    facilityId, deviceCode: REC, givenName: record.given, familyName: record.family,
+    sex: "female", dateOfBirth: "1993-09-02", nationalId: String(++matNid), county: "Nairobi", ...DESK,
+  });
+  recordConsent({ patientMrn: mrn, purpose: "treatment", granted: true, ...DESK });
+
+  // Dated so that the delivery falls at the gestation it is meant to.
+  const lmp = inDays(-(record.gestation * 7 + record.daysAgo));
+  const pregnancyId = bookPregnancy({
+    patientMrn: mrn, lmp, gravida: 2, para: 1,
+    bookedOn: inDays(-(record.gestation * 7 + record.daysAgo) + 12 * 7),
+    ...MIDWIFE,
+  });
+  recordAncContact({
+    pregnancyId, contactDate: inDays(-record.daysAgo - 42),
+    systolic: 116, diastolic: 74, haemoglobin: 11.2,
+    ttGiven: true, ironGiven: true, hivTested: true, llinGiven: true,
+    facilityId, ...MIDWIFE,
+  });
+
+  const { deliveryId, babies } = recordDelivery({
+    pregnancyId,
+    deliveredAt: `${inDays(-record.daysAgo)}T04:20:00.000Z`,
+    mode: record.mode,
+    bloodLossMl: record.bloodLossMl,
+    complications: record.complications,
+    babies: record.babies,
+    facilityId,
+    byUserId: clinicianId,
+    byUserName: DOC.byUserName,
+    deviceCode: REC,
+  });
+
+  // The postnatal contacts that have fallen due since. Purity's second contact
+  // records a danger sign, because the days after a loss are when a mother is
+  // least likely to come back and most likely to need to.
+  const daysSince = record.daysAgo;
+  for (const [index, step] of PNC_SCHEDULE.entries()) {
+    if (step.hoursAfter / 24 > daysSince) break;
+    if (index > 2) break;
+    recordPncContact({
+      deliveryId,
+      scheduledAt: step.label,
+      contactDate: inDays(-daysSince + Math.floor(step.hoursAfter / 24)),
+      motherFindings: index === 0 ? "Uterus well contracted, lochia normal" : "Recovering well",
+      babyFindings: record.babies[0].outcome === "live" ? "Feeding well, cord clean" : "—",
+      dangerSigns: record.given === "Purity" && index === 1 ? "Fever 38.9, offensive lochia" : undefined,
+      nextDue: PNC_SCHEDULE[index + 1] ? inDays(-daysSince + Math.floor(PNC_SCHEDULE[index + 1].hoursAfter / 24)) : undefined,
+      facilityId, ...MIDWIFE,
+    });
+  }
+
+  // The babies' first vaccines, which is what gives the child health clinic a
+  // card to work from at all.
+  for (const baby of babies) {
+    if (!baby.patientMrn) continue;
+    recordImmunisation({
+      patientMrn: baby.patientMrn, vaccineCode: "BCG", givenOn: inDays(-record.daysAgo),
+      batchNumber: "BCG-2026-0411", site: "Left upper arm", ...MIDWIFE,
+    });
+    recordImmunisation({
+      patientMrn: baby.patientMrn, vaccineCode: "OPV0", givenOn: inDays(-record.daysAgo),
+      batchNumber: "OPV-2026-0388", site: "Oral", ...MIDWIFE,
+    });
+    // Sarah's twins are old enough for the six-week visit; one has had it and
+    // one has not, so the child register shows both states.
+    if (record.daysAgo >= 42 && baby === babies[0]) {
+      for (const code of ["OPV1", "PCV1", "PENTA1", "ROTA1"]) {
+        recordImmunisation({
+          patientMrn: baby.patientMrn, vaccineCode: code, givenOn: inDays(-record.daysAgo + 42),
+          batchNumber: `${code}-2026-0102`, site: "Left thigh", ...MIDWIFE,
+        });
+      }
+    }
+  }
+}
+
 // ------------------------------------------------------------- remittance
 //
 // A payment advice from SHA covering the submitted claims: most paid in full,
@@ -951,6 +1128,8 @@ console.log(`  lab orders        ${count(`SELECT COUNT(*) AS n FROM orders`)} ·
 console.log(`  admissions        ${count(`SELECT COUNT(*) AS n FROM admissions`)} · ${count(`SELECT COUNT(*) AS n FROM admissions WHERE discharged_at IS NULL`)} still in a bed`);
 console.log(`  appointments      ${count(`SELECT COUNT(*) AS n FROM appointments`)} booked`);
 console.log(`  programmes        ${count(`SELECT COUNT(*) AS n FROM enrolments WHERE status = 'active'`)} on the registers · HIV retention ${cohortReport("HIV")[0]?.retentionPercent ?? 0}%`);
+console.log(`  maternity         ${maternitySummary().activePregnancies} pregnancies booked · ${maternitySummary().deliveries} deliveries · caesarean rate ${maternitySummary().caesareanRatePercent ?? 0}%`);
+console.log(`  child health      ${count(`SELECT COUNT(*) AS n FROM births WHERE patient_mrn IS NOT NULL AND outcome = 'live'`)} babies with their own file · ${count(`SELECT COUNT(*) AS n FROM immunisations`)} vaccines given`);
 console.log(`  MOH returns       ${count(`SELECT COUNT(*) AS n FROM moh_returns`)} generated, ${count(`SELECT COUNT(*) AS n FROM moh_returns WHERE status = 'submitted'`)} submitted`);
 console.log(`  taken today       ${Math.round(takings(facilityId).reduce((sum, t) => sum + t.netCents, 0) / 100)} KES`);
 console.log(`  owed              ${Math.round(outstandingInvoices(facilityId).reduce((sum, o) => sum + o.balanceCents, 0) / 100)} KES across ${outstandingInvoices(facilityId).length} invoices`);

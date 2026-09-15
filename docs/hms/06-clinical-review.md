@@ -87,35 +87,80 @@ clinician's judgement · 🔴 placeholder, must be replaced before go-live
 | # | Rule | Where | Source | Status |
 |---|---|---|---|---|
 | 6.1 | Lost to follow-up after **28 days** on HIV care | `programmes.ts` `LOST_AFTER_DAYS` | General practice | ⚠️ |
-| 7.2 | Lost to follow-up after **14 days** on TB treatment — a fortnight off treatment risks resistance | `programmes.ts` | General practice | ⚠️ |
-| 7.3 | Lost to follow-up after **60 days** on the NCD clinic | `programmes.ts` | General practice | ⚠️ |
-| 7.4 | HIV and NCD cohorts run **12 months**; TB runs **6**, because treatment is a fixed course | `programmes.ts` `seedProgrammes` | General practice | ⚠️ |
-| 7.5 | The cohort is the month of enrolment, stamped then and never moved | `programmes.ts` | Programme reporting | ✅ |
-| 7.6 | **Transferred out counts as RETAINED** in the retention figure — they are in care, elsewhere. Getting this wrong understates every facility that refers | `programmes.ts` `cohortReport` | Programme reporting | ⚠️ |
+| 6.2 | Lost to follow-up after **14 days** on TB treatment — a fortnight off treatment risks resistance | `programmes.ts` | General practice | ⚠️ |
+| 6.3 | Lost to follow-up after **60 days** on the NCD clinic | `programmes.ts` | General practice | ⚠️ |
+| 6.4 | HIV and NCD cohorts run **12 months**; TB runs **6**, because treatment is a fixed course | `programmes.ts` `seedProgrammes` | General practice | ⚠️ |
+| 6.5 | The cohort is the month of enrolment, stamped then and never moved | `programmes.ts` | Programme reporting | ✅ |
+| 6.6 | **Transferred out counts as RETAINED** in the retention figure — they are in care, elsewhere. Getting this wrong understates every facility that refers | `programmes.ts` `cohortReport` | Programme reporting | ⚠️ |
 | 6.7 | A patient cannot hold two enrolments in one programme, and a programme number cannot be re-used | `programmes.ts` | Design rule | ✅ |
 | 6.8 | Findings recorded per programme: HIV viral load and adherence, TB sputum, NCD blood pressure and HbA1c | `programmes/page.tsx` | General practice | ⚠️ |
 | 6.9 | **These thresholds and cohort lengths are from general practice, NOT from Kenya's current programme guidelines.** They are data, changeable in one place | — | — | 🔴 |
 
-## 7. Public health
+## 7. Maternity, newborn and child health
+
+This is the section that most needs a midwife's eye. Everything below is a
+decision the code makes on its own, and most of it comes from published
+guidance rather than from anyone at the facility having agreed to it.
 
 | # | Rule | Where | Source | Status |
 |---|---|---|---|---|
-| 7.1 | Notifiable conditions are detected from coded diagnoses as they are made, because the Act's clock runs from diagnosis | `reporting.ts` | Public Health Act | ✅ |
-| 7.2 | **The notifiable list is four conditions** — malaria, tuberculosis, cholera, measles. The full schedule must be loaded | `reporting.ts` `NOTIFIABLE_PREFIXES` | — | 🔴 |
-| 7.3 | Reporting one requires the county's reference — it is the proof it was made | `reporting.ts` | Design rule | ✅ |
-| 7.4 | MOH 705A is under five, 705B is five and over, split by age **on the day of the visit** | `reporting.ts` | MOH forms | ✅ |
-| 7.5 | A condition is counted whichever code in its ICD-11 family the clinician used | `reporting.ts` `MOH705_CONDITIONS` | Design rule | ⚠️ |
-| 7.6 | **The 705 condition list is six conditions.** The real form has many more rows | `reporting.ts` | — | 🔴 |
+| 7.1 | The expected date is the last menstrual period **plus 280 days** (Naegele's rule), derived and never stored twice | `maternity.ts` `expectedDate` | Standard obstetric practice | ✅ |
+| 7.2 | A dating **scan overrides** the last menstrual period, and the record shows which was used | `maternity.ts` | Standard obstetric practice | ✅ |
+| 7.3 | A pregnancy with neither an LMP nor a scan date is **refused at booking** — it cannot be scheduled, assessed for prematurity, or claimed | `maternity.ts` `bookPregnancy` | Design rule | ✅ |
+| 7.4 | The antenatal schedule is **8 contacts, at 12, 20, 26, 30, 34, 36, 38 and 40 weeks** | `maternity.ts` `ANC_CONTACT_WEEKS` | WHO 2016 antenatal care model | ⚠️ |
+| 7.5 | **Systolic ≥ 140 or diastolic ≥ 90 raises a CRITICAL alert** — raised blood pressure in pregnancy is pre-eclampsia until proven otherwise | `maternity.ts` `recordAncContact` | Standard obstetric practice | ⚠️ |
+| 7.6 | **Haemoglobin < 7 g/dL raises a CRITICAL alert** as severe anaemia | `maternity.ts` | WHO anaemia thresholds | ⚠️ |
+| 7.7 | Any free-text danger sign escalates, whatever it says — the system does not attempt to judge which ones matter | `maternity.ts` | Design rule | ✅ |
+| 7.8 | Gestation is **computed and stored at each contact**, so the record shows what the midwife knew that morning rather than what a later correction implies | `maternity.ts` | Design rule | ✅ |
+| 7.9 | **Under 37 completed weeks is preterm** | `maternity.ts` `TERM_WEEKS` | WHO definition | ✅ |
+| 7.10 | **Under 2500 g is low birth weight**, is flagged at the delivery and is reported | `maternity.ts` `LOW_BIRTH_WEIGHT_GRAMS` | WHO definition | ✅ |
+| 7.11 | Every **live baby is registered as a patient in their own right**, with their own file number and date of birth. Twins are two records | `maternity.ts` `recordDelivery` | Design rule | ✅ |
+| 7.12 | A baby who did not live gets **no patient record** — a stillbirth is recorded against the delivery | `maternity.ts` | Design rule | ⚠️ |
+| 7.13 | Postnatal contacts at **24 hours, day 3, week 1–2 and week 6** | `maternity.ts` `PNC_SCHEDULE` | WHO postnatal care guidance | ⚠️ |
+| 7.14 | A postnatal danger sign is **always critical** — most maternal deaths occur in these days | `maternity.ts` `recordPncContact` | Standard practice | ⚠️ |
+| 7.15 | A repeat dose of a vaccine already given is **refused**, not duplicated — a double dose is a reportable event | `maternity.ts` `recordImmunisation` | Design rule | ⚠️ |
+| 7.16 | Immunisation due dates come from the **child's own date of birth**, never the mother's delivery date | `maternity.ts` `immunisationCard` | Design rule | ✅ |
+| 7.17 | The childhood schedule is **17 vaccines**: BCG and OPV0 at birth; OPV/PCV/pentavalent/rotavirus at 6, 10 and 14 weeks; IPV at 14; vitamin A at 6 months; measles–rubella at 9 and 18 months | `maternity.ts` `seedImmunisationSchedule` | Kenya national schedule as published | 🔴 |
+| 7.18 | **The KEPI schedule changes.** A card built on a stale schedule marks children overdue who are not, and misses children who are. It must be confirmed against the current national schedule, and re-confirmed when it changes | — | — | 🔴 |
+| 7.19 | The caesarean rate and the stillbirth rate per 1000 total births are reported as **absent, not zero**, when there were no deliveries in the period | `maternity.ts` `maternitySummary` | Design rule | ✅ |
+| 7.20 | Maternity is claimed **inside the SHA package, against the mother's own SHA number**. There is no Linda Mama number: that scheme ended with NHIF when SHA took over, and the module deliberately does not ask for one | `maternity.ts`, `schema.sql` | SHA transition, October 2024 | ✅ |
 
-## 8. Revenue (for the claims specialist, not the clinician)
+### What a midwife should be asked first
+
+Three questions, in the order they matter:
+
+1. **Is it 8 contacts or 4?** The code follows WHO's 2016 eight-contact model.
+   If the facility still works Kenya's older four-visit focused schedule, every
+   woman on the register will read as behind from her second contact onwards.
+   This is one line of data to change (`ANC_CONTACT_WEEKS`), but it changes
+   what the whole antenatal screen says.
+2. **Are 140/90 and Hb 7 the right lines to draw?** They are the thresholds at
+   which the system interrupts somebody. Set too low and the alerts get
+   ignored; too high and the one that mattered was never raised.
+3. **Is the immunisation schedule current?** It is the only list here a
+   clinician can check in five minutes, and the only one where being out of
+   date silently produces wrong work every day.
+
+## 8. Public health
 
 | # | Rule | Where | Source | Status |
 |---|---|---|---|---|
-| 8.1 | Nine scrubber gates, each mapped to a documented SHA rejection cause | `claims.ts` `scrub` | SHA published causes | ⚠️ |
-| 8.2 | **The gates are inferred from documented causes, not from 50 real rejected claims.** The roadmap says to build them from a real corpus and that is still the right next step | — | — | 🔴 |
-| 8.3 | A claim beyond the payer's submission window (SHA: 7 days) escalates rather than blocking, because a late claim still has an appeal path | `claims.ts` | SHA | ⚠️ |
-| 8.4 | Tariffs and benefit rules are **illustrative**. The SHA schedule for the contracting cycle must be loaded | `seed.ts` | — | 🔴 |
-| 8.5 | Money is integer cents throughout, and a price is fixed as of the date of service | `billing.ts` | Design rule | ✅ |
+| 8.1 | Notifiable conditions are detected from coded diagnoses as they are made, because the Act's clock runs from diagnosis | `reporting.ts` | Public Health Act | ✅ |
+| 8.2 | **The notifiable list is four conditions** — malaria, tuberculosis, cholera, measles. The full schedule must be loaded | `reporting.ts` `NOTIFIABLE_PREFIXES` | — | 🔴 |
+| 8.3 | Reporting one requires the county's reference — it is the proof it was made | `reporting.ts` | Design rule | ✅ |
+| 8.4 | MOH 705A is under five, 705B is five and over, split by age **on the day of the visit** | `reporting.ts` | MOH forms | ✅ |
+| 8.5 | A condition is counted whichever code in its ICD-11 family the clinician used | `reporting.ts` `MOH705_CONDITIONS` | Design rule | ⚠️ |
+| 8.6 | **The 705 condition list is six conditions.** The real form has many more rows | `reporting.ts` | — | 🔴 |
+
+## 9. Revenue (for the claims specialist, not the clinician)
+
+| # | Rule | Where | Source | Status |
+|---|---|---|---|---|
+| 9.1 | Nine scrubber gates, each mapped to a documented SHA rejection cause | `claims.ts` `scrub` | SHA published causes | ⚠️ |
+| 9.2 | **The gates are inferred from documented causes, not from 50 real rejected claims.** The roadmap says to build them from a real corpus and that is still the right next step | — | — | 🔴 |
+| 9.3 | A claim beyond the payer's submission window (SHA: 7 days) escalates rather than blocking, because a late claim still has an appeal path | `claims.ts` | SHA | ⚠️ |
+| 9.4 | Tariffs and benefit rules are **illustrative**. The SHA schedule for the contracting cycle must be loaded | `seed.ts` | — | 🔴 |
+| 9.5 | Money is integer cents throughout, and a price is fixed as of the date of service | `billing.ts` | Design rule | ✅ |
 
 ---
 
@@ -135,3 +180,6 @@ Everything marked 🔴, in one list:
 10. A scrubber rule set built from 50 real rejected claims
 11. Programme lost-to-follow-up thresholds and cohort lengths, against Kenya's
     current HIV, TB and NCD programme guidelines
+12. The childhood immunisation schedule, against the current KEPI schedule
+13. A midwife's answer on the antenatal contact schedule (8 contacts or 4) and
+    on the blood-pressure and haemoglobin alert thresholds
