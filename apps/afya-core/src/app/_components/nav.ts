@@ -42,6 +42,8 @@ export type BadgeKey =
   | "antenatal"
   | "casualty"
   | "incidents"
+  | "referrals"
+  | "loopBroken"
   | "alerts";
 
 export const NAV: NavGroup[] = [
@@ -61,6 +63,8 @@ export const NAV: NavGroup[] = [
       { href: "/casualty", label: "Casualty board", permission: ["patient.read"], badge: "casualty" },
       { href: "/casualty?view=incidents", label: "Mass casualty", permission: ["patient.read"], badge: "incidents" },
       { href: "/ward", label: "Ward & beds", permission: ["patient.read"], badge: "beds" },
+      { href: "/referrals", label: "Referrals", permission: ["patient.read"], badge: "referrals" },
+      { href: "/referrals?view=awaiting", label: "Never came back", permission: ["patient.read"], badge: "loopBroken" },
       { href: "/ward?view=charts", label: "Drug charts", permission: ["patient.read"] },
       { href: "/laboratory", label: "Laboratory bench", permission: ["lab.result.release", "report.read"], badge: "bench" },
       { href: "/laboratory?view=unread", label: "Results to acknowledge", permission: ["patient.read"], badge: "unread" },

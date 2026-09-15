@@ -1818,3 +1818,93 @@ CREATE TABLE IF NOT EXISTS mci_incidents (
   declarer_name TEXT NOT NULL,
   created_at    TEXT NOT NULL
 );
+
+-- ============================================================================
+-- M29 Referrals
+--
+-- The referral, and the half of it that never happens: the letter coming back.
+-- ============================================================================
+
+-- Where a patient can be sent. A local directory rather than free text, because
+-- a destination typed by hand cannot be counted, cannot be telephoned, and
+-- cannot tell you it has no bed. Seeded from KMHFL; a facility not in the list
+-- can still be used, recorded as `external_name` on the referral itself.
+CREATE TABLE IF NOT EXISTS referral_facilities (
+  kmhfl_code    TEXT PRIMARY KEY,
+  name          TEXT NOT NULL,
+  level         INTEGER NOT NULL CHECK (level BETWEEN 2 AND 6),
+  county        TEXT NOT NULL DEFAULT '',
+  -- What this destination can actually take. Free text by design: a facility's
+  -- real capability is not an enum, and pretending it is sends patients to
+  -- places that cannot help them.
+  services      TEXT NOT NULL DEFAULT '',
+  phone         TEXT NOT NULL DEFAULT '',
+  active        INTEGER NOT NULL DEFAULT 1,
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_reffac_level ON referral_facilities(level, county);
+
+CREATE TABLE IF NOT EXISTS referrals (
+  id            TEXT PRIMARY KEY,
+  facility_id   INTEGER NOT NULL REFERENCES facilities(id),
+  patient_mrn   TEXT NOT NULL REFERENCES patients(mrn),
+  encounter_id  TEXT REFERENCES encounters(id),
+  attendance_id TEXT REFERENCES emergency_attendances(id),
+  admission_id  TEXT REFERENCES admissions(id),
+  -- 'out' is this facility sending a patient away; 'in' is one arriving with a
+  -- letter from somewhere else. Both are kept, because a facility that only
+  -- records what it sends cannot show what it receives.
+  direction     TEXT NOT NULL CHECK (direction IN ('out','in')),
+  -- The other end. One of these is set: a code from the directory, or a name
+  -- for somewhere that is not in it.
+  counterpart_code TEXT REFERENCES referral_facilities(kmhfl_code),
+  external_name TEXT NOT NULL DEFAULT '',
+  urgency       TEXT NOT NULL CHECK (urgency IN ('emergency','urgent','routine')),
+  reason        TEXT NOT NULL,
+  -- What was already done here. A referral upwards that cannot say what was
+  -- tried is how a referral system gets flooded.
+  treatment_given TEXT NOT NULL DEFAULT '',
+  clinical_summary TEXT NOT NULL DEFAULT '',
+  -- The specialty or service being asked for.
+  service_needed TEXT NOT NULL DEFAULT '',
+  status        TEXT NOT NULL CHECK (status IN
+                  ('raised','accepted','declined','departed','arrived','completed','cancelled')),
+  raised_at     TEXT NOT NULL,
+  -- Acceptance is the gate. A patient must not be put in a vehicle towards a
+  -- hospital that has not said it has a bed.
+  accepted_at   TEXT,
+  accepted_by_name TEXT NOT NULL DEFAULT '',
+  decline_reason TEXT NOT NULL DEFAULT '',
+  departed_at   TEXT,
+  transport     TEXT NOT NULL DEFAULT '',
+  escort        TEXT NOT NULL DEFAULT '',
+  arrived_at    TEXT,
+  -- The counter-referral: what the receiving facility did and what the origin
+  -- is asked to continue. The half of the loop that is almost never closed.
+  outcome       TEXT CHECK (outcome IN ('treated_returned','admitted_there','died','absconded','not_seen','other')),
+  outcome_note  TEXT NOT NULL DEFAULT '',
+  outcome_at    TEXT,
+  outcome_by_name TEXT NOT NULL DEFAULT '',
+  cancel_reason TEXT NOT NULL DEFAULT '',
+  raised_by     INTEGER REFERENCES users(id),
+  raiser_name   TEXT NOT NULL,
+  device_code   TEXT,
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ref_open ON referrals(facility_id, direction, status);
+CREATE INDEX IF NOT EXISTS idx_ref_patient ON referrals(patient_mrn);
+
+-- Every state change on a referral, with who and when. A referral is a handover
+-- between two organisations, and the only defence against "we never received
+-- it" is a timeline nobody can quietly edit.
+CREATE TABLE IF NOT EXISTS referral_events (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  referral_id   TEXT NOT NULL REFERENCES referrals(id),
+  at            TEXT NOT NULL,
+  from_status   TEXT NOT NULL,
+  to_status     TEXT NOT NULL,
+  note          TEXT NOT NULL DEFAULT '',
+  by_user_id    INTEGER REFERENCES users(id),
+  by_name       TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_refev_referral ON referral_events(referral_id, at);

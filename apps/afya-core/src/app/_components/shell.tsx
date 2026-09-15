@@ -16,6 +16,7 @@ import { unsettledClaims } from "@/lib/remittance.ts";
 import { defaulters } from "@/lib/programmes.ts";
 import { ancDefaulters } from "@/lib/maternity.ts";
 import { board as casualtyBoard, listIncidents } from "@/lib/emergency.ts";
+import { referralSummary } from "@/lib/referrals.ts";
 import { signOutAction } from "@/app/actions/session.ts";
 import { navFor, type BadgeKey } from "./nav.ts";
 import type { CurrentUser } from "@/lib/auth.ts";
@@ -53,6 +54,7 @@ function counts(facilityId: number): Record<BadgeKey, { text: string; tone: "blo
   const ancMissed = ancDefaulters();
   const casualty = casualtyBoard(facilityId);
   const liveIncidents = listIncidents(facilityId).filter((i) => !i.stood_down_at);
+  const referrals = referralSummary(facilityId);
   const waiting = queue(facilityId);
 
   const n = (
@@ -86,6 +88,8 @@ function counts(facilityId: number): Record<BadgeKey, { text: string; tone: "blo
       casualty.some((r) => r.untriaged || r.breached) ? "block" : "quiet",
     ),
     incidents: n(liveIncidents.length, "block"),
+    referrals: n(referrals.live, referrals.unanswered > 0 ? "block" : "quiet"),
+    loopBroken: n(referrals.loopBroken, "block"),
     alerts: n(alerts.total, alerts.critical > 0 ? "block" : "clock"),
   };
 }

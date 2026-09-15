@@ -189,26 +189,67 @@ engineering one.
    PEP timing — and none of it is modelled. It needs to be, or the alert is
    the only thing standing between the patient and the general queue.
 
-## 9. Public health
+## 9. Referrals
+
+Mostly design and operational rules rather than clinical ones, but two need a
+clinician's agreement and one needs the county's.
 
 | # | Rule | Where | Source | Status |
 |---|---|---|---|---|
-| 9.1 | Notifiable conditions are detected from coded diagnoses as they are made, because the Act's clock runs from diagnosis | `reporting.ts` | Public Health Act | ✅ |
-| 9.2 | **The notifiable list is four conditions** — malaria, tuberculosis, cholera, measles. The full schedule must be loaded | `reporting.ts` `NOTIFIABLE_PREFIXES` | — | 🔴 |
-| 9.3 | Reporting one requires the county's reference — it is the proof it was made | `reporting.ts` | Design rule | ✅ |
-| 9.4 | MOH 705A is under five, 705B is five and over, split by age **on the day of the visit** | `reporting.ts` | MOH forms | ✅ |
-| 9.5 | A condition is counted whichever code in its ICD-11 family the clinician used | `reporting.ts` `MOH705_CONDITIONS` | Design rule | ⚠️ |
-| 9.6 | **The 705 condition list is six conditions.** The real form has many more rows | `reporting.ts` | — | 🔴 |
+| 9.1 | **A patient cannot depart towards a facility that has not accepted them.** `depart` refuses on a referral that is merely raised | `referrals.ts` `departReferral` | Design rule | ✅ |
+| 9.2 | An acceptance records **a name, not just a yes** — somebody has to be findable when the patient reaches the gate | `referrals.ts` `acceptReferral` | Design rule | ✅ |
+| 9.3 | **A referral to a higher level must record what was already done here.** A referral that cannot say what was tried is how a referral hospital ends up seeing everything | `referrals.ts` `raiseReferral` | Practice | ⚠️ |
+| 9.4 | The level rule is **advisory, not enforced**. Kenya's levels describe capability, not permission, and a dispensary with a dying patient does not need software routing it via the health centre | `referrals.ts` | Design rule | ⚠️ |
+| 9.5 | A decline must say why, so the next facility knows whether to try the same place | `referrals.ts` `declineReferral` | Design rule | ✅ |
+| 9.6 | **Acceptance targets: emergency 30 min, urgent 4 h, routine 48 h.** Past the target the referral is flagged as unanswered | `referrals.ts` `ACCEPTANCE_TARGET_MINUTES` | Operational | 🔴 |
+| 9.7 | **A referral with no outcome stays open forever.** There is no automatic tidy-up; closing it needs somebody to say what happened to the patient | `referrals.ts` `awaitingOutcome` | Design rule | ✅ |
+| 9.8 | Past **7 days** with no counter-referral the loop is treated as broken | `referrals.ts` `OUTCOME_CHASE_DAYS` | Operational | 🔴 |
+| 9.9 | A counter-referral must say what was done **and what this facility should continue** — that is the point of it coming back | `referrals.ts` `recordOutcome` | Practice | ⚠️ |
+| 9.10 | The **loop-closed rate counts only referrals that actually left.** One still waiting for acceptance is a different problem and would blame the wrong thing | `referrals.ts` `referralSummary` | Design rule | ✅ |
+| 9.11 | Destinations come from a **directory, not free text**. A destination nobody can telephone is not a destination | `schema.sql`, `referrals.ts` | Design rule | ✅ |
+| 9.12 | The directory carries **same-level neighbours**, not only bigger hospitals — a directory of only referral hospitals quietly teaches everybody to refer upwards | `referrals.ts` `seedReferralDirectory` | Design rule | ✅ |
+| 9.13 | A facility not in the directory can still be used, recorded by name | `referrals.ts` | Design rule | ✅ |
+| 9.14 | **Both directions are kept.** A facility that only records what it sends cannot show what it receives | `schema.sql` | Design rule | ✅ |
+| 9.15 | Every state change is an event row with who and when — the defence against "we never received it" | `schema.sql` `referral_events` | Design rule | ✅ |
+| 9.16 | The letter is returned as **data, not rendered**, so print, screen and transmission cannot drift apart | `referrals.ts` `referralLetter` | Design rule | ✅ |
+| 9.17 | **The demonstration directory is eight facilities.** The real one is a KMHFL extract for the county and its neighbours, loaded at commissioning | `referrals.ts` | — | 🔴 |
 
-## 10. Revenue (for the claims specialist, not the clinician)
+### What to ask, and of whom
+
+1. **A clinician:** is "record what was already done" the right gate on an
+   upward referral, or does it slow down a genuine emergency? The module
+   applies it to every referral going up a level, including emergencies. An
+   alternative is to exempt emergency urgency — but that is the exact case
+   where the receiving hospital most needs to know what has been given.
+2. **The county referral coordinator:** are 30 minutes, 4 hours and 48 hours
+   the right windows to expect an answer in, and is 7 days the right point to
+   call a loop broken? These four numbers decide what the two worklists show,
+   and they are currently operational guesses.
+3. **The facility:** which KMHFL facilities actually belong in the directory.
+   This is the highest-value data task in the module and the cheapest — it is
+   a list, and getting it right is the difference between a referral somebody
+   can telephone and a name on a form.
+
+## 10. Public health
 
 | # | Rule | Where | Source | Status |
 |---|---|---|---|---|
-| 10.1 | Nine scrubber gates, each mapped to a documented SHA rejection cause | `claims.ts` `scrub` | SHA published causes | ⚠️ |
-| 10.2 | **The gates are inferred from documented causes, not from 50 real rejected claims.** The roadmap says to build them from a real corpus and that is still the right next step | — | — | 🔴 |
-| 10.3 | A claim beyond the payer's submission window (SHA: 7 days) escalates rather than blocking, because a late claim still has an appeal path | `claims.ts` | SHA | ⚠️ |
-| 10.4 | Tariffs and benefit rules are **illustrative**. The SHA schedule for the contracting cycle must be loaded | `seed.ts` | — | 🔴 |
-| 10.5 | Money is integer cents throughout, and a price is fixed as of the date of service | `billing.ts` | Design rule | ✅ |
+| 10.1 | Notifiable conditions are detected from coded diagnoses as they are made, because the Act's clock runs from diagnosis | `reporting.ts` | Public Health Act | ✅ |
+| 10.2 | **The notifiable list is four conditions** — malaria, tuberculosis, cholera, measles. The full schedule must be loaded | `reporting.ts` `NOTIFIABLE_PREFIXES` | — | 🔴 |
+| 10.3 | Reporting one requires the county's reference — it is the proof it was made | `reporting.ts` | Design rule | ✅ |
+| 10.4 | MOH 705A is under five, 705B is five and over, split by age **on the day of the visit** | `reporting.ts` | MOH forms | ✅ |
+| 10.5 | A condition is counted whichever code in its ICD-11 family the clinician used | `reporting.ts` `MOH705_CONDITIONS` | Design rule | ⚠️ |
+| 10.6 | **The 705 condition list is six conditions.** The real form has many more rows | `reporting.ts` | — | 🔴 |
+
+## 11. Revenue (for the claims specialist, not the clinician)
+
+| # | Rule | Where | Source | Status |
+|---|---|---|---|---|
+| 11.1 | Nine scrubber gates, each mapped to a documented SHA rejection cause | `claims.ts` `scrub` | SHA published causes | ⚠️ |
+| 11.2 | **The gates are inferred from documented causes, not from 50 real rejected claims.** The roadmap says to build them from a real corpus and that is still the right next step | — | — | 🔴 |
+| 11.3 | A claim beyond the payer's submission window (SHA: 7 days) escalates rather than blocking, because a late claim still has an appeal path | `claims.ts` | SHA | ⚠️ |
+| 11.4 | Tariffs and benefit rules are **illustrative**. The SHA schedule for the contracting cycle must be loaded | `seed.ts` | — | 🔴 |
+| 11.5 | Money is integer cents throughout, and a price is fixed as of the date of service | `billing.ts` | Design rule | ✅ |
 
 ---
 
@@ -235,3 +276,7 @@ Everything marked 🔴, in one list:
     PEP timing. Casualty currently raises an alert and models nothing further
 15. An emergency clinician's answer on the triage scale, its score bands and
     its time targets
+16. The referral directory as a real KMHFL extract for this county and its
+    neighbours
+17. The referral acceptance windows and the broken-loop threshold, agreed with
+    the county referral coordinator

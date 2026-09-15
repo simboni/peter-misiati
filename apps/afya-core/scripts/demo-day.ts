@@ -42,6 +42,10 @@ import {
   openAttendance, openUnidentified, identify, triagePatient, startTreatment,
   recordDisposition, openMedicolegalCase, issueP3, declareIncident, emergencySummary,
 } from "../src/lib/emergency.ts";
+import {
+  raiseReferral, acceptReferral, declineReferral, departReferral, confirmArrival,
+  recordOutcome as recordReferralOutcome, referralSummary,
+} from "../src/lib/referrals.ts";
 import { closeDb, run, get, all as dbAll, verifyAuditChain, today } from "../src/lib/db.ts";
 
 const { facilityId, adminId, clinicianId, receptionistId, pharmacistId, labTechId } = seedDemo();
@@ -1122,6 +1126,107 @@ openAttendance({
   arrivalMode: "walk_in", arrivedAt: minutesAgo(18), presenting: "Severe abdominal pain", ...CAS,
 });
 
+
+// ----------------------------------------------------------------- referrals
+//
+// A level 2 clinic referring upwards, which is what this facility is. Five
+// referrals in the states that matter: one accepted and travelling, one that
+// came back with a proper counter-referral, one declined for want of a bed,
+// one emergency still waiting for an answer past its target, and one that left
+// three weeks ago and has never been heard of since.
+//
+// That last one is the module's whole point. It is also what every Kenyan
+// clinic's referral book looks like, and no system currently shows it.
+
+const REFER = { byUserId: clinicianId, byUserName: DOC.byUserName, deviceCode: REC };
+const REFACT = { byUserId: clinicianId, byUserName: DOC.byUserName };
+const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString();
+
+let refNid = 47_000_000;
+const referralPatient = (given: string, family: string, sex: "male" | "female", dob: string) => {
+  const mrn = registerPatient({
+    facilityId, deviceCode: REC, givenName: given, familyName: family, sex,
+    dateOfBirth: dob, nationalId: String(++refNid), county: "Nairobi", ...DESK,
+  });
+  recordConsent({ patientMrn: mrn, purpose: "treatment", granted: true, ...DESK });
+  return mrn;
+};
+
+// The one that worked: went, was treated, and the letter came back saying what
+// this clinic is meant to continue.
+const closedLoop = raiseReferral({
+  facilityId, patientMrn: referralPatient("Samuel", "Gitonga", "male", "1968-04-11"),
+  counterpartCode: "KNH-001", urgency: "urgent",
+  reason: "Progressive weakness and a suspicious chest film",
+  treatmentGiven: "Sputum sent, empirical amoxicillin started, oxygen saturation monitored",
+  clinicalSummary: "Six weeks of cough and weight loss. HIV negative. Sputum smear negative twice.",
+  serviceNeeded: "Respiratory medicine and CT",
+  raisedAt: daysAgo(18), ...REFER,
+});
+acceptReferral({ referralId: closedLoop, acceptedByName: "Dr. Owino, medical registrar", at: daysAgo(18), ...REFACT });
+departReferral({ referralId: closedLoop, transport: "County ambulance KCB 411X", escort: "Nurse Chebet", at: daysAgo(17), ...REFACT });
+confirmArrival({ referralId: closedLoop, at: daysAgo(17), ...REFACT });
+recordReferralOutcome({
+  referralId: closedLoop, outcome: "treated_returned", at: daysAgo(6),
+  note: "Bronchoscopy: smear-negative pulmonary TB confirmed on GeneXpert. Started on RHZE, day 9 of intensive phase. Continue DOT here, review sputum at two months, weigh monthly.",
+  outcomeByName: "Dr. Mwangi, KNH respiratory unit", ...REFACT,
+});
+
+// Travelling now.
+const travelling = raiseReferral({
+  facilityId, patientMrn: referralPatient("Ruth", "Wanjala", "female", "1985-11-27"),
+  counterpartCode: "MAMA-LUCY-01", urgency: "urgent",
+  reason: "Obstructed labour, needs a caesarean",
+  treatmentGiven: "IV line, fluids, catheter, fetal heart monitored, theatre alerted",
+  serviceNeeded: "Emergency obstetrics",
+  raisedAt: daysAgo(0), ...REFER,
+});
+acceptReferral({ referralId: travelling, acceptedByName: "Sister Adhiambo, labour ward", ...REFACT });
+departReferral({ referralId: travelling, transport: "Facility ambulance", escort: "Nurse Chebet", ...REFACT });
+
+// Declined for want of a bed. The patient is still here.
+const declined = raiseReferral({
+  facilityId, patientMrn: referralPatient("Joseph", "Kiplagat", "male", "1957-02-03"),
+  counterpartCode: "MBAGATHI-01", urgency: "urgent",
+  reason: "Decompensated heart failure, needs admission",
+  treatmentGiven: "Frusemide 40mg IV, oxygen, sat upright, ECG done",
+  serviceNeeded: "Medical admission",
+  raisedAt: daysAgo(0), ...REFER,
+});
+declineReferral({ referralId: declined, reason: "No medical bed until Thursday — try Mama Lucy", ...REFACT });
+
+// An emergency nobody has answered. Past its thirty-minute target.
+raiseReferral({
+  facilityId, patientMrn: referralPatient("Esther", "Nyaguthii", "female", "1991-07-19"),
+  counterpartCode: "KNH-001", urgency: "emergency",
+  reason: "Suspected ruptured ectopic pregnancy, shocked",
+  treatmentGiven: "Two large-bore lines, 2L crystalloid, blood grouped and cross-matched, theatre here has no anaesthetist today",
+  serviceNeeded: "Emergency laparotomy",
+  raisedAt: new Date(Date.now() - 55 * 60_000).toISOString(), ...REFER,
+});
+
+// Gone three weeks, nothing heard. The list this module exists for.
+const vanished = raiseReferral({
+  facilityId, patientMrn: referralPatient("Peter", "Muriuki", "male", "1974-09-08"),
+  counterpartCode: "KUTRRH-001", urgency: "routine",
+  reason: "Newly diagnosed prostate cancer, for staging and oncology opinion",
+  treatmentGiven: "PSA done, biopsy referred, catheter passed for retention",
+  serviceNeeded: "Oncology",
+  raisedAt: daysAgo(24), ...REFER,
+});
+acceptReferral({ referralId: vanished, acceptedByName: "Oncology booking office", at: daysAgo(23), ...REFACT });
+departReferral({ referralId: vanished, transport: "Own means", at: daysAgo(22), ...REFACT });
+
+// And one arriving here on somebody else's letter, so the receiving side is
+// not an empty screen.
+raiseReferral({
+  facilityId, patientMrn: referralPatient("Mary", "Kamande", "female", "1999-01-14"),
+  direction: "in", counterpartCode: "MATHARE-HC-01", urgency: "routine",
+  reason: "Sent for the HIV comprehensive care clinic — they have no ART stock this month",
+  serviceNeeded: "HIV care",
+  raisedAt: daysAgo(2), ...REFER,
+});
+
 // ------------------------------------------------------------- remittance
 //
 // A payment advice from SHA covering the submitted claims: most paid in full,
@@ -1268,6 +1373,7 @@ console.log(`  lab orders        ${count(`SELECT COUNT(*) AS n FROM orders`)} ·
 console.log(`  admissions        ${count(`SELECT COUNT(*) AS n FROM admissions`)} · ${count(`SELECT COUNT(*) AS n FROM admissions WHERE discharged_at IS NULL`)} still in a bed`);
 console.log(`  appointments      ${count(`SELECT COUNT(*) AS n FROM appointments`)} booked`);
 console.log(`  programmes        ${count(`SELECT COUNT(*) AS n FROM enrolments WHERE status = 'active'`)} on the registers · HIV retention ${cohortReport("HIV")[0]?.retentionPercent ?? 0}%`);
+console.log(`  referrals         ${referralSummary(facilityId).live} live · ${referralSummary(facilityId).loopBroken} never came back · loop closed ${referralSummary(facilityId).loopClosedPercent ?? 0}%`);
 console.log(`  casualty          ${emergencySummary(facilityId).open} in the department · ${emergencySummary(facilityId).breached + emergencySummary(facilityId).untriaged} past target · ${emergencySummary(facilityId).withinTargetPercent ?? 0}% seen in time`);
 console.log(`  maternity         ${maternitySummary().activePregnancies} pregnancies booked · ${maternitySummary().deliveries} deliveries · caesarean rate ${maternitySummary().caesareanRatePercent ?? 0}%`);
 console.log(`  child health      ${count(`SELECT COUNT(*) AS n FROM births WHERE patient_mrn IS NOT NULL AND outcome = 'live'`)} babies with their own file · ${count(`SELECT COUNT(*) AS n FROM immunisations`)} vaccines given`);
