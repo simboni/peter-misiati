@@ -18,12 +18,13 @@
 import { get, run, tx, audit } from "./db.ts";
 import { definePermission, defineRole } from "./access.ts";
 import { registerFacility, registerDevice, setSetting } from "./facility.ts";
-import { createUser, recordLicence } from "./users.ts";
+import { createUser, recordLicence, enableMfa } from "./users.ts";
 import { importCodes, ICD11 } from "./terminology.ts";
 import { importProducts } from "./prescribing.ts";
 import { definePayer, defineBenefit } from "./payers.ts";
 import { defineService, setTariff } from "./billing.ts";
 import { seedEndpoints } from "./integration.ts";
+import { defineStore, setReorderLevel } from "./inventory.ts";
 
 /** The councils that license clinical practice in Kenya. */
 export const CADRES: { code: string; name: string; regulator: string; licensed: boolean }[] = [
@@ -314,6 +315,29 @@ export function seedRevenueCycle(): void {
   }
 }
 
+/**
+ * Stores and their reorder levels.
+ *
+ * A Level 2 clinic has two: a main store that takes delivery and a pharmacy
+ * that hands medicine over. Only the pharmacy dispenses, which is the rule that
+ * stops stock leaving from somewhere nobody is counting.
+ */
+export function seedStores(facilityId = 1): void {
+  defineStore({ facilityId, code: "MAIN", name: "Main store", kind: "main" });
+  defineStore({ facilityId, code: "PHARM", name: "Pharmacy", kind: "pharmacy", dispensing: true });
+
+  // Illustrative levels. A real facility sets these from its own consumption —
+  // and until it does, the reorder report says so rather than assuming zero.
+  for (const p of FORMULARY_STARTER) {
+    setReorderLevel({
+      storeCode: "PHARM",
+      productCode: p.code,
+      reorderAt: p.controlled ? 10 : 50,
+      reorderTo: p.controlled ? 40 : 300,
+    });
+  }
+}
+
 /** Install cadres, permissions and roles. Idempotent. */
 export function seedReferenceData(): void {
   tx(() => {
@@ -372,10 +396,24 @@ export function seedReferenceData(): void {
 }
 
 /**
+ * The demonstration second factor.
+ *
+ * Deliberately a known value so a demonstration can produce working codes.
+ * Never used outside `seedDemo`, and a real enrolment never reuses it.
+ */
+export const DEMO_MFA_SECRET = "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP";
+
+/**
  * A demonstration facility with staff — used by tests, the seed script and a
  * sales demonstration. Every account ships needing a password change.
  */
-export function seedDemo(): { facilityId: number; adminId: number; clinicianId: number; receptionistId: number } {
+export function seedDemo(): {
+  facilityId: number;
+  adminId: number;
+  clinicianId: number;
+  receptionistId: number;
+  pharmacistId: number;
+} {
   seedReferenceData();
 
   const existing = get<{ id: number }>(`SELECT id FROM facilities WHERE kmhfl_code = 'DEMO-0001'`);
@@ -383,11 +421,14 @@ export function seedDemo(): { facilityId: number; adminId: number; clinicianId: 
     const admin = get<{ id: number }>(`SELECT id FROM users WHERE username = 'admin'`)!;
     const clinician = get<{ id: number }>(`SELECT id FROM users WHERE username = 'a.wanjiru'`)!;
     const reception = get<{ id: number }>(`SELECT id FROM users WHERE username = 'j.otieno'`)!;
+    seedStores(existing.id);
+    const pharmacist = get<{ id: number }>(`SELECT id FROM users WHERE username = 'g.kimani'`)!;
     return {
       facilityId: existing.id,
       adminId: admin.id,
       clinicianId: clinician.id,
       receptionistId: reception.id,
+      pharmacistId: pharmacist.id,
     };
   }
 
@@ -400,6 +441,9 @@ export function seedDemo(): { facilityId: number; adminId: number; clinicianId: 
 
   setSetting("session_timeout_minutes", "30");
   setSetting("claim_submission_window_days", "7");
+
+  // Stores need a facility to belong to, so they come after it exists.
+  seedStores(facilityId);
 
   const adminId = createUser({
     facilityId,
@@ -459,6 +503,49 @@ export function seedDemo(): { facilityId: number; adminId: number; clinicianId: 
     byUserName: "seed",
   });
 
+  const pharmacistId = createUser({
+    facilityId,
+    name: "Grace Kimani",
+    username: "g.kimani",
+    password: "ChangeMe123",
+    cadreCode: "pharmacist",
+    roles: ["pharmacist"],
+    mustChangePassword: true,
+    byUserId: adminId,
+    byUserName: "seed",
+  });
+
+  // Dispensing is licence-gated, and a controlled drug doubly so. Without a
+  // current PPB registration this account can sign in and see the counter but
+  // cannot hand anything over — which is the rule, not a limitation of the demo.
+  recordLicence({
+    userId: pharmacistId,
+    regulator: "PPB",
+    licenceNumber: "PPB-DEMO-2219",
+    expiresOn: nextYear,
+    byUserId: adminId,
+    byUserName: "seed",
+  });
+
+  registerDevice({
+    facilityId,
+    code: "PHR1",
+    label: "Pharmacy counter",
+    byUserId: adminId,
+    byUserName: "seed",
+  });
+
+  // A second factor, enrolled, so the actions that need one can be shown:
+  // merging two patient records, refunding money, dispensing a controlled drug.
+  //
+  // THE SECRET IS FIXED AND PUBLIC. That is the point of a demonstration seed —
+  // the person showing the system enters it into an authenticator app once and
+  // the codes work. A real facility enrols each person through
+  // `beginMfaEnrolment`, which generates a secret nobody else has ever seen.
+  for (const userId of [adminId, pharmacistId]) {
+    enableMfa({ userId, secret: DEMO_MFA_SECRET, byUserName: "seed" });
+  }
+
   audit({
     action: "demo_seeded",
     entity: "facility",
@@ -466,8 +553,8 @@ export function seedDemo(): { facilityId: number; adminId: number; clinicianId: 
     facilityId,
     actorName: "seed",
     purpose: "administration",
-    detail: { users: 3 },
+    detail: { users: 4 },
   });
 
-  return { facilityId, adminId, clinicianId, receptionistId };
+  return { facilityId, adminId, clinicianId, receptionistId, pharmacistId };
 }

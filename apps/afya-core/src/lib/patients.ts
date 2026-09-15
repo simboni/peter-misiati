@@ -33,7 +33,8 @@
  * No `next/*` imports, so this runs under `node --test`.
  */
 
-import { all, get, run, tx, audit, now } from "./db.ts";
+import { all, get, run, tx, audit, now, today } from "./db.ts";
+import { check, explain } from "./access.ts";
 import { mintLocalId } from "./ids.ts";
 import { recordOp } from "./sync.ts";
 
@@ -627,7 +628,17 @@ export function mergePatients(input: {
   deviceCode: string;
   byUserId: number | null;
   byUserName: string;
+  /**
+   * The session asking. Merging is MFA-gated: two records becoming one is hard
+   * to unpick and easy to do by mistake, so it asks for a code first.
+   */
+  sessionToken?: string | null;
 }): void {
+  if (input.byUserId !== null) {
+    const decision = check(input.byUserId, "patient.merge", today(), input.sessionToken);
+    if (!decision.allowed) throw new PatientError(explain(decision));
+  }
+
   if (input.keepMrn === input.mergeMrn) throw new PatientError("a record cannot be merged into itself");
 
   const keep = get<Patient>(`SELECT * FROM patients WHERE mrn = ?`, input.keepMrn);

@@ -25,6 +25,7 @@ import { hashPassword, verifyPassword, isShippedPassword } from "./passwords.ts"
 import { mintToken } from "./ids.ts";
 import { activeDevice, daysBetween, getSettingNumber } from "./facility.ts";
 import { rolesForUser } from "./access.ts";
+import { generateSecret, enrolmentUri, verifyCode } from "./totp.ts";
 
 export class UserError extends Error {}
 
@@ -255,7 +256,49 @@ export function changePassword(input: {
   });
 }
 
-/** Enable two-factor authentication. Required before MFA-gated permissions resolve. */
+/**
+ * Begin enrolling a second factor.
+ *
+ * Returns the secret and the `otpauth://` URI for the authenticator app to
+ * scan. Nothing is stored yet: enrolment only completes when the person proves
+ * they can produce a code, so a mis-scanned QR cannot lock them out of the
+ * actions MFA gates.
+ */
+export function beginMfaEnrolment(input: { userId: number; issuer?: string }): {
+  secret: string;
+  uri: string;
+} {
+  const user = get<UserRow>(`SELECT ${PUBLIC_COLUMNS} FROM users WHERE id = ?`, input.userId);
+  if (!user) throw new UserError("no such user");
+
+  const secret = generateSecret();
+  return {
+    secret,
+    uri: enrolmentUri({ secret, account: user.username, issuer: input.issuer ?? "Afya Core" }),
+  };
+}
+
+/**
+ * Finish enrolment by proving the code works.
+ *
+ * `confirmMfaEnrolment` is the only supported way to switch MFA on. It exists
+ * instead of a plain setter because "the secret is stored" and "this person can
+ * produce codes from it" are different facts, and only the second one is worth
+ * anything.
+ */
+export function confirmMfaEnrolment(input: {
+  userId: number;
+  secret: string;
+  code: string;
+  byUserName: string;
+}): void {
+  if (!verifyCode(input.secret, input.code)) {
+    throw new UserError("that code is not right — check the time on the phone and try the next one");
+  }
+  enableMfa({ userId: input.userId, secret: input.secret, byUserName: input.byUserName });
+}
+
+/** Store a confirmed second factor. Prefer `confirmMfaEnrolment`. */
 export function enableMfa(input: { userId: number; secret: string; byUserName: string }): void {
   const user = get<UserRow>(`SELECT ${PUBLIC_COLUMNS} FROM users WHERE id = ?`, input.userId);
   if (!user) throw new UserError("no such user");
@@ -379,6 +422,10 @@ export interface SignInResult {
   mustChangePassword: boolean;
   /** True while the account still opens with a password the system shipped with. */
   usingShippedPassword: boolean;
+  /** True when this account has a second factor enrolled. */
+  mfaEnrolled: boolean;
+  /** True when a code was supplied and accepted on this sign-in. */
+  mfaVerified: boolean;
 }
 
 /**
@@ -389,10 +436,19 @@ export interface SignInResult {
  * returned never says whether it was the username or the password that was
  * wrong, so it cannot be used to enumerate staff.
  */
-export function signIn(input: { facilityId: number; username: string; password: string; deviceCode?: string }): SignInResult {
+export function signIn(input: {
+  facilityId: number;
+  username: string;
+  password: string;
+  deviceCode?: string;
+  /** The authenticator code, when the account has a second factor enrolled. */
+  mfaCode?: string;
+}): SignInResult {
   const username = input.username.trim().toLowerCase();
-  const row = get<{ id: number; name: string; password_hash: string; active: number; must_change_pw: number }>(
-    `SELECT id, name, password_hash, active, must_change_pw FROM users WHERE facility_id = ? AND username = ?`,
+  const row = get<{
+    id: number; name: string; password_hash: string; active: number; must_change_pw: number; mfa_secret: string | null;
+  }>(
+    `SELECT id, name, password_hash, active, must_change_pw, mfa_secret FROM users WHERE facility_id = ? AND username = ?`,
     input.facilityId,
     username,
   );
@@ -429,6 +485,17 @@ export function signIn(input: { facilityId: number; username: string; password: 
     throw new UserError("this device has been revoked — contact the facility administrator");
   }
 
+  // A wrong second factor is a failed sign-in, not a half-open session. A
+  // missing one is not: the account still signs in, and the MFA-gated actions
+  // simply do not resolve until a code is given — which is what lets a
+  // pharmacist look at the counter on a phone they left at home.
+  const mfaEnrolled = Boolean(row!.mfa_secret);
+  let mfaVerified = false;
+  if (mfaEnrolled && input.mfaCode?.trim()) {
+    if (!verifyCode(row!.mfa_secret!, input.mfaCode)) fail("bad-mfa-code");
+    mfaVerified = true;
+  }
+
   const minutes = getSettingNumber("session_timeout_minutes", DEFAULT_SESSION_MINUTES);
   const token = mintToken();
   const createdAt = now();
@@ -436,12 +503,14 @@ export function signIn(input: { facilityId: number; username: string; password: 
 
   return tx(() => {
     run(
-      `INSERT INTO sessions (token, user_id, device_code, created_at, expires_at) VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO sessions (token, user_id, device_code, created_at, expires_at, mfa_verified_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
       token,
       row!.id,
       input.deviceCode ?? null,
       createdAt,
       expiresAt,
+      mfaVerified ? createdAt : null,
     );
     run(`UPDATE users SET last_login_at = ? WHERE id = ?`, createdAt, row!.id);
     audit({
@@ -461,8 +530,65 @@ export function signIn(input: { facilityId: number; username: string; password: 
       expiresAt,
       mustChangePassword: !!row!.must_change_pw,
       usingShippedPassword: isShippedPassword(input.password),
+      mfaEnrolled,
+      mfaVerified,
     };
   });
+}
+
+// ------------------------------------------------------------------- step-up
+
+/**
+ * How long a proved second factor stays good on a session.
+ *
+ * Long enough that a pharmacist is not re-authenticating for every item in one
+ * dispensing round; short enough that a machine left logged in at the counter
+ * cannot be used for a controlled drug an hour later.
+ */
+export const MFA_WINDOW_MINUTES = 15;
+
+/**
+ * Prove a second factor on an existing session.
+ *
+ * Called when someone reaches an MFA-gated action without a recent code —
+ * merging two patients, refunding money, dispensing a controlled drug. Failing
+ * is audited, because repeated failures on one session are what an attack looks
+ * like from the log.
+ */
+export function verifyMfa(input: { token: string; code: string }): boolean {
+  const row = get<{ user_id: number; name: string; facility_id: number; mfa_secret: string | null; ended_at: string | null }>(
+    `SELECT s.user_id, s.ended_at, u.name, u.facility_id, u.mfa_secret
+       FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ?`,
+    input.token,
+  );
+  if (!row || row.ended_at) return false;
+  if (!row.mfa_secret) throw new UserError("this account has no second factor enrolled yet");
+
+  const ok = verifyCode(row.mfa_secret, input.code);
+
+  audit({
+    action: ok ? "mfa_verified" : "mfa_failed",
+    entity: "user",
+    entityId: row.user_id,
+    facilityId: row.facility_id,
+    actorId: row.user_id,
+    actorName: row.name,
+    purpose: "audit",
+    detail: {},
+  });
+
+  if (ok) run(`UPDATE sessions SET mfa_verified_at = ? WHERE token = ?`, now(), input.token);
+  return ok;
+}
+
+/** Is a second factor currently proved on this session? */
+export function mfaIsFresh(token: string, withinMinutes = MFA_WINDOW_MINUTES): boolean {
+  const row = get<{ mfa_verified_at: string | null }>(
+    `SELECT mfa_verified_at FROM sessions WHERE token = ?`,
+    token,
+  );
+  if (!row?.mfa_verified_at) return false;
+  return Date.now() - Date.parse(row.mfa_verified_at) < withinMinutes * 60_000;
 }
 
 export interface ActiveSession {

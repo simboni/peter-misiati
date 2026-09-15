@@ -79,21 +79,72 @@ test("a clinical permission is refused outright when no licence is on file", () 
 });
 
 test("an MFA-gated permission needs the second factor, not just the role", () => {
-  // The administrator role grants user.manage, which is MFA-gated.
-  assert.ok(A.grantedPermissions(adminId).includes("user.manage"), "the role grants it");
+  // A second administrator, with the role but no second factor yet.
+  const deputyId = U.createUser({
+    facilityId, name: "Deputy Administrator", username: "deputy", password: "ChangeMe123",
+    cadreCode: "administrative", roles: ["administrator"], byUserId: adminId, byUserName: "admin",
+  });
+  assert.ok(A.grantedPermissions(deputyId).includes("user.manage"), "the role grants it");
 
-  const before = A.check(adminId, "user.manage");
+  const before = A.check(deputyId, "user.manage");
   assert.equal(before.allowed, false, "holding the role is not enough");
   assert.equal(!before.allowed && before.reason, "mfa-required");
+  assert.match(A.explain(before), /two-factor/);
 
-  U.enableMfa({ userId: adminId, secret: "JBSWY3DPEHPK3PXP", byUserName: "Facility Administrator" });
-  assert.ok(A.can(adminId, "user.manage"), "with the second factor it resolves");
+  U.enableMfa({ userId: deputyId, secret: DEPUTY_SECRET, byUserName: "Deputy Administrator" });
+  assert.ok(A.can(deputyId, "user.manage"), "with the second factor enrolled it resolves");
 });
+
+const DEPUTY_SECRET = "KRSXG5CTMVRXEZLUKBSWY3DPEHPK3PXP";
 
 test("the MFA seed never reaches the audit log", () => {
   const rows = all<{ detail: string }>(`SELECT detail FROM audit_log WHERE action = 'mfa_enabled'`);
-  assert.equal(rows.length, 1);
-  assert.ok(!rows[0].detail.includes("JBSWY3DPEHPK3PXP"), "the seed must not be logged");
+  assert.ok(rows.length > 0);
+  assert.ok(
+    rows.every((r) => !r.detail.includes(DEPUTY_SECRET) && !r.detail.includes("JBSWY3DP")),
+    "the seed must not be logged",
+  );
+});
+
+test("an MFA-gated action asks for a code when the session cannot show a recent one", async () => {
+  const U2 = await import("../src/lib/users.ts");
+  const { codeAt } = await import("../src/lib/totp.ts");
+  const { DEMO_MFA_SECRET } = await import("../src/lib/seed.ts");
+
+  // Signed in with a password only: enrolled, but nothing proved on this session.
+  const session = U2.signIn({ facilityId, username: "admin", password: "ChangeMe123" });
+  assert.equal(session.mfaEnrolled, true);
+  assert.equal(session.mfaVerified, false);
+
+  const stale = A.check(adminId, "user.manage", undefined, session.token);
+  assert.equal(stale.allowed, false, "an enrolled account left signed in is not an authenticated one");
+  assert.equal(!stale.allowed && stale.reason, "mfa-stale");
+  assert.match(A.explain(stale), /authenticator/);
+
+  assert.equal(U2.verifyMfa({ token: session.token, code: "000000" }), false);
+  assert.equal(U2.verifyMfa({ token: session.token, code: codeAt(DEMO_MFA_SECRET, Date.now()) }), true);
+
+  assert.ok(A.can(adminId, "user.manage"), "and without a session it is still the capability question");
+  assert.equal(A.check(adminId, "user.manage", undefined, session.token).allowed, true);
+});
+
+test("signing in with the code proves it on the session straight away", async () => {
+  const U2 = await import("../src/lib/users.ts");
+  const { codeAt } = await import("../src/lib/totp.ts");
+  const { DEMO_MFA_SECRET } = await import("../src/lib/seed.ts");
+
+  const session = U2.signIn({
+    facilityId, username: "admin", password: "ChangeMe123",
+    mfaCode: codeAt(DEMO_MFA_SECRET, Date.now()),
+  });
+  assert.equal(session.mfaVerified, true);
+  assert.equal(A.check(adminId, "user.manage", undefined, session.token).allowed, true);
+
+  assert.throws(
+    () => U2.signIn({ facilityId, username: "admin", password: "ChangeMe123", mfaCode: "111111" }),
+    /do not match/,
+    "a wrong code is a failed sign-in, not a half-open session",
+  );
 });
 
 test("a deactivated account can do nothing", () => {

@@ -42,7 +42,8 @@ export type Decision =
   | { allowed: false; reason: "not-granted" }
   | { allowed: false; reason: "licence-missing"; regulator: string }
   | { allowed: false; reason: "licence-expired"; regulator: string; expiredOn: string }
-  | { allowed: false; reason: "mfa-required" };
+  | { allowed: false; reason: "mfa-required" }
+  | { allowed: false; reason: "mfa-stale" };
 
 /** Human-readable text for a denial — used directly in the interface. */
 export function explain(d: Decision): string {
@@ -60,6 +61,8 @@ export function explain(d: Decision): string {
       return `Your ${d.regulator} licence expired on ${d.expiredOn}. It must be renewed before you can do this — claims citing an expired licence are rejected.`;
     case "mfa-required":
       return "This needs two-factor authentication enabled on your account.";
+    case "mfa-stale":
+      return "Confirm the code from your authenticator app to continue.";
   }
 }
 
@@ -162,7 +165,19 @@ export function licenceStatus(
  * so the reason returned is the first real obstacle rather than an incidental
  * one, and the person is told the thing they can actually act on.
  */
-export function check(userId: number, permission: string, asOf = today()): Decision {
+export function check(
+  userId: number,
+  permission: string,
+  asOf = today(),
+  /**
+   * The session asking. Pass it wherever it is known: an MFA-gated permission
+   * then requires a code proved on that session inside the step-up window,
+   * not merely an enrolled account. Omit it — `undefined` — and only enrolment
+   * is checked, which is the honest answer to "could this person, in
+   * principle, do this?" for a worklist or a menu.
+   */
+  sessionToken?: string | null,
+): Decision {
   const user = get<UserBits>(`SELECT id, active, cadre_code, mfa_secret FROM users WHERE id = ?`, userId);
   if (!user) return { allowed: false, reason: "no-such-user" };
   if (!user.active) return { allowed: false, reason: "inactive" };
@@ -193,11 +208,37 @@ export function check(userId: number, permission: string, asOf = today()): Decis
     }
   }
 
-  if (perm.requires_mfa && !user.mfa_secret) {
-    return { allowed: false, reason: "mfa-required" };
+  if (perm.requires_mfa) {
+    if (!user.mfa_secret) return { allowed: false, reason: "mfa-required" };
+
+    // Enrolment alone is not the protection. When the caller knows which
+    // session is asking, a code must have been proved on it recently —
+    // otherwise a machine left signed in at a counter can dispense a
+    // controlled drug an hour after the pharmacist walked away.
+    if (sessionToken !== undefined && !mfaIsFresh(sessionToken)) {
+      return { allowed: false, reason: "mfa-stale" };
+    }
   }
 
   return { allowed: true };
+}
+
+/**
+ * How long a proved second factor stays good on a session.
+ *
+ * Long enough not to re-authenticate for every item in one dispensing round;
+ * short enough that walking away ends it.
+ */
+export const MFA_WINDOW_MINUTES = 15;
+
+function mfaIsFresh(token: string | null): boolean {
+  if (!token) return false;
+  const row = get<{ mfa_verified_at: string | null; ended_at: string | null }>(
+    `SELECT mfa_verified_at, ended_at FROM sessions WHERE token = ?`,
+    token,
+  );
+  if (!row || row.ended_at || !row.mfa_verified_at) return false;
+  return Date.now() - Date.parse(row.mfa_verified_at) < MFA_WINDOW_MINUTES * 60_000;
 }
 
 /** Convenience wrapper for call sites that only need a boolean. */

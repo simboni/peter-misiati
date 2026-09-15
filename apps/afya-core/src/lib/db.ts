@@ -73,6 +73,7 @@ export function db(): DatabaseSync {
 function addColumns(conn: DatabaseSync): void {
   const additions: { table: string; column: string; ddl: string }[] = [
     { table: "benefit_rules", column: "required_documents", ddl: "TEXT NOT NULL DEFAULT ''" },
+    { table: "sessions", column: "mfa_verified_at", ddl: "TEXT" },
   ];
 
   for (const a of additions) {

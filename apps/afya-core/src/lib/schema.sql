@@ -184,6 +184,10 @@ CREATE TABLE IF NOT EXISTS sessions (
   device_code TEXT,
   created_at  TEXT NOT NULL,
   expires_at  TEXT NOT NULL,
+  -- When a second factor was last proved on this session. An MFA-gated action
+  -- needs one inside the step-up window, not merely an account that has MFA
+  -- enrolled — otherwise enrolment is the whole protection.
+  mfa_verified_at TEXT,
   ended_at    TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_session_user ON sessions(user_id);
@@ -990,3 +994,112 @@ CREATE TABLE IF NOT EXISTS signatures (
   signed_at     TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_sig_entity ON signatures(entity, entity_id);
+
+-- ==================================================== M41 INVENTORY & STORES
+
+-- Where stock physically sits. A clinic has a main store and a dispensing
+-- point; a hospital has ward stores and a theatre store too. Stock is always
+-- in a named place, because "we have 400 tablets somewhere" is not an answer
+-- a pharmacist can act on.
+CREATE TABLE IF NOT EXISTS stores (
+  code        TEXT PRIMARY KEY,
+  facility_id INTEGER NOT NULL REFERENCES facilities(id),
+  name        TEXT NOT NULL,
+  kind        TEXT NOT NULL CHECK (kind IN ('main','pharmacy','ward','theatre','lab')),
+  -- Only a dispensing point may hand medicine to a patient.
+  dispensing  INTEGER NOT NULL DEFAULT 0 CHECK (dispensing IN (0,1)),
+  active      INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1)),
+  created_at  TEXT NOT NULL
+);
+
+-- Stock is held per BATCH, never as a single number per product. A recall names
+-- a batch, an expiry belongs to a batch, and a pharmacist asked which batch a
+-- patient received must be able to answer.
+CREATE TABLE IF NOT EXISTS stock_batches (
+  id            TEXT PRIMARY KEY,
+  store_code    TEXT NOT NULL REFERENCES stores(code),
+  product_code  TEXT NOT NULL REFERENCES products(code),
+  batch_number  TEXT NOT NULL,
+  expires_on    TEXT NOT NULL,
+  -- Running balance, maintained only by stock_movements. Never set directly.
+  quantity      INTEGER NOT NULL DEFAULT 0,
+  unit_cost_cents INTEGER NOT NULL DEFAULT 0,
+  -- A quarantined batch is on the shelf but must not be issued: recalled,
+  -- damaged, or awaiting a pharmacist's decision.
+  quarantined   INTEGER NOT NULL DEFAULT 0 CHECK (quarantined IN (0,1)),
+  quarantine_reason TEXT,
+  received_at   TEXT NOT NULL,
+  UNIQUE (store_code, product_code, batch_number)
+);
+CREATE INDEX IF NOT EXISTS idx_batch_pick ON stock_batches(store_code, product_code, expires_on);
+
+-- The ledger. Append-only: a correction is another movement, never an edit, so
+-- the sum of movements always equals what is on the shelf and a discrepancy has
+-- a history rather than a mystery.
+CREATE TABLE IF NOT EXISTS stock_movements (
+  id           INTEGER PRIMARY KEY,
+  batch_id     TEXT NOT NULL REFERENCES stock_batches(id),
+  store_code   TEXT NOT NULL REFERENCES stores(code),
+  product_code TEXT NOT NULL REFERENCES products(code),
+  kind         TEXT NOT NULL CHECK (kind IN
+                 ('receipt','issue','dispense','return','adjustment','write_off','transfer_in','transfer_out')),
+  -- Signed: positive adds to the shelf, negative takes off it.
+  quantity     INTEGER NOT NULL,
+  -- Balance after this movement, so a stock card can be read without replaying.
+  balance_after INTEGER NOT NULL,
+  -- What caused it: a prescription id, a requisition id, a stock take id.
+  reference    TEXT,
+  reason       TEXT NOT NULL DEFAULT '',
+  patient_mrn  TEXT REFERENCES patients(mrn),
+  by_user_id   INTEGER REFERENCES users(id),
+  by_user_name TEXT NOT NULL,
+  at           TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_move_batch ON stock_movements(batch_id, at);
+CREATE INDEX IF NOT EXISTS idx_move_product ON stock_movements(store_code, product_code, at);
+
+-- When to reorder, per store. Absent means nobody has decided, which the
+-- reorder report says rather than assuming zero.
+CREATE TABLE IF NOT EXISTS reorder_levels (
+  store_code   TEXT NOT NULL REFERENCES stores(code),
+  product_code TEXT NOT NULL REFERENCES products(code),
+  reorder_at   INTEGER NOT NULL,
+  reorder_to   INTEGER NOT NULL,
+  set_at       TEXT NOT NULL,
+  PRIMARY KEY (store_code, product_code)
+);
+
+-- ==================================================== M40 PHARMACY DISPENSING
+
+-- One dispensing event. A prescription may be dispensed in parts (the pharmacy
+-- had 20 of 30), so this is a separate row from the prescription and the
+-- prescription's status follows the sum of these.
+CREATE TABLE IF NOT EXISTS dispenses (
+  id              TEXT PRIMARY KEY,
+  prescription_id TEXT NOT NULL REFERENCES prescriptions(id),
+  patient_mrn     TEXT NOT NULL REFERENCES patients(mrn),
+  encounter_id    TEXT NOT NULL REFERENCES encounters(id),
+  store_code      TEXT NOT NULL REFERENCES stores(code),
+  -- What actually left the shelf. Differs from the prescribed product when a
+  -- generic was substituted, and that difference is the point of the column.
+  product_code    TEXT NOT NULL REFERENCES products(code),
+  quantity        INTEGER NOT NULL,
+  -- Required when the dispensed product is not the prescribed one.
+  substitution_reason TEXT,
+  counselling     TEXT NOT NULL DEFAULT '',
+  dispensed_by    INTEGER REFERENCES users(id),
+  dispenser_name  TEXT NOT NULL,
+  dispenser_licence TEXT,
+  device_code     TEXT,
+  dispensed_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_dispense_rx ON dispenses(prescription_id);
+
+-- Which batches went into one dispensing event. A patient asking "what did I
+-- take" and a recall asking "who got this batch" are the same query.
+CREATE TABLE IF NOT EXISTS dispense_batches (
+  dispense_id TEXT NOT NULL REFERENCES dispenses(id),
+  batch_id    TEXT NOT NULL REFERENCES stock_batches(id),
+  quantity    INTEGER NOT NULL,
+  PRIMARY KEY (dispense_id, batch_id)
+);

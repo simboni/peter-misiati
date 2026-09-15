@@ -23,6 +23,8 @@ const { facilityId, adminId, receptionistId } = seedDemo();
 registerDevice({ facilityId, code: "TAB1", label: "Reception", byUserId: adminId, byUserName: "admin" });
 
 const BY = { byUserId: receptionistId, byUserName: "Joseph Otieno" };
+/** Merging is the administrator's, and is MFA-gated. A receptionist cannot. */
+const MERGER = { byUserId: adminId, byUserName: "Facility Administrator" };
 const DEV = "TAB1";
 
 // ------------------------------------------------------------ normalisation
@@ -245,6 +247,18 @@ test("a field nobody should edit here is refused", () => {
 
 // ------------------------------------------------------------------- merging
 
+test("a receptionist cannot merge two records", () => {
+  const dup = P.registerPatient({
+    facilityId, deviceCode: DEV, givenName: "Alice", familyName: "Wanjiku", sex: "female",
+    phone: "0712000999", ...BY,
+  });
+  assert.throws(
+    () => P.mergePatients({ keepMrn: ALICE, mergeMrn: dup, reason: "same person", deviceCode: DEV, ...BY }),
+    /role does not include this/,
+    "merging is hard to unpick — it belongs to the administrator",
+  );
+});
+
 test("two records with different national IDs are refused a merge", () => {
   const other = P.registerPatient({
     facilityId,
@@ -257,7 +271,7 @@ test("two records with different national IDs are refused a merge", () => {
   });
 
   assert.throws(
-    () => P.mergePatients({ keepMrn: ALICE, mergeMrn: other, reason: "look like the same person", deviceCode: DEV, ...BY }),
+    () => P.mergePatients({ keepMrn: ALICE, mergeMrn: other, reason: "look like the same person", deviceCode: DEV, ...MERGER }),
     /probably two different people/,
     "one record for two patients is the worst outcome this module can produce",
   );
@@ -268,7 +282,7 @@ test("a merge must record why", () => {
     facilityId, deviceCode: DEV, givenName: "Alice", familyName: "Wanjiku", sex: "female", phone: "0712345678", ...BY,
   });
   assert.throws(
-    () => P.mergePatients({ keepMrn: ALICE, mergeMrn: dup, reason: "   ", deviceCode: DEV, ...BY }),
+    () => P.mergePatients({ keepMrn: ALICE, mergeMrn: dup, reason: "   ", deviceCode: DEV, ...MERGER }),
     /record why/,
   );
 });
@@ -287,7 +301,7 @@ test("a merge fills the gaps on the surviving record and keeps the old number re
     ...BY,
   });
 
-  P.mergePatients({ keepMrn: ALICE, mergeMrn: dup, reason: "same person, registered twice at reception", deviceCode: DEV, ...BY });
+  P.mergePatients({ keepMrn: ALICE, mergeMrn: dup, reason: "same person, registered twice at reception", deviceCode: DEV, ...MERGER });
 
   const kept = P.openPatient({ mrn: ALICE, ...BY })!;
   assert.equal(kept.sha_number, "SHA44712026", "the gap is filled from the duplicate");
@@ -332,7 +346,7 @@ test("a merge can be undone, restoring the record as it was", () => {
 
 test("a record cannot be merged into itself", () => {
   assert.throws(
-    () => P.mergePatients({ keepMrn: ALICE, mergeMrn: ALICE, reason: "typo", deviceCode: DEV, ...BY }),
+    () => P.mergePatients({ keepMrn: ALICE, mergeMrn: ALICE, reason: "typo", deviceCode: DEV, ...MERGER }),
     /into itself/,
   );
 });
