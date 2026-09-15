@@ -1700,3 +1700,121 @@ CREATE TABLE IF NOT EXISTS immunisations (
   UNIQUE (patient_mrn, vaccine_code)
 );
 CREATE INDEX IF NOT EXISTS idx_imm_patient ON immunisations(patient_mrn);
+
+-- ============================================================================
+-- M28 Emergency & Casualty
+--
+-- A casualty attendance is deliberately NOT a visit row with a flag on it. The
+-- questions asked of a casualty department — how long until a red patient was
+-- seen, how many people left without being seen, who came in from which road
+-- crash — cannot be answered from a queue that was designed for an outpatient
+-- clinic, and bolting them onto `visits` would make every one of them a
+-- special case.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS emergency_attendances (
+  id            TEXT PRIMARY KEY,
+  facility_id   INTEGER NOT NULL REFERENCES facilities(id),
+  patient_mrn   TEXT NOT NULL REFERENCES patients(mrn),
+  -- The clinical record, once somebody opens one. Null while the patient is
+  -- still being resuscitated: care starts before paperwork does.
+  encounter_id  TEXT REFERENCES encounters(id),
+  visit_id      TEXT REFERENCES visits(id),
+  -- Set when the patient arrived without a name. Cleared when they are
+  -- identified, which is a merge, not an edit.
+  unidentified  INTEGER NOT NULL DEFAULT 0,
+  arrival_mode  TEXT NOT NULL DEFAULT 'walk_in'
+                CHECK (arrival_mode IN ('walk_in','ambulance','police','referred','carried','other')),
+  arrived_at    TEXT NOT NULL,
+  presenting    TEXT NOT NULL DEFAULT '',
+  -- The current triage colour, stamped from the latest assessment. Kept here
+  -- rather than joined so the board is one read: a casualty board that is slow
+  -- is a board nobody looks at.
+  triage        TEXT CHECK (triage IN ('red','orange','yellow','green','blue')),
+  triaged_at    TEXT,
+  -- When the clinician actually laid hands on them. The gap between this and
+  -- `triaged_at` is the number the department is judged on.
+  seen_at       TEXT,
+  seen_by       INTEGER REFERENCES users(id),
+  disposition   TEXT CHECK (disposition IN
+                  ('admitted','discharged','referred','died','dead_on_arrival',
+                   'left_without_being_seen','absconded','theatre')),
+  disposition_at   TEXT,
+  disposition_note TEXT NOT NULL DEFAULT '',
+  admission_id  TEXT REFERENCES admissions(id),
+  -- A mass-casualty incident reference, when this arrival is one of many.
+  incident_ref  TEXT,
+  opened_by     INTEGER REFERENCES users(id),
+  opener_name   TEXT NOT NULL,
+  device_code   TEXT,
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ed_open ON emergency_attendances(facility_id, disposition);
+CREATE INDEX IF NOT EXISTS idx_ed_patient ON emergency_attendances(patient_mrn);
+CREATE INDEX IF NOT EXISTS idx_ed_incident ON emergency_attendances(incident_ref);
+
+-- Every triage assessment, not just the latest. A patient who deteriorates in
+-- the waiting area is re-triaged, and the first score is evidence of what was
+-- known at the time — it is never overwritten.
+CREATE TABLE IF NOT EXISTS triage_assessments (
+  id            TEXT PRIMARY KEY,
+  attendance_id TEXT NOT NULL REFERENCES emergency_attendances(id),
+  sequence      INTEGER NOT NULL,
+  assessed_at   TEXT NOT NULL,
+  -- The Triage Early Warning Score components, each stored as recorded.
+  mobility      TEXT CHECK (mobility IN ('walking','with_help','stretcher')),
+  resp_rate     INTEGER,
+  pulse_bpm     INTEGER,
+  systolic_mmhg INTEGER,
+  temp_tenths_c INTEGER,
+  avpu          TEXT CHECK (avpu IN ('alert','voice','pain','unresponsive')),
+  trauma        INTEGER NOT NULL DEFAULT 0,
+  tews          INTEGER NOT NULL,
+  -- A discriminator can only ever raise the colour, never lower it.
+  discriminator TEXT NOT NULL DEFAULT '',
+  triage        TEXT NOT NULL CHECK (triage IN ('red','orange','yellow','green','blue')),
+  -- What the score alone would have given, kept so an upgrade is visible.
+  triage_by_score TEXT NOT NULL,
+  note          TEXT NOT NULL DEFAULT '',
+  assessed_by   INTEGER REFERENCES users(id),
+  assessor_name TEXT NOT NULL,
+  created_at    TEXT NOT NULL,
+  UNIQUE (attendance_id, sequence)
+);
+CREATE INDEX IF NOT EXISTS idx_triage_attendance ON triage_assessments(attendance_id);
+
+-- A police case. Kept separate from the clinical record because it is
+-- disclosed separately: a P3 form goes to the police, the notes do not.
+CREATE TABLE IF NOT EXISTS medicolegal_cases (
+  id            TEXT PRIMARY KEY,
+  attendance_id TEXT NOT NULL REFERENCES emergency_attendances(id),
+  patient_mrn   TEXT NOT NULL REFERENCES patients(mrn),
+  kind          TEXT NOT NULL CHECK (kind IN
+                  ('assault','road_traffic','gunshot','stabbing','burns','poisoning',
+                   'sexual_violence','child_abuse','death_in_custody','other')),
+  police_station TEXT NOT NULL DEFAULT '',
+  ob_number     TEXT NOT NULL DEFAULT '',
+  p3_issued     INTEGER NOT NULL DEFAULT 0,
+  p3_issued_at  TEXT,
+  p3_issued_to  TEXT NOT NULL DEFAULT '',
+  note          TEXT NOT NULL DEFAULT '',
+  opened_by     INTEGER REFERENCES users(id),
+  opener_name   TEXT NOT NULL,
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_mlc_attendance ON medicolegal_cases(attendance_id);
+
+-- A mass-casualty incident. One row, many attendances, so "how many came from
+-- the Thika Road crash and where are they now" is one query rather than a
+-- memory of which names were involved.
+CREATE TABLE IF NOT EXISTS mci_incidents (
+  reference     TEXT PRIMARY KEY,
+  facility_id   INTEGER NOT NULL REFERENCES facilities(id),
+  kind          TEXT NOT NULL,
+  description   TEXT NOT NULL DEFAULT '',
+  declared_at   TEXT NOT NULL,
+  stood_down_at TEXT,
+  declared_by   INTEGER REFERENCES users(id),
+  declarer_name TEXT NOT NULL,
+  created_at    TEXT NOT NULL
+);
