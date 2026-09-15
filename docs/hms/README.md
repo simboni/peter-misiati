@@ -27,15 +27,29 @@ SHA has made a DHA-certified HMIS mandatory for any provider that wants to parti
 ## Build status
 
 The system is being built in [`apps/afya-core`](../../apps/afya-core/). As of
-15 September 2026, **Phase 1 "Claim-Safe Core" is functionally complete**:
-17 modules, 168 passing tests, and a working end-to-end flow from registration
-through triage, consultation, prescribing and billing to a scrubbed claim.
+15 September 2026, **the clinical and revenue spine runs end to end**: 26
+modules, 327 passing tests, and sixteen screens.
 
-The scrubber runs all nine gates live on the consultation screen while the
-patient is still in the room. What is *not* done — real payer adapters, the
-full ICD-11 and PPB registers, the SHA tariff schedule, and a scrubber rule set
-built from 50 real rejected claims — is listed honestly in the
-[app README](../../apps/afya-core/README.md#not-done-be-clear-about-this).
+Phase 1 "Claim-Safe Core" is complete — registration, triage, consultation,
+coded diagnosis, prescribing, billing, eTIMS and the nine-gate scrubber, which
+runs live on the consultation screen while the patient is still in the room.
+On top of it now sit the integration hub, notifications, the document store,
+batch-tracked stock and dispensing, orders and the laboratory, scheduling, the
+inpatient ward, two-factor authentication, and MOH 705A/705B/717 returns
+generated from the transactions rather than re-keyed.
+
+`npm run demo` loads a clinic that has been working — patients in the queue,
+medicine dispensed off real batches, a released result, a ward patient two
+nights in and improving, claims in several states, and the month's returns.
+The [app README](../../apps/afya-core/README.md#showing-it-to-a-client) has a
+twenty-minute script for walking a client through it.
+
+**Say this out loud in any demonstration: the SHA and KRA connections are
+simulated.** The integration hub runs deterministic simulators that apply the
+published rules and refuse malformed requests, and every answer they give is
+stamped `simulated` on screen and in the log. Writing the live adapters needs
+those specifications. That and everything else still outstanding is listed in
+the [app README](../../apps/afya-core/README.md#not-done-be-clear-about-this).
 
 ## Where to start
 

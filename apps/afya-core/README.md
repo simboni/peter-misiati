@@ -3,11 +3,13 @@
 Kenya-compliant hospital management system (HMIS). Built to the plan in
 [`docs/hms/`](../../docs/hms/) at the repository root.
 
-**Current state: Phase 1 "Claim-Safe Core" is functionally complete.** A patient
-can be registered, checked in, triaged, consulted, diagnosed, prescribed for,
-billed, invoiced through eTIMS and claimed for — with the scrubber checking
-every claim against nine documented SHA rejection causes before it leaves the
-building.
+**Current state: the clinical and revenue spine runs end to end.** A patient is
+registered, checked in, triaged, consulted, diagnosed, prescribed for,
+investigated in the laboratory, dispensed to from batch-tracked stock, admitted
+to a bed, billed, invoiced through eTIMS and claimed for — with the scrubber
+checking every claim against nine documented SHA rejection causes before it
+leaves the building, and the monthly MOH returns generated from those same
+transactions rather than re-keyed.
 
 What remains before a facility could actually run on this is listed under
 [Not done](#not-done-be-clear-about-this) — read that before showing it to a
@@ -53,20 +55,77 @@ npm run demo     # loads a clinic morning: 6 patients, a queue, claims
 npm run dev      # then open http://localhost:3200
 ```
 
-Sign in with any of these — the password is `ChangeMe123` for all three, and
-each sees a genuinely different system:
+Sign in with any of these — the password is `ChangeMe123` for all five, and each
+sees a genuinely different system. The navigation is filtered by capability, not
+by role name: a pharmacist has no claims tab because they cannot submit claims,
+which is the same fact that stops them if they type the URL.
 
-| Username | Role | What they can do |
+| Username | Who | What they can do |
 |---|---|---|
-| `admin` | Facility Administrator | Dashboard, claims, users, devices. **Cannot** register patients or prescribe |
-| `a.wanjiru` | Clinician | Queue, consultations, diagnose, prescribe. Licence-gated |
-| `j.otieno` | Receptionist | Register, search, check in, take payment. **Cannot** prescribe |
+| `admin` | Facility Administrator | Compliance, integrations, staff, devices, tariffs, claims, the front desk. **Cannot** prescribe or dispense |
+| `a.wanjiru` | Dr. Achieng Wanjiru | Queue, consultations, diagnose, prescribe, order, admit, discharge. Licence-gated |
+| `j.otieno` | Joseph Otieno | Register, search, check in, book appointments, take payment. **Cannot** prescribe |
+| `g.kimani` | Grace Kimani | The pharmacy counter, stock, the controlled-drug register |
+| `s.mutiso` | Samuel Mutiso | The laboratory bench. Releasing a result needs his KMLTTB registration |
+
+Two-factor codes for `admin` and `g.kimani` come from the secret
+`JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP` — enter it in any authenticator app. It is a
+demonstration value, published on purpose; a real facility enrols each person
+with a secret nobody else has ever seen.
 
 Stop the server with `Ctrl-C`. To wipe and start over: `rm -rf data && npm run demo`.
 
 ```bash
-npm test         # 173 tests, no network or database server needed
+npm test         # 327 tests, no network or database server needed
 ```
+
+## Showing it to a client
+
+`npm run demo` loads a clinic that has been working: patients in the queue,
+medicine dispensed off real batches, a result released, a patient two nights into
+a ward stay and getting better, claims in several states, and the month's MOH
+returns. Twenty minutes, in this order.
+
+**1. The dashboard (`admin`).** One screen answering the only two questions a
+facility owner has: am I going to get paid, and am I going to pass an inspection.
+What is blocking claims, what expires soon, the acceptance rate, the revenue
+leakage, and the audit chain verified live.
+
+**2. A consultation (`a.wanjiru`).** Open the queue, take the next patient,
+code a diagnosis, prescribe. Try prescribing amoxicillin to Faith Chebet — she
+has a recorded severe allergy, and it blocks and demands a written override.
+Close the consultation: it will refuse without a coded primary diagnosis.
+
+**3. The laboratory (`s.mutiso`).** A stat urinalysis is on the bench. Enter a
+reading, then release it. Point out that until it is released nothing has reached
+the clinician — and that releasing it attaches the report to the encounter, which
+is what clears the claim's documentation gate.
+
+**4. The pharmacy (`g.kimani`).** The counter shows what can be filled before
+anything is committed, and which batch would go out. Dispense one. Then open
+Stock: the stock came off the shelf, the charge went on the bill, the
+prescription closed and the controlled register updated — one event, four
+consequences, none of them re-keyed.
+
+**5. The ward (`a.wanjiru`).** Peter Omondi is in GEN-1, two nights in, with a
+NEWS2 trend running 9 → 5 → 0 and a drug chart showing one dose given and one
+withheld with its reason. Note that the transfer list offers no maternity bed.
+
+**6. Claims (`admin`).** The nine gates, each mapped to a documented SHA
+rejection cause and each naming the person who can fix it. Show a claim that is
+blocked and why.
+
+**7. Reports (`admin`).** MOH 705A, 705B and 717, generated from the
+transactions above. Nothing on that screen was typed twice.
+
+**8. Administration (`admin`).** The integrations table, where every endpoint
+says plainly that it is running a simulator. Try switching SHA to live — it is
+refused, because no live adapter exists yet. Then type a malformed KRA PIN and
+watch it be refused with a sentence rather than an error page.
+
+Be straight with the client about what the integrations table is telling them:
+**the SHA and KRA connections are simulated until those specifications are in
+hand.** Everything either side of them is real.
 
 ## Why SQLite, not Postgres
 
@@ -98,10 +157,21 @@ tier. `src/lib/db.ts` is the only module that would change.
 | **M11 / M14** Consent, Queue & Triage | `src/lib/frontdesk.ts` | Versioned granular consent, priority queue, vitals |
 | **M53 / M54** Payer, Coverage, Pre-auth | `src/lib/payers.ts` | Payers, benefit rules, verification with offline fallback, pre-authorisation |
 | **M50 / M52** Billing & eTIMS | `src/lib/billing.ts` | Services, dated tariffs, charges, invoices, payments, eTIMS queue, leakage report |
-| **M55** Claims Engine | `src/lib/claims.ts` | Claim assembly, **the nine-gate scrubber**, submission, outcomes, dashboard |
-| — | `src/lib/seed.ts` | Cadres, permissions, roles, ICD-11 and formulary starter sets |
+| **M55** Claims Engine | `src/lib/claims.ts` | Claim assembly, **the nine-gate scrubber**, submission, outcome polling, dashboard |
+| **M04** Integration Hub | `src/lib/integration.ts` | The only way out of the building: retries, dead letters, credential redaction, and three modes with the mode always visible |
+| **M05** Notifications | `src/lib/notifications.ts` | The SHA claim clock, licence expiry, eTIMS backlog, dead letters — each on the desk of the role that can act |
+| **M06** Document Store | `src/lib/documents.ts` | Attachments with their digests, and signatures that stop matching when the content is amended |
+| **M41** Inventory & Stores | `src/lib/inventory.ts` | Batch-level stock, first-expiry-first-out, stock takes, recalls, the controlled-drug register |
+| **M40** Pharmacy | `src/lib/pharmacy.ts` | Dispensing — one event, four consequences. Substitution, partial dispensing |
+| **M22** Orders (CPOE) | `src/lib/orders.ts` | Lab, imaging and procedure orders; the acknowledgement state that closes the loop |
+| **M30** Laboratory | `src/lib/laboratory.ts` | Specimens, reference ranges matched to the patient, release by a licensed technologist, panic values |
+| **M13** Scheduling | `src/lib/scheduling.ts` | Slots, bookings, reminders through the hub, booked-against-seen |
+| **M24** Inpatient & Ward | `src/lib/inpatient.ts` | Beds, admissions, NEWS2, the drug chart, bed nights, discharge |
+| **M70 / M71** MOH Returns & KHIS | `src/lib/reporting.ts` | MOH 705A/705B/717 generated from transactions, frozen once sent, pushed to DHIS2 |
+| — | `src/lib/totp.ts` | RFC 6238 two-factor codes, checked against the RFC's own test vectors |
+| — | `src/lib/seed.ts` | Cadres, permissions, roles, ICD-11, formulary, stores, wards, reference ranges |
 
-## Thirteen rules the code enforces
+## Eighteen rules the code enforces
 
 These are compliance requirements expressed as code, not documentation. Each has
 a test that fails if it regresses.
@@ -176,6 +246,42 @@ a test that fails if it regresses.
     checked against is stored so a rejection can be compared with what we
     believed at submission.
 
+14. **A simulated answer is never mistakable for a real one.** Every endpoint
+    runs in `demo`, `live` or `disabled`, the mode is on the integrations
+    screen, every result carries `simulated`, and the integration log records
+    which mode each call ran in. Switching to live is refused while no live
+    adapter exists, because the alternative is a facility believing it is
+    claiming when it is not. Credentials are redacted before anything is
+    logged, because the log goes to auditors.
+
+15. **Stock is held per batch, the ledger is append-only, and picking is
+    first-expiry-first-out.** A recall names a batch; an expiry belongs to a
+    batch; a pharmacist asked which batch a patient received must be able to
+    answer. A correction is another movement with a reason, never an edit, so
+    the sum of movements equals what is on the shelf and a discrepancy has a
+    history rather than a mystery.
+
+16. **One event, four consequences.** A pharmacist hands medicine over once,
+    and the stock ledger, the bill, the prescription and the controlled
+    register all move in the same transaction. If any would fail, none of them
+    happened — there is a test that proves it, because a shelf and a bill that
+    disagree never agree again.
+
+17. **A reading is not a result, and a panic value is a phone call.** A number
+    off the analyser becomes a result when a KMLTTB-registered technologist
+    releases it, and only then does it reach a clinician. Releasing a critical
+    value raises an alert on the ordering clinician's desk in the same
+    transaction, so "nobody saw it" is not available as an outcome. A result
+    stays outstanding until somebody says they have read it.
+
+18. **A second factor is proved, not merely enrolled.** TOTP written against
+    RFC 6238 and checked against the RFC's own vectors, so it agrees with
+    Google Authenticator rather than only with itself. A code proved at
+    sign-in or stepped up stays good for fifteen minutes; an MFA-gated action
+    needs a recent one on that session, so a machine left signed in at a
+    counter cannot dispense a controlled drug an hour after the pharmacist
+    walked away.
+
 ## Testing
 
 ```bash
@@ -233,8 +339,8 @@ dependency yet. Wiring it into CI is outstanding.
 | 4 | Benefit package | A line the payer does not cover | Claims officer |
 | 5 | Tariff | A line with no dated tariff behind it | Administrator |
 | 6 | Dates | Service in the future, or discharge before admission | Claims officer |
-| 7 | Documentation | Names exactly what is missing, never "incomplete" | Clinician / claims |
-| 8 | Signature | No pinned licence, or the encounter is still open | Clinician |
+| 7 | Documentation | No assessment, no invoice, or a document the payer's benefit rule requires is genuinely not attached | Clinician / claims |
+| 8 | Signature | No pinned licence, the encounter is still open, or the record was amended after it was signed | Clinician |
 | 9 | Submission window | Past the payer's window — **escalates**, does not block | Claims officer |
 
 Gate 9 escalates rather than blocking because a late claim still has an appeal
@@ -243,24 +349,39 @@ reason, which is recorded.
 
 ## Not done — be clear about this
 
-Phase 1 is functionally complete, but a facility cannot run on it yet:
+The system runs end to end, but a facility cannot go live on it yet:
 
-- **No real payer adapter.** `PayerProbe`, `ClaimSubmitter` and
-  `EtimsTransmitter` are injection points with deliberately honest defaults —
-  "no adapter is configured", so everything queues and stays visible. The SHA
-  and KRA specifications are needed to write the real ones.
+- **The SHA and KRA connections are simulated.** This is the one to say out
+  loud in any demonstration. The integration hub runs deterministic simulators
+  that apply the published rules and refuse malformed requests, and every
+  answer they give is stamped `simulated` on screen and in the log. They exist
+  so the whole flow can be shown before the integrations exist. Writing the
+  live adapters needs the SHA HMIS and KRA eTIMS specifications; switching an
+  endpoint to live is refused until one is registered. The same is true of the
+  SMS gateway (needs a licensed Kenyan aggregator) and KHIS (needs facility
+  credentials for the national instance).
 - **The ICD-11 catalogue is 10 verified codes**, and the **PPB registrations in
   the formulary are placeholders**. Both are loaders; both need the real
-  registers.
-- **Tariffs and benefit rules are illustrative.** The SHA schedule for the
-  contracting cycle must be loaded before any of the pricing means anything.
+  registers. `coverage()` reports `starterOnly` until then and the dashboard
+  says so.
+- **Tariffs, benefit rules and laboratory reference ranges are illustrative.**
+  The SHA schedule for the contracting cycle must be loaded before the pricing
+  means anything, and a facility running its own analyser must load the ranges
+  that analyser was validated against — a flag from somebody else's instrument
+  is a flag nobody trusts.
 - **The scrubber's rules are inferred from documented rejection causes, not
-  from 50 real rejected claims.** The roadmap says to build them from a real
-  corpus, and that is still the right next step — `recordOutcome` captures
-  every rejection reason and `claimsSummary` ranks them by cost, so the rule
-  set improves from real data rather than guesswork.
-- **Not yet built:** dispensing and stock (M40/M41), laboratory (M30),
-  radiology, inpatient wards, theatre, maternity, DHIS2 submission, the patient
-  portal. Phases 2–5 of the roadmap.
-- **No CI.** Tests, typecheck and build all pass locally and are run on every
-  change by hand; nothing enforces that automatically.
+  from 50 real rejected claims.** `recordOutcome` captures every rejection
+  reason and `claimsSummary` ranks them by cost, so the rule set improves from
+  real data — but that corpus does not exist yet.
+- **The notifiable-disease list is four conditions.** The full Public Health
+  Act schedule must be loaded before go-live.
+- **Sync has no network transport.** `src/lib/sync.ts` has the operation log,
+  the Lamport ordering and the conflict policy, and they are tested. What is
+  missing is the code that moves ops between two machines.
+- **Not yet built:** radiology, theatre, maternity, the patient portal,
+  procurement, telemedicine. Phases 3–5 of the roadmap.
+- **No CI.** Tests, typecheck and build all pass and are run on every change by
+  hand; nothing enforces that automatically.
+- **NEWS2 omits two components.** The consciousness and supplemental-oxygen
+  scores are not recorded yet, so the score under-reads rather than over-reads
+  and the escalation threshold is set accordingly.
