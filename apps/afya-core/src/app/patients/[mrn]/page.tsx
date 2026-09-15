@@ -7,6 +7,11 @@ import { check } from "@/lib/access.ts";
 import { startEncounterAction } from "@/app/encounters/actions.ts";
 import { checkInAction } from "@/app/queue/actions.ts";
 import { missingConsents } from "@/lib/frontdesk.ts";
+import { patientResults, formatValue } from "@/lib/laboratory.ts";
+import { dispensingHistory } from "@/lib/pharmacy.ts";
+import { appointmentsFor } from "@/lib/scheduling.ts";
+import { currentAdmission } from "@/lib/inpatient.ts";
+import { today } from "@/lib/db.ts";
 
 /**
  * A patient record.
@@ -38,6 +43,10 @@ export default async function PatientPage(props: { params: Promise<{ mrn: string
   const openVisit = openEncounterFor(patient.mrn);
   const canConsult = check(user.userId, "encounter.conduct");
   const canQueue = check(user.userId, "queue.manage");
+  const results = patientResults(patient.mrn, 12);
+  const dispensed = dispensingHistory(patient.mrn).slice(0, 8);
+  const appointments = appointmentsFor(patient.mrn).filter((a) => a.slot_date >= today()).slice(0, 5);
+  const inBed = currentAdmission(patient.mrn);
   const outstandingConsents = missingConsents(patient.mrn);
   const access = accessHistory(patient.mrn, 8);
   const age = patient.date_of_birth
@@ -149,6 +158,96 @@ export default async function PatientPage(props: { params: Promise<{ mrn: string
         <p className="mt-3 bg-clock-soft border border-clock/25 text-clock rounded px-4 py-2.5 text-sm">
           No national ID or SHA number on file. A claim for this patient cannot be verified until one is added.
         </p>
+      ) : null}
+
+      {inBed ? (
+        <p className="mt-3 bg-brand-soft border border-brand/20 text-brand-dark rounded px-4 py-2.5 text-sm">
+          Currently admitted in bed{" "}
+          <Link href={`/ward?bed=${inBed.bed_code}`} className="font-semibold underline underline-offset-2">
+            {inBed.bed_code}
+          </Link>{" "}
+          since {inBed.admitted_at.slice(0, 10)} — {inBed.reason}
+        </p>
+      ) : null}
+
+      {/* What the patient actually took, which the prescription list cannot say:
+          a prescription is an intention and a dispense is a fact. */}
+      {dispensed.length > 0 ? (
+        <section className="mt-7">
+          <h2 className="text-sm font-semibold tracking-[0.08em] uppercase text-muted">Medicine dispensed</h2>
+          <ul className="mt-2 flex flex-col gap-px bg-line border border-line rounded overflow-hidden">
+            {dispensed.map((d) => (
+              <li key={d.id} className="bg-white px-4 py-2.5 flex flex-wrap gap-x-3 gap-y-1 items-baseline text-sm">
+                <span className="tnum text-muted">{d.dispensed_at.slice(0, 10)}</span>
+                <span className="font-medium">{d.product_name}</span>
+                <span className="text-muted tnum">× {d.quantity}</span>
+                {d.substitution_reason ? (
+                  <span className="text-xs text-clock">substituted — {d.substitution_reason}</span>
+                ) : null}
+                <span className="ml-auto text-xs text-muted">{d.dispenser_name}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {results.length > 0 ? (
+        <section className="mt-7">
+          <h2 className="text-sm font-semibold tracking-[0.08em] uppercase text-muted">
+            Laboratory results
+          </h2>
+          <p className="text-xs text-muted mt-1">
+            Released results only. A reading that has not been released has not reached anyone.
+          </p>
+          <table className="w-full text-sm bg-white border border-line rounded mt-2">
+            <tbody>
+              {results.map((r) => (
+                <tr key={r.id} className="border-t border-line first:border-t-0">
+                  <td className="px-3 py-1.5 tnum text-muted w-24">{r.created_at.slice(0, 10)}</td>
+                  <td className="px-3 py-1.5 text-muted">{r.service_name}</td>
+                  <td className="px-3 py-1.5 font-medium">{r.analyte}</td>
+                  <td
+                    className={`px-3 py-1.5 tnum ${
+                      r.flag === "panic_low" || r.flag === "panic_high"
+                        ? "text-block font-bold"
+                        : r.flag === "normal"
+                          ? ""
+                          : "text-clock"
+                    }`}
+                  >
+                    {r.value_milli === null ? r.value_text : formatValue(r.value_milli, r.unit)}
+                    {r.flag !== "normal" ? ` (${r.flag.replace("_", " ")})` : ""}
+                  </td>
+                  <td className="px-3 py-1.5 text-xs text-muted text-right tnum">
+                    {r.low_milli !== null && r.high_milli !== null
+                      ? `ref ${formatValue(r.low_milli)}–${formatValue(r.high_milli)}`
+                      : ""}
+                  </td>
+                  <td className="px-3 py-1.5 text-xs text-muted text-right">
+                    {r.status === "corrected" ? "corrected" : r.releaser_name}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      ) : null}
+
+      {appointments.length > 0 ? (
+        <section className="mt-7">
+          <h2 className="text-sm font-semibold tracking-[0.08em] uppercase text-muted">Expected</h2>
+          <ul className="mt-2 flex flex-col gap-px bg-line border border-line rounded overflow-hidden">
+            {appointments.map((a) => (
+              <li key={a.id} className="bg-white px-4 py-2.5 flex flex-wrap gap-x-3 items-baseline text-sm">
+                <span className="tnum font-medium">
+                  {a.slot_date} {a.start_time}
+                </span>
+                <span className="text-muted">{a.reason || "Review"}</span>
+                <span className="ml-auto text-xs text-muted">{a.status.replace(/_/g, " ")}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
       ) : null}
 
       {merges.length > 0 ? (

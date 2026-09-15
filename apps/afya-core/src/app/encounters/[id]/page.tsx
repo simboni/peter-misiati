@@ -6,9 +6,11 @@ import { openPatient } from "@/lib/patients.ts";
 import { topCodes, coverage, searchForCoding } from "@/lib/terminology.ts";
 import ConsultForm from "./form";
 import PrescribeForm from "./prescribe";
-import { addDiagnosisAction, removeDiagnosisAction, cancelPrescriptionAction, recordAllergyAction } from "../actions.ts";
+import { addDiagnosisAction, removeDiagnosisAction, cancelPrescriptionAction, recordAllergyAction, placeOrderAction, acknowledgeOrderAction } from "../actions.ts";
 import { prescriptionsFor, allergiesFor, listProducts } from "@/lib/prescribing.ts";
-import { chargesFor, invoiceForEncounter, leakageReport, formatKes } from "@/lib/billing.ts";
+import { chargesFor, invoiceForEncounter, leakageReport, formatKes, listServices } from "@/lib/billing.ts";
+import { ordersFor } from "@/lib/orders.ts";
+import { resultsFor, formatValue } from "@/lib/laboratory.ts";
 import { claimForEncounter, scrub } from "@/lib/claims.ts";
 import { listPayers, coveragesFor } from "@/lib/payers.ts";
 import { billEncounterAction } from "../actions.ts";
@@ -45,6 +47,10 @@ export default async function ConsultPage(props: {
   const searchHits = dxQuery ? searchForCoding({ query: dxQuery, userId: user.userId }) : [];
   const cat = coverage();
   const closed = encounter.status !== "open";
+  const orders = ordersFor(encounter.id);
+  const investigations = listServices().filter(
+    (svc) => svc.active && (svc.code.startsWith("LAB-") || svc.code.startsWith("IMG-")),
+  );
   const prescriptions = prescriptionsFor(encounterId);
   const allergies = allergiesFor(patient.mrn);
   // A clinic formulary is a short list, so it is offered whole. Once the real
@@ -279,6 +285,152 @@ export default async function ConsultPage(props: {
         )}
 
         {!closed ? <PrescribeForm encounterId={encounterId} products={products} /> : null}
+      </section>
+
+      {/* ---- investigations ------------------------------------------- */}
+      <section className="mt-6">
+        <h2 className="text-sm font-semibold tracking-[0.08em] uppercase text-muted">Investigations</h2>
+
+        {orders.length > 0 ? (
+          <ul className="mt-2 flex flex-col gap-1.5">
+            {orders.map((order) => {
+              const results = resultsFor(order.id);
+              const released = results.filter((r) => r.released_at);
+              return (
+                <li key={order.id} className="bg-white border border-line rounded px-3 py-2">
+                  <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                    {order.priority !== "routine" ? (
+                      <span
+                        className={`text-[11px] font-bold uppercase tracking-wide rounded px-1.5 py-0.5 ${
+                          order.priority === "stat" ? "bg-block text-white" : "bg-clock-soft text-clock"
+                        }`}
+                      >
+                        {order.priority}
+                      </span>
+                    ) : null}
+                    <span className="text-sm font-medium">{order.service_name}</span>
+                    <span
+                      className={`text-xs ${
+                        order.status === "acknowledged"
+                          ? "text-good"
+                          : order.status === "resulted"
+                            ? "text-clock font-semibold"
+                            : "text-muted"
+                      }`}
+                    >
+                      {order.status.replace(/_/g, " ")}
+                    </span>
+                    {order.clinical_question ? (
+                      <span className="text-xs text-muted">· {order.clinical_question}</span>
+                    ) : null}
+                  </div>
+
+                  {released.length > 0 ? (
+                    <ul className="mt-1.5 flex flex-col gap-0.5">
+                      {released.map((r) => (
+                        <li key={r.id} className="text-sm tnum">
+                          <span className="font-medium">{r.analyte}</span>{" "}
+                          <span
+                            className={
+                              r.flag === "panic_low" || r.flag === "panic_high"
+                                ? "text-block font-bold"
+                                : r.flag === "normal"
+                                  ? ""
+                                  : "text-clock"
+                            }
+                          >
+                            {r.value_milli === null ? r.value_text : formatValue(r.value_milli, r.unit)}
+                            {r.flag !== "normal" ? ` (${r.flag.replace("_", " ")})` : ""}
+                          </span>
+                          {r.low_milli !== null && r.high_milli !== null ? (
+                            <span className="text-xs text-muted">
+                              {" "}
+                              ref {formatValue(r.low_milli)}–{formatValue(r.high_milli)}
+                            </span>
+                          ) : null}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+
+                  {order.status === "resulted" ? (
+                    <form action={acknowledgeOrderAction} className="mt-2 flex flex-wrap items-end gap-2">
+                      <input type="hidden" name="orderId" value={order.id} />
+                      <input type="hidden" name="encounterId" value={encounterId} />
+                      <input
+                        name="action"
+                        placeholder="What are you doing about it?"
+                        className="flex-1 min-w-[12rem] border border-line rounded px-2 py-1.5 text-sm bg-white"
+                      />
+                      <button type="submit" className="bg-brand text-white font-semibold rounded px-3 py-1.5 text-sm">
+                        Acknowledge
+                      </button>
+                    </form>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <p className="mt-2 text-sm text-muted">Nothing ordered yet.</p>
+        )}
+
+        {!closed ? (
+          <form action={placeOrderAction} className="mt-3 flex flex-wrap items-end gap-2">
+            <input type="hidden" name="encounterId" value={encounterId} />
+            <input type="hidden" name="kind" value="lab" />
+            <label className="text-xs text-muted">
+              Investigation
+              <select
+                name="serviceCode"
+                className="block w-56 border border-line rounded px-2 py-1.5 text-sm bg-white"
+              >
+                {investigations.map((svc) => (
+                  <option key={svc.code} value={svc.code}>
+                    {svc.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-xs text-muted">
+              Priority
+              <select name="priority" className="block border border-line rounded px-2 py-1.5 text-sm bg-white">
+                <option value="routine">Routine</option>
+                <option value="urgent">Urgent</option>
+                <option value="stat">Stat</option>
+              </select>
+            </label>
+            <label className="text-xs text-muted flex-1 min-w-[12rem]">
+              What are you asking
+              <input
+                name="clinicalQuestion"
+                placeholder="Rule out sepsis"
+                className="block w-full border border-line rounded px-2 py-1.5 text-sm bg-white"
+              />
+            </label>
+            <label className="text-xs text-muted">
+              Bill to
+              <select
+                name="payerCode"
+                defaultValue={patientCoverage[0]?.payer_code ?? "CASH"}
+                className="block border border-line rounded px-2 py-1.5 text-sm bg-white"
+              >
+                {payers.map((p) => (
+                  <option key={p.code} value={p.code}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button type="submit" className="border border-brand text-brand font-semibold rounded px-4 py-2 text-sm">
+              Order
+            </button>
+          </form>
+        ) : null}
+        <p className="text-xs text-muted mt-2 leading-relaxed">
+          The charge is raised as the order is placed. An investigation done and not billed is revenue
+          the facility never sees; one billed and not ordered is a claim that gets rejected.
+        </p>
       </section>
 
       {/* The note. One form, saved once. */}

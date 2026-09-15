@@ -15,6 +15,9 @@ import { requireUser } from "@/lib/auth.ts";
 import {
   openEncounter, writeNote, addDiagnosis, removeDiagnosis, closeEncounter, readiness,
 } from "@/lib/encounters.ts";
+import { placeOrder, acknowledgeResult } from "@/lib/orders.ts";
+import { act } from "@/app/_components/act.ts";
+import { deviceFor } from "@/app/_components/device.ts";
 import { activeDevice, listDevices } from "@/lib/facility.ts";
 import { getEncounter } from "@/lib/encounters.ts";
 import { prescribe, cancelPrescription, checkSafety, recordAllergy } from "@/lib/prescribing.ts";
@@ -260,4 +263,43 @@ export async function verifyCoverageAction(formData: FormData): Promise<void> {
     byUserName: user.name,
   });
   revalidatePath(`/encounters/${String(formData.get("encounterId") ?? "")}`);
+}
+
+/**
+ * Order an investigation from the consultation.
+ *
+ * The charge is raised in the same breath, which is the point: an
+ * investigation done and not billed is revenue the facility never sees, and one
+ * billed but not ordered is a claim that gets rejected.
+ */
+export async function placeOrderAction(formData: FormData): Promise<void> {
+  const encounterId = String(formData.get("encounterId") ?? "");
+  await act(`/encounters/${encodeURIComponent(encounterId)}`, async () => {
+    const user = await requireUser();
+    placeOrder({
+      encounterId,
+      kind: String(formData.get("kind") ?? "lab") as "lab" | "imaging" | "procedure",
+      serviceCode: String(formData.get("serviceCode") ?? ""),
+      priority: String(formData.get("priority") ?? "routine") as "routine" | "urgent" | "stat",
+      clinicalQuestion: String(formData.get("clinicalQuestion") ?? "").trim() || undefined,
+      payerCode: String(formData.get("payerCode") ?? "CASH"),
+      ordererId: user.userId,
+      ordererName: user.name,
+      deviceCode: deviceFor(user.deviceCode, user.facilityId),
+    });
+  });
+}
+
+/** A clinician says they have seen a result. The state that closes the loop. */
+export async function acknowledgeOrderAction(formData: FormData): Promise<void> {
+  const encounterId = String(formData.get("encounterId") ?? "");
+  await act(`/encounters/${encodeURIComponent(encounterId)}`, async () => {
+    const user = await requireUser();
+    acknowledgeResult({
+      orderId: String(formData.get("orderId") ?? ""),
+      byUserId: user.userId,
+      byUserName: user.name,
+      action: String(formData.get("action") ?? "").trim() || undefined,
+    });
+  });
 }
