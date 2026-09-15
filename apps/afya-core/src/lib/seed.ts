@@ -25,6 +25,7 @@ import { definePayer, defineBenefit } from "./payers.ts";
 import { defineService, setTariff } from "./billing.ts";
 import { seedEndpoints } from "./integration.ts";
 import { defineStore, setReorderLevel } from "./inventory.ts";
+import { defineRange } from "./laboratory.ts";
 
 /** The councils that license clinical practice in Kenya. */
 export const CADRES: { code: string; name: string; regulator: string; licensed: boolean }[] = [
@@ -338,6 +339,31 @@ export function seedStores(facilityId = 1): void {
   }
 }
 
+/**
+ * Reference ranges for the starter laboratory panel.
+ *
+ * Adult values from the standard clinical chemistry and haematology literature,
+ * with the panic thresholds a Kenyan Level 2/3 laboratory would telephone on.
+ * Like every other reference set here they carry their source, and a facility
+ * running its own analyser must load the ranges that analyser was validated
+ * against — a flag from somebody else's instrument is a flag nobody trusts.
+ */
+export function seedReferenceRanges(): void {
+  const SOURCE = "starter adult reference ranges — load your analyser's validated ranges before go-live";
+
+  // Haemoglobin differs by sex, which is exactly why ranges are data.
+  defineRange({ analyte: "HB", unit: "g/dL", sex: "male", minAgeYears: 15, low: 13, high: 17, panicLow: 7, panicHigh: 20, source: SOURCE });
+  defineRange({ analyte: "HB", unit: "g/dL", sex: "female", minAgeYears: 15, low: 12, high: 15, panicLow: 7, panicHigh: 20, source: SOURCE });
+  defineRange({ analyte: "HB", unit: "g/dL", minAgeYears: 0, maxAgeYears: 14, low: 11, high: 14, panicLow: 6, panicHigh: 20, source: SOURCE });
+
+  defineRange({ analyte: "WBC", unit: "x10^9/L", low: 4, high: 11, panicLow: 1, panicHigh: 30, source: SOURCE });
+  defineRange({ analyte: "PLT", unit: "x10^9/L", low: 150, high: 450, panicLow: 50, panicHigh: 1000, source: SOURCE });
+  defineRange({ analyte: "K", unit: "mmol/L", low: 3.5, high: 5.1, panicLow: 2.5, panicHigh: 6.5, source: SOURCE });
+  defineRange({ analyte: "NA", unit: "mmol/L", low: 135, high: 145, panicLow: 120, panicHigh: 160, source: SOURCE });
+  defineRange({ analyte: "GLUCOSE", unit: "mmol/L", low: 3.9, high: 7.8, panicLow: 2.5, panicHigh: 25, source: SOURCE });
+  defineRange({ analyte: "CREATININE", unit: "umol/L", low: 60, high: 110, panicHigh: 500, source: SOURCE });
+}
+
 /** Install cadres, permissions and roles. Idempotent. */
 export function seedReferenceData(): void {
   tx(() => {
@@ -388,6 +414,7 @@ export function seedReferenceData(): void {
   });
 
   seedRevenueCycle();
+  seedReferenceRanges();
 
   // Every way out of the building, installed in demo mode. Nothing calls a real
   // payer or the tax authority until an operator switches an endpoint to live,
@@ -413,6 +440,7 @@ export function seedDemo(): {
   clinicianId: number;
   receptionistId: number;
   pharmacistId: number;
+  labTechId: number;
 } {
   seedReferenceData();
 
@@ -423,12 +451,14 @@ export function seedDemo(): {
     const reception = get<{ id: number }>(`SELECT id FROM users WHERE username = 'j.otieno'`)!;
     seedStores(existing.id);
     const pharmacist = get<{ id: number }>(`SELECT id FROM users WHERE username = 'g.kimani'`)!;
+    const labTech = get<{ id: number }>(`SELECT id FROM users WHERE username = 's.mutiso'`)!;
     return {
       facilityId: existing.id,
       adminId: admin.id,
       clinicianId: clinician.id,
       receptionistId: reception.id,
       pharmacistId: pharmacist.id,
+      labTechId: labTech.id,
     };
   }
 
@@ -535,6 +565,37 @@ export function seedDemo(): {
     byUserName: "seed",
   });
 
+  const labTechId = createUser({
+    facilityId,
+    name: "Samuel Mutiso",
+    username: "s.mutiso",
+    password: "ChangeMe123",
+    cadreCode: "lab_technologist",
+    roles: ["lab_technologist"],
+    mustChangePassword: true,
+    byUserId: adminId,
+    byUserName: "seed",
+  });
+
+  // Releasing a result is licence-gated: a reading becomes a result when
+  // somebody the KMLTTB registers puts their name to it.
+  recordLicence({
+    userId: labTechId,
+    regulator: "KMLTTB",
+    licenceNumber: "KMLTTB-DEMO-8802",
+    expiresOn: nextYear,
+    byUserId: adminId,
+    byUserName: "seed",
+  });
+
+  registerDevice({
+    facilityId,
+    code: "LAB1",
+    label: "Laboratory bench",
+    byUserId: adminId,
+    byUserName: "seed",
+  });
+
   // A second factor, enrolled, so the actions that need one can be shown:
   // merging two patient records, refunding money, dispensing a controlled drug.
   //
@@ -553,8 +614,8 @@ export function seedDemo(): {
     facilityId,
     actorName: "seed",
     purpose: "administration",
-    detail: { users: 4 },
+    detail: { users: 5 },
   });
 
-  return { facilityId, adminId, clinicianId, receptionistId, pharmacistId };
+  return { facilityId, adminId, clinicianId, receptionistId, pharmacistId, labTechId };
 }

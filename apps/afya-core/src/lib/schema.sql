@@ -1103,3 +1103,111 @@ CREATE TABLE IF NOT EXISTS dispense_batches (
   quantity    INTEGER NOT NULL,
   PRIMARY KEY (dispense_id, batch_id)
 );
+
+-- ==================================================== M22 ORDERS (CPOE)
+
+-- A request from a clinician for something to be done and reported back. The
+-- loop this table exists to close is: ordered → collected → resulted →
+-- ACKNOWLEDGED. A result nobody read is the failure mode that kills people, and
+-- it is invisible unless acknowledgement is a recorded state.
+CREATE TABLE IF NOT EXISTS orders (
+  id               TEXT PRIMARY KEY,
+  encounter_id     TEXT NOT NULL REFERENCES encounters(id),
+  patient_mrn      TEXT NOT NULL REFERENCES patients(mrn),
+  kind             TEXT NOT NULL CHECK (kind IN ('lab','imaging','procedure')),
+  service_code     TEXT NOT NULL REFERENCES services(code),
+  service_name     TEXT NOT NULL,
+  priority         TEXT NOT NULL DEFAULT 'routine' CHECK (priority IN ('routine','urgent','stat')),
+  -- What the clinician is actually asking. A lab asked "FBC" cannot tell it
+  -- matters; asked "rule out sepsis" it can.
+  clinical_question TEXT NOT NULL DEFAULT '',
+  ordered_by       INTEGER REFERENCES users(id),
+  orderer_name     TEXT NOT NULL,
+  -- Pinned like the encounter's: a claim cites the ordering licence.
+  orderer_licence  TEXT,
+  status           TEXT NOT NULL CHECK (status IN
+                     ('ordered','collected','in_progress','resulted','acknowledged','cancelled')),
+  cancelled_reason TEXT,
+  device_code      TEXT,
+  created_at       TEXT NOT NULL,
+  updated_at       TEXT NOT NULL,
+  resulted_at      TEXT,
+  acknowledged_at  TEXT,
+  acknowledged_by  INTEGER REFERENCES users(id)
+);
+CREATE INDEX IF NOT EXISTS idx_order_encounter ON orders(encounter_id);
+CREATE INDEX IF NOT EXISTS idx_order_status ON orders(status, created_at);
+
+-- ==================================================== M30 LABORATORY (LIS)
+
+-- What was collected, when, and by whom. A specimen can be rejected before any
+-- analysis happens — haemolysed, wrong tube, unlabelled — and saying so is the
+-- point: a re-bleed today beats a wrong result tomorrow.
+CREATE TABLE IF NOT EXISTS specimens (
+  id            TEXT PRIMARY KEY,
+  order_id      TEXT NOT NULL REFERENCES orders(id),
+  patient_mrn   TEXT NOT NULL REFERENCES patients(mrn),
+  kind          TEXT NOT NULL,
+  collected_by  INTEGER REFERENCES users(id),
+  collector_name TEXT NOT NULL,
+  collected_at  TEXT NOT NULL,
+  received_at   TEXT,
+  rejected_at   TEXT,
+  rejection_reason TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_specimen_order ON specimens(order_id);
+
+-- What a result should look like for this kind of person. Held as data rather
+-- than in code because ranges differ by sex, by age, and by the analyser the
+-- facility actually runs.
+CREATE TABLE IF NOT EXISTS reference_ranges (
+  id          INTEGER PRIMARY KEY,
+  analyte     TEXT NOT NULL,
+  unit        TEXT NOT NULL,
+  -- '' means any. Ranges are matched most-specific-first.
+  sex         TEXT NOT NULL DEFAULT '',
+  min_age_years INTEGER NOT NULL DEFAULT 0,
+  max_age_years INTEGER NOT NULL DEFAULT 200,
+  -- Stored in THOUSANDTHS of the unit, as integers: 11.2 g/dL is 11200. Binary
+  -- floating point has no business anywhere near a clinical decision.
+  low_milli   INTEGER,
+  high_milli  INTEGER,
+  -- Outside these, somebody must be telephoned. Not a formatting decision.
+  panic_low_milli  INTEGER,
+  panic_high_milli INTEGER,
+  source      TEXT NOT NULL DEFAULT '',
+  UNIQUE (analyte, sex, min_age_years, max_age_years)
+);
+
+-- One measured value. Append-only in the same way notes are: a corrected result
+-- supersedes its predecessor and both stay readable, because somebody acted on
+-- the first one.
+CREATE TABLE IF NOT EXISTS lab_results (
+  id           TEXT PRIMARY KEY,
+  order_id     TEXT NOT NULL REFERENCES orders(id),
+  patient_mrn  TEXT NOT NULL REFERENCES patients(mrn),
+  analyte      TEXT NOT NULL,
+  -- Numeric results in thousandths; qualitative ones ('positive') in value_text.
+  value_milli  INTEGER,
+  value_text   TEXT NOT NULL DEFAULT '',
+  unit         TEXT NOT NULL DEFAULT '',
+  low_milli    INTEGER,
+  high_milli   INTEGER,
+  flag         TEXT NOT NULL DEFAULT 'normal'
+                 CHECK (flag IN ('normal','low','high','panic_low','panic_high','abnormal')),
+  status       TEXT NOT NULL CHECK (status IN ('preliminary','final','corrected','superseded')),
+  entered_by   INTEGER REFERENCES users(id),
+  entered_by_name TEXT NOT NULL,
+  -- Only a licensed technologist releases a result. Until then it is not a
+  -- result, it is a reading.
+  released_by  INTEGER REFERENCES users(id),
+  releaser_name TEXT,
+  releaser_licence TEXT,
+  released_at  TEXT,
+  supersedes   TEXT REFERENCES lab_results(id),
+  superseded_at TEXT,
+  correction_reason TEXT,
+  created_at   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_result_order ON lab_results(order_id, superseded_at);
+CREATE INDEX IF NOT EXISTS idx_result_patient ON lab_results(patient_mrn, created_at);
