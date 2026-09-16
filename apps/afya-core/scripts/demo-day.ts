@@ -94,6 +94,9 @@ import {
   sendSummary as sendPortalSummary, grantProxy, viewFor as portalViewFor, portalSummary,
 } from "../src/lib/portal.ts";
 import { startSession, endSession, teleSummary } from "../src/lib/telemedicine.ts";
+import {
+  apply as setConfig, markReviewed as reviewConfig, configSummary,
+} from "../src/lib/configuration.ts";
 import { closeDb, run, get, all as dbAll, verifyAuditChain, today } from "../src/lib/db.ts";
 
 const { facilityId, adminId, clinicianId, receptionistId, pharmacistId, labTechId } = seedDemo();
@@ -2038,6 +2041,48 @@ const postedFromOps = postFromOperations({ facilityId, ...GL });
 
 
 
+
+// ============================================================== configuration
+//
+// Two of the thresholds this system ships with, read and kept by the people
+// who should read them; one changed, with the document it came from. The
+// interesting state is the first: most of the clinical review register is
+// asking for a name against a number, not for a different number.
+
+const CONFIG = { byUserId: adminId, byUserName: "Facility Administrator" };
+
+reviewConfig({
+  key: "cold_chain.min_tenths",
+  reviewerName: "Grace Kimani",
+  reviewerRole: "Pharmacist",
+  source: "WHO cold chain guidance for EPI vaccines; KEPI works to the same range",
+  note: "Two degrees is right for everything we hold",
+  ...CONFIG,
+});
+reviewConfig({
+  key: "cold_chain.max_tenths",
+  reviewerName: "Grace Kimani",
+  reviewerRole: "Pharmacist",
+  source: "WHO cold chain guidance for EPI vaccines; KEPI works to the same range",
+  ...CONFIG,
+});
+reviewConfig({
+  key: "indicators.small_cell",
+  reviewerName: "Beatrice Kilonzo",
+  reviewerRole: "Facility manager and data protection contact",
+  note: "Four or fewer is withheld on anything that leaves the building",
+  ...CONFIG,
+});
+
+// Changed, with a source rather than a reason.
+setConfig({
+  key: "mortuary.daily_fee_cents",
+  value: "40000",
+  reason: "Board set the storage charge at 400 shillings a day for this year",
+  source: "Facility board minute, January 2026",
+  ...CONFIG,
+});
+
 // ================================================================ telemedicine
 //
 // Two remote consultations. One is a routine blood-pressure review that goes
@@ -2551,6 +2596,7 @@ console.log(`  programmes        ${count(`SELECT COUNT(*) AS n FROM enrolments W
 console.log(`  HR                ${hrSummary(facilityId).staff} staff · ${hrSummary(facilityId).leaveWaiting} leave waiting · ${hrSummary(facilityId).uncoveredLeave} approved uncovered · ${hrSummary(facilityId).lapsedLicences} lapsed registration`);
 console.log(`  payroll           ${payrollSummary(facilityId).employees} staff · gross ${Math.round(payrollSummary(facilityId).monthlyGrossCents / 100)} KES · statutory ${Math.round(statutoryReturn(payrollRun.runId).totalRemittableCents / 100)} KES to remit${payrollRun.cappedEmployees ? ` · ${payrollRun.cappedEmployees} capped` : ""}`);
 console.log(`  estate            ${assetSummary(facilityId).assets} assets · ${assetSummary(facilityId).blockingOverdue} blocked by an overdue check · ${assetSummary(facilityId).criticalDown} critical down · fridge excursion quarantined ${excursion.quarantined} batches · depreciation ${Math.round(depreciation.amountCents / 100)} KES`);
+console.log(`  configuration     ${configSummary().reviewed} of ${configSummary().settings} thresholds signed off · ${configSummary().clinicalUnreviewed} clinical ones still waiting · ${configSummary().locked} locked in the code on purpose`);
 console.log(`  telemedicine      ${teleSummary(facilityId).sessions} remote consultations · ${teleSummary(facilityId).redFlagged} started on something that should be seen · ${teleSummary(facilityId).convertedToVisit} sent in`);
 console.log(`  portal            ${portalSummary(facilityId).enrolled} enrolled · ${portalSummary(facilityId).revoked} revoked on request · ${portalSummary(facilityId).proxies} proxy · ${portalSummary(facilityId).withheldThisMonth} findings held back for a person · gateway ${portalSummary(facilityId).gatewayLive ? "live" : "demo, so nothing was sent"}`);
 console.log(`  history           ${historyEncounters} backdated attendances over six months, ${historyCoded} of them coded — so the dashboard has a trend`);

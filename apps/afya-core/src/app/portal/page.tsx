@@ -4,7 +4,7 @@ import { currentUser } from "@/lib/auth.ts";
 import { can } from "@/lib/access.ts";
 import {
   portalSummary, accountFor, proxiesFor, viewFor, viewHistory, asMessage,
-  CODE_MINUTES, MAX_ATTEMPTS, MAJORITY_YEARS, WITHHELD_ANALYTES,
+  CODE_MINUTES, MAX_ATTEMPTS, majorityYears, WITHHELD_ANALYTES,
 } from "@/lib/portal.ts";
 import { resolvePatient, searchPatients } from "@/lib/patients.ts";
 import { formatKes } from "@/lib/billing.ts";
@@ -47,6 +47,7 @@ export default async function PortalPage({
   // own record, so it is not recorded as one.
   const preview = patient ? viewFor({ patientMrn: patient.mrn, record: false }) : undefined;
   const history = patient ? viewHistory(patient.mrn, 10) : [];
+  const majority = majorityYears();
 
   return (
     <Shell
@@ -279,7 +280,7 @@ export default async function PortalPage({
 
           <Section
             title="Somebody else reading this record"
-            note={`Time-limited and revocable. Over ${MAJORITY_YEARS} the patient has to have agreed, and a teenager's sensitive results are never shown to a proxy at all.`}
+            note={`Time-limited and revocable. Over ${majority} the patient has to have agreed, and a teenager's sensitive results are never shown to a proxy at all.`}
           >
             {proxies.length === 0 ? (
               <Empty>Nobody else may read this record.</Empty>
@@ -322,7 +323,7 @@ export default async function PortalPage({
               <button className="bg-brand text-white text-sm rounded px-3 py-1.5">Grant</button>
               <label className="flex items-center gap-2 text-sm sm:col-span-5">
                 <input type="checkbox" name="patientConsented" />
-                The patient agreed to this in person (required for anybody {MAJORITY_YEARS} or over)
+                The patient agreed to this in person (required for anybody {majority} or over)
               </label>
             </form>
           </Section>
@@ -367,7 +368,7 @@ export default async function PortalPage({
             </p>
             <p>
               <strong>A teenager's record is not their parent's.</strong> Proxy access needs the patient's own
-              agreement from {MAJORITY_YEARS}, and from twelve their results are shown only to them. A girl who
+              agreement from {majority}, and from twelve their results are shown only to them. A girl who
               cannot get tested without her mother reading the result does not get tested.
             </p>
             <p>

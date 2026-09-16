@@ -48,6 +48,7 @@ import { resolvePatient } from "./patients.ts";
 import { notify } from "./notifications.ts";
 import { postJournal, ACCOUNT } from "./accounting.ts";
 import { formatKes } from "./billing.ts";
+import { number as configNumber } from "./configuration.ts";
 
 export class MortuaryError extends Error {}
 
@@ -62,11 +63,24 @@ export type BodyStatus = "in_store" | "released" | "transferred_out" | "disposed
  * Kenyan facilities, but the figures are a facility's own and belong in
  * configuration, which this module does not yet have.
  */
-export const FREE_DAYS = 2;
-export const DAILY_FEE_CENTS = 500_00;
+export const FREE_DAYS_DEFAULT = 2;
+export const DAILY_FEE_CENTS_DEFAULT = 500_00;
+
+/** What the facility charges, as it has it set. */
+export function freeDays(): number {
+  return configNumber("mortuary.free_days");
+}
+export function dailyFeeCents(): number {
+  return configNumber("mortuary.daily_fee_cents");
+}
 
 /** When a body nobody has come for stops being a waiting family and becomes a problem. */
-export const UNCLAIMED_DAYS = 21;
+export const UNCLAIMED_DAYS_DEFAULT = 21;
+
+/** When a body nobody has come for becomes a problem, as the facility has it. */
+export function unclaimedDays(): number {
+  return configNumber("mortuary.unclaimed_days");
+}
 
 export interface Body {
   id: string;
@@ -632,8 +646,8 @@ export interface Fee {
  */
 export function storageFee(body: Body, asOf = now()): Fee {
   const days = daysInStore(body, asOf);
-  const chargeableDays = Math.max(0, days - FREE_DAYS);
-  return { days, chargeableDays, feeCents: chargeableDays * DAILY_FEE_CENTS };
+  const chargeableDays = Math.max(0, days - freeDays());
+  return { days, chargeableDays, feeCents: chargeableDays * dailyFeeCents() };
 }
 
 // ----------------------------------------------------------------- release
@@ -838,7 +852,7 @@ export interface Unclaimed {
 }
 
 /** Bodies nobody has come for. Sorted longest first, because that is the order they matter in. */
-export function unclaimed(facilityId: number, afterDays = UNCLAIMED_DAYS, asOf = now()): Unclaimed[] {
+export function unclaimed(facilityId: number, afterDays = unclaimedDays(), asOf = now()): Unclaimed[] {
   return listBodies(facilityId, "in_store")
     .map((body) => ({ body, days: daysInStore(body, asOf), feeCents: storageFee(body, asOf).feeCents }))
     .filter((row) => row.days >= afterDays)
@@ -878,7 +892,7 @@ export function mortuarySummary(facilityId: number, asOf = now()): MortuarySumma
     awaitingPostmortem: inStore.filter((b) => b.postmortem_required && !b.postmortem_at).length,
     releasable: checks.filter((c) => c.ok).length,
     blocked: checks.filter((c) => c.blockers.length > 0).length,
-    unclaimed: unclaimed(facilityId, UNCLAIMED_DAYS, asOf).length,
+    unclaimed: unclaimed(facilityId, unclaimedDays(), asOf).length,
     longestDays: inStore.reduce((max, b) => Math.max(max, daysInStore(b, asOf)), 0),
     accruedFeeCents: inStore.reduce((sum, b) => sum + storageFee(b, asOf).feeCents, 0),
     releasedThisMonth: released.filter((b) => (b.released_at ?? "").slice(0, 7) === month).length,

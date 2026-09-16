@@ -35,15 +35,26 @@
  */
 
 import { all, get, today } from "./db.ts";
+import { number as configNumber } from "./configuration.ts";
 
 export type Direction = "up" | "down" | "flat";
 export type Category = "clinical" | "operations" | "money" | "compliance";
 
 /** Below this, a percentage is withheld and the count is shown instead. */
-export const MIN_DENOMINATOR = 20;
+export const MIN_DENOMINATOR_DEFAULT = 20;
+
+/** The floor in force. A facility reporting to a programme may have its own. */
+export function minDenominator(): number {
+  return configNumber("indicators.min_denominator");
+}
 
 /** A disaggregated cell at or below this is suppressed. */
-export const SMALL_CELL = 4;
+export const SMALL_CELL_DEFAULT = 4;
+
+/** The suppression floor in force. */
+export function smallCell(): number {
+  return configNumber("indicators.small_cell");
+}
 
 export interface IndicatorDefinition {
   key: string;
@@ -264,7 +275,7 @@ function rate(key: string, numerator: number, denominator: number, from: string,
   if (denominator === 0) {
     return { key, numerator, denominator, value: null, withheld: "nothing happened in this period", from, to };
   }
-  if (denominator < MIN_DENOMINATOR) {
+  if (denominator < minDenominator()) {
     // One caesarean in two deliveries is not a 50% caesarean rate. A percentage
     // built on four cases swings forty points next week and somebody makes a
     // decision on the swing.
@@ -643,7 +654,7 @@ export interface Cell {
  */
 export function breakdown(
   rows: { label: string; count: number }[],
-  floor = SMALL_CELL,
+  floor = smallCell(),
 ): { cells: Cell[]; suppressedTotal: number } {
   let suppressedTotal = 0;
   const cells = rows.map((row) => {

@@ -325,7 +325,7 @@ test("a contract ending soon shows up beside the licences", () => {
 });
 
 test("the horizon is ninety days, and it is a judgement", () => {
-  assert.equal(H.EXPIRY_HORIZON_DAYS, 90);
+  assert.equal(H.expiryHorizonDays(), 90);
   const id = hire("Farout");
   H.issueContract({ employeeId: id, kind: "locum", startsOn: "2025-01-01", endsOn: inDays(200), ...HR, deviceCode: DEV });
   assert.ok(!H.expiries(facilityId).some((e) => e.employeeId === id));

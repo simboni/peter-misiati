@@ -46,6 +46,7 @@ import { quarantineBatch, pickable } from "./inventory.ts";
 import { getProduct } from "./prescribing.ts";
 import { postJournal, ACCOUNT } from "./accounting.ts";
 import { formatKes } from "./billing.ts";
+import { number as configNumber } from "./configuration.ts";
 
 export class AssetError extends Error {}
 
@@ -61,10 +62,23 @@ export type WorkOrderStatus = "open" | "in_progress" | "fixed" | "beyond_repair"
  * works to. Some products differ, and a facility storing them needs its own
  * range per asset — which this module does not yet support.
  */
-export const COLD_CHAIN_RANGE = { minTenths: 20, maxTenths: 80 };
+export const COLD_CHAIN_RANGE_DEFAULT = { minTenths: 20, maxTenths: 80 };
+
+/** The range in force, which a facility may change with a source recorded. */
+export function coldChainRange(): { minTenths: number; maxTenths: number } {
+  return {
+    minTenths: configNumber("cold_chain.min_tenths"),
+    maxTenths: configNumber("cold_chain.max_tenths"),
+  };
+}
 
 /** How far ahead a due check is worth seeing. */
-export const DUE_HORIZON_DAYS = 30;
+export const DUE_HORIZON_DAYS_DEFAULT = 30;
+
+/** How far ahead a due check is worth seeing, as the facility has it. */
+export function dueHorizonDays(): number {
+  return configNumber("assets.due_horizon_days");
+}
 
 export interface Asset {
   id: string;
@@ -718,8 +732,9 @@ export function recordTemperature(input: {
     throw new AssetError("that reading is outside anything a fridge could show — check for a transposed digit");
   }
 
+  const range = coldChainRange();
   const inRange =
-    input.readingTenths >= COLD_CHAIN_RANGE.minTenths && input.readingTenths <= COLD_CHAIN_RANGE.maxTenths;
+    input.readingTenths >= range.minTenths && input.readingTenths <= range.maxTenths;
   const takenAt = input.takenAt ?? now();
   let quarantined = 0;
 
@@ -752,7 +767,7 @@ export function recordTemperature(input: {
         severity: "critical",
         kind: "cold_chain_excursion",
         subject: `${asset.name} at ${(input.readingTenths / 10).toFixed(1)} °C — ${action}`,
-        body: `Range is ${COLD_CHAIN_RANGE.minTenths / 10} to ${COLD_CHAIN_RANGE.maxTenths / 10} °C. The stock is quarantined and cannot be picked. Assess each batch against its own stability data before releasing anything.`,
+        body: `Range is ${range.minTenths / 10} to ${range.maxTenths / 10} °C. The stock is quarantined and cannot be picked. Assess each batch against its own stability data before releasing anything.`,
         entity: "asset",
         entityId: asset.id,
         dedupeKey: `cold_chain:${asset.id}:${takenAt.slice(0, 13)}`,
@@ -946,7 +961,7 @@ export function assetSummary(facilityId: number, asOf = today()): AssetSummary {
   const faults = openFaults(facilityId);
   const cold = coldChainBoard(facilityId);
 
-  const horizon = addDays(asOf, DUE_HORIZON_DAYS);
+  const horizon = addDays(asOf, dueHorizonDays());
   const schedules = all<{ asset_id: string; blocks_use: number; next_due_on: string }>(
     `SELECT s.asset_id, s.blocks_use, s.next_due_on
        FROM maintenance_schedules s JOIN assets a ON a.id = s.asset_id
@@ -998,7 +1013,7 @@ export interface DueRow {
 }
 
 /** Everything due or overdue, blocking checks first. */
-export function maintenanceDue(facilityId: number, withinDays = DUE_HORIZON_DAYS, asOf = today()): DueRow[] {
+export function maintenanceDue(facilityId: number, withinDays = dueHorizonDays(), asOf = today()): DueRow[] {
   const horizon = addDays(asOf, withinDays);
   return all<{
     asset_id: string;

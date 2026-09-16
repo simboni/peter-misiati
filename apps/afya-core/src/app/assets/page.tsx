@@ -5,7 +5,7 @@ import { can } from "@/lib/access.ts";
 import {
   assetSummary, maintenanceDue, openFaults, coldChainBoard, listAssets,
   getAsset, schedulesFor, maintenanceFor, workOrdersFor, temperatureLog,
-  usable, bookValue, COLD_CHAIN_RANGE, DUE_HORIZON_DAYS,
+  usable, bookValue, coldChainRange, dueHorizonDays,
 } from "@/lib/assets.ts";
 import { listStores } from "@/lib/inventory.ts";
 import { formatKes } from "@/lib/billing.ts";
@@ -72,6 +72,10 @@ export default async function AssetsPage({
   const openUsable = open ? usable(open.id) : undefined;
 
   const period = today().slice(0, 7);
+  // Both read through the configuration studio, so the screen and the rule can
+  // never disagree about what the range is.
+  const range = coldChainRange();
+  const horizonDays = dueHorizonDays();
 
   return (
     <Shell
@@ -89,7 +93,7 @@ export default async function AssetsPage({
         view === "due"
           ? "Blocking checks first. An overdue blocking check is not a backlog item — the equipment is already refused."
           : view === "cold"
-            ? `Range is ${COLD_CHAIN_RANGE.minTenths / 10} to ${COLD_CHAIN_RANGE.maxTenths / 10} °C. A reading outside it quarantines everything in that fridge's store, now, without waiting for anybody to join the two facts up.`
+            ? `Range is ${range.minTenths / 10} to ${range.maxTenths / 10} °C. A reading outside it quarantines everything in that fridge's store, now, without waiting for anybody to join the two facts up.`
             : undefined
       }
     >
@@ -109,7 +113,7 @@ export default async function AssetsPage({
           label="Blocked by an overdue check"
           value={summary.blockingOverdue}
           tone={summary.blockingOverdue > 0 ? "block" : "good"}
-          note={`${summary.dueSoon} more due within ${DUE_HORIZON_DAYS} days`}
+          note={`${summary.dueSoon} more due within ${horizonDays} days`}
         />
         <Stat
           label="Critical equipment down"
@@ -145,7 +149,7 @@ export default async function AssetsPage({
       {view === "due" ? (
         <Section title="Maintenance due" note="Overdue blocking checks first, then by date.">
           {due.length === 0 ? (
-            <Empty>Nothing is due in the next {DUE_HORIZON_DAYS} days.</Empty>
+            <Empty>Nothing is due in the next {horizonDays} days.</Empty>
           ) : (
             <div className="bg-white border border-line rounded overflow-x-auto">
               <table className="w-full text-sm">

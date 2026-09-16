@@ -42,6 +42,7 @@ import { all, get, run, tx, audit, now, today } from "./db.ts";
 import { mintLocalId } from "./ids.ts";
 import { getEmployee, listEmployees, type Employee } from "./payroll.ts";
 import { notify } from "./notifications.ts";
+import { number as configNumber } from "./configuration.ts";
 
 export class HrError extends Error {}
 
@@ -64,7 +65,12 @@ export type CaseOutcome =
  * ⚠️ Ninety days is enough for a KMPDC or NCK renewal to be possible. It is a
  * judgement, and a facility with slower internal approvals wants longer.
  */
-export const EXPIRY_HORIZON_DAYS = 90;
+export const EXPIRY_HORIZON_DAYS_DEFAULT = 90;
+
+/** How far ahead a lapsing registration is shown, as the facility has it. */
+export function expiryHorizonDays(): number {
+  return configNumber("hr.expiry_horizon_days");
+}
 
 // ------------------------------------------------------------------ contracts
 
@@ -701,7 +707,7 @@ export interface Expiry {
  * person's licensed actions since the day it expired. This list exists so that
  * never comes as a surprise.
  */
-export function expiries(facilityId: number, withinDays = EXPIRY_HORIZON_DAYS, asOf = today()): Expiry[] {
+export function expiries(facilityId: number, withinDays = expiryHorizonDays(), asOf = today()): Expiry[] {
   const horizon = new Date(Date.parse(`${asOf}T00:00:00.000Z`) + withinDays * 86_400_000)
     .toISOString()
     .slice(0, 10);
@@ -949,7 +955,7 @@ export interface HrSummary {
 
 export function hrSummary(facilityId: number, asOf = today()): HrSummary {
   const staff = listEmployees(facilityId);
-  const soon = expiries(facilityId, EXPIRY_HORIZON_DAYS, asOf);
+  const soon = expiries(facilityId, expiryHorizonDays(), asOf);
   // The near window is what is happening now — who is away, what is waiting for
   // a decision. Leave approved with nobody covering matters whenever it falls,
   // so it is counted over the year rather than only the next two months.

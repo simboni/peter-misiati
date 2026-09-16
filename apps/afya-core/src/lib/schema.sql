@@ -3235,3 +3235,58 @@ CREATE TABLE IF NOT EXISTS tele_sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_tele_patient ON tele_sessions(patient_mrn, created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tele_encounter ON tele_sessions(encounter_id);
+
+-- ============================================== M75 Configuration Studio
+--
+-- Half the ⚠️ and 🔴 rows in the clinical review register are not "this is
+-- wrong", they are "nobody has confirmed this". The most valuable thing this
+-- table holds is therefore not a changed value — it is a record that a named
+-- clinician looked at a seeded convention and said yes.
+
+CREATE TABLE IF NOT EXISTS config_values (
+  key           TEXT PRIMARY KEY,
+  -- Always a string on the way in and out. The registry says what it means.
+  value         TEXT NOT NULL,
+  -- Where the facility got the number. Required for anything clinical: a
+  -- threshold changed without a source is a threshold nobody can defend.
+  source        TEXT NOT NULL DEFAULT '',
+  reason        TEXT NOT NULL DEFAULT '',
+  set_at        TEXT NOT NULL,
+  set_by        INTEGER REFERENCES users(id),
+  setter_name   TEXT NOT NULL,
+  created_at    TEXT NOT NULL
+);
+
+-- "A clinician read this and kept it as it is" — a state of its own, and the
+-- one the review register is actually asking for most of the time.
+CREATE TABLE IF NOT EXISTS config_reviews (
+  key           TEXT PRIMARY KEY,
+  -- The value that was reviewed. If it changes afterwards, the review is stale
+  -- and says so rather than quietly vouching for a number nobody read.
+  reviewed_value TEXT NOT NULL,
+  reviewer_name TEXT NOT NULL,
+  reviewer_role TEXT NOT NULL DEFAULT '',
+  source        TEXT NOT NULL DEFAULT '',
+  note          TEXT NOT NULL DEFAULT '',
+  reviewed_at   TEXT NOT NULL,
+  reviewed_by   INTEGER REFERENCES users(id),
+  created_at    TEXT NOT NULL
+);
+
+-- Append-only. A threshold that was 40 last year is what a case from last year
+-- was judged against, and a register that only holds today's number cannot
+-- answer the question anybody will actually ask.
+CREATE TABLE IF NOT EXISTS config_history (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  key           TEXT NOT NULL,
+  kind          TEXT NOT NULL CHECK (kind IN ('changed','reviewed','reset')),
+  old_value     TEXT NOT NULL DEFAULT '',
+  new_value     TEXT NOT NULL DEFAULT '',
+  source        TEXT NOT NULL DEFAULT '',
+  reason        TEXT NOT NULL DEFAULT '',
+  actor_name    TEXT NOT NULL,
+  actor_id      INTEGER REFERENCES users(id),
+  happened_at   TEXT NOT NULL,
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_config_history ON config_history(key, happened_at);

@@ -90,14 +90,14 @@ test("a rate on a tiny denominator is withheld and the count is shown instead", 
   const value = I.measure("encounters_closed", facilityId, "2026-01-01", today());
   assert.equal(value.value, null);
   assert.match(value.withheld!, /too few for a percentage/);
-  assert.ok(value.denominator! < I.MIN_DENOMINATOR);
+  assert.ok(value.denominator! < I.minDenominator());
 });
 
 test("past the floor the percentage is reported", () => {
-  for (let n = 0; n < I.MIN_DENOMINATOR; n++) attendance(true);
+  for (let n = 0; n < I.minDenominator(); n++) attendance(true);
 
   const value = I.measure("encounters_closed", facilityId, "2026-01-01", today());
-  assert.ok(value.denominator! >= I.MIN_DENOMINATOR);
+  assert.ok(value.denominator! >= I.minDenominator());
   assert.equal(value.withheld, null);
   assert.ok(value.value !== null && value.value > 90);
 });

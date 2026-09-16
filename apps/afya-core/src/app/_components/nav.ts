@@ -84,6 +84,7 @@ export type BadgeKey =
   | "analysers"
   | "portal"
   | "tele"
+  | "config"
   | "alerts";
 
 export const NAV: NavSection[] = [
@@ -267,6 +268,7 @@ export const NAV: NavSection[] = [
       { href: "/payroll", label: "Payroll runs", permission: ["user.manage"], badge: "payroll" },
       { href: "/payroll?view=staff", label: "Payroll staff", permission: ["user.manage"], badge: "payrollGaps" },
       { href: "/payroll?view=rates", label: "Statutory rates", permission: ["user.manage"] },
+      { href: "/configuration", label: "Thresholds & sign-off", permission: ["facility.configure"], badge: "config" },
       { href: "/admin?view=tariffs", label: "Services & tariffs", permission: ["facility.configure"] },
       { href: "/admin?view=integrations", label: "Integrations", permission: ["facility.configure"], badge: "deadLetters" },
       { href: "/audit", label: "Audit log", permission: ["audit.read", "facility.configure"] },

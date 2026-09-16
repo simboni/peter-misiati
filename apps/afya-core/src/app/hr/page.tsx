@@ -4,7 +4,7 @@ import { can } from "@/lib/access.ts";
 import {
   hrSummary, leaveRegister, expiries, openCases, leaveTypes,
   currentContract, contractHistory, leaveBalance, leaveFor, coverFor,
-  getLeaveRequest, casesFor, getCase, EXPIRY_HORIZON_DAYS,
+  getLeaveRequest, casesFor, getCase, expiryHorizonDays,
 } from "@/lib/hr.ts";
 import { listEmployees, getEmployee } from "@/lib/payroll.ts";
 import { today } from "@/lib/db.ts";
@@ -58,6 +58,7 @@ export default async function HrPage({
     : undefined;
 
   const openCase_ = params.c ? getCase(params.c) : undefined;
+  const expiryHorizon = expiryHorizonDays();
 
   const href = (v: string) => (v === "leave" ? "/hr" : `/hr?view=${v}`);
 
@@ -76,7 +77,7 @@ export default async function HrPage({
         view === "leave"
           ? "Who is away, and who holds the same registration while they are. Matched on the regulator, not the job title."
           : view === "expiries"
-            ? `Anything lapsing within ${EXPIRY_HORIZON_DAYS} days. A lapsed registration is not a reminder — the system is already refusing that person's licensed work.`
+            ? `Anything lapsing within ${expiryHorizon} days. A lapsed registration is not a reminder — the system is already refusing that person's licensed work.`
             : undefined
       }
     >
@@ -102,7 +103,7 @@ export default async function HrPage({
           label="Lapsed registrations"
           value={summary.lapsedLicences}
           tone={summary.lapsedLicences > 0 ? "block" : "good"}
-          note={`${summary.expiringSoon} more expiring within ${EXPIRY_HORIZON_DAYS} days`}
+          note={`${summary.expiringSoon} more expiring within ${expiryHorizon} days`}
         />
         <Stat
           label="Working with no contract"
@@ -498,7 +499,7 @@ export default async function HrPage({
           note="Sorted by how long is left. A lapsed registration is at the top because the system is already refusing that person's licensed work."
         >
           {expiring.length === 0 ? (
-            <Empty>Nothing lapses in the next {EXPIRY_HORIZON_DAYS} days.</Empty>
+            <Empty>Nothing lapses in the next {expiryHorizon} days.</Empty>
           ) : (
             <table className="w-full text-sm bg-white border border-line rounded">
               <thead>

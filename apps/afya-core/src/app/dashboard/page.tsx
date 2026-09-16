@@ -4,7 +4,7 @@ import { currentUser } from "@/lib/auth.ts";
 import { can } from "@/lib/access.ts";
 import {
   INDICATORS, dashboard, series, months, present, presentChange,
-  attendancesByVillage, MIN_DENOMINATOR, SMALL_CELL,
+  attendancesByVillage, minDenominator, smallCell,
   type Category, type Card as IndicatorCard, type Series,
 } from "@/lib/indicators.ts";
 import { today } from "@/lib/db.ts";
@@ -125,6 +125,8 @@ export default async function DashboardPage({
 
   const monthStart = `${today().slice(0, 7)}-01`;
   const villages = attendancesByVillage(user.facilityId, monthStart, today());
+  const denominatorFloor = minDenominator();
+  const cellFloor = smallCell();
 
   return (
     <Shell
@@ -164,7 +166,7 @@ export default async function DashboardPage({
       {view === "all" ? (
         <Section
           title="Attendances by where people live"
-          note={`This month. Any place with ${SMALL_CELL} or fewer is not shown: one patient in a village is an identifiable patient, whatever the column header says.`}
+          note={`This month. Any place with ${cellFloor} or fewer is not shown: one patient in a village is an identifiable patient, whatever the column header says.`}
         >
           {villages.cells.length === 0 ? (
             <Empty>Nobody has been seen this month yet.</Empty>
@@ -194,7 +196,7 @@ export default async function DashboardPage({
       <Section title="How to read this">
         <div className="bg-white border border-line rounded p-3 text-sm space-y-2">
           <p>
-            <strong>A percentage on fewer than {MIN_DENOMINATOR} cases is not shown.</strong> One caesarean in
+            <strong>A percentage on fewer than {denominatorFloor} cases is not shown.</strong> One caesarean in
             two deliveries is not a 50% caesarean rate, it is two deliveries. Below the floor the count is
             shown instead, because a rate built on four cases will swing forty points next week and somebody
             will make a decision on the swing.

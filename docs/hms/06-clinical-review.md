@@ -831,26 +831,56 @@ modelled.
    is a service the facility gives away, and that is a decision rather than an
    accident.
 
-## 23. Public health
+## 23. Configuration studio
+
+This section is about the register you are reading. Almost every ⚠️ and 🔴 above
+is a number that was chosen rather than derived, and most of those marks do not
+mean "this is wrong" — they mean "nobody has confirmed this". The studio exists
+so that confirming one is a thing a facility can actually do.
 
 | # | Rule | Where | Source | Status |
 |---|---|---|---|---|
-| 23.1 | Notifiable conditions are detected from coded diagnoses as they are made, because the Act's clock runs from diagnosis | `reporting.ts` | Public Health Act | ✅ |
-| 23.2 | **The notifiable list is four conditions** — malaria, tuberculosis, cholera, measles. The full schedule must be loaded | `reporting.ts` `NOTIFIABLE_PREFIXES` | — | 🔴 |
-| 23.3 | Reporting one requires the county's reference — it is the proof it was made | `reporting.ts` | Design rule | ✅ |
-| 23.4 | MOH 705A is under five, 705B is five and over, split by age **on the day of the visit** | `reporting.ts` | MOH forms | ✅ |
-| 23.5 | A condition is counted whichever code in its ICD-11 family the clinician used | `reporting.ts` `MOH705_CONDITIONS` | Design rule | ⚠️ |
-| 23.6 | **The 705 condition list is six conditions.** The real form has many more rows | `reporting.ts` | — | 🔴 |
+| 23.1 | **A review is worth more than a change.** Recording that a named pharmacist read 2 to 8 °C and kept it turns a red row in this register into a green one without a line of code changing, and no other screen in this system can record that | `configuration.ts` `markReviewed` | Design rule | ✅ |
+| 23.2 | **A clinical threshold cannot be changed without a source** — a citation, not a reason. "The pharmacist said so" cannot be defended eighteen months later by somebody who was not in the room | `configuration.ts` `apply` | Design rule | ✅ |
+| 23.3 | A review of a clinical threshold likewise records what it was checked against, and who read it by name rather than by role alone | `configuration.ts` `markReviewed` | Design rule | ✅ |
+| 23.4 | **A review goes stale when the value moves.** A sign-off vouches for a number, not for a key, so changing the number retires the review rather than carrying it forward over something nobody read | `configuration.ts` `apply` | Design rule | ✅ |
+| 23.5 | **The history is append-only.** A threshold that was 40 last year is what a case from last year was judged against, and a register holding only today's number cannot answer the question anybody will actually ask | `schema.sql` `config_history` | Design rule | ✅ |
+| 23.6 | Every setting names the module it belongs to, the rule in this register it is the number behind, and who ought to be the one to confirm it | `configuration.ts` `REGISTRY` | Design rule | ✅ |
+| 23.7 | **Modules read through the studio rather than from a constant**, so the screen and the rule cannot disagree about what the range is. Changing the mortuary fee changes what a family is charged, in the same transaction | `assets.ts`, `mortuary.ts`, `biometrics.ts`, `portal.ts`, `indicators.ts`, `hr.ts` | Design rule | ✅ |
+| 23.8 | **Some rules are in the code on purpose and are listed as locked, with the reason.** A body needing a confirmed identity, a dismissal needing a hearing, a journal needing to balance, an MRI screening answer, a controlled drug on a remote consultation, biometric consent. A facility that can switch these off will, on the afternoon it is inconvenient | `configuration.ts` `LOCKED` | Design rule | ⚠️ |
+| 23.9 | **Constants that are not yet configurable are named rather than implied away.** The withheld-findings list, the telemedicine red flags, the triage scale, the reference ranges, the statutory rates, the useful lives, the WHO checklist. A studio that implied more was configurable than is would be worse than one that says so | `configuration.ts` `HARD_CODED` | — | 🔴 |
+| 23.10 | **Thirteen settings is deliberately few.** A settings screen listing two hundred keys is one nobody reads, and every entry here is a number somebody in a Kenyan clinic can have an opinion about | `configuration.ts` `REGISTRY` | Judgement | ⚠️ |
+| 23.11 | **There is no form builder, no template editor and no report designer.** The roadmap's M75 named all three; what is built is the thresholds half, because that is the half this register keeps asking for | — | — | 🔴 |
+| 23.12 | **Settings are per installation, not per facility.** A single clinic is the only shape this supports, and a multi-branch group would need them scoped | `schema.sql` `config_values` | — | 🔴 |
+| 23.13 | **No approval workflow.** Anybody who can configure the facility can change a threshold on their own, with a source recorded. A facility wanting two pairs of eyes on a clinical threshold does not have it here | — | — | 🔴 |
 
-## 24. Revenue (for the claims specialist, not the clinician)
+### How to use this with the rest of the register
+
+Work down section 23's screen rather than this document. Every ⚠️ and 🔴 whose
+number appears in the studio can be closed by a named person reading it and
+signing it off — that is most of the numeric ones. What is left after that is
+the real work: the lists in rule 23.9, the integrations, and the tariffs.
+
+## 24. Public health
 
 | # | Rule | Where | Source | Status |
 |---|---|---|---|---|
-| 24.1 | Nine scrubber gates, each mapped to a documented SHA rejection cause | `claims.ts` `scrub` | SHA published causes | ⚠️ |
-| 24.2 | **The gates are inferred from documented causes, not from 50 real rejected claims.** The roadmap says to build them from a real corpus and that is still the right next step | — | — | 🔴 |
-| 24.3 | A claim beyond the payer's submission window (SHA: 7 days) escalates rather than blocking, because a late claim still has an appeal path | `claims.ts` | SHA | ⚠️ |
-| 24.4 | Tariffs and benefit rules are **illustrative**. The SHA schedule for the contracting cycle must be loaded | `seed.ts` | — | 🔴 |
-| 24.5 | Money is integer cents throughout, and a price is fixed as of the date of service | `billing.ts` | Design rule | ✅ |
+| 24.1 | Notifiable conditions are detected from coded diagnoses as they are made, because the Act's clock runs from diagnosis | `reporting.ts` | Public Health Act | ✅ |
+| 24.2 | **The notifiable list is four conditions** — malaria, tuberculosis, cholera, measles. The full schedule must be loaded | `reporting.ts` `NOTIFIABLE_PREFIXES` | — | 🔴 |
+| 24.3 | Reporting one requires the county's reference — it is the proof it was made | `reporting.ts` | Design rule | ✅ |
+| 24.4 | MOH 705A is under five, 705B is five and over, split by age **on the day of the visit** | `reporting.ts` | MOH forms | ✅ |
+| 24.5 | A condition is counted whichever code in its ICD-11 family the clinician used | `reporting.ts` `MOH705_CONDITIONS` | Design rule | ⚠️ |
+| 24.6 | **The 705 condition list is six conditions.** The real form has many more rows | `reporting.ts` | — | 🔴 |
+
+## 25. Revenue (for the claims specialist, not the clinician)
+
+| # | Rule | Where | Source | Status |
+|---|---|---|---|---|
+| 25.1 | Nine scrubber gates, each mapped to a documented SHA rejection cause | `claims.ts` `scrub` | SHA published causes | ⚠️ |
+| 25.2 | **The gates are inferred from documented causes, not from 50 real rejected claims.** The roadmap says to build them from a real corpus and that is still the right next step | — | — | 🔴 |
+| 25.3 | A claim beyond the payer's submission window (SHA: 7 days) escalates rather than blocking, because a late claim still has an appeal path | `claims.ts` | SHA | ⚠️ |
+| 25.4 | Tariffs and benefit rules are **illustrative**. The SHA schedule for the contracting cycle must be loaded | `seed.ts` | — | 🔴 |
+| 25.5 | Money is integer cents throughout, and a price is fixed as of the date of service | `billing.ts` | Design rule | ✅ |
 
 ---
 
@@ -964,3 +994,10 @@ Everything marked 🔴, in one list:
     recording policy
 61. A tariff for a remote consultation, or a decision that the facility gives
     them away
+62. A named person against every threshold in the configuration studio — which
+    closes most of the numeric rows in this register without any code changing
+63. The lists that are still constants: withheld findings, telemedicine red
+    flags, the triage scale, reference ranges, statutory rates, useful lives
+    and the surgical checklist
+64. Per-facility settings and an approval step on clinical thresholds, for a
+    group running more than one clinic

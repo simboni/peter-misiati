@@ -5,7 +5,7 @@ import { can } from "@/lib/access.ts";
 import {
   biometricSummary, listReaders, enrolmentsFor, verificationsFor,
   eligibility, activeException, citableFor,
-  FINGERS, MIN_QUALITY, MIN_AGE_YEARS,
+  FINGERS, minQuality, minAgeYears,
 } from "@/lib/biometrics.ts";
 import { resolvePatient, searchPatients } from "@/lib/patients.ts";
 import { hasConsent } from "@/lib/frontdesk.ts";
@@ -63,6 +63,10 @@ export default async function BiometricsPage({
   const exception = patient ? activeException(patient.mrn) : undefined;
   const consented = patient ? hasConsent(patient.mrn, "biometric") : false;
   const lastFailure = history.find((h) => h.matched === 0 && !h.fallback);
+  // Read through the configuration studio, so the screen quotes the number the
+  // rule actually uses.
+  const qualityFloor = minQuality();
+  const ageFloor = minAgeYears();
 
   return (
     <Shell
@@ -97,7 +101,7 @@ export default async function BiometricsPage({
           label="Poor enrolments"
           value={summary.poorQualityEnrolments}
           tone={summary.poorQualityEnrolments > 0 ? "clock" : "good"}
-          note={`quality under ${MIN_QUALITY} · ${summary.repeatFailures.length} failing repeatedly`}
+          note={`quality under ${qualityFloor} · ${summary.repeatFailures.length} failing repeatedly`}
         />
         <Stat
           label="Readers"
@@ -275,7 +279,7 @@ export default async function BiometricsPage({
                 {enrolments.map((enrolment) => (
                   <div key={enrolment.id} className="px-3 py-2 text-sm flex flex-wrap gap-2 items-center">
                     <span className="font-medium">{FINGER_LABEL(enrolment.finger)}</span>
-                    <span className={enrolment.quality !== null && enrolment.quality < MIN_QUALITY ? "text-clock" : "text-muted"}>
+                    <span className={enrolment.quality !== null && enrolment.quality < qualityFloor ? "text-clock" : "text-muted"}>
                       quality {enrolment.quality ?? "—"}
                     </span>
                     <span className="text-xs text-muted">
@@ -324,7 +328,7 @@ export default async function BiometricsPage({
 
           <Section
             title="Or record why there is no fingerprint"
-            note={`Under ${MIN_AGE_YEARS}, ridges worn flat, an amputation, or the patient said no. A system that requires a fingerprint denies care to exactly the people least able to argue with it.`}
+            note={`Under ${ageFloor}, ridges worn flat, an amputation, or the patient said no. A system that requires a fingerprint denies care to exactly the people least able to argue with it.`}
           >
             <form action={exceptionAction} className="bg-white border border-line rounded p-3 flex flex-wrap gap-2 items-end">
               <input type="hidden" name="patientMrn" value={patient.mrn} />

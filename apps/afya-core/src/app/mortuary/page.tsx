@@ -5,7 +5,7 @@ import { can } from "@/lib/access.ts";
 import {
   register, mortuarySummary, occupancy, unclaimed, listBodies,
   getBody, eventsFor, releaseCheck, storageFee, daysInStore,
-  FREE_DAYS, DAILY_FEE_CENTS, UNCLAIMED_DAYS,
+  freeDays, dailyFeeCents, unclaimedDays,
 } from "@/lib/mortuary.ts";
 import { listAssets } from "@/lib/assets.ts";
 import { formatKes } from "@/lib/billing.ts";
@@ -65,6 +65,11 @@ export default async function MortuaryPage({
   const openEvents = open ? eventsFor(open.id) : [];
   const openCheck = open ? releaseCheck(open.id) : undefined;
   const openFee = open ? storageFee(open) : undefined;
+  // Read through the configuration studio, so the screen quotes what the rule
+  // actually uses.
+  const free = freeDays();
+  const perDay = dailyFeeCents();
+  const unclaimedAfter = unclaimedDays();
 
   return (
     <Shell
@@ -117,7 +122,7 @@ export default async function MortuaryPage({
           label="Longest stay"
           value={`${summary.longestDays}d`}
           tone={summary.unclaimed > 0 ? "block" : "ink"}
-          note={`${summary.unclaimed} past ${UNCLAIMED_DAYS} days · ${formatKes(summary.accruedFeeCents)} accrued`}
+          note={`${summary.unclaimed} past ${unclaimedAfter} days · ${formatKes(summary.accruedFeeCents)} accrued`}
         />
       </div>
 
@@ -163,7 +168,7 @@ export default async function MortuaryPage({
                 </p>
               ) : null}
               <p className="text-xs text-muted mt-2">
-                {openFee!.days} days · {openFee!.chargeableDays} chargeable after {FREE_DAYS} free ·{" "}
+                {openFee!.days} days · {openFee!.chargeableDays} chargeable after {free} free ·{" "}
                 {formatKes(openFee!.feeCents)}
                 {open.notification_ref ? ` · notification ${open.notification_ref}` : " · no death notification yet"}
               </p>
@@ -435,7 +440,7 @@ export default async function MortuaryPage({
 
           <Section
             title="Receive a body"
-            note={`The tag is minted here. Storage is free for ${FREE_DAYS} days, then ${formatKes(DAILY_FEE_CENTS)} a day.`}
+            note={`The tag is minted here. Storage is free for ${free} days, then ${formatKes(perDay)} a day.`}
           >
             <form action={receiveAction} className="bg-white border border-line rounded p-3 grid gap-3 sm:grid-cols-4">
               <div>
@@ -520,7 +525,7 @@ export default async function MortuaryPage({
       {/* ================================================ unclaimed */}
       {!open && view === "unclaimed" ? (
         <Section
-          title={`Nobody has come for these in ${UNCLAIMED_DAYS} days`}
+          title={`Nobody has come for these in ${unclaimedAfter} days`}
           note="Longest first. The statutory process for a body nobody claims is a county matter this system does not run."
         >
           {stale.length === 0 ? (

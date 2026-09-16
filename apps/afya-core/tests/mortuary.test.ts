@@ -317,8 +317,8 @@ test("storage is free for the first days and charged by the day after", () => {
   const fee = M.storageFee(body);
 
   assert.equal(fee.days, 5);
-  assert.equal(fee.chargeableDays, 5 - M.FREE_DAYS);
-  assert.equal(fee.feeCents, (5 - M.FREE_DAYS) * M.DAILY_FEE_CENTS);
+  assert.equal(fee.chargeableDays, 5 - M.freeDays());
+  assert.equal(fee.feeCents, (5 - M.freeDays()) * M.dailyFeeCents());
 });
 
 test("a stay inside the free period costs nothing", () => {
@@ -379,7 +379,7 @@ test("bodies nobody has come for are listed longest first", () => {
   const rows = M.unclaimed(facilityId);
   assert.ok(rows.length >= 2);
   assert.ok(rows[0].days >= rows[1].days);
-  assert.ok(rows[0].days >= M.UNCLAIMED_DAYS);
+  assert.ok(rows[0].days >= M.unclaimedDays());
 });
 
 test("the register says what is holding each body up", () => {

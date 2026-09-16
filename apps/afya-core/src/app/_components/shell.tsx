@@ -29,6 +29,7 @@ import { biometricSummary } from "@/lib/biometrics.ts";
 import { analyserSummary } from "@/lib/analysers.ts";
 import { portalSummary } from "@/lib/portal.ts";
 import { teleSummary } from "@/lib/telemedicine.ts";
+import { configSummary } from "@/lib/configuration.ts";
 import { signOutAction } from "@/app/actions/session.ts";
 import { navFor, sectionFor, type BadgeKey } from "./nav.ts";
 import type { CurrentUser } from "@/lib/auth.ts";
@@ -81,6 +82,7 @@ function counts(facilityId: number): Record<BadgeKey, { text: string; tone: "blo
   const interfaces = analyserSummary(facilityId);
   const portal = portalSummary(facilityId);
   const tele = teleSummary(facilityId);
+  const config = configSummary();
   const waiting = queue(facilityId);
 
   const n = (
@@ -159,6 +161,10 @@ function counts(facilityId: number): Record<BadgeKey, { text: string; tone: "blo
     // A remote consultation nobody ended is one nobody closed, and only the
     // clinician who left it open can say what happened on it.
     tele: n(tele.running, "clock"),
+    // A clinical threshold nobody has confirmed is red; the rest is amber.
+    config: config.clinicalUnreviewed > 0 || config.stale > 0
+      ? { text: String(config.clinicalUnreviewed + config.stale), tone: "block" as const }
+      : n(config.settings - config.reviewed, "clock"),
     biometrics: n(biometrics.repeatFailures.length + biometrics.poorQualityEnrolments, "clock"),
     mortuary: n(mortuary.inStore, mortuary.free === 0 ? "block" : "quiet"),
     // A body nobody has come for, or one that cannot be released, is the thing

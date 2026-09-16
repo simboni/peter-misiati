@@ -47,6 +47,7 @@ import { patientResults, formatValue } from "./laboratory.ts";
 import { call } from "./integration.ts";
 import { outstandingInvoices } from "./billing.ts";
 import { formatKes } from "./billing.ts";
+import { number as configNumber } from "./configuration.ts";
 
 export class PortalError extends Error {}
 
@@ -68,7 +69,17 @@ export const MAX_ATTEMPTS = 3;
  * confirm — which is why the sensitive categories below are withheld from a
  * proxy at any age.
  */
-export const MAJORITY_YEARS = 18;
+export const MAJORITY_YEARS_DEFAULT = 18;
+
+/** The age of majority in force. */
+export function majorityYears(): number {
+  return configNumber("portal.majority_years");
+}
+
+/** The age from which results are shown only to the patient themselves. */
+export function adolescentYears(): number {
+  return configNumber("portal.adolescent_years");
+}
 
 /**
  * ⚠️ Findings that are never put in a message.
@@ -336,7 +347,7 @@ export function grantProxy(input: {
   if (input.untilDate <= today()) throw new PortalError("a proxy grant that has already expired is not a grant");
 
   const age = ageYears(patient.date_of_birth);
-  if (age !== null && age >= MAJORITY_YEARS && !input.patientConsented) {
+  if (age !== null && age >= majorityYears() && !input.patientConsented) {
     throw new PortalError(
       `${patient.given_name} is ${age} and speaks for themselves — record that they agreed to this before granting it`,
     );
@@ -463,7 +474,7 @@ function withholdReason(
     // transparency. The clinician has already been telephoned about it.
     return "the clinic is contacting you about this one";
   }
-  if (byProxy && patientAge !== null && patientAge >= 12) {
+  if (byProxy && patientAge !== null && patientAge >= adolescentYears()) {
     // Not majority: adolescence. A twelve-year-old's results are not
     // automatically their parent's to read.
     return "only shown to the patient themselves";

@@ -48,6 +48,7 @@ import { all, get, run, tx, audit, now, today } from "./db.ts";
 import { mintLocalId } from "./ids.ts";
 import { resolvePatient } from "./patients.ts";
 import { hasConsent } from "./frontdesk.ts";
+import { number as configNumber } from "./configuration.ts";
 
 export class BiometricError extends Error {}
 
@@ -72,7 +73,12 @@ export const FINGERS: Finger[] = [
  * Five is a working convention and not a standard; a facility using infant
  * biometrics has different hardware and should set this itself.
  */
-export const MIN_AGE_YEARS = 5;
+export const MIN_AGE_YEARS_DEFAULT = 5;
+
+/** The age floor in force. */
+export function minAgeYears(): number {
+  return configNumber("biometrics.min_age_years");
+}
 
 /**
  * ⚠️ The quality below which an enrolment is a future problem.
@@ -82,7 +88,12 @@ export const MIN_AGE_YEARS = 5;
  * Enrolment is allowed and warns, because a bad template is better than none
  * for a patient about to walk out of the door.
  */
-export const MIN_QUALITY = 40;
+export const MIN_QUALITY_DEFAULT = 40;
+
+/** The quality floor in force. */
+export function minQuality(): number {
+  return configNumber("biometrics.min_quality");
+}
 
 export interface Reader {
   code: string;
@@ -248,7 +259,7 @@ export function eligibility(patientMrn: string, asOf = today()): Eligibility {
       (Date.parse(`${asOf}T00:00:00.000Z`) - Date.parse(`${patient.date_of_birth}T00:00:00.000Z`)) /
         (365.25 * 86_400_000),
     );
-    if (years < MIN_AGE_YEARS) {
+    if (years < minAgeYears()) {
       reasons.push(`${years < 1 ? "an infant" : `${years} years old`} — ridge detail is too fine for these readers`);
     }
   }
@@ -387,7 +398,7 @@ export function enrol(input: {
   }
 
   const quality = input.capture.quality ?? null;
-  const poorQuality = quality !== null && quality < MIN_QUALITY;
+  const poorQuality = quality !== null && quality < minQuality();
   const id = mintLocalId(input.deviceCode, 8);
   const at = now();
 
@@ -722,7 +733,7 @@ export function biometricSummary(facilityId: number, sinceDays = 90, asOf = toda
       `SELECT COUNT(*) AS n FROM biometric_enrolments e JOIN patients p ON p.mrn = e.patient_mrn
         WHERE p.facility_id = ? AND e.status = 'active' AND e.quality IS NOT NULL AND e.quality < ?`,
       facilityId,
-      MIN_QUALITY,
+      minQuality(),
     )?.n ?? 0;
 
   return {
