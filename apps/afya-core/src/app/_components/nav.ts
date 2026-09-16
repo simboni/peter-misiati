@@ -85,6 +85,8 @@ export type BadgeKey =
   | "portal"
   | "tele"
   | "config"
+  | "sync"
+  | "syncConflicts"
   | "alerts";
 
 export const NAV: NavSection[] = [
@@ -271,6 +273,8 @@ export const NAV: NavSection[] = [
       { href: "/configuration", label: "Thresholds & sign-off", permission: ["facility.configure"], badge: "config" },
       { href: "/admin?view=tariffs", label: "Services & tariffs", permission: ["facility.configure"] },
       { href: "/admin?view=integrations", label: "Integrations", permission: ["facility.configure"], badge: "deadLetters" },
+      { href: "/sync", label: "Sync & devices", permission: ["device.manage", "report.read"], badge: "sync" },
+      { href: "/sync?view=conflicts", label: "Sync conflicts", permission: ["device.manage", "report.read"], badge: "syncConflicts" },
       { href: "/audit", label: "Audit log", permission: ["audit.read", "facility.configure"] },
     ],
   },

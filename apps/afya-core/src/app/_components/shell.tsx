@@ -30,6 +30,8 @@ import { analyserSummary } from "@/lib/analysers.ts";
 import { portalSummary } from "@/lib/portal.ts";
 import { teleSummary } from "@/lib/telemedicine.ts";
 import { configSummary } from "@/lib/configuration.ts";
+import { openConflicts } from "@/lib/sync.ts";
+import { transportSummary } from "@/lib/sync-transport.ts";
 import { signOutAction } from "@/app/actions/session.ts";
 import { navFor, sectionFor, type BadgeKey } from "./nav.ts";
 import type { CurrentUser } from "@/lib/auth.ts";
@@ -83,6 +85,8 @@ function counts(facilityId: number): Record<BadgeKey, { text: string; tone: "blo
   const portal = portalSummary(facilityId);
   const tele = teleSummary(facilityId);
   const config = configSummary();
+  const transit = transportSummary(facilityId);
+  const syncConflicts = openConflicts("all");
   const waiting = queue(facilityId);
 
   const n = (
@@ -175,6 +179,24 @@ function counts(facilityId: number): Record<BadgeKey, { text: string; tone: "blo
     coldChain: estate.coldChainOutOfRange > 0
       ? { text: String(estate.coldChainOutOfRange), tone: "block" as const }
       : n(estate.coldChainUnread, "clock"),
+    // Quiet by design: a clinic that has been offline all morning has a large
+    // number here and is working exactly as intended. It only goes amber once
+    // the oldest thing waiting is older than a day, which is the point at which
+    // somebody should be carrying a stick somewhere.
+    sync: transit.waiting > 0
+      ? {
+          text: String(transit.waiting),
+          tone:
+            transit.oldestWaiting && Date.now() - Date.parse(transit.oldestWaiting) > 86_400_000
+              ? ("clock" as const)
+              : ("quiet" as const),
+        }
+      : null,
+    // A clinical conflict is two clinicians documenting the same thing and the
+    // merge declining to pick. Nothing was lost; nothing is settled either.
+    syncConflicts: syncConflicts.some((c) => c.data_class === "clinical")
+      ? { text: String(syncConflicts.length), tone: "block" as const }
+      : n(syncConflicts.length, "clock"),
     alerts: n(alerts.total, alerts.critical > 0 ? "block" : "clock"),
   };
 }

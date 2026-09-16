@@ -3,8 +3,8 @@
 Kenya-compliant hospital management system (HMIS). Built to the plan in
 [`docs/hms/`](../../docs/hms/) at the repository root.
 
-**Current state: every module on the roadmap is built — 46 of them, 859 tests,
-thirty-five screens.** A patient is registered, checked in, triaged, consulted,
+**Current state: every module on the roadmap is built — 46 of them, 914 tests,
+thirty-six screens.** A patient is registered, checked in, triaged, consulted,
 diagnosed, prescribed for, investigated in the laboratory, dispensed to from
 batch-tracked stock, admitted to a bed, billed, invoiced through eTIMS and
 claimed for — with the scrubber checking every claim against nine documented SHA
@@ -13,12 +13,13 @@ generated from those same transactions rather than re-keyed. Around that spine
 sit casualty, theatre, maternity, referrals, radiology, the programme registers,
 procurement, the ledger, payroll, HR, the asset register and cold chain, the
 mortuary, biometric identity, the analyser interface, the dashboard, an SMS
-patient portal, telemedicine, and a configuration studio.
+patient portal, telemedicine, a configuration studio, and the sync screen a
+clinic with no line carries its work out on.
 
 **What is not finished is the sign-off.**
 [`docs/hms/06-clinical-review.md`](../../docs/hms/06-clinical-review.md) lists
 every clinical and regulatory rule the code enforces, with its source, and
-sixty-four items that must be replaced or confirmed before go-live. Most are not
+seventy items that must be replaced or confirmed before go-live. Most are not
 defects — they are numbers nobody has yet put their name against, which is what
 the configuration studio is for. Read it, and
 [Not done](#not-done-be-clear-about-this), before showing this to a clinic.
@@ -197,7 +198,7 @@ tier. `src/lib/db.ts` is the only module that would change.
 | **M02** Audit | `src/lib/db.ts` | Hash-chained append-only audit log, with verification |
 | — | `src/lib/ids.ts` | Device-prefixed identifiers that cannot collide offline |
 | **M03** Sync Engine | `src/lib/sync.ts` | Offline operation log, Lamport ordering, conflict resolution by data class |
-| **M03** Sync Transport | `src/lib/sync-transport.ts` | The batch format and its digest, the refusal rules, and a file transport — the stick a clinic with no line actually syncs on |
+| **M03** Sync Transport | `src/lib/sync-transport.ts`, `src/app/sync/` | The batch format and its digest, the refusal rules, a file transport — the stick a clinic with no line actually syncs on — and the screen an operator presses it from |
 | **M10** Patient Registry & MPI | `src/lib/patients.ts` | Patients, identifier normalisation, duplicate matching, merge and unmerge |
 | **M21** Terminology | `src/lib/terminology.ts` | Coded catalogues, verified-only coding search, favourites, coverage |
 | **M20** Encounter | `src/lib/encounters.ts` | Consultations, append-only notes, coded diagnoses, readiness |
@@ -508,7 +509,16 @@ Every module on the roadmap is built. A facility still cannot go live on it:
   `src/lib/sync-transport.ts`. A file transport works today and is the one a
   clinic with no line actually uses — a batch on a phone or a stick, carried.
   The HTTP transport is declared and refuses, because the hub it would talk to
-  has not been specified.
+  has not been specified. `/sync` is where an operator sees what is waiting,
+  writes a batch, and takes one in; a batch is only ever picked from a folder,
+  never from a path somebody types.
+- **A batch taken in updates the operation log, not yet the patient record.**
+  The merge works out what each field should now be and returns it; writing
+  that back into patients, encounters and the rest is per-module work that has
+  not been done. A batch is also neither signed nor encrypted — its digest
+  catches a file that arrived torn, not one that was deliberately rewritten —
+  so patient data on a stick needs both, and an impact assessment, before it
+  leaves a building.
 - **No hardware driver exists for anything that plugs in.** The analyser
   interface does ASTM framing and checksums, E1394 and HL7 v2 parsing, and the
   code and unit mapping — but no serial port is opened and no listener is
@@ -520,7 +530,7 @@ Every module on the roadmap is built. A facility still cannot go live on it:
 - **Telemedicine carries no video and records nothing.** The platform is a
   third party, and a facility doing this at scale needs a platform decision, a
   data processing agreement, and KMPDC's current telemedicine guidance.
-- **Sixty-four things need a person's signature, not a programmer.**
+- **Seventy things need a person's signature, not a programmer.**
   `docs/hms/06-clinical-review.md` lists every clinical and regulatory rule the
   code enforces, with its source, and what must be replaced or confirmed before
   go-live. Most are not defects — they are numbers nobody has yet confirmed,

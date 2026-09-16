@@ -890,6 +890,39 @@ the real work: the lists in rule 23.9, the integrations, and the tariffs.
 | 25.4 | Tariffs and benefit rules are **illustrative**. The SHA schedule for the contracting cycle must be loaded | `seed.ts` | — | 🔴 |
 | 25.5 | Money is integer cents throughout, and a price is fixed as of the date of service | `billing.ts` | Design rule | ✅ |
 
+## 26. Sync and offline working
+
+The product promise is that a clinic keeps working for three days with no line
+and loses nothing. That promise is kept by a merge nobody sees and, now, by a
+screen somebody presses — an offline-first system whose operator cannot see what
+is waiting to leave is offline-first only in the source code.
+
+Most of this section is a data-safety question rather than a clinical one, but
+26.4 and 26.5 are clinical: they are about two clinicians documenting the same
+patient and which reading stands.
+
+| # | Rule | Where | Source | Status |
+|---|---|---|---|---|
+| 26.1 | **Order comes from a Lamport clock, not the wall clock.** Two tablets in one clinic have drifting clocks and at least one was set by hand; wall time would let a fast clock win every conflict forever | `sync.ts` `compareOps` | Design rule | ✅ |
+| 26.2 | **An operation carries changed fields, never a whole row.** A device two days behind that pushed whole rows would silently revert every field somebody else corrected meanwhile | `sync.ts` `applyOne` | Design rule | ✅ |
+| 26.3 | **An operation is marked pushed on acknowledgement, never on sending.** A dropped link costs a duplicate batch, which the merge ignores; marking on send costs the operations, which nothing recovers | `sync-transport.ts` `confirmPushed` | Design rule | ✅ |
+| 26.4 | **A clinical conflict keeps both versions and waits for a person.** Two clinicians documenting the same encounter from different rooms are both telling the truth, and neither reading is the system's to discard | `sync.ts` `applyOne` | Design rule | ✅ |
+| 26.5 | **Only a clinician may sign off a clinical conflict.** The permission follows the data class rather than the screen: an administrator can carry the stick and cannot say which note stands | `app/sync/actions.ts` `reviewAction` | Design rule | ✅ |
+| 26.6 | A batch that does not match its own digest is refused whole. Half a batch applied in order looks exactly like a complete one until the missing half arrives and cannot be placed | `sync-transport.ts` `verifyEnvelope` | Design rule | ✅ |
+| 26.7 | A batch from a device this facility never registered is refused, because device registration is what makes an offline-minted identifier unique | `sync-transport.ts` `verifyEnvelope` | Design rule | ✅ |
+| 26.8 | A clock no real device could have reached is refused at the edge: the clock advances to whatever an operation claims, so one corrupt file would collapse the total ordering permanently | `sync-transport.ts` `MAX_LAMPORT` | Design rule | ✅ |
+| 26.9 | **A batch is picked from a folder, never from a path somebody types.** A screen taking a filesystem path from a form can be asked to read anything the server user can read | `sync-transport.ts` `batchPath` | Design rule | ✅ |
+| 26.10 | **Nothing is deleted after a successful push.** The operation log is the record of what a device did, and a device that has forgotten cannot answer for itself | `sync.ts` | DPA 2019 | ✅ |
+| 26.11 | **A batch is not signed or encrypted.** Its digest detects a truncated or corrupted file; it does not detect a deliberately rewritten one, and anyone who picks the stick up can read every operation on it in plain text. A facility carrying patient data between sites needs both, and a data protection impact assessment before it does | `sync-transport.ts` | — | 🔴 |
+| 26.12 | **There is no network sync.** `httpTransport` is declared and refuses, because the hub a clinic would push to has not been specified — no endpoint, no authentication, no conflict protocol at the far end | `sync-transport.ts` `httpTransport` | — | 🔴 |
+| 26.13 | **A ledger conflict is recorded and nobody is told.** The server figure stands and the variance is written down, but it does not reach the accountant's screen or raise an alert, so a stock or money divergence sits in a table until somebody opens this one | `sync.ts`, `app/sync` | — | 🔴 |
+| 26.14 | **The merge computes field state and no domain module reads it back.** `applyInbound` returns what each entity's fields should now be; writing that into patients, encounters and the rest is per-module work that has not been done, so an inbound batch currently changes the operation log and not the record | `sync.ts` `receiveOps` | — | 🔴 |
+| 26.15 | **The three-day promise has never been tested end to end.** Two devices, a real disconnection, a real reconnection and a check that nothing was lost — that is the test this claim needs, and a passing unit suite is not it | — | — | 🔴 |
+| 26.16 | **Nothing ages out.** Every operation this facility has ever recorded is pending until something acknowledges it, and a clinic that never syncs accumulates them without limit | `sync.ts` `pendingPush` | — | ⚠️ |
+| 26.17 | **A device carries its own work and nobody else's.** A batch says which device packed it, so a machine nobody signs in on is a machine whose work never leaves — and in a clinic where one tablet does most of the consulting, that is most of the facility's work sitting behind one login | `sync-transport.ts` `packOutbound` | — | 🔴 |
+| 26.18 | **A new batch never overwrites an older one.** Packing marks those operations sent, so writing over a stick that had not been delivered yet would destroy the only copy of a morning's work. Batch files carry the moment they were packed, and deleting the ones that arrived is the operator's job | `sync-transport.ts` `outboundName` | Design rule | ✅ |
+| 26.19 | **Carrying a batch is not a reason to read a consultation.** An operation's payload is the clinical content itself, so somebody without a right to open a record sees which fields an operation touched and not what they say | `app/sync/page.tsx` | DPA 2019 | ✅ |
+
 ---
 
 ## What must be replaced before go-live
@@ -1011,3 +1044,14 @@ Everything marked 🔴, in one list:
     and the surgical checklist
 64. Per-facility settings and an approval step on clinical thresholds, for a
     group running more than one clinic
+65. Signing and encryption for a carried batch, and a data protection impact
+    assessment before patient data leaves the building on a stick
+66. A sync hub specification — endpoint, authentication, and what the far end
+    does with a conflict — without which there is no network sync at all
+67. Per-module write-back of merged field state, without which an inbound batch
+    updates the operation log and not the patient record
+68. A real two-device disconnection test over three days, which is the only
+    thing that can support the offline-first claim
+69. A ledger variance reaching the accountant rather than sitting in a table
+70. A way for one machine to carry another's work out, or an accepted
+    operating rule that every device syncs itself

@@ -356,6 +356,82 @@ test("nothing is deleted after a successful push", () => {
   assert.ok(pushed[0].n > 0);
 });
 
+// ------------------------------------------------------------ batch folder
+
+const folder = join(workspace, "sticks");
+process.env.AFYA_SYNC_DIR = folder;
+
+test("a batch name that is not a plain file name is refused", () => {
+  // The screen offers names it found in the folder, but the action takes one
+  // off a form, and a form is not a place to be trusting about paths.
+  for (const bad of ["../afya.db", "/etc/passwd", "a/b.json", "..json.json/../x.json", ".hidden.json", "batch.txt"]) {
+    assert.throws(() => X.batchPath(bad), /is not a batch file name/, bad);
+  }
+  assert.equal(X.batchPath("outbound-SYN1.json"), join(folder, "outbound-SYN1.json"));
+});
+
+test("the folder is made when a batch is written into one that does not exist", () => {
+  // A stick plugged into a machine that has never synced is the normal first
+  // case, not something to report back to the person holding it.
+  somethingToPush("SYN1");
+  const name = X.outboundName("syn1", "2026-09-16T17:20:31.000Z");
+  assert.equal(name, "outbound-SYN1-20260916T172031.json");
+
+  const result = X.exchange({
+    transport: X.fileTransport(X.batchPath(name)),
+    deviceCode: "SYN1",
+    facilityId,
+  });
+  assert.equal(result.sent, true);
+  assert.ok(result.pushed > 0);
+});
+
+test("the folder describes every file in it, including the ones it cannot read", () => {
+  writeFileSync(join(folder, "torn.json"), "{ half a batch", "utf8");
+  writeFileSync(join(folder, "notabatch.json"), JSON.stringify({ hello: "world" }), "utf8");
+
+  const files = X.listBatches();
+  const by = (name: string) => files.find((f) => f.name === name)!;
+
+  const ours = files.find((f) => f.name.startsWith(X.outboundPrefix("SYN1")))!;
+  assert.ok(ours.ops! > 0);
+  assert.equal(ours.from, "SYN1");
+  assert.equal(ours.problem, null);
+  assert.match(by("torn.json").problem!, /could not be read/);
+  assert.match(by("notabatch.json").problem!, /is not a batch/);
+  // A stick that has gone bad is the most useful thing on the screen; hiding it
+  // shows an empty list to somebody holding a full stick.
+  assert.equal(files.length, 3);
+});
+
+test("a second batch never overwrites the first", () => {
+  // Packing marks those operations sent. Writing over a stick that has not been
+  // delivered yet destroys the only copy of them, and nothing recovers it.
+  const before = X.listBatches().filter((f) => f.name.startsWith(X.outboundPrefix("SYN1")));
+  assert.equal(before.length, 1);
+
+  somethingToPush("SYN1");
+  const second = X.outboundName("SYN1", "2026-09-17T08:00:00.000Z");
+  assert.notEqual(second, before[0].name);
+  const envelope = X.packOutbound({ deviceCode: "SYN1", facilityId });
+  assert.equal(X.fileTransport(X.batchPath(second)).send(envelope).ok, true);
+
+  const after = X.listBatches().filter((f) => f.name.startsWith(X.outboundPrefix("SYN1")));
+  assert.equal(after.length, 2);
+  // And the older one still carries what it carried.
+  const older = after.find((f) => f.name === before[0].name)!;
+  assert.equal(older.digest, before[0].digest);
+  assert.equal(older.ops, before[0].ops);
+  // Newest first, so the one somebody just wrote is the one they are looking for.
+  assert.equal(after[0].name, second);
+});
+
+test("a folder that does not exist is nothing to collect, not a failure", () => {
+  process.env.AFYA_SYNC_DIR = join(workspace, "never-plugged-in");
+  assert.deepEqual(X.listBatches(), []);
+  process.env.AFYA_SYNC_DIR = folder;
+});
+
 // ------------------------------------------------------------------ reports
 
 test("the summary says what is waiting and what was refused", () => {

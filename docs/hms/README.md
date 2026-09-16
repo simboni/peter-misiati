@@ -48,7 +48,7 @@ configuration studio.
 
 **The thing that is not finished is the sign-off.**
 [06 — Clinical review](06-clinical-review.md) lists every rule the code
-enforces, with its source, across twenty-five sections — and sixty-four items
+enforces, with its source, across twenty-six sections — and seventy items
 that must be replaced or confirmed before go-live. Most of them are not defects;
 they are numbers nobody has yet put their name against, and the configuration
 studio exists so that a facility can.

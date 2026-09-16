@@ -98,6 +98,11 @@ import {
   apply as setConfig, markReviewed as reviewConfig, configSummary,
 } from "../src/lib/configuration.ts";
 import { closeDb, run, get, all as dbAll, verifyAuditChain, today } from "../src/lib/db.ts";
+import { currentClock } from "../src/lib/sync.ts";
+import {
+  BATCH_VERSION, batchDigest, batchFolder, batchPath, outboundName, applyInbound,
+  fileTransport, transportSummary, type WireOp, type Envelope,
+} from "../src/lib/sync-transport.ts";
 
 const { facilityId, adminId, clinicianId, receptionistId, pharmacistId, labTechId } = seedDemo();
 
@@ -2635,6 +2640,122 @@ receiveAnalyserMessage({
   ...BENCH,
 });
 
+// ------------------------------------------------------------------- sync
+//
+// The outreach tablet. It spent two days in Kayole with no line, which is the
+// deployment this whole system is arranged around, and came back with work on
+// it. What arrives is a file, not a request — that is what a clinic two hours
+// from the sub-county office actually has.
+
+try {
+  registerDevice({
+    facilityId,
+    code: "OUT1",
+    label: "Outreach tablet — Kayole",
+    byUserId: adminId,
+    byUserName: "Facility Administrator",
+  });
+} catch {
+  // Already registered.
+}
+
+const outreachPatient = get<{ mrn: string }>(
+  `SELECT mrn FROM patients WHERE merged_into IS NULL ORDER BY mrn LIMIT 1`,
+)!;
+// An encounter a clinician already wrote up here, in the building. The outreach
+// tablet wrote up the same one, and neither of them was wrong.
+const bothWroteIt = get<{ id: string }>(
+  `SELECT e.id FROM encounters e
+     JOIN sync_ops o ON o.entity = 'encounter' AND o.entity_id = e.id
+    WHERE o.data_class = 'clinical' AND o.device_code <> 'OUT1'
+    ORDER BY e.id LIMIT 1`,
+)!;
+
+let outreachClock = currentClock("OUT1");
+function outreachOp(
+  entity: string,
+  entityId: string,
+  dataClass: WireOp["data_class"],
+  payload: Record<string, unknown>,
+  atHour: string,
+): WireOp {
+  return {
+    op_id: `OUT1-${String(++outreachClock).padStart(6, "0")}XZ`,
+    device_code: "OUT1",
+    lamport: outreachClock,
+    at: `${inDays(-1)}T${atHour}:00.000Z`,
+    actor_id: clinicianId,
+    actor_name: "Dr. Achieng Wanjiru",
+    entity,
+    entity_id: entityId,
+    data_class: dataClass,
+    payload: JSON.stringify(payload),
+  };
+}
+
+function envelopeOf(ops: WireOp[]): Envelope {
+  return {
+    version: BATCH_VERSION,
+    from: "OUT1",
+    facilityId,
+    sentAt: `${inDays(-1)}T17:30:00.000Z`,
+    ops,
+    digest: batchDigest(ops),
+  };
+}
+
+const dayOne = envelopeOf([
+  // A phone number corrected in the field. Field-level, so it does not drag a
+  // stale address back with it.
+  outreachOp("patient", outreachPatient.mrn, "demographic", { phone: "+254722004411" }, "09:15"),
+  // The same consultation, written up twice. Both stand.
+  outreachOp(
+    "encounter",
+    bothWroteIt.id,
+    "clinical",
+    { note_version: 1, assessment: "Seen at the outreach site; same episode.", plan: "Continue as charted." },
+    "11:40",
+  ),
+]);
+
+const collected = applyInbound({
+  envelope: dayOne,
+  facilityId,
+  localDeviceCode: REC,
+  byUserName: "Joseph Otieno",
+});
+
+// A stick that went bad in somebody's pocket. Refused whole, because half a
+// batch applied in order looks exactly like a complete one until the missing
+// half turns up and cannot be placed.
+const torn = envelopeOf([
+  outreachOp("patient", outreachPatient.mrn, "demographic", { village: "Kayole Soweto" }, "14:02"),
+]);
+torn.ops[0].payload = JSON.stringify({ village: "Kayole Spine" });
+const refused = applyInbound({
+  envelope: torn,
+  facilityId,
+  localDeviceCode: REC,
+  byUserName: "Joseph Otieno",
+});
+
+// Day two is still on the stick, so the screen has something to press rather
+// than only a history of things somebody else pressed.
+const dayTwo = envelopeOf([
+  outreachOp("patient", outreachPatient.mrn, "demographic", { next_of_kin_phone: "+254733887711" }, "10:05"),
+  outreachOp(
+    "encounter",
+    bothWroteIt.id,
+    "clinical",
+    { note_version: 2, plan: "Review in two weeks at the clinic." },
+    "15:20",
+  ),
+]);
+// Named for the moment it was packed, out in Kayole, not for now.
+fileTransport(batchPath(outboundName("OUT1", `${inDays(-1)}T17:30:00.000Z`))).send(dayTwo);
+
+const transit = transportSummary(facilityId);
+
 const summary = claimsSummary();
 const chain = verifyAuditChain();
 const facility = getFacility(facilityId)!;
@@ -2679,6 +2800,7 @@ console.log(`  claims            ${summary.total} · acceptance ${summary.accept
 console.log(`  recovered         ${Math.round(reconciliation(facilityId).paidCents / 100)} KES of ${Math.round(reconciliation(facilityId).submittedCents / 100)} KES claimed`);
 console.log(`  value at risk     ${summary.valueAtRiskCents / 100} KES`);
 console.log(`  alerts            ${alerts.total} open, ${alerts.critical} critical`);
+console.log(`  sync              ${transit.waiting} operations waiting to be carried out · ${transit.batchesApplied} batch taken in (${collected.ok ? collected.ops : 0} operations), ${transit.batchesRefused} refused${refused.ok ? "" : ` (${refused.why.slice(0, 48)}…)`} · ${dayTwo.ops.length} still on the stick in ${batchFolder()}`);
 console.log(`  audit chain       ${chain.ok ? `intact, ${chain.checked} entries` : "BROKEN"}`);
 console.log(``);
 console.log(`Sign in at http://localhost:3200 — password ChangeMe123 for all of them:`);

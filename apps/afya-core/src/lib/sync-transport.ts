@@ -47,7 +47,8 @@
  */
 
 import { createHash } from "node:crypto";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { all, get, audit, now } from "./db.ts";
 import { pendingPush, markPushed, receiveOps, compareOps, type Op, type ApplyOutcome } from "./sync.ts";
 import { activeDevice } from "./facility.ts";
@@ -372,6 +373,10 @@ export function fileTransport(outPath: string, inPath = outPath): Transport {
     name: `file:${outPath}`,
     send(envelope) {
       try {
+        // The folder is a mount point that may not exist yet — a stick plugged
+        // into a machine that has never synced is the normal first case, not an
+        // error to report back to the person holding it.
+        mkdirSync(dirname(outPath), { recursive: true });
         writeFileSync(outPath, `${JSON.stringify(envelope, null, 2)}\n`, "utf8");
         return { ok: true };
       } catch (error) {
@@ -489,4 +494,121 @@ export function transportSummary(facilityId: number): TransportSummary {
     batchesRefused: count("sync_batch_refused"),
     lastRefusal: lastRefusal ? (JSON.parse(lastRefusal.detail || "{}").why ?? null) : null,
   };
+}
+
+// ------------------------------------------------------------- batch folder
+
+/**
+ * Where batches are written and looked for.
+ *
+ * ONE FOLDER, NOT A PATH SOMEBODY TYPES. A screen that takes a filesystem path
+ * from a form is a screen that can be asked to read anything the server user
+ * can read, and the operator gains nothing from the freedom: they plug a stick
+ * in, and the deployment points AFYA_SYNC_DIR at wherever it mounts.
+ */
+export function batchFolder(): string {
+  return process.env.AFYA_SYNC_DIR ?? join(process.cwd(), "data", "sync");
+}
+
+/**
+ * A plain file name and nothing else.
+ *
+ * Checked as a name rather than by resolving it and looking at where it landed,
+ * because a name that has to be resolved before it looks safe is one nobody
+ * should have sent in the first place.
+ */
+const BATCH_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*\.json$/;
+
+export function batchPath(name: string): string {
+  if (!BATCH_NAME.test(name) || name.includes("..")) {
+    throw new TransportError(`${name} is not a batch file name`);
+  }
+  return join(batchFolder(), name);
+}
+
+/**
+ * The name this device's outgoing batch is written under.
+ *
+ * TIMESTAMPED, SO A NEW BATCH NEVER OVERWRITES AN OLDER ONE. One file per
+ * device would be tidier and would lose data: packing marks those operations
+ * pushed, so a second write over a stick that had not been delivered yet
+ * destroys the only copy of the first. A folder that accumulates is somebody
+ * deleting files they have delivered; a folder that overwrites is a morning's
+ * work gone with nothing to recover it from.
+ */
+export function outboundName(deviceCode: string, at = now()): string {
+  return `${outboundPrefix(deviceCode)}${at.replace(/[-:]/g, "").slice(0, 15)}.json`;
+}
+
+/** What every batch this device has written begins with. */
+export function outboundPrefix(deviceCode: string): string {
+  return `outbound-${deviceCode.toUpperCase().replace(/[^A-Z0-9]/g, "")}-`;
+}
+
+export interface BatchFile {
+  name: string;
+  sizeBytes: number;
+  modifiedAt: string;
+  /** Read out of the file itself. Null where it is not a batch at all. */
+  from: string | null;
+  ops: number | null;
+  sentAt: string | null;
+  digest: string | null;
+  /** Why it could not be described, where it could not be. */
+  problem: string | null;
+}
+
+/**
+ * What is sitting in the folder.
+ *
+ * Every file is described, including the ones that cannot be read. A batch that
+ * will not parse is the single most useful thing on this screen — it is a stick
+ * that has gone bad — and leaving it out shows an empty list to somebody
+ * holding a full stick.
+ */
+export function listBatches(): BatchFile[] {
+  let names: string[];
+  try {
+    names = readdirSync(batchFolder());
+  } catch {
+    // No folder yet is "nothing to collect", not a failure: a facility that has
+    // never synced has never made one.
+    return [];
+  }
+
+  return names
+    .filter((name) => BATCH_NAME.test(name))
+    // Newest first: batch names carry the moment they were packed, so this is
+    // chronological, and the one somebody just wrote is the one they are
+    // looking for.
+    .sort((a, b) => (a < b ? 1 : a > b ? -1 : 0))
+    .map((name): BatchFile => {
+      const path = join(batchFolder(), name);
+      const stat = statSync(path);
+      const base = {
+        name,
+        sizeBytes: stat.size,
+        modifiedAt: new Date(stat.mtimeMs).toISOString(),
+        from: null,
+        ops: null,
+        sentAt: null,
+        digest: null,
+        problem: null as string | null,
+      };
+      try {
+        const parsed = JSON.parse(readFileSync(path, "utf8")) as Envelope;
+        if (typeof parsed?.version !== "number" || !Array.isArray(parsed.ops)) {
+          return { ...base, problem: "that file is not a batch" };
+        }
+        return {
+          ...base,
+          from: parsed.from ?? null,
+          ops: parsed.ops.length,
+          sentAt: parsed.sentAt ?? null,
+          digest: parsed.digest ?? null,
+        };
+      } catch {
+        return { ...base, problem: "that file could not be read" };
+      }
+    });
 }
