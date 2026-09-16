@@ -2223,6 +2223,7 @@ const pick = <T,>(items: readonly T[]): T => items[Math.floor(nextRandom() * ite
 
 let historyEncounters = 0;
 let historyCoded = 0;
+let historyInvoice = 1000;
 
 const todayDay = Number(today().slice(8, 10));
 
@@ -2274,6 +2275,31 @@ for (let monthsBack = 5; monthsBack >= 0; monthsBack--) {
       plan: "Treated and sent home",
       authorId: clinicianId, authorName: DOC.byUserName, deviceCode: CONS,
     });
+
+    // A consultation raises its charge. Without this the leakage report is
+    // right to shout: two hundred consultations nobody billed for is exactly
+    // the thing it exists to find, and it would be an artefact of the seed
+    // rather than anything a facility did.
+    addCharge({
+      encounterId: enc, serviceCode: "CONSULT-OP", payerCode: "CASH",
+      // The reference is what the leakage report matches on. Without it the
+      // charge exists and the report still says the consultation was not
+      // billed, which is the report being right about a key rather than wrong
+      // about the money.
+      sourceKind: "consultation", sourceRef: enc,
+      deviceCode: CONS, ...DESK,
+    });
+    const invoice = issueInvoice({ encounterId: enc, payerCode: "CASH", deviceCode: CONS, ...DESK });
+
+    // Most people pay at the desk; some leave owing, which is what a debtors
+    // report is for.
+    if (nextRandom() < 0.85) {
+      recordPayment({
+        invoiceId: invoice, method: nextRandom() < 0.6 ? "mpesa" : "cash",
+        amountCents: 50_000, deviceCode: CONS, ...DESK,
+      });
+    }
+
     if (codes) {
       closeEncounter({ encounterId: enc, byUserId: clinicianId, byUserName: DOC.byUserName, deviceCode: CONS });
     }
@@ -2284,9 +2310,29 @@ for (let monthsBack = 5; monthsBack >= 0; monthsBack--) {
       when, when, enc,
     );
     run(`UPDATE patients SET created_at = ? WHERE mrn = ?`, when, mrn);
+    // The money moves with the visit, or today's takings would include six
+    // months of it.
+    run(`UPDATE charges SET created_at = ? WHERE encounter_id = ?`, when, enc);
+    run(`UPDATE invoices SET issued_at = ? WHERE encounter_id = ?`, when, enc);
+    run(
+      `UPDATE payments SET received_at = ? WHERE invoice_id IN (SELECT id FROM invoices WHERE encounter_id = ?)`,
+      when, enc,
+    );
     historyEncounters++;
   }
 }
+
+// Six months of invoices reached KRA at the time, the way they would have —
+// except the last three, which stay queued so the backlog indicator keeps
+// showing its real state rather than a permanent zero.
+const stillQueued =
+  get<{ n: number }>(`SELECT COUNT(*) AS n FROM etims_queue WHERE status = 'queued'`)?.n ?? 0;
+let historySent = 0;
+flushEtims(() =>
+  ++historySent <= stillQueued - 3
+    ? { ok: true, canonicalNumber: `KRA-INV-${String(++historyInvoice).padStart(6, "0")}` }
+    : { ok: false, error: "KRA gateway timeout" },
+);
 
 // ===================================================================== estate
 //
