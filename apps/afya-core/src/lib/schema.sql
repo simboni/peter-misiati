@@ -3107,3 +3107,81 @@ CREATE TABLE IF NOT EXISTS analyser_qc (
   created_at    TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_analyser_qc ON analyser_qc(analyser_code, run_at);
+
+-- =============================================== M73 Patient Portal (SMS/USSD)
+--
+-- Most patients at a Level 2 clinic in Nairobi have a feature phone, and data
+-- costs money they would rather spend on something else. A portal that needs a
+-- smartphone and a browser serves the patients who need it least, so what is
+-- modelled here is content short enough to be a text message, reached with a
+-- code sent to the phone already on the record.
+
+CREATE TABLE IF NOT EXISTS portal_accounts (
+  patient_mrn   TEXT PRIMARY KEY REFERENCES patients(mrn),
+  -- Normalised the same way the patient index normalises it, so the number the
+  -- clinic already has is the number that works.
+  phone         TEXT NOT NULL,
+  channel       TEXT NOT NULL DEFAULT 'sms' CHECK (channel IN ('sms','ussd','web')),
+  status        TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','suspended','revoked')),
+  -- Preferred language for what is sent. English and Kiswahili are what a
+  -- Nairobi clinic needs first.
+  language      TEXT NOT NULL DEFAULT 'en' CHECK (language IN ('en','sw')),
+  enrolled_at   TEXT NOT NULL,
+  enrolled_by   INTEGER REFERENCES users(id),
+  enroller_name TEXT NOT NULL,
+  revoked_at    TEXT,
+  revoked_reason TEXT NOT NULL DEFAULT '',
+  last_seen_at  TEXT,
+  created_at    TEXT NOT NULL
+);
+
+-- One-time codes. Never stored in the clear: a table of live codes is a table
+-- that opens every patient record in the clinic if it is ever copied.
+CREATE TABLE IF NOT EXISTS portal_codes (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  patient_mrn   TEXT NOT NULL REFERENCES patients(mrn),
+  code_hash     TEXT NOT NULL,
+  sent_to       TEXT NOT NULL,
+  issued_at     TEXT NOT NULL,
+  expires_at    TEXT NOT NULL,
+  attempts      INTEGER NOT NULL DEFAULT 0,
+  used_at       TEXT,
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_portal_code ON portal_codes(patient_mrn, expires_at);
+
+-- Somebody else reading a patient's record with permission: a mother for a
+-- small child, a son for an elderly parent. Time-limited and revocable, and
+-- never open-ended.
+CREATE TABLE IF NOT EXISTS portal_proxies (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  patient_mrn   TEXT NOT NULL REFERENCES patients(mrn),
+  proxy_name    TEXT NOT NULL,
+  proxy_phone   TEXT NOT NULL,
+  proxy_id_no   TEXT NOT NULL DEFAULT '',
+  relationship  TEXT NOT NULL,
+  granted_until TEXT NOT NULL,
+  granted_at    TEXT NOT NULL,
+  granted_by    INTEGER REFERENCES users(id),
+  granter_name  TEXT NOT NULL,
+  revoked_at    TEXT,
+  revoked_reason TEXT NOT NULL DEFAULT '',
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_portal_proxy ON portal_proxies(patient_mrn, revoked_at);
+
+-- What the patient was actually shown, and when. The audit log records the
+-- read; this is the part the patient can be shown about their own record, which
+-- is a different thing and a right under the Act.
+CREATE TABLE IF NOT EXISTS portal_views (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  patient_mrn   TEXT NOT NULL REFERENCES patients(mrn),
+  section       TEXT NOT NULL,
+  by_proxy      INTEGER NOT NULL DEFAULT 0,
+  proxy_name    TEXT NOT NULL DEFAULT '',
+  items         INTEGER NOT NULL DEFAULT 0,
+  withheld      INTEGER NOT NULL DEFAULT 0,
+  viewed_at     TEXT NOT NULL,
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_portal_view ON portal_views(patient_mrn, viewed_at);

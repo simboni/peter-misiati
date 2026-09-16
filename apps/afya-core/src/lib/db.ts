@@ -185,7 +185,7 @@ export interface AuditEntry {
   /** Set whenever the entry concerns an identifiable patient — reads included. */
   patientId?: string | null;
   /** Why the data was touched. Defaults to treatment. */
-  purpose?: "treatment" | "billing" | "claim" | "audit" | "support" | "administration";
+  purpose?: "treatment" | "billing" | "claim" | "audit" | "support" | "administration" | "patient_access";
   actorId?: number | null;
   actorName?: string;
   facilityId?: number | null;

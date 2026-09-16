@@ -287,6 +287,9 @@ export function seedRevenueCycle(): void {
     { code: "LAB-MRDT", name: "Malaria rapid diagnostic test", category: "laboratory", etims: "SRV-LAB" },
     { code: "LAB-CBC", name: "Full haemogram", category: "laboratory", etims: "SRV-LAB" },
     { code: "LAB-URIN", name: "Urinalysis", category: "laboratory", etims: "SRV-LAB" },
+    // HTS is routine at this level, and the result is one this system will not
+    // put in a text message. It is here so that rule can be demonstrated.
+    { code: "LAB-HIV", name: "HIV test (HTS)", category: "laboratory", etims: "SRV-LAB" },
     { code: "IMG-CXR", name: "Chest X-ray", category: "imaging", etims: "SRV-IMG" },
     { code: "IMG-XRAY", name: "Plain X-ray, other region", category: "imaging", etims: "SRV-IMG" },
     { code: "IMG-USS-ABD", name: "Ultrasound, abdomen", category: "imaging", etims: "SRV-IMG" },
@@ -310,7 +313,7 @@ export function seedRevenueCycle(): void {
   // Cash prices, in cents.
   const cash: [string, number][] = [
     ["CONSULT-OP", 50_000], ["CONSULT-REV", 30_000], ["BED-DAY", 250_000],
-    ["LAB-MRDT", 20_000], ["LAB-CBC", 60_000], ["LAB-URIN", 25_000],
+    ["LAB-MRDT", 20_000], ["LAB-CBC", 60_000], ["LAB-URIN", 25_000], ["LAB-HIV", 0],
     ["IMG-CXR", 120_000], ["IMG-XRAY", 100_000], ["IMG-USS-ABD", 200_000], ["IMG-USS-OBS", 180_000],
     ["PROC-SUTURE", 150_000], ["PROC-NEB", 80_000],
     ["AL-20-120", 35_000], ["PARA-500", 5_00], ["AMOX-500", 12_00], ["AMOX-125S", 25_000],

@@ -747,26 +747,68 @@ rules below are about numbers this module refuses to print.
    whom — because that decides whether the suppression rules above are a
    nicety or a legal requirement.
 
-## 21. Public health
+## 21. Patient portal
+
+Most patients at a Level 2 clinic in Nairobi carry a feature phone, and data
+costs money they would rather spend on something else. A portal that needs a
+smartphone and a browser serves the patients who need it least. The rules below
+are almost all about what does *not* reach a phone.
 
 | # | Rule | Where | Source | Status |
 |---|---|---|---|---|
-| 21.1 | Notifiable conditions are detected from coded diagnoses as they are made, because the Act's clock runs from diagnosis | `reporting.ts` | Public Health Act | ✅ |
-| 21.2 | **The notifiable list is four conditions** — malaria, tuberculosis, cholera, measles. The full schedule must be loaded | `reporting.ts` `NOTIFIABLE_PREFIXES` | — | 🔴 |
-| 21.3 | Reporting one requires the county's reference — it is the proof it was made | `reporting.ts` | Design rule | ✅ |
-| 21.4 | MOH 705A is under five, 705B is five and over, split by age **on the day of the visit** | `reporting.ts` | MOH forms | ✅ |
-| 21.5 | A condition is counted whichever code in its ICD-11 family the clinician used | `reporting.ts` `MOH705_CONDITIONS` | Design rule | ⚠️ |
-| 21.6 | **The 705 condition list is six conditions.** The real form has many more rows | `reporting.ts` | — | 🔴 |
+| 21.1 | **A result reaches a patient after a clinician has seen it, never before.** A panic potassium arriving on somebody's phone at 9pm with nobody to ask is not transparency, it is harm. Visibility follows the acknowledgement state this system already tracks and already chases | `portal.ts` `viewFor` | Design rule | ✅ |
+| 21.2 | **Some findings are never put in a message.** HIV, viral load, CD4, tuberculosis and pregnancy testing, plus anything flagged panic. The finding waits for a person | `portal.ts` `WITHHELD_ANALYTES` | Judgement | 🔴 |
+| 21.3 | **Which findings belong on that list is a clinician's judgement, not a rule anybody has written down.** The list here is this system's own and must be confirmed — and a facility may well want more on it, or fewer | `portal.ts` `WITHHELD_ANALYTES` | Judgement | 🔴 |
+| 21.4 | **The patient is always told that something exists.** Withholding the finding is protective; hiding that there is a result at all would be its own harm, and would be discovered | `portal.ts` `viewFor` | Design rule | ✅ |
+| 21.5 | **A teenager's record is not their parent's.** Proxy access needs the patient's own agreement from 18, and from 12 their results are shown only to them. A girl who cannot get tested without her mother reading the result does not get tested | `portal.ts` `withholdReason`, `grantProxy` | Judgement | 🔴 |
+| 21.6 | **The adolescent age of 12 is this system's line and needs national guidance behind it.** Kenya's adolescent-confidentiality position for sensitive services is a policy question, not a programming one | `portal.ts` | — | 🔴 |
+| 21.7 | A proxy grant is time-limited, revocable, and records who, on what number, and how they are related | `portal.ts` `grantProxy` | DPA 2019 | ✅ |
+| 21.8 | A code goes to the number already on the record, never one offered at the moment of asking. A portal that texts a code to whatever number is given hands records to whoever asks | `portal.ts` `sendCode` | Design rule | ✅ |
+| 21.9 | A code is stored as a digest, lives ten minutes and dies after three wrong tries. A table of live codes opens every record in the clinic if it is ever copied | `portal.ts` `hashCode`, `checkCode` | Design rule | ✅ |
+| 21.10 | The code is returned to the screen **only** while the gateway is simulated, so a demonstration can be given without a phone. A live gateway never hands it back | `portal.ts` `sendCode` | Design rule | ✅ |
+| 21.11 | A patient reading their own record is audited with a purpose of its own rather than as treatment, and the patient can be shown that log — their right under the Act | `portal.ts` `viewFor`, `viewHistory` | DPA 2019 | ✅ |
+| 21.12 | The message body never reaches the audit log: it carries clinical content and the log is read by people with no business seeing it | `portal.ts` `sendSummary` | Design rule | ✅ |
+| 21.13 | A message is kept inside 320 characters — two SMS segments. One that runs to five costs five times as much and gets read as often as one | `portal.ts` `asMessage` | Practice | ⚠️ |
+| 21.14 | **The Kiswahili is written, not translated at runtime**, and needs a native speaker's eye before go-live. Clinical wording in a second language is not a string-replacement problem | `portal.ts` `asMessage` | — | 🔴 |
+| 21.15 | A patient sees; a patient does not edit. Nothing here writes clinical content, and the one thing they can change is whether they want the portal at all | `portal.ts` | Design rule | ✅ |
+| 21.16 | A balance the payer settles is never put in a patient's message — only what they owe themselves | `portal.ts` `viewFor` | Design rule | ✅ |
+| 21.17 | **No SMS is actually sent and no USSD session is served.** Messages go through the integration hub's SMS endpoint, in demo mode until a facility contracts a licensed Kenyan aggregator, and every screen says so | `integration.ts` | — | 🔴 |
+| 21.18 | **No appointment booking, no repeat-prescription request, no message back.** The portal is read-only in both directions: a patient cannot ask for anything through it | — | — | 🔴 |
+| 21.19 | **A shared phone is not modelled.** One number often reaches a household, and the withholding rules are the only protection against that — which is part of why they are as strict as they are | — | — | 🔴 |
 
-## 22. Revenue (for the claims specialist, not the clinician)
+### What to ask a clinician and the facility, in order
+
+1. **The withheld list** (21.2, 21.3). Which findings must never be in a text
+   message. This is the single decision the module turns on and it is a
+   clinician's, not an engineer's.
+2. **Adolescent confidentiality** (21.5, 21.6). What age, for which services,
+   under what national guidance. The system's current line is defensible and
+   unsourced.
+3. **Shared phones** (21.19). How common it is among this facility's patients,
+   and whether the withholding rules are enough on their own.
+4. **An aggregator** (21.17). A licensed Kenyan SMS provider, a sender ID, and
+   what a message costs — because the cost is what decides how often one is sent.
+
+## 22. Public health
 
 | # | Rule | Where | Source | Status |
 |---|---|---|---|---|
-| 22.1 | Nine scrubber gates, each mapped to a documented SHA rejection cause | `claims.ts` `scrub` | SHA published causes | ⚠️ |
-| 22.2 | **The gates are inferred from documented causes, not from 50 real rejected claims.** The roadmap says to build them from a real corpus and that is still the right next step | — | — | 🔴 |
-| 22.3 | A claim beyond the payer's submission window (SHA: 7 days) escalates rather than blocking, because a late claim still has an appeal path | `claims.ts` | SHA | ⚠️ |
-| 22.4 | Tariffs and benefit rules are **illustrative**. The SHA schedule for the contracting cycle must be loaded | `seed.ts` | — | 🔴 |
-| 22.5 | Money is integer cents throughout, and a price is fixed as of the date of service | `billing.ts` | Design rule | ✅ |
+| 22.1 | Notifiable conditions are detected from coded diagnoses as they are made, because the Act's clock runs from diagnosis | `reporting.ts` | Public Health Act | ✅ |
+| 22.2 | **The notifiable list is four conditions** — malaria, tuberculosis, cholera, measles. The full schedule must be loaded | `reporting.ts` `NOTIFIABLE_PREFIXES` | — | 🔴 |
+| 22.3 | Reporting one requires the county's reference — it is the proof it was made | `reporting.ts` | Design rule | ✅ |
+| 22.4 | MOH 705A is under five, 705B is five and over, split by age **on the day of the visit** | `reporting.ts` | MOH forms | ✅ |
+| 22.5 | A condition is counted whichever code in its ICD-11 family the clinician used | `reporting.ts` `MOH705_CONDITIONS` | Design rule | ⚠️ |
+| 22.6 | **The 705 condition list is six conditions.** The real form has many more rows | `reporting.ts` | — | 🔴 |
+
+## 23. Revenue (for the claims specialist, not the clinician)
+
+| # | Rule | Where | Source | Status |
+|---|---|---|---|---|
+| 23.1 | Nine scrubber gates, each mapped to a documented SHA rejection cause | `claims.ts` `scrub` | SHA published causes | ⚠️ |
+| 23.2 | **The gates are inferred from documented causes, not from 50 real rejected claims.** The roadmap says to build them from a real corpus and that is still the right next step | — | — | 🔴 |
+| 23.3 | A claim beyond the payer's submission window (SHA: 7 days) escalates rather than blocking, because a late claim still has an appeal path | `claims.ts` | SHA | ⚠️ |
+| 23.4 | Tariffs and benefit rules are **illustrative**. The SHA schedule for the contracting cycle must be loaded | `seed.ts` | — | 🔴 |
+| 23.5 | Money is integer cents throughout, and a price is fixed as of the date of service | `billing.ts` | Design rule | ✅ |
 
 ---
 
@@ -865,3 +907,10 @@ Everything marked 🔴, in one list:
 52. A disclosure-control rule the facility can defend, including secondary
     suppression, before any figure leaves the building
 53. Export — what has to leave the dashboard, in what format, and to whom
+54. The list of findings that must never be sent in a text message, confirmed
+    by a clinician
+55. Kenya's adolescent-confidentiality position, replacing this system's own
+    age line for what a proxy may read
+56. A licensed Kenyan SMS aggregator and a sender ID, without which nothing the
+    portal produces ever leaves the building
+57. The Kiswahili patient messages, read by a native speaker

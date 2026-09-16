@@ -17,7 +17,7 @@ import { registerDevice, setOdpcRegistration, getFacility } from "../src/lib/fac
 import { recordLicence, createUser } from "../src/lib/users.ts";
 import { registerPatient } from "../src/lib/patients.ts";
 import { recordConsent, checkIn, recordVitals, setPriority, advanceVisit } from "../src/lib/frontdesk.ts";
-import { openEncounter, addDiagnosis, writeNote, closeEncounter } from "../src/lib/encounters.ts";
+import { openEncounter, openEncounterFor, addDiagnosis, writeNote, closeEncounter } from "../src/lib/encounters.ts";
 import { prescribe, recordAllergy } from "../src/lib/prescribing.ts";
 import { verifyCoverage, type PayerProbe } from "../src/lib/payers.ts";
 import {
@@ -89,6 +89,10 @@ import {
 import {
   receiveMessage as receiveAnalyserMessage, simulateAstm, analyserSummary,
 } from "../src/lib/analysers.ts";
+import {
+  enrol as enrolPortal, revoke as revokePortal, sendCode as sendPortalCode,
+  sendSummary as sendPortalSummary, grantProxy, viewFor as portalViewFor, portalSummary,
+} from "../src/lib/portal.ts";
 import { closeDb, run, get, all as dbAll, verifyAuditChain, today } from "../src/lib/db.ts";
 
 const { facilityId, adminId, clinicianId, receptionistId, pharmacistId, labTechId } = seedDemo();
@@ -2031,6 +2035,73 @@ const postedFromOps = postFromOperations({ facilityId, ...GL });
 
 
 
+
+// ===================================================================== portal
+//
+// Three patients on the portal: one who reads her own results, one whose
+// mother reads a small child's, and one who asked to be taken off it. The
+// interesting one is the third — it takes effect the moment she asks.
+
+const PORTAL = { byUserId: receptionistId, byUserName: "Joseph Otieno" };
+
+const [portalOne, , portalChild, portalOff] = mrns;
+
+// An HIV test, offered and taken at the same consultation, so the withholding
+// rule is visible on the demonstration: she is told a result exists and the
+// finding itself waits for a person.
+const htsEncounter = openEncounterFor(portalOne)?.id ??
+  openEncounter({
+    facilityId, patientMrn: portalOne, kind: "outpatient",
+    clinicianId, clinicianName: DOC.byUserName, deviceCode: CONS,
+  });
+const htsOrder = placeOrder({
+  encounterId: htsEncounter, kind: "lab", serviceCode: "LAB-HIV", payerCode: "CASH",
+  clinicalQuestion: "Provider-initiated testing, offered and accepted",
+  deviceCode: "LAB1", ordererId: clinicianId, ordererName: DOC.byUserName,
+});
+collectSpecimen({
+  orderId: htsOrder, kind: "Capillary blood",
+  collectorId: labTechId, collectorName: "Samuel Mutiso", deviceCode: "LAB1",
+});
+enterResult({
+  orderId: htsOrder, analyte: "HIV", valueText: "Non-reactive",
+  enteredBy: labTechId, enteredByName: "Samuel Mutiso", deviceCode: "LAB1",
+});
+releaseResults({ orderId: htsOrder, releaserId: labTechId, releaserName: "Samuel Mutiso", deviceCode: "LAB1" });
+acknowledgeResult({
+  orderId: htsOrder, byUserId: clinicianId, byUserName: DOC.byUserName,
+  action: "Given in person at the consultation",
+});
+
+enrolPortal({ patientMrn: portalOne, language: "en", ...PORTAL });
+sendPortalCode({ patientMrn: portalOne, ...PORTAL });
+portalViewFor({ patientMrn: portalOne });
+sendPortalSummary({ patientMrn: portalOne, ...PORTAL });
+
+// Faith Chebet is seven. Her mother reads her record, for a year, and that
+// grant can be withdrawn on any day of it.
+enrolPortal({ patientMrn: portalChild, language: "sw", ...PORTAL });
+grantProxy({
+  patientMrn: portalChild,
+  proxyName: "Mercy Chebet",
+  proxyPhone: "0733445566",
+  relationship: "mother",
+  untilDate: inDays(365),
+  ...PORTAL,
+});
+portalViewFor({
+  patientMrn: portalChild,
+  byProxy: { name: "Mercy Chebet", relationship: "mother" },
+});
+
+// Enrolled at registration, and thought better of it the same week.
+enrolPortal({ patientMrn: portalOff, ...PORTAL });
+revokePortal({
+  patientMrn: portalOff,
+  reason: "Shares a phone with her husband and would rather not",
+  ...PORTAL,
+});
+
 // ==================================================================== history
 //
 // Five months of attendances before today, so the dashboard has a shape to
@@ -2428,6 +2499,7 @@ console.log(`  programmes        ${count(`SELECT COUNT(*) AS n FROM enrolments W
 console.log(`  HR                ${hrSummary(facilityId).staff} staff · ${hrSummary(facilityId).leaveWaiting} leave waiting · ${hrSummary(facilityId).uncoveredLeave} approved uncovered · ${hrSummary(facilityId).lapsedLicences} lapsed registration`);
 console.log(`  payroll           ${payrollSummary(facilityId).employees} staff · gross ${Math.round(payrollSummary(facilityId).monthlyGrossCents / 100)} KES · statutory ${Math.round(statutoryReturn(payrollRun.runId).totalRemittableCents / 100)} KES to remit${payrollRun.cappedEmployees ? ` · ${payrollRun.cappedEmployees} capped` : ""}`);
 console.log(`  estate            ${assetSummary(facilityId).assets} assets · ${assetSummary(facilityId).blockingOverdue} blocked by an overdue check · ${assetSummary(facilityId).criticalDown} critical down · fridge excursion quarantined ${excursion.quarantined} batches · depreciation ${Math.round(depreciation.amountCents / 100)} KES`);
+console.log(`  portal            ${portalSummary(facilityId).enrolled} enrolled · ${portalSummary(facilityId).revoked} revoked on request · ${portalSummary(facilityId).proxies} proxy · ${portalSummary(facilityId).withheldThisMonth} findings held back for a person · gateway ${portalSummary(facilityId).gatewayLive ? "live" : "demo, so nothing was sent"}`);
 console.log(`  history           ${historyEncounters} backdated attendances over six months, ${historyCoded} of them coded — so the dashboard has a trend`);
 console.log(`  analysers         ${analyserSummary(facilityId).filed} readings filed · ${analyserSummary(facilityId).held} held for a person · ${analyserSummary(facilityId).qcRuns} control readings, none of them in a patient record`);
 console.log(`  biometrics        ${biometricSummary(facilityId).enrolled} enrolled · ${biometricSummary(facilityId).exceptions} on an exception · match rate ${biometricSummary(facilityId).matchRatePercent ?? 0}% · ${biometricSummary(facilityId).liveReaders} live readers, so none of it is evidence`);
