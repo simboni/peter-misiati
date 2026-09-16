@@ -579,26 +579,70 @@ clinical, and they are the reason this module is in this document at all.
 4. **Wiring `usable()` into theatre and radiology** (16.23). The rule exists and
    nothing asks it. Until it does, rule 16.1 is a screen rather than a control.
 
-## 17. Public health
+## 17. Mortuary
+
+Almost nothing else in this system is irreversible. This is. A body released to
+the wrong family is buried, and no correction screen exists for that — which is
+why three of the rules below block outright and one deliberately does not.
 
 | # | Rule | Where | Source | Status |
 |---|---|---|---|---|
-| 17.1 | Notifiable conditions are detected from coded diagnoses as they are made, because the Act's clock runs from diagnosis | `reporting.ts` | Public Health Act | ✅ |
-| 17.2 | **The notifiable list is four conditions** — malaria, tuberculosis, cholera, measles. The full schedule must be loaded | `reporting.ts` `NOTIFIABLE_PREFIXES` | — | 🔴 |
-| 17.3 | Reporting one requires the county's reference — it is the proof it was made | `reporting.ts` | Design rule | ✅ |
-| 17.4 | MOH 705A is under five, 705B is five and over, split by age **on the day of the visit** | `reporting.ts` | MOH forms | ✅ |
-| 17.5 | A condition is counted whichever code in its ICD-11 family the clinician used | `reporting.ts` `MOH705_CONDITIONS` | Design rule | ⚠️ |
-| 17.6 | **The 705 condition list is six conditions.** The real form has many more rows | `reporting.ts` | — | 🔴 |
+| 17.1 | **A body is its tag, not its name.** The tag goes on at the door and names are attached to tags afterwards, never the other way round. Two men called John Mwangi arriving on the same night is not a hypothetical, and the mistake it produces is discovered at a graveside | `mortuary.ts` `receiveBody` | Design rule | ✅ |
+| 17.2 | **A body with an unconfirmed identity is not released.** Somebody who knew the person must have viewed it and signed. This blocks, and no role can argue past it | `mortuary.ts` `releaseCheck` | Design rule | ✅ |
+| 17.3 | An identification records who made it, on what identity document, and how they knew the deceased — because if it turns out to be the wrong body, those three facts are the whole investigation | `mortuary.ts` `recordViewing` | Design rule | ✅ |
+| 17.4 | **A medico-legal body is not released without a written police authority.** The body is evidence, and a distressed relative asking is not the authority. A clerk should not be holding that line alone | `mortuary.ts` `releaseCheck` | Practice | ⚠️ |
+| 17.5 | A police case is always recorded as for examination, whatever the intake form said. Saying otherwise takes a named authority and a recorded reason | `mortuary.ts` `receiveBody`, `waivePostmortem` | Practice | ⚠️ |
+| 17.6 | **A required postmortem happens before release**, because it cannot be done after burial | `mortuary.ts` `releaseCheck` | Design rule | ✅ |
+| 17.7 | **A missing death notification escalates rather than blocking.** This is the one requirement here that is administrative rather than irreversible: a family kept from burying their dead because a reference has not come back from the registrar is a family the facility has failed. It goes ahead on a written reason and raises an alert | `mortuary.ts` `release` | Judgement | ⚠️ |
+| 17.8 | **Whether that judgement is right is a facility decision.** A facility that wants the notification to block outright is making a defensible choice, and this is a one-line change rather than a rewrite | `mortuary.ts` `releaseCheck` | Judgement | 🔴 |
+| 17.9 | **An unidentified body is received, not refused.** Refusing it would mean it is recorded nowhere at all. It raises an alert instead — somebody is looking for that person | `mortuary.ts` `receiveBody` | Design rule | ✅ |
+| 17.10 | A bay holds one body. A body recorded in an occupied bay is a body somebody will look for in the wrong drawer | `mortuary.ts` `receiveBody` | Design rule | ✅ |
+| 17.11 | **Receiving a body is the only thing in this system that marks a patient deceased**, which is what stops a clinician opening an encounter on them next week. A facility with no mortuary therefore has no route to that flag at all | `mortuary.ts`, `patients.ts` | Gap | 🔴 |
+| 17.12 | The register per body is append-only — every viewing, examination and release. The register a coroner or a family's advocate asks for is only worth anything if nobody can edit it | `schema.sql` `body_events` | Design rule | ✅ |
+| 17.13 | A tag is never reused. A released body keeps its number for good | `schema.sql` `idx_body_tag` | Practice | ✅ |
+| 17.14 | **Storage is free for 2 days then 500 shillings a day.** Both figures are illustrative and belong in a facility's own configuration, which this module does not have | `mortuary.ts` `FREE_DAYS`, `DAILY_FEE_CENTS` | Judgement | 🔴 |
+| 17.15 | Days are counted whole, from the day of receipt, and a waiver records who and why | `mortuary.ts` `storageFee`, `release` | Convention | ⚠️ |
+| 17.16 | The fee taken posts to the general ledger, idempotently on the body — mortuary income is income | `mortuary.ts` `release`, `accounting.ts` | Design rule | ✅ |
+| 17.17 | **A mortuary fee is not an invoice.** It does not go through billing, is not on a claim, and carries no eTIMS treatment, because an invoice here is bound to a clinical encounter and a body is not an encounter. That is a real gap for a facility whose mortuary is a revenue line | — | — | 🔴 |
+| 17.18 | **The unclaimed horizon is 21 days**, and what happens next — the county, the public health officer, a court order, a pauper's burial — is a statutory process this system does not run. It lists them and stops there | `mortuary.ts` `UNCLAIMED_DAYS` | — | 🔴 |
+| 17.19 | **The cold room's own temperature is not monitored.** A mortuary runs at a different range from a vaccine fridge and the cold chain module holds one global range, so the unit is on the asset register for servicing and nothing watches how cold it is | `assets.ts` `COLD_CHAIN_RANGE` | — | 🔴 |
+| 17.20 | **No embalming record, no body-parts or organ retention register, no viewing-room booking, no transfer-out to another mortuary** | — | — | 🔴 |
 
-## 18. Revenue (for the claims specialist, not the clinician)
+### What to ask a mortuary superintendent and the administrator, in order
+
+1. **Should a missing death notification block?** (17.7, 17.8). The module
+   escalates rather than blocks and says so out loud on every release that used
+   it. A facility that wants it absolute should say so now.
+2. **The fees, and whether they are a billing line** (17.14, 17.17). The figures
+   are illustrative, and the deeper question is whether mortuary income should
+   go through billing, claims and eTIMS like everything else. If it should,
+   billing has to stop assuming an encounter.
+3. **The unclaimed process** (17.18). Twenty-one days is a guess. What a
+   facility actually does with a body nobody claims is a county procedure, and
+   the register should carry its steps rather than ending at a list.
+4. **The cold room temperature** (17.19). Either a per-asset range in the cold
+   chain module, or an honest statement that nobody is watching it.
+
+## 18. Public health
 
 | # | Rule | Where | Source | Status |
 |---|---|---|---|---|
-| 18.1 | Nine scrubber gates, each mapped to a documented SHA rejection cause | `claims.ts` `scrub` | SHA published causes | ⚠️ |
-| 18.2 | **The gates are inferred from documented causes, not from 50 real rejected claims.** The roadmap says to build them from a real corpus and that is still the right next step | — | — | 🔴 |
-| 18.3 | A claim beyond the payer's submission window (SHA: 7 days) escalates rather than blocking, because a late claim still has an appeal path | `claims.ts` | SHA | ⚠️ |
-| 18.4 | Tariffs and benefit rules are **illustrative**. The SHA schedule for the contracting cycle must be loaded | `seed.ts` | — | 🔴 |
-| 18.5 | Money is integer cents throughout, and a price is fixed as of the date of service | `billing.ts` | Design rule | ✅ |
+| 18.1 | Notifiable conditions are detected from coded diagnoses as they are made, because the Act's clock runs from diagnosis | `reporting.ts` | Public Health Act | ✅ |
+| 18.2 | **The notifiable list is four conditions** — malaria, tuberculosis, cholera, measles. The full schedule must be loaded | `reporting.ts` `NOTIFIABLE_PREFIXES` | — | 🔴 |
+| 18.3 | Reporting one requires the county's reference — it is the proof it was made | `reporting.ts` | Design rule | ✅ |
+| 18.4 | MOH 705A is under five, 705B is five and over, split by age **on the day of the visit** | `reporting.ts` | MOH forms | ✅ |
+| 18.5 | A condition is counted whichever code in its ICD-11 family the clinician used | `reporting.ts` `MOH705_CONDITIONS` | Design rule | ⚠️ |
+| 18.6 | **The 705 condition list is six conditions.** The real form has many more rows | `reporting.ts` | — | 🔴 |
+
+## 19. Revenue (for the claims specialist, not the clinician)
+
+| # | Rule | Where | Source | Status |
+|---|---|---|---|---|
+| 19.1 | Nine scrubber gates, each mapped to a documented SHA rejection cause | `claims.ts` `scrub` | SHA published causes | ⚠️ |
+| 19.2 | **The gates are inferred from documented causes, not from 50 real rejected claims.** The roadmap says to build them from a real corpus and that is still the right next step | — | — | 🔴 |
+| 19.3 | A claim beyond the payer's submission window (SHA: 7 days) escalates rather than blocking, because a late claim still has an appeal path | `claims.ts` | SHA | ⚠️ |
+| 19.4 | Tariffs and benefit rules are **illustrative**. The SHA schedule for the contracting cycle must be loaded | `seed.ts` | — | 🔴 |
+| 19.5 | Money is integer cents throughout, and a price is fixed as of the date of service | `billing.ts` | Design rule | ✅ |
 
 ---
 
@@ -666,3 +710,14 @@ Everything marked 🔴, in one list:
     stops a list rather than merely showing on a screen
 37. Useful lives and a disposal policy, including the KRA wear-and-tear classes
     and, for a public facility, PPADA disposal procedure
+38. Whether a missing death notification should block a release outright, rather
+    than being overridable on a written reason
+39. Mortuary storage fees, and whether mortuary income should go through billing
+    and eTIMS like every other charge — which needs billing to stop assuming a
+    clinical encounter
+40. The county's process for a body nobody claims, which this system lists and
+    does not run
+41. A route to marking a patient deceased that does not go through the mortuary,
+    for a facility that has none
+42. A cold chain range per asset, so a mortuary cold room can be monitored at
+    all

@@ -78,6 +78,8 @@ export type BadgeKey =
   | "assetsBlocked"
   | "assetsDown"
   | "coldChain"
+  | "mortuary"
+  | "mortuaryBlocked"
   | "alerts";
 
 export const NAV: NavSection[] = [
@@ -207,6 +209,8 @@ export const NAV: NavSection[] = [
       { href: "/assets?view=cold", label: "Cold chain", permission: ["report.read"], badge: "coldChain" },
       { href: "/assets?view=register", label: "Asset register", permission: ["report.read"] },
       { href: "/assets?view=value", label: "Value & depreciation", permission: ["facility.configure"] },
+      { href: "/mortuary", label: "Mortuary register", permission: ["patient.read"], badge: "mortuary" },
+      { href: "/mortuary?view=unclaimed", label: "Unclaimed", permission: ["patient.read"], badge: "mortuaryBlocked" },
     ],
   },
   {

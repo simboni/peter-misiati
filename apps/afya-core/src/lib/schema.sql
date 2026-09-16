@@ -2769,3 +2769,112 @@ CREATE TABLE IF NOT EXISTS temperature_readings (
   created_at    TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_temp_asset ON temperature_readings(asset_id, taken_at);
+
+-- ============================================================ M64 Mortuary
+--
+-- The table that matters here is `bodies`, and the column that matters in it
+-- is `tag_no`. A body is identified by its tag, and names are attached to tags
+-- rather than the other way round: two men called John Mwangi arriving on the
+-- same night is not a hypothetical, and the mistake it produces cannot be
+-- undone after the burial.
+
+-- A bay. One body each, because a system that lets two be recorded in the same
+-- drawer is a system that has already lost one of them.
+CREATE TABLE IF NOT EXISTS mortuary_units (
+  code          TEXT PRIMARY KEY,
+  facility_id   INTEGER NOT NULL REFERENCES facilities(id),
+  name          TEXT NOT NULL,
+  -- The fridge itself, on the asset register, so its service schedule and its
+  -- faults live where every other piece of equipment's do.
+  asset_id      TEXT REFERENCES assets(id),
+  bays          INTEGER NOT NULL DEFAULT 1,
+  active        INTEGER NOT NULL DEFAULT 1,
+  created_at    TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS bodies (
+  id            TEXT PRIMARY KEY,
+  facility_id   INTEGER NOT NULL REFERENCES facilities(id),
+  -- Sequential per facility per year, painted on the tag that goes on the body.
+  tag_no        TEXT NOT NULL,
+  -- Present when the deceased was a patient here. Absent for a body brought in
+  -- from outside, which is most of them in a Level 2 clinic.
+  patient_mrn   TEXT REFERENCES patients(mrn),
+  given_name    TEXT NOT NULL DEFAULT '',
+  family_name   TEXT NOT NULL DEFAULT '',
+  sex           TEXT CHECK (sex IN ('female','male','unknown')),
+  age_years     INTEGER,
+  -- confirmed: somebody who knew them has viewed and signed.
+  -- provisional: a name was given at the door and nobody has confirmed it.
+  -- unknown: nobody knows who this is.
+  identity      TEXT NOT NULL DEFAULT 'provisional'
+                CHECK (identity IN ('confirmed','provisional','unknown')),
+  source        TEXT NOT NULL CHECK (source IN ('ward','casualty','theatre','maternity','brought_in','transferred_in')),
+  died_at       TEXT,
+  place_of_death TEXT NOT NULL DEFAULT '',
+  received_at   TEXT NOT NULL,
+  received_by   INTEGER REFERENCES users(id),
+  receiver_name TEXT NOT NULL,
+  unit_code     TEXT REFERENCES mortuary_units(code),
+  -- A death that is a police matter. The body is evidence, and it is not
+  -- released to anybody on the strength of a relative asking.
+  medico_legal  INTEGER NOT NULL DEFAULT 0,
+  police_ob_no  TEXT NOT NULL DEFAULT '',
+  investigating_officer TEXT NOT NULL DEFAULT '',
+  postmortem_required INTEGER NOT NULL DEFAULT 0,
+  postmortem_at TEXT,
+  pathologist   TEXT NOT NULL DEFAULT '',
+  postmortem_findings TEXT NOT NULL DEFAULT '',
+  cause_of_death TEXT NOT NULL DEFAULT '',
+  cause_code    TEXT,
+  certified_by  TEXT NOT NULL DEFAULT '',
+  certified_at  TEXT,
+  -- The reference on the death notification (Cap 149). The family needs it to
+  -- get a burial permit, and a facility that cannot produce it has made the
+  -- next fortnight of somebody's grief much worse.
+  notification_ref TEXT NOT NULL DEFAULT '',
+  status        TEXT NOT NULL DEFAULT 'in_store'
+                CHECK (status IN ('in_store','released','transferred_out','disposed')),
+  released_at   TEXT,
+  released_to_name TEXT NOT NULL DEFAULT '',
+  released_to_id TEXT NOT NULL DEFAULT '',
+  released_to_relationship TEXT NOT NULL DEFAULT '',
+  release_authority TEXT NOT NULL DEFAULT '',
+  released_by   INTEGER REFERENCES users(id),
+  releaser_name TEXT NOT NULL DEFAULT '',
+  -- Set when a release went ahead without a notification reference. It is
+  -- allowed, and it is never silent.
+  release_override TEXT NOT NULL DEFAULT '',
+  fee_cents     INTEGER NOT NULL DEFAULT 0,
+  waived_cents  INTEGER NOT NULL DEFAULT 0,
+  waiver_reason TEXT NOT NULL DEFAULT '',
+  paid_cents    INTEGER NOT NULL DEFAULT 0,
+  device_code   TEXT,
+  created_at    TEXT NOT NULL
+);
+-- The tag is unique per facility, and a released body keeps its tag: a tag
+-- number is a permanent reference to one body, not a reusable slot.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_body_tag ON bodies(facility_id, tag_no);
+CREATE INDEX IF NOT EXISTS idx_body_status ON bodies(facility_id, status, received_at);
+-- One body per bay, and only while it is in store.
+CREATE INDEX IF NOT EXISTS idx_body_unit ON bodies(unit_code, status);
+
+-- Everything that happened to a body, in order. A viewing, a postmortem, an
+-- embalming, a release. Append-only: the register a coroner or a family's
+-- advocate asks for is the one nobody could edit.
+CREATE TABLE IF NOT EXISTS body_events (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  body_id       TEXT NOT NULL REFERENCES bodies(id),
+  kind          TEXT NOT NULL,
+  detail        TEXT NOT NULL DEFAULT '',
+  -- Who was present and who they said they were. On a viewing this is the
+  -- identification itself.
+  person_name   TEXT NOT NULL DEFAULT '',
+  person_id     TEXT NOT NULL DEFAULT '',
+  relationship  TEXT NOT NULL DEFAULT '',
+  happened_at   TEXT NOT NULL,
+  recorded_by   INTEGER REFERENCES users(id),
+  recorder_name TEXT NOT NULL,
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_body_event ON body_events(body_id, happened_at);

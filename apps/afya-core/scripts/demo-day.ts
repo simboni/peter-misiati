@@ -78,6 +78,10 @@ import {
   assetByTag, scheduleMaintenance, recordMaintenance, reportFault, closeWorkOrder,
   recordTemperature, postDepreciation, assetSummary, schedulesFor,
 } from "../src/lib/assets.ts";
+import {
+  receiveBody, recordViewing, recordPostmortem, recordNotification, release,
+  mortuarySummary, storageFee, getBody,
+} from "../src/lib/mortuary.ts";
 import { closeDb, run, get, all as dbAll, verifyAuditChain, today } from "../src/lib/db.ts";
 
 const { facilityId, adminId, clinicianId, receptionistId, pharmacistId, labTechId } = seedDemo();
@@ -2116,6 +2120,84 @@ const excursion = recordTemperature({
 // A month of depreciation, posted into the same ledger as everything else.
 const depreciation = postDepreciation({ facilityId, period: today().slice(0, 7), ...ESTATE });
 
+
+// =================================================================== mortuary
+//
+// Four bodies, and what is holding each of them up. A Level 2 clinic with a
+// small cold room mostly receives people who died at home, and the question it
+// is asked at the counter all day is when the family can take them.
+
+const MORT = { byUserId: receptionistId, byUserName: "Joseph Otieno" };
+const MORT_DEV = { ...MORT, deviceCode: "REC1" };
+
+// An elderly woman who died at home. Registered so the family can be given the
+// notification reference in her name, identified by her son, and taken for
+// burial on the third day. The whole path, working.
+const wambuiMrn = registerPatient({
+  facilityId, givenName: "Josephine", familyName: "Wambui", sex: "female",
+  dateOfBirth: "1948-02-11", county: "Nairobi", subCounty: "Embakasi",
+  deviceCode: "REC1", ...MORT,
+});
+const wambui = receiveBody({
+  facilityId, patientMrn: wambuiMrn, source: "brought_in",
+  diedAt: `${inDays(-3)}T04:20:00.000Z`, placeOfDeath: "At home, Kayole",
+  receivedAt: `${inDays(-3)}T09:15:00.000Z`, unitCode: "MORT-A",
+  causeOfDeath: "Congestive cardiac failure", certifiedBy: "Dr. Achieng Wanjiru",
+  ...MORT_DEV,
+});
+recordViewing({
+  bodyId: wambui.bodyId, personName: "Stephen Kariuki", personId: "24558104",
+  relationship: "son", identified: true, ...MORT,
+});
+recordNotification({ bodyId: wambui.bodyId, reference: "DN/2026/00311", ...MORT });
+release({
+  bodyId: wambui.bodyId, toName: "Stephen Kariuki", toIdNumber: "24558104",
+  relationship: "son", releasedAt: `${today()}T08:00:00.000Z`, ...MORT,
+});
+
+// A police case. Identified, examined, and still here — because the release
+// order has not come from the station, and no relative asking changes that.
+const ochieng = receiveBody({
+  facilityId, givenName: "Samuel", familyName: "Ochieng", sex: "male", ageYears: 34,
+  source: "casualty", placeOfDeath: "Outer Ring Road, road traffic collision",
+  receivedAt: `${inDays(-6)}T23:40:00.000Z`, unitCode: "MORT-A",
+  medicoLegal: true, policeObNo: "OB/47/2026",
+  investigatingOfficer: "Cpl. Wafula, Buruburu Police Station",
+  ...MORT_DEV,
+});
+recordViewing({
+  bodyId: ochieng.bodyId, personName: "Beatrice Ochieng", personId: "31004872",
+  relationship: "wife", identified: true, ...MORT,
+});
+recordPostmortem({
+  bodyId: ochieng.bodyId, pathologist: "Dr. N. Njoroge, Government Pathologist",
+  findings: "Severe head and chest injuries consistent with a road traffic collision",
+  causeOfDeath: "Multiple injuries", doneAt: `${inDays(-2)}T11:00:00.000Z`, ...MORT,
+});
+recordNotification({ bodyId: ochieng.bodyId, reference: "DN/2026/00318", ...MORT });
+
+// Brought in unidentified. Two people have viewed and neither knew him.
+const unidentifiedBody = receiveBody({
+  facilityId, source: "brought_in", placeOfDeath: "Found at the bus stage",
+  receivedAt: `${inDays(-9)}T06:30:00.000Z`, unitCode: "MORT-B", ...MORT_DEV,
+});
+recordViewing({
+  bodyId: unidentifiedBody.bodyId, personName: "Peter Mwangi", personId: "", relationship: "",
+  identified: false, note: "Not his brother", ...MORT,
+});
+
+// Identified three weeks ago and nobody has come back. The fee has run on, and
+// what a facility does next is a county matter this system does not run.
+const unclaimedBody = receiveBody({
+  facilityId, givenName: "Daniel", familyName: "Kiprotich", sex: "male", ageYears: 52,
+  source: "brought_in", placeOfDeath: "At home, Umoja",
+  receivedAt: `${inDays(-26)}T14:05:00.000Z`, unitCode: "MORT-B", ...MORT_DEV,
+});
+recordViewing({
+  bodyId: unclaimedBody.bodyId, personName: "Ruth Chepkoech", personId: "19882340",
+  relationship: "neighbour", identified: true, ...MORT,
+});
+
 const summary = claimsSummary();
 const chain = verifyAuditChain();
 const facility = getFacility(facilityId)!;
@@ -2128,7 +2210,7 @@ const alerts = countOpen(facilityId);
 
 console.log(`Demo day loaded for ${facility.name} (KMHFL ${facility.kmhfl_code}).`);
 console.log(``);
-console.log(`  patients          ${PEOPLE.length}`);
+console.log(`  patients          ${count(`SELECT COUNT(*) AS n FROM patients WHERE merged_into IS NULL`)}`);
 console.log(`  in the queue      ${waiting.length}`);
 console.log(`  dispensed         ${count(`SELECT COUNT(*) AS n FROM dispenses`)} · stock on the shelf ${Math.round(stock.valueCents / 100)} KES`);
 console.log(`  lab orders        ${count(`SELECT COUNT(*) AS n FROM orders`)} · ${count(`SELECT COUNT(*) AS n FROM lab_results WHERE released_at IS NOT NULL`)} results released`);
@@ -2138,6 +2220,7 @@ console.log(`  programmes        ${count(`SELECT COUNT(*) AS n FROM enrolments W
 console.log(`  HR                ${hrSummary(facilityId).staff} staff · ${hrSummary(facilityId).leaveWaiting} leave waiting · ${hrSummary(facilityId).uncoveredLeave} approved uncovered · ${hrSummary(facilityId).lapsedLicences} lapsed registration`);
 console.log(`  payroll           ${payrollSummary(facilityId).employees} staff · gross ${Math.round(payrollSummary(facilityId).monthlyGrossCents / 100)} KES · statutory ${Math.round(statutoryReturn(payrollRun.runId).totalRemittableCents / 100)} KES to remit${payrollRun.cappedEmployees ? ` · ${payrollRun.cappedEmployees} capped` : ""}`);
 console.log(`  estate            ${assetSummary(facilityId).assets} assets · ${assetSummary(facilityId).blockingOverdue} blocked by an overdue check · ${assetSummary(facilityId).criticalDown} critical down · fridge excursion quarantined ${excursion.quarantined} batches · depreciation ${Math.round(depreciation.amountCents / 100)} KES`);
+console.log(`  mortuary          ${mortuarySummary(facilityId).inStore} in store of ${mortuarySummary(facilityId).bays} bays · ${mortuarySummary(facilityId).blocked} not releasable · ${mortuarySummary(facilityId).unclaimed} unclaimed · longest ${mortuarySummary(facilityId).longestDays} days · ${Math.round(mortuarySummary(facilityId).accruedFeeCents / 100)} KES accrued`);
 console.log(`  ledger            ${ledgerSummary(facilityId).journals} journals · trial balance ${ledgerSummary(facilityId).trialBalanceDifferenceCents === 0 ? "balanced" : "OUT"} · ${reconcileLedger(facilityId).agrees ? "agrees with the till" : "DISAGREES with the till"}`);
 console.log(`  procurement       ${procurementSummary(facilityId).openOrders} orders open · ${procurementSummary(facilityId).queriedInvoices} invoice queried · ${Math.round(procurementSummary(facilityId).varianceCents / 100)} KES overcharged, caught`);
 console.log(`  radiology         ${radiologySummary().studies} studies · ${radiologySummary().blocked} blocked · ${radiologySummary().totalDoseMsv} mSv delivered · ${radiologySummary().criticalUncommunicated} critical untold`);

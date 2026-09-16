@@ -24,6 +24,7 @@ import { ledgerSummary } from "@/lib/accounting.ts";
 import { payrollSummary } from "@/lib/payroll.ts";
 import { hrSummary } from "@/lib/hr.ts";
 import { assetSummary } from "@/lib/assets.ts";
+import { mortuarySummary } from "@/lib/mortuary.ts";
 import { signOutAction } from "@/app/actions/session.ts";
 import { navFor, sectionFor, type BadgeKey } from "./nav.ts";
 import type { CurrentUser } from "@/lib/auth.ts";
@@ -71,6 +72,7 @@ function counts(facilityId: number): Record<BadgeKey, { text: string; tone: "blo
   const pay = payrollSummary(facilityId);
   const people = hrSummary(facilityId);
   const estate = assetSummary(facilityId);
+  const mortuary = mortuarySummary(facilityId);
   const waiting = queue(facilityId);
 
   const n = (
@@ -139,6 +141,12 @@ function counts(facilityId: number): Record<BadgeKey, { text: string; tone: "blo
     assetsDown: n(estate.openFaults, estate.criticalDown > 0 ? "block" : "clock"),
     // Out of range is red, unread since yesterday is amber: a fridge nobody is
     // watching is a different problem from a fridge that has already failed.
+    mortuary: n(mortuary.inStore, mortuary.free === 0 ? "block" : "quiet"),
+    // A body nobody has come for, or one that cannot be released, is the thing
+    // an attendant is asked about at the counter.
+    mortuaryBlocked: mortuary.unclaimed > 0
+      ? { text: String(mortuary.unclaimed), tone: "block" as const }
+      : n(mortuary.blocked, "clock"),
     coldChain: estate.coldChainOutOfRange > 0
       ? { text: String(estate.coldChainOutOfRange), tone: "block" as const }
       : n(estate.coldChainUnread, "clock"),

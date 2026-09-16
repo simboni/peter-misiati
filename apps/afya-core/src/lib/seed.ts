@@ -36,6 +36,7 @@ import { seedChartOfAccounts } from "./accounting.ts";
 import { seedStatutoryRates } from "./payroll.ts";
 import { seedLeaveTypes } from "./hr.ts";
 import { seedAssets } from "./assets.ts";
+import { seedMortuary } from "./mortuary.ts";
 
 /** The councils that license clinical practice in Kenya. */
 export const CADRES: { code: string; name: string; regulator: string; licensed: boolean }[] = [
@@ -680,6 +681,9 @@ export function seedDemo(): {
   // theatre and a casualty depend on. Seeded last because a cold chain asset
   // has to point at a store that already exists.
   seedAssets(facilityId, "REC1");
+  // Two small cold rooms. A facility with no mortuary defines no units and the
+  // module simply stays empty.
+  seedMortuary(facilityId);
 
   audit({
     action: "demo_seeded",
