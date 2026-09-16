@@ -3,17 +3,25 @@
 Kenya-compliant hospital management system (HMIS). Built to the plan in
 [`docs/hms/`](../../docs/hms/) at the repository root.
 
-**Current state: the clinical and revenue spine runs end to end.** A patient is
-registered, checked in, triaged, consulted, diagnosed, prescribed for,
-investigated in the laboratory, dispensed to from batch-tracked stock, admitted
-to a bed, billed, invoiced through eTIMS and claimed for — with the scrubber
-checking every claim against nine documented SHA rejection causes before it
-leaves the building, and the monthly MOH returns generated from those same
-transactions rather than re-keyed.
+**Current state: every module on the roadmap is built — 46 of them, 859 tests,
+thirty-five screens.** A patient is registered, checked in, triaged, consulted,
+diagnosed, prescribed for, investigated in the laboratory, dispensed to from
+batch-tracked stock, admitted to a bed, billed, invoiced through eTIMS and
+claimed for — with the scrubber checking every claim against nine documented SHA
+rejection causes before it leaves the building, and the monthly MOH returns
+generated from those same transactions rather than re-keyed. Around that spine
+sit casualty, theatre, maternity, referrals, radiology, the programme registers,
+procurement, the ledger, payroll, HR, the asset register and cold chain, the
+mortuary, biometric identity, the analyser interface, the dashboard, an SMS
+patient portal, telemedicine, and a configuration studio.
 
-What remains before a facility could actually run on this is listed under
-[Not done](#not-done-be-clear-about-this) — read that before showing it to a
-clinic.
+**What is not finished is the sign-off.**
+[`docs/hms/06-clinical-review.md`](../../docs/hms/06-clinical-review.md) lists
+every clinical and regulatory rule the code enforces, with its source, and
+sixty-four items that must be replaced or confirmed before go-live. Most are not
+defects — they are numbers nobody has yet put their name against, which is what
+the configuration studio is for. Read it, and
+[Not done](#not-done-be-clear-about-this), before showing this to a clinic.
 
 ## Running it on a Mac, from nothing
 
@@ -76,7 +84,7 @@ with a secret nobody else has ever seen.
 Stop the server with `Ctrl-C`. To wipe and start over: `rm -rf data && npm run demo`.
 
 ```bash
-npm test         # 327 tests, no network or database server needed
+npm test         # 859 tests, no network or database server needed
 ```
 
 ## Showing it to a client
@@ -168,6 +176,24 @@ tier. `src/lib/db.ts` is the only module that would change.
 | **M13** Scheduling | `src/lib/scheduling.ts` | Slots, bookings, reminders through the hub, booked-against-seen |
 | **M24** Inpatient & Ward | `src/lib/inpatient.ts` | Beds, admissions, NEWS2, the drug chart, bed nights, discharge |
 | **M70 / M71** MOH Returns & KHIS | `src/lib/reporting.ts` | MOH 705A/705B/717 generated from transactions, frozen once sent, pushed to DHIS2 |
+| **M28** Casualty | `src/lib/emergency.ts` | Triage scoring and time targets, the unidentified patient, mass casualty incidents |
+| **M25** Theatre | `src/lib/theatre.ts` | The WHO checklist as a gate rather than a form, swab and instrument counts |
+| **M26 / M27** Maternity & Child Health | `src/lib/maternity.ts` | Antenatal contacts, delivery, the baby's own file, KEPI immunisation |
+| **M29** Referrals | `src/lib/referrals.ts` | Sending a patient on, and the letter that comes back — the loop that usually stays open |
+| **M32** Radiology | `src/lib/radiology.ts` | Justification, the pregnancy question, MRI screening, cumulative dose |
+| **M33** Programme Registers | `src/lib/programmes.ts` | HIV, TB and NCD cohorts, defaulter tracing, retention |
+| **M42** Procurement | `src/lib/procurement.ts` | Requisitions, orders, three-way matching, AGPO, no self-approval |
+| **M61** Accounting | `src/lib/accounting.ts` | Double-entry ledger derived from operations, trial balance, reconciliation |
+| **M62** Payroll | `src/lib/payroll.ts` | PAYE, NSSF, SHIF and the housing levy, in the order the law applies them |
+| **M60** Human Resources | `src/lib/hr.ts` | Leave with licensed cover, contracts, registrations, disciplinary process |
+| **M63** Assets & Maintenance | `src/lib/assets.ts` | The register, blocking safety checks, the cold chain, depreciation |
+| **M64** Mortuary | `src/lib/mortuary.ts` | The part of the system with no undo: identity, authority, release |
+| **M12** Biometric Verification | `src/lib/biometrics.ts` | Fingerprints where they work, and a first-class record of where they do not |
+| **M31** Analyser Interface | `src/lib/analysers.ts` | ASTM and HL7 parsing, code and unit mapping, and what must never be filed |
+| **M72** Analytics | `src/lib/indicators.ts` | Indicators with their definitions attached, and the rates it refuses to print |
+| **M73** Patient Portal | `src/lib/portal.ts` | An SMS portal, and the findings that never reach a phone |
+| **M74** Telemedicine | `src/lib/telemedicine.ts` | A remote consultation on an ordinary encounter, and what cannot be done down a telephone |
+| **M75** Configuration Studio | `src/lib/configuration.ts` | The thresholds a facility owns, and a named person's signature against each |
 | — | `src/lib/totp.ts` | RFC 6238 two-factor codes, checked against the RFC's own test vectors |
 | — | `src/lib/seed.ts` | Cadres, permissions, roles, ICD-11, formulary, stores, wards, reference ranges |
 

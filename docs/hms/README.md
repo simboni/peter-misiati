@@ -21,22 +21,37 @@ SHA has made a DHA-certified HMIS mandatory for any provider that wants to parti
 | [01 — Market Research](01-market-research.md) | The deadline-driven opportunity, competitor-by-competitor analysis (commercial, open-source, enterprise), pricing, and **ten specific weaknesses (W1–W10)** that become our design targets |
 | [02 — Compliance Matrix](02-compliance-matrix.md) | Every regulator, and the hard requirements — DHA certification, SHA claims, Data Protection Act, KRA eTIMS, PPB, MOH reporting — as engineering requirements with a risk register |
 | [03 — Product Specification](03-product-spec.md) | Design principles, roles, **six process flow diagrams** including the claim scrubber, the full feature catalogue, non-functional targets, and an explicit "will not build" list |
-| [04 — Module Register & Roadmap](04-module-roadmap.md) | **48 modules** across 8 layers, dependency map, a five-phase build plan, the next 10 working days, pricing, team and risks |
+| [04 — Module Register & Roadmap](04-module-roadmap.md) | **46 modules** across 8 layers, dependency map, a five-phase build plan, the next 10 working days, pricing, team and risks |
 | [05 — Architecture](05-architecture.md) | Offline-first system shape, recommended stack, FHIR data spine, sync conflict policy, integration hub, security posture, CI quality gates |
 
 ## Build status
 
-The system is being built in [`apps/afya-core`](../../apps/afya-core/). As of
-15 September 2026, **the clinical and revenue spine runs end to end**: 26
-modules, 327 passing tests, and sixteen screens.
+The system is built in [`apps/afya-core`](../../apps/afya-core/). As of
+16 September 2026, **every module on the roadmap has been built**: 46 modules,
+859 passing tests, and thirty-five screens.
 
 Phase 1 "Claim-Safe Core" is complete — registration, triage, consultation,
 coded diagnosis, prescribing, billing, eTIMS and the nine-gate scrubber, which
 runs live on the consultation screen while the patient is still in the room.
-On top of it now sit the integration hub, notifications, the document store,
+On top of it sit the integration hub, notifications, the document store,
 batch-tracked stock and dispensing, orders and the laboratory, scheduling, the
 inpatient ward, two-factor authentication, and MOH 705A/705B/717 returns
 generated from the transactions rather than re-keyed.
+
+Phases 2 to 5 followed: casualty and mass casualty, theatre with the WHO
+checklist, maternity and child health, referrals that close their loop,
+radiology with dose tracking, the programme registers, procurement, the general
+ledger, payroll against the statutory rates, human resources, the asset
+register and cold chain, the mortuary, biometric identity, the analyser
+interface, the dashboard, the SMS patient portal, telemedicine, and the
+configuration studio.
+
+**The thing that is not finished is the sign-off.**
+[06 — Clinical review](06-clinical-review.md) lists every rule the code
+enforces, with its source, across twenty-five sections — and sixty-four items
+that must be replaced or confirmed before go-live. Most of them are not defects;
+they are numbers nobody has yet put their name against, and the configuration
+studio exists so that a facility can.
 
 `npm run demo` loads a clinic that has been working — patients in the queue,
 medicine dispensed off real batches, a released result, a ward patient two
