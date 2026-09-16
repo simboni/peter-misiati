@@ -2120,3 +2120,183 @@ CREATE TABLE IF NOT EXISTS imaging_reports (
   created_at    TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_report_study ON imaging_reports(study_id, created_at);
+
+-- ============================================================================
+-- M42 Procurement
+--
+-- Requisition, approval, purchase order, goods received note, invoice, and the
+-- three-way match between the last three. The match is the whole module: it is
+-- what makes it impossible to pay for more than was ordered, at more than the
+-- agreed price, for goods nobody can show arrived.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS suppliers (
+  code          TEXT PRIMARY KEY,
+  name          TEXT NOT NULL,
+  -- The KRA PIN. Without it there is no valid tax invoice and no withholding,
+  -- and a supplier with no PIN is a supplier the facility cannot pay lawfully.
+  kra_pin       TEXT,
+  -- Pharmacy and Poisons Board licence. A supplier without a current one must
+  -- not supply medicines, whatever they are selling them for.
+  ppb_licence   TEXT,
+  ppb_expires_on TEXT,
+  -- Access to Government Procurement Opportunities category, where the
+  -- facility is a public entity with a reservation to meet.
+  agpo_category TEXT CHECK (agpo_category IN ('youth','women','pwd','none')),
+  agpo_certificate TEXT,
+  phone         TEXT NOT NULL DEFAULT '',
+  email         TEXT NOT NULL DEFAULT '',
+  -- Set when the facility has stopped buying from them, with why.
+  blocked       INTEGER NOT NULL DEFAULT 0,
+  blocked_reason TEXT NOT NULL DEFAULT '',
+  active        INTEGER NOT NULL DEFAULT 1,
+  created_at    TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS requisitions (
+  id            TEXT PRIMARY KEY,
+  facility_id   INTEGER NOT NULL REFERENCES facilities(id),
+  store_code    TEXT REFERENCES stores(code),
+  reason        TEXT NOT NULL,
+  status        TEXT NOT NULL CHECK (status IN ('raised','approved','rejected','ordered','cancelled')),
+  -- Who raised it, and who approved it. These must be different people: the
+  -- oldest control in procurement and the one that is quietly dropped first.
+  raised_by     INTEGER REFERENCES users(id),
+  raiser_name   TEXT NOT NULL,
+  raised_at     TEXT NOT NULL,
+  approved_by   INTEGER REFERENCES users(id),
+  approver_name TEXT NOT NULL DEFAULT '',
+  approved_at   TEXT,
+  decision_note TEXT NOT NULL DEFAULT '',
+  device_code   TEXT,
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_req_status ON requisitions(facility_id, status);
+
+CREATE TABLE IF NOT EXISTS requisition_lines (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  requisition_id TEXT NOT NULL REFERENCES requisitions(id),
+  product_code  TEXT NOT NULL REFERENCES products(code),
+  product_name  TEXT NOT NULL,
+  quantity      INTEGER NOT NULL,
+  -- What the store had when this was raised. Kept so an approver can see
+  -- whether a requisition was justified without going to look.
+  on_hand_then  INTEGER,
+  note          TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_reqline_req ON requisition_lines(requisition_id);
+
+-- Quotations against a requisition. Three of them is the rule most facilities
+-- work to, and for a public entity it is the law below the tender threshold.
+CREATE TABLE IF NOT EXISTS quotations (
+  id            TEXT PRIMARY KEY,
+  requisition_id TEXT NOT NULL REFERENCES requisitions(id),
+  supplier_code TEXT NOT NULL REFERENCES suppliers(code),
+  total_cents   INTEGER NOT NULL,
+  lead_days     INTEGER,
+  note          TEXT NOT NULL DEFAULT '',
+  -- Set on the one that won, with why. "Cheapest" is a reason; so is "only
+  -- one with stock", and recording which is how a facility defends itself.
+  selected      INTEGER NOT NULL DEFAULT 0,
+  selection_reason TEXT NOT NULL DEFAULT '',
+  received_at   TEXT NOT NULL,
+  recorded_by   INTEGER REFERENCES users(id),
+  recorder_name TEXT NOT NULL,
+  UNIQUE (requisition_id, supplier_code)
+);
+
+CREATE TABLE IF NOT EXISTS purchase_orders (
+  id            TEXT PRIMARY KEY,
+  facility_id   INTEGER NOT NULL REFERENCES facilities(id),
+  requisition_id TEXT REFERENCES requisitions(id),
+  supplier_code TEXT NOT NULL REFERENCES suppliers(code),
+  store_code    TEXT NOT NULL REFERENCES stores(code),
+  reference     TEXT NOT NULL UNIQUE,
+  status        TEXT NOT NULL CHECK (status IN ('issued','part_received','received','closed','cancelled')),
+  expected_on   TEXT,
+  total_cents   INTEGER NOT NULL DEFAULT 0,
+  cancel_reason TEXT NOT NULL DEFAULT '',
+  issued_by     INTEGER REFERENCES users(id),
+  issuer_name   TEXT NOT NULL,
+  issued_at     TEXT NOT NULL,
+  device_code   TEXT,
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_po_status ON purchase_orders(facility_id, status);
+
+CREATE TABLE IF NOT EXISTS purchase_order_lines (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  po_id         TEXT NOT NULL REFERENCES purchase_orders(id),
+  product_code  TEXT NOT NULL REFERENCES products(code),
+  product_name  TEXT NOT NULL,
+  quantity      INTEGER NOT NULL,
+  -- The agreed price. Integer cents, like all money here. Receiving at a
+  -- different price is a variance, never a correction to this.
+  unit_cost_cents INTEGER NOT NULL,
+  UNIQUE (po_id, product_code)
+);
+
+-- The goods received note. What actually arrived, counted at the door.
+CREATE TABLE IF NOT EXISTS goods_received (
+  id            TEXT PRIMARY KEY,
+  po_id         TEXT NOT NULL REFERENCES purchase_orders(id),
+  reference     TEXT NOT NULL,
+  delivery_note TEXT NOT NULL DEFAULT '',
+  received_by   INTEGER REFERENCES users(id),
+  receiver_name TEXT NOT NULL,
+  received_at   TEXT NOT NULL,
+  note          TEXT NOT NULL DEFAULT '',
+  device_code   TEXT,
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_grn_po ON goods_received(po_id);
+
+CREATE TABLE IF NOT EXISTS goods_received_lines (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  grn_id        TEXT NOT NULL REFERENCES goods_received(id),
+  product_code  TEXT NOT NULL REFERENCES products(code),
+  quantity      INTEGER NOT NULL,
+  batch_number  TEXT NOT NULL,
+  expires_on    TEXT NOT NULL,
+  -- The batch this became in the store, so a recall reaches the delivery and
+  -- the delivery reaches the supplier.
+  batch_id      TEXT REFERENCES stock_batches(id),
+  -- Quantity rejected at the door, and why. Short-dated stock refused on the
+  -- day is a supplier problem; accepted, it is the facility's.
+  rejected      INTEGER NOT NULL DEFAULT 0,
+  reject_reason TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_grnline_grn ON goods_received_lines(grn_id);
+
+CREATE TABLE IF NOT EXISTS supplier_invoices (
+  id            TEXT PRIMARY KEY,
+  po_id         TEXT NOT NULL REFERENCES purchase_orders(id),
+  supplier_code TEXT NOT NULL REFERENCES suppliers(code),
+  invoice_no    TEXT NOT NULL,
+  invoice_date  TEXT NOT NULL,
+  total_cents   INTEGER NOT NULL,
+  -- The supplier's own eTIMS control number, where they issue one. Its absence
+  -- is worth seeing: an invoice without one may not be claimable against tax.
+  etims_number  TEXT NOT NULL DEFAULT '',
+  status        TEXT NOT NULL CHECK (status IN ('received','matched','queried','approved','paid','rejected')),
+  query_note    TEXT NOT NULL DEFAULT '',
+  approved_by   INTEGER REFERENCES users(id),
+  approver_name TEXT NOT NULL DEFAULT '',
+  approved_at   TEXT,
+  paid_at       TEXT,
+  payment_ref   TEXT NOT NULL DEFAULT '',
+  recorded_by   INTEGER REFERENCES users(id),
+  recorder_name TEXT NOT NULL,
+  created_at    TEXT NOT NULL,
+  UNIQUE (supplier_code, invoice_no)
+);
+CREATE INDEX IF NOT EXISTS idx_sinv_status ON supplier_invoices(status);
+
+CREATE TABLE IF NOT EXISTS supplier_invoice_lines (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  invoice_id    TEXT NOT NULL REFERENCES supplier_invoices(id),
+  product_code  TEXT NOT NULL REFERENCES products(code),
+  quantity      INTEGER NOT NULL,
+  unit_cost_cents INTEGER NOT NULL,
+  UNIQUE (invoice_id, product_code)
+);

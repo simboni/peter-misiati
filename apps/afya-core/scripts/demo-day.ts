@@ -39,6 +39,11 @@ import {
 } from "../src/lib/maternity.ts";
 import { importRemittance, reconcile, reconciliation } from "../src/lib/remittance.ts";
 import {
+  raiseRequisition, decideRequisition, recordQuotation, selectQuotation,
+  issuePurchaseOrder, receiveDelivery, recordInvoice, runMatch, approveInvoice,
+  payInvoice, blockSupplier, procurementSummary,
+} from "../src/lib/procurement.ts";
+import {
   openAttendance, openUnidentified, identify, triagePatient, startTreatment,
   recordDisposition, openMedicolegalCase, issueP3, declareIncident, emergencySummary,
 } from "../src/lib/emergency.ts";
@@ -1516,6 +1521,121 @@ openStudy({
   modality: "xray", bodyPart: "Right knee", laterality: "right", ...RAD,
 });
 
+
+// -------------------------------------------------------------- procurement
+//
+// One full chain done properly, and one invoice that does not match — which is
+// the module's whole point. The second supplier invoiced for 1000 when 800
+// arrived AND at a price nobody agreed, so the match catches both and says
+// what is actually payable.
+//
+// Also a blocked supplier, because a facility that cannot stop buying from
+// somebody has no procurement control at all.
+
+const BUYER = { byUserId: adminId, byUserName: "Facility Administrator" };
+const STOREMAN = { byUserId: pharmacistId, byUserName: "Grace Kimani" };
+const CLERK = { byUserId: clinicianId, byUserName: DOC.byUserName };
+
+// The requisition, raised by the storekeeper and approved by somebody else.
+const quarterlyReq = raiseRequisition({
+  facilityId, storeCode: "MAIN",
+  reason: "Quarterly top-up — paracetamol and amoxicillin down to three weeks of cover",
+  lines: [
+    { productCode: "PARA-500", quantity: 20_000 },
+    { productCode: "AMOX-500", quantity: 6_000 },
+  ],
+  byUserId: pharmacistId, byUserName: "Grace Kimani", deviceCode: REC,
+});
+for (const [supplier, total, lead] of [
+  ["KEMSA", 1_960_000, 21],
+  ["MEDS", 2_040_000, 7],
+  ["SURGIPHARM", 2_210_000, 3],
+] as const) {
+  recordQuotation({ requisitionId: quarterlyReq, supplierCode: supplier, totalCents: total, leadDays: lead, ...CLERK, deviceCode: REC });
+}
+selectQuotation({
+  requisitionId: quarterlyReq, supplierCode: "MEDS",
+  reason: "KEMSA quoted 21 days and we have three weeks of cover — the cheapest here arrives too late",
+  ...BUYER,
+});
+decideRequisition({ requisitionId: quarterlyReq, approve: true, note: "Approved against the reorder report", ...BUYER });
+
+// The order that went right.
+const cleanPo = issuePurchaseOrder({
+  facilityId, supplierCode: "MEDS", storeCode: "MAIN", requisitionId: quarterlyReq,
+  expectedOn: inDays(7),
+  lines: [
+    { productCode: "PARA-500", quantity: 20_000, unitCostCents: 80 },
+    { productCode: "AMOX-500", quantity: 6_000, unitCostCents: 60 },
+  ],
+  byUserId: adminId, byUserName: "Facility Administrator", deviceCode: REC,
+});
+receiveDelivery({
+  poId: cleanPo, deliveryNote: "MEDS-DN-88214",
+  lines: [
+    { productCode: "PARA-500", quantity: 20_000, batchNumber: "PARA-2026-09A", expiresOn: inDays(540) },
+    { productCode: "AMOX-500", quantity: 6_000, batchNumber: "AMOX-2026-07B", expiresOn: inDays(400) },
+  ],
+  byUserId: pharmacistId, byUserName: "Grace Kimani", deviceCode: REC,
+});
+const cleanInvoice = recordInvoice({
+  poId: cleanPo, invoiceNo: "MEDS-2026-4471", invoiceDate: today(), etimsNumber: "0060004471",
+  lines: [
+    { productCode: "PARA-500", quantity: 20_000, unitCostCents: 80 },
+    { productCode: "AMOX-500", quantity: 6_000, unitCostCents: 60 },
+  ],
+  ...CLERK, deviceCode: REC,
+});
+runMatch({ invoiceId: cleanInvoice, facilityId, ...BUYER });
+approveInvoice({ invoiceId: cleanInvoice, byUserId: adminId, byUserName: "Facility Administrator" });
+payInvoice({ invoiceId: cleanInvoice, paymentRef: "EFT-2026-0917-001", ...BUYER });
+
+// The one that did not. Short delivery and a price nobody agreed, on the same
+// invoice — both of which the match catches without anybody reading it.
+const shortPo = issuePurchaseOrder({
+  facilityId, supplierCode: "SURGIPHARM", storeCode: "MAIN",
+  expectedOn: inDays(-4),
+  lines: [{ productCode: "ORS-1L", quantity: 1_000, unitCostCents: 3_000 }],
+  byUserId: adminId, byUserName: "Facility Administrator", deviceCode: REC,
+});
+receiveDelivery({
+  poId: shortPo, deliveryNote: "SP-DN-1190",
+  lines: [{
+    productCode: "ORS-1L", quantity: 800, batchNumber: "ORS-2026-04", expiresOn: inDays(300),
+    rejected: 40, rejectReason: "Forty sachets water-damaged in transit",
+  }],
+  byUserId: pharmacistId, byUserName: "Grace Kimani", deviceCode: REC,
+});
+const badInvoice = recordInvoice({
+  poId: shortPo, invoiceNo: "SP-2026-9012", invoiceDate: today(),
+  // Invoiced for the full thousand, at 34 shillings rather than the agreed 30.
+  lines: [{ productCode: "ORS-1L", quantity: 1_000, unitCostCents: 3_400 }],
+  ...CLERK, deviceCode: REC,
+});
+runMatch({ invoiceId: badInvoice, facilityId, ...BUYER });
+
+// An order still outstanding and already late, so the board is not all green.
+issuePurchaseOrder({
+  facilityId, supplierCode: "KEMSA", storeCode: "MAIN",
+  expectedOn: inDays(-11),
+  lines: [{ productCode: "AL-20-120", quantity: 400, unitCostCents: 18_000 }],
+  byUserId: adminId, byUserName: "Facility Administrator", deviceCode: REC,
+});
+
+// A requisition waiting for somebody to approve.
+raiseRequisition({
+  facilityId, storeCode: "PHARM",
+  reason: "Salbutamol inhalers — two left on the shelf",
+  lines: [{ productCode: "SALB-INH", quantity: 40 }],
+  byUserId: pharmacistId, byUserName: "Grace Kimani", deviceCode: REC,
+});
+
+blockSupplier({
+  code: "SURGIPHARM",
+  reason: "Short delivery invoiced in full at a price above the order, twice this quarter",
+  ...BUYER,
+});
+
 // ------------------------------------------------------------- remittance
 //
 // A payment advice from SHA covering the submitted claims: most paid in full,
@@ -1662,6 +1782,7 @@ console.log(`  lab orders        ${count(`SELECT COUNT(*) AS n FROM orders`)} ·
 console.log(`  admissions        ${count(`SELECT COUNT(*) AS n FROM admissions`)} · ${count(`SELECT COUNT(*) AS n FROM admissions WHERE discharged_at IS NULL`)} still in a bed`);
 console.log(`  appointments      ${count(`SELECT COUNT(*) AS n FROM appointments`)} booked`);
 console.log(`  programmes        ${count(`SELECT COUNT(*) AS n FROM enrolments WHERE status = 'active'`)} on the registers · HIV retention ${cohortReport("HIV")[0]?.retentionPercent ?? 0}%`);
+console.log(`  procurement       ${procurementSummary(facilityId).openOrders} orders open · ${procurementSummary(facilityId).queriedInvoices} invoice queried · ${Math.round(procurementSummary(facilityId).varianceCents / 100)} KES overcharged, caught`);
 console.log(`  radiology         ${radiologySummary().studies} studies · ${radiologySummary().blocked} blocked · ${radiologySummary().totalDoseMsv} mSv delivered · ${radiologySummary().criticalUncommunicated} critical untold`);
 console.log(`  theatre           ${theatreSummary(facilityId).booked} cases · checklist ${theatreSummary(facilityId).checklistCompliantPercent ?? 0}% complete · ${theatreSummary(facilityId).countMismatches} count mismatch resolved`);
 console.log(`  referrals         ${referralSummary(facilityId).live} live · ${referralSummary(facilityId).loopBroken} never came back · loop closed ${referralSummary(facilityId).loopClosedPercent ?? 0}%`);

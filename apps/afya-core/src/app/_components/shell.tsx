@@ -19,6 +19,7 @@ import { board as casualtyBoard, listIncidents } from "@/lib/emergency.ts";
 import { referralSummary } from "@/lib/referrals.ts";
 import { theatreList, inTheatre } from "@/lib/theatre.ts";
 import { imagingWorklist, uncommunicatedCritical } from "@/lib/radiology.ts";
+import { procurementSummary } from "@/lib/procurement.ts";
 import { signOutAction } from "@/app/actions/session.ts";
 import { navFor, sectionFor, type BadgeKey } from "./nav.ts";
 import type { CurrentUser } from "@/lib/auth.ts";
@@ -61,6 +62,7 @@ function counts(facilityId: number): Record<BadgeKey, { text: string; tone: "blo
   const running = inTheatre(facilityId);
   const imaging = imagingWorklist();
   const imagingCritical = uncommunicatedCritical();
+  const buying = procurementSummary(facilityId);
   const waiting = queue(facilityId);
 
   const n = (
@@ -103,6 +105,9 @@ function counts(facilityId: number): Record<BadgeKey, { text: string; tone: "blo
     theatreBlocked: n(running.length, running.some((r) => r.blockedBy) ? "block" : "quiet"),
     imaging: n(imaging.length, imaging.some((r) => r.blockedBy) ? "clock" : "quiet"),
     imagingCritical: n(imagingCritical.length, "block"),
+    requisitions: n(buying.requisitionsWaiting, "clock"),
+    lateOrders: n(buying.lateOrders, "clock"),
+    queriedInvoices: n(buying.queriedInvoices, "block"),
     alerts: n(alerts.total, alerts.critical > 0 ? "block" : "clock"),
   };
 }

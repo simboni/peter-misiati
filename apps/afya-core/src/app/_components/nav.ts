@@ -66,6 +66,9 @@ export type BadgeKey =
   | "theatreBlocked"
   | "imaging"
   | "imagingCritical"
+  | "requisitions"
+  | "lateOrders"
+  | "queriedInvoices"
   | "alerts";
 
 export const NAV: NavSection[] = [
@@ -178,6 +181,10 @@ export const NAV: NavSection[] = [
       { href: "/stock?view=expiry", label: "Expiring stock", permission: ["report.read"] },
       { href: "/stock?view=reorder", label: "Reorder report", permission: ["report.read"] },
       { href: "/stock?view=controlled", label: "Controlled register", permission: ["report.read"] },
+      { href: "/procurement", label: "Requisitions", permission: ["report.read"], badge: "requisitions" },
+      { href: "/procurement?view=orders", label: "Purchase orders", permission: ["report.read"], badge: "lateOrders" },
+      { href: "/procurement?view=invoices", label: "Invoices & matching", permission: ["report.read"], badge: "queriedInvoices" },
+      { href: "/procurement?view=suppliers", label: "Suppliers", permission: ["report.read"] },
     ],
   },
   {

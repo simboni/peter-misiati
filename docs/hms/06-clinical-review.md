@@ -328,26 +328,78 @@ personnel dosimetry and the equipment QA schedule sit with the national
 regulator, not with this software**. Nothing here should be mistaken for
 compliance with that.
 
-## 12. Public health
+## 12. Procurement (for the administrator, not the clinician)
+
+Money leaks out of a facility in three ways: paying for goods nobody can show
+arrived, paying a price nobody agreed, and one person controlling the chain
+from request to payment. These rules are three controls against those three.
 
 | # | Rule | Where | Source | Status |
 |---|---|---|---|---|
-| 12.1 | Notifiable conditions are detected from coded diagnoses as they are made, because the Act's clock runs from diagnosis | `reporting.ts` | Public Health Act | ✅ |
-| 12.2 | **The notifiable list is four conditions** — malaria, tuberculosis, cholera, measles. The full schedule must be loaded | `reporting.ts` `NOTIFIABLE_PREFIXES` | — | 🔴 |
-| 12.3 | Reporting one requires the county's reference — it is the proof it was made | `reporting.ts` | Design rule | ✅ |
-| 12.4 | MOH 705A is under five, 705B is five and over, split by age **on the day of the visit** | `reporting.ts` | MOH forms | ✅ |
-| 12.5 | A condition is counted whichever code in its ICD-11 family the clinician used | `reporting.ts` `MOH705_CONDITIONS` | Design rule | ⚠️ |
-| 12.6 | **The 705 condition list is six conditions.** The real form has many more rows | `reporting.ts` | — | 🔴 |
+| 12.1 | **The three-way match is computed, not asserted.** An invoice is checked line by line against what was ordered and what was received, from the rows rather than from a total | `procurement.ts` `matchInvoice` | Standard control | ✅ |
+| 12.2 | **The payable figure is the received quantity at the ordered price** — the definition of what a facility actually owes, and almost never the number on the invoice when something has gone wrong | `procurement.ts` | Standard control | ✅ |
+| 12.3 | **A mismatch queries the invoice; it does not block it.** Blocking would move the payment off the system, which is worse than a payment the system can explain. Approving a queried invoice needs a written reason | `procurement.ts` `approveInvoice` | Design rule | ⚠️ |
+| 12.4 | **The person who raised a requisition cannot approve it.** The oldest control in procurement and the first one quietly dropped, so it lives in code rather than in a policy document | `procurement.ts` `decideRequisition` | Standard control | ✅ |
+| 12.5 | **The person who recorded an invoice cannot approve it for payment** | `procurement.ts` | Standard control | ✅ |
+| 12.6 | Only an approved invoice is paid, and a payment records its reference | `procurement.ts` `payInvoice` | Standard control | ✅ |
+| 12.7 | **The same invoice number from one supplier cannot be recorded twice** — paying an invoice twice is the simplest fraud there is, and the easiest to make impossible | `schema.sql`, `procurement.ts` | Standard control | ✅ |
+| 12.8 | **A supplier without a current PPB licence cannot supply medicines**, checked at the order rather than the invoice — by the invoice the drugs are on the shelf and somebody has taken them | `procurement.ts` `canSupplyMedicines` | Pharmacy and Poisons Board | ⚠️ |
+| 12.9 | **Every line on a purchase order is treated as a medicine** for the licence check. Conservative, and wrong for a facility that buys gloves and stationery through the same module | `procurement.ts` `issuePurchaseOrder` | Judgement | 🔴 |
+| 12.10 | A delivery **cannot bring what was not ordered** — that is how unordered stock, and the invoice for it, enters a facility | `procurement.ts` `receiveDelivery` | Standard control | ✅ |
+| 12.11 | **Receiving creates the goods received note and the stock batch together**, so there is no window in which a delivery exists on paper and not on the shelf | `procurement.ts` | Design rule | ✅ |
+| 12.12 | A short delivery leaves the order **part received**, worked out from the rows rather than asserted at the door | `procurement.ts` | Design rule | ✅ |
+| 12.13 | **Rejected quantity has its own column and its own reason.** Short-dated stock refused on the day is a supplier problem; accepted, it is the facility's | `schema.sql` | Practice | ✅ |
+| 12.14 | Expired stock is **refused at the door** — the only place refusing it is cheap | `inventory.ts` `receiveStock` | PPB | ✅ |
+| 12.15 | **Choosing a supplier must record why**, and the audit entry flags when it was not the cheapest. "Cheapest" is a reason; so is "the only one with stock" | `procurement.ts` `selectQuotation` | PPADA 2015; practice | ✅ |
+| 12.16 | **Three quotations is expected but not enforced.** The threshold that applies depends on the facility's legal status and its own procurement policy, and is not something this software can know | `procurement.ts` `EXPECTED_QUOTATIONS` | PPADA 2015 | 🔴 |
+| 12.17 | Blocking a supplier records why, removes them from the list you order from, and leaves them on the list you audit | `procurement.ts` `blockSupplier` | Design rule | ✅ |
+| 12.18 | **AGPO category and certificate are recorded but not enforced.** A public entity has a 30% reservation to meet; the module can show the split but does not police it | `schema.sql` | AGPO | 🔴 |
+| 12.19 | A supplier invoice with **no eTIMS control number is surfaced** — it may not be claimable against tax | `procurement.ts` `procurementSummary` | KRA | ⚠️ |
+| 12.20 | A requisition records **what the store had at the moment of asking**, so an approver can judge it without going to look | `procurement.ts` `raiseRequisition` | Design rule | ✅ |
 
-## 13. Revenue (for the claims specialist, not the clinician)
+### What to ask the administrator, and the accountant
+
+1. **Is every purchase a medicine?** Marked red. The PPB licence check runs on
+   every line of every order. That is right for a pharmacy store and wrong for
+   gloves, fuel or stationery — a facility buying those through this module
+   will be blocked by a rule meant for drugs. The fix is a product category, and
+   it should be made before anybody is trained on a workaround.
+2. **What is this facility's quotation threshold?** Marked red. Three is the
+   rule most work to, and below the tender threshold it is the law for a public
+   entity — but the threshold depends on legal status and on the facility's own
+   policy. The module counts and shows; somebody has to decide what it should
+   refuse.
+3. **Does the AGPO reservation apply here?** Marked red. If the facility is a
+   public entity, 30% of procurement spend is reserved for youth, women and
+   persons with disability. The category is recorded against every supplier, so
+   the report can be built — but it is not built, and not enforced.
+
+One more, for whoever signs the cheques: **the module deliberately lets a
+queried invoice be paid**, with a written reason. That is a design choice, not
+an oversight. Refusing outright would push the payment into a cheque book the
+system never sees, and a payment this system can explain is worth more than one
+it never learns about.
+
+## 13. Public health
 
 | # | Rule | Where | Source | Status |
 |---|---|---|---|---|
-| 13.1 | Nine scrubber gates, each mapped to a documented SHA rejection cause | `claims.ts` `scrub` | SHA published causes | ⚠️ |
-| 13.2 | **The gates are inferred from documented causes, not from 50 real rejected claims.** The roadmap says to build them from a real corpus and that is still the right next step | — | — | 🔴 |
-| 13.3 | A claim beyond the payer's submission window (SHA: 7 days) escalates rather than blocking, because a late claim still has an appeal path | `claims.ts` | SHA | ⚠️ |
-| 13.4 | Tariffs and benefit rules are **illustrative**. The SHA schedule for the contracting cycle must be loaded | `seed.ts` | — | 🔴 |
-| 13.5 | Money is integer cents throughout, and a price is fixed as of the date of service | `billing.ts` | Design rule | ✅ |
+| 13.1 | Notifiable conditions are detected from coded diagnoses as they are made, because the Act's clock runs from diagnosis | `reporting.ts` | Public Health Act | ✅ |
+| 13.2 | **The notifiable list is four conditions** — malaria, tuberculosis, cholera, measles. The full schedule must be loaded | `reporting.ts` `NOTIFIABLE_PREFIXES` | — | 🔴 |
+| 13.3 | Reporting one requires the county's reference — it is the proof it was made | `reporting.ts` | Design rule | ✅ |
+| 13.4 | MOH 705A is under five, 705B is five and over, split by age **on the day of the visit** | `reporting.ts` | MOH forms | ✅ |
+| 13.5 | A condition is counted whichever code in its ICD-11 family the clinician used | `reporting.ts` `MOH705_CONDITIONS` | Design rule | ⚠️ |
+| 13.6 | **The 705 condition list is six conditions.** The real form has many more rows | `reporting.ts` | — | 🔴 |
+
+## 14. Revenue (for the claims specialist, not the clinician)
+
+| # | Rule | Where | Source | Status |
+|---|---|---|---|---|
+| 14.1 | Nine scrubber gates, each mapped to a documented SHA rejection cause | `claims.ts` `scrub` | SHA published causes | ⚠️ |
+| 14.2 | **The gates are inferred from documented causes, not from 50 real rejected claims.** The roadmap says to build them from a real corpus and that is still the right next step | — | — | 🔴 |
+| 14.3 | A claim beyond the payer's submission window (SHA: 7 days) escalates rather than blocking, because a late claim still has an appeal path | `claims.ts` | SHA | ⚠️ |
+| 14.4 | Tariffs and benefit rules are **illustrative**. The SHA schedule for the contracting cycle must be loaded | `seed.ts` | — | 🔴 |
+| 14.5 | Money is integer cents throughout, and a price is fixed as of the date of service | `billing.ts` | Design rule | ✅ |
 
 ---
 
@@ -385,3 +437,7 @@ Everything marked 🔴, in one list:
 21. The MRI safety screening as this facility's own full form, with a named
     safety officer — or the modality turned off if there is no scanner
 22. This facility's own measured dose figures, replacing the illustrative ones
+23. A product category, so the PPB licence check on a purchase order applies to
+    medicines and not to gloves and stationery
+24. This facility's quotation threshold, and whether the AGPO reservation
+    applies to it
