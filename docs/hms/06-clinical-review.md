@@ -726,7 +726,7 @@ rules below are about numbers this module refuses to print.
 | 20.3 | **The floor of 20 is a convention.** It is defensible and it is not anybody's standard; a facility reporting to a programme with its own rule should use that instead | `indicators.ts` `MIN_DENOMINATOR` | Judgement | 🔴 |
 | 20.4 | **A disaggregated cell of four or fewer is suppressed.** A row showing one patient in a village is an identifiable patient whatever the column header says, and that is a Data Protection Act matter rather than a statistical nicety | `indicators.ts` `breakdown`, `SMALL_CELL` | DPA 2019 | ⚠️ |
 | 20.5 | Suppressed rows are counted in a footnote, so the table says out loud that its total is lower than the real one and why | `indicators.ts` `breakdown` | Design rule | ✅ |
-| 20.6 | **No secondary suppression.** Where one row is withheld and the total is known, the withheld figure can sometimes be worked out by subtraction. Proper disclosure control suppresses a second cell to prevent that, and this does not | — | — | 🔴 |
+| 20.6 | **Secondary suppression is done.** Hiding the only small row and publishing the total hides nothing — anybody can subtract — so where a single row is withheld a second goes with it: the smallest of what remains, because suppressing the largest throws away the most information for the same protection. A zero row is never a candidate, since withholding it would say somebody was there where nobody was | `indicators.ts` `breakdown` | Standard practice | ✅ |
 | 20.7 | Every indicator names the screen holding the rows behind it. A figure nobody can drill into is a figure nobody believes | `indicators.ts` `drillTo` | Design rule | ✅ |
 | 20.8 | A period where nothing happened says so rather than reporting zero per cent | `indicators.ts` `rate` | Design rule | ✅ |
 | 20.9 | A sparkline omits withheld periods rather than drawing them as zero, which would invent a collapse that did not happen | `dashboard/page.tsx` `Spark` | Design rule | ✅ |
@@ -745,9 +745,10 @@ rules below are about numbers this module refuses to print.
    and any programme the facility is in have their own, with their own case
    definitions. Those should replace or join this set rather than sitting beside
    it in a spreadsheet.
-2. **The small-number rules** (20.2, 20.3, 20.6). The floors here are defensible
-   conventions. A facility publishing anything outside its own walls needs a
-   disclosure-control rule it can defend, including secondary suppression.
+2. **The small-number rules** (20.2, 20.3). The floors here are defensible
+   conventions and the suppression is done properly, primary and secondary. What
+   a facility publishing outside its own walls still needs is a disclosure-control
+   policy that says those floors are the right ones for it.
 3. **Export** (20.17). What has to leave this screen, in what format, and to
    whom — because that decides whether the suppression rules above are a
    nicety or a legal requirement.
@@ -982,8 +983,8 @@ Everything marked 🔴, in one list:
 50. Which analytes each ordered panel expands to on the machine in use
 51. The indicator set the county and any programme actually report on, with
     their case definitions, replacing this system's own management set
-52. A disclosure-control rule the facility can defend, including secondary
-    suppression, before any figure leaves the building
+52. A disclosure-control policy confirming the suppression floors are right for
+    this facility, before any figure leaves the building
 53. Export — what has to leave the dashboard, in what format, and to whom
 54. The list of findings that must never be sent in a text message, confirmed
     by a clinician

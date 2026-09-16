@@ -651,19 +651,42 @@ export interface Cell {
  * A row showing one patient in a village is an identifiable patient whatever
  * the column header says, and that is a Data Protection Act matter rather than
  * a statistical nicety.
+ *
+ * TWO PASSES, NOT ONE. Hiding the only small row and then publishing the total
+ * hides nothing: anybody can subtract. So where a single row has been withheld,
+ * a second — the smallest of what is left — goes with it. That is the whole of
+ * secondary suppression, it is not optional, and a table that skips it is a
+ * table that thinks it is protecting somebody and is not.
  */
 export function breakdown(
   rows: { label: string; count: number }[],
   floor = smallCell(),
 ): { cells: Cell[]; suppressedTotal: number } {
+  const cells: Cell[] = rows.map((row) => ({
+    label: row.label,
+    count: row.count,
+    suppressed: row.count > 0 && row.count <= floor,
+  }));
+
+  // A zero row hides nothing and is not a candidate for either pass: withholding
+  // it would say "somebody was here" where nobody was.
+  const suppressible = () => cells.filter((cell) => !cell.suppressed && cell.count > 0);
+
+  while (cells.filter((cell) => cell.suppressed).length === 1 && suppressible().length > 0) {
+    // The smallest of what is left, because suppressing the largest throws away
+    // the most information for the same protection.
+    const next = suppressible().reduce((min, cell) => (cell.count < min.count ? cell : min));
+    next.suppressed = true;
+  }
+
   let suppressedTotal = 0;
-  const cells = rows.map((row) => {
-    if (row.count > 0 && row.count <= floor) {
-      suppressedTotal += row.count;
-      return { label: row.label, count: 0, suppressed: true };
+  for (const cell of cells) {
+    if (cell.suppressed) {
+      suppressedTotal += cell.count;
+      cell.count = 0;
     }
-    return { label: row.label, count: row.count, suppressed: false };
-  });
+  }
+
   return { cells, suppressedTotal };
 }
 

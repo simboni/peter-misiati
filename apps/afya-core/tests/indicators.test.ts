@@ -238,3 +238,59 @@ test("money presents in shillings, from cents", () => {
     "KES 1,760.00",
   );
 });
+
+// ------------------------------------------------ secondary suppression
+
+test("a single suppressed row takes a second with it, or subtraction gives it away", () => {
+  // Hiding the only small row and publishing the total hides nothing.
+  const { cells, suppressedTotal } = I.breakdown([
+    { label: "Kayole", count: 40 },
+    { label: "Umoja", count: 25 },
+    { label: "Githurai", count: 1 },
+  ]);
+
+  const hidden = cells.filter((c) => c.suppressed);
+  assert.equal(hidden.length, 2, "one alone would be derivable");
+  assert.ok(hidden.some((c) => c.label === "Githurai"));
+  assert.ok(hidden.some((c) => c.label === "Umoja"), "the smallest of what is left, not the largest");
+  assert.equal(suppressedTotal, 26);
+});
+
+test("two already-suppressed rows need no third", () => {
+  const { cells } = I.breakdown([
+    { label: "Kayole", count: 40 },
+    { label: "Mwiki", count: 3 },
+    { label: "Githurai", count: 1 },
+  ]);
+  assert.equal(cells.filter((c) => c.suppressed).length, 2);
+  assert.equal(cells.find((c) => c.label === "Kayole")!.suppressed, false);
+});
+
+test("nothing small means nothing suppressed", () => {
+  const { cells, suppressedTotal } = I.breakdown([
+    { label: "Kayole", count: 40 },
+    { label: "Umoja", count: 25 },
+  ]);
+  assert.equal(cells.filter((c) => c.suppressed).length, 0);
+  assert.equal(suppressedTotal, 0);
+});
+
+test("a zero row is never suppressed — that would say somebody was there", () => {
+  const { cells } = I.breakdown([
+    { label: "Kayole", count: 40 },
+    { label: "Githurai", count: 2 },
+    { label: "Nowhere", count: 0 },
+  ]);
+  assert.equal(cells.find((c) => c.label === "Nowhere")!.suppressed, false);
+  // Githurai is small, so the second pass looks for another real row and finds
+  // only Kayole.
+  assert.equal(cells.find((c) => c.label === "Kayole")!.suppressed, true);
+});
+
+test("a table with one real row suppresses it and stops", () => {
+  // Nothing left to pair it with. Suppressing everything is the right answer,
+  // and looping for ever is not.
+  const { cells } = I.breakdown([{ label: "Kayole", count: 1 }]);
+  assert.equal(cells[0].suppressed, true);
+  assert.equal(cells.length, 1);
+});

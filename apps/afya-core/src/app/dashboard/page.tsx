@@ -166,7 +166,7 @@ export default async function DashboardPage({
       {view === "all" ? (
         <Section
           title="Attendances by where people live"
-          note={`This month. Any place with ${cellFloor} or fewer is not shown: one patient in a village is an identifiable patient, whatever the column header says.`}
+          note={`This month. Any place with ${cellFloor} or fewer is not shown — and where that leaves a single withheld row, a second goes with it, because otherwise the total gives the first one away.`}
         >
           {villages.cells.length === 0 ? (
             <Empty>Nobody has been seen this month yet.</Empty>
