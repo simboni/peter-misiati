@@ -380,26 +380,76 @@ an oversight. Refusing outright would push the payment into a cheque book the
 system never sees, and a payment this system can explain is worth more than one
 it never learns about.
 
-## 13. Public health
+## 13. Accounting (for the accountant)
+
+The ledger is the one module where the rules are not a matter of judgement:
+double entry has been settled for five hundred years. What is worth reviewing
+is how the operational side is mapped into it.
 
 | # | Rule | Where | Source | Status |
 |---|---|---|---|---|
-| 13.1 | Notifiable conditions are detected from coded diagnoses as they are made, because the Act's clock runs from diagnosis | `reporting.ts` | Public Health Act | ✅ |
-| 13.2 | **The notifiable list is four conditions** — malaria, tuberculosis, cholera, measles. The full schedule must be loaded | `reporting.ts` `NOTIFIABLE_PREFIXES` | — | 🔴 |
-| 13.3 | Reporting one requires the county's reference — it is the proof it was made | `reporting.ts` | Design rule | ✅ |
-| 13.4 | MOH 705A is under five, 705B is five and over, split by age **on the day of the visit** | `reporting.ts` | MOH forms | ✅ |
-| 13.5 | A condition is counted whichever code in its ICD-11 family the clinician used | `reporting.ts` `MOH705_CONDITIONS` | Design rule | ⚠️ |
-| 13.6 | **The 705 condition list is six conditions.** The real form has many more rows | `reporting.ts` | — | 🔴 |
+| 13.1 | **A journal that does not balance is refused** before anything is written — not warned about, not queued for review | `accounting.ts` `postJournal` | Double entry | ✅ |
+| 13.2 | Each line is a debit **or** a credit, never both and never neither; amounts are whole cents and never negative, because the side carries the sign | `schema.sql`, `accounting.ts` | Double entry | ✅ |
+| 13.3 | **A posted journal is never edited.** It is reversed by a second journal that points at the first and says why, and both stand | `accounting.ts` `reverseJournal` | Double entry | ✅ |
+| 13.4 | A journal cannot be reversed twice | `accounting.ts` | Double entry | ✅ |
+| 13.5 | **A closed period takes no postings.** A late entry goes to the open period with a note about what it is for | `accounting.ts` `postJournal` | Standard practice | ✅ |
+| 13.6 | **A period is not closed over an out-of-balance trial balance** — closing would freeze the error in place | `accounting.ts` `closePeriod` | Standard practice | ✅ |
+| 13.7 | Reopening a closed period must record why. Auditors ask | `accounting.ts` `reopenPeriod` | Standard practice | ✅ |
+| 13.8 | Periods are **calendar months opened on demand**. A facility with a different year-end defines its own | `accounting.ts` `periodFor` | Judgement | ⚠️ |
+| 13.9 | **Nobody types a journal for ordinary work.** Invoices, payments, deliveries and supplier payments become journals automatically; a clinician never sees a debit | `accounting.ts` `postFromOperations` | Design rule | ✅ |
+| 13.10 | **Running the posting job twice cannot double-post.** Every posting carries the id of the thing it is the accounting for, and that pair is unique. Without this a posting job is a machine for double-counting | `schema.sql` `idx_journal_source` | Design rule | ✅ |
+| 13.11 | **A patient's debt and a payer's are different accounts** — different ages, different people chasing them | `accounting.ts` `ACCOUNT` | Practice | ✅ |
+| 13.12 | **A waiver is not money.** It is the debt written off to an expense account; treating it as cash inflates both income and the cash book | `accounting.ts` | Practice | ✅ |
+| 13.13 | A refund posts the other way round **from the same rows** — there is one payments table, not a payments table and a refunds table | `accounting.ts`, `billing.ts` | Design rule | ✅ |
+| 13.14 | **The ledger is reconciled against operations, not assumed to agree.** Cash and M-Pesa against the till, receivables against outstanding invoices and claims | `accounting.ts` `reconcile` | Design rule | ✅ |
+| 13.15 | **Only payment-sourced cash is compared against the till.** A float, petty cash or a correction is real cash and not a till discrepancy; it is shown separately rather than allowed to masquerade as one | `accounting.ts` | Design rule | ✅ |
+| 13.16 | An account's balance is reported on **its own normal side**, so income reads as a positive figure rather than a negative asset | `accounting.ts` `trialBalance` | Double entry | ✅ |
+| 13.17 | The balance sheet shows **the surplus separately** rather than folding it into equity | `accounting.ts` `balanceSheet` | Judgement | ⚠️ |
+| 13.18 | **The chart of accounts is a starter, not a chart.** Seventeen accounts, enough to demonstrate the mechanism | `accounting.ts` `seedChartOfAccounts` | — | 🔴 |
+| 13.19 | **No VAT treatment is implemented.** Most healthcare services in Kenya are exempt, which is not the same as zero-rated, and the difference matters for input tax | — | — | 🔴 |
+| 13.20 | **No withholding tax on supplier payments.** A supplier payment debits the payable and credits the bank in full | `accounting.ts` | — | 🔴 |
+| 13.21 | **Stock is posted at purchase cost when received, and never relieved on issue.** Cost of goods sold is not computed, so the surplus figure overstates until it is | `accounting.ts` `postFromOperations` | — | 🔴 |
 
-## 14. Revenue (for the claims specialist, not the clinician)
+### What to ask the accountant, in order
+
+1. **The chart of accounts.** Seventeen accounts demonstrates the mechanism and
+   runs nobody's business. This is the cheapest of the red items and the one
+   everything else depends on.
+2. **Cost of goods sold.** Marked red and the most consequential: stock is
+   capitalised when it arrives and never released when it is dispensed, so the
+   income statement shows income without the cost of the medicines that earned
+   it. The surplus on that page is therefore too high, and will stay too high
+   until issues post against cost of goods. The mechanism exists — stock
+   movements are already recorded per batch with a unit cost — but the posting
+   is not written.
+3. **VAT and withholding.** Neither is implemented. Healthcare services are
+   largely exempt in Kenya, which is not the same as zero-rated, and the
+   distinction decides whether input tax can be recovered. That is a question
+   for an accountant and not one this software should guess at.
+
+Nothing in this module is tax advice, and the facility's own accountant should
+see the chart and the mappings before a single figure is relied on.
+
+## 14. Public health
 
 | # | Rule | Where | Source | Status |
 |---|---|---|---|---|
-| 14.1 | Nine scrubber gates, each mapped to a documented SHA rejection cause | `claims.ts` `scrub` | SHA published causes | ⚠️ |
-| 14.2 | **The gates are inferred from documented causes, not from 50 real rejected claims.** The roadmap says to build them from a real corpus and that is still the right next step | — | — | 🔴 |
-| 14.3 | A claim beyond the payer's submission window (SHA: 7 days) escalates rather than blocking, because a late claim still has an appeal path | `claims.ts` | SHA | ⚠️ |
-| 14.4 | Tariffs and benefit rules are **illustrative**. The SHA schedule for the contracting cycle must be loaded | `seed.ts` | — | 🔴 |
-| 14.5 | Money is integer cents throughout, and a price is fixed as of the date of service | `billing.ts` | Design rule | ✅ |
+| 14.1 | Notifiable conditions are detected from coded diagnoses as they are made, because the Act's clock runs from diagnosis | `reporting.ts` | Public Health Act | ✅ |
+| 14.2 | **The notifiable list is four conditions** — malaria, tuberculosis, cholera, measles. The full schedule must be loaded | `reporting.ts` `NOTIFIABLE_PREFIXES` | — | 🔴 |
+| 14.3 | Reporting one requires the county's reference — it is the proof it was made | `reporting.ts` | Design rule | ✅ |
+| 14.4 | MOH 705A is under five, 705B is five and over, split by age **on the day of the visit** | `reporting.ts` | MOH forms | ✅ |
+| 14.5 | A condition is counted whichever code in its ICD-11 family the clinician used | `reporting.ts` `MOH705_CONDITIONS` | Design rule | ⚠️ |
+| 14.6 | **The 705 condition list is six conditions.** The real form has many more rows | `reporting.ts` | — | 🔴 |
+
+## 15. Revenue (for the claims specialist, not the clinician)
+
+| # | Rule | Where | Source | Status |
+|---|---|---|---|---|
+| 15.1 | Nine scrubber gates, each mapped to a documented SHA rejection cause | `claims.ts` `scrub` | SHA published causes | ⚠️ |
+| 15.2 | **The gates are inferred from documented causes, not from 50 real rejected claims.** The roadmap says to build them from a real corpus and that is still the right next step | — | — | 🔴 |
+| 15.3 | A claim beyond the payer's submission window (SHA: 7 days) escalates rather than blocking, because a late claim still has an appeal path | `claims.ts` | SHA | ⚠️ |
+| 15.4 | Tariffs and benefit rules are **illustrative**. The SHA schedule for the contracting cycle must be loaded | `seed.ts` | — | 🔴 |
+| 15.5 | Money is integer cents throughout, and a price is fixed as of the date of service | `billing.ts` | Design rule | ✅ |
 
 ---
 
@@ -441,3 +491,7 @@ Everything marked 🔴, in one list:
     medicines and not to gloves and stationery
 24. This facility's quotation threshold, and whether the AGPO reservation
     applies to it
+25. A real chart of accounts, replacing the seventeen-account starter
+26. Cost of goods sold: stock is capitalised on receipt and never relieved on
+    issue, so the surplus figure overstates until issues post against it
+27. VAT treatment and withholding tax on supplier payments

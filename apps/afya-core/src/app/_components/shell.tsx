@@ -20,6 +20,7 @@ import { referralSummary } from "@/lib/referrals.ts";
 import { theatreList, inTheatre } from "@/lib/theatre.ts";
 import { imagingWorklist, uncommunicatedCritical } from "@/lib/radiology.ts";
 import { procurementSummary } from "@/lib/procurement.ts";
+import { ledgerSummary } from "@/lib/accounting.ts";
 import { signOutAction } from "@/app/actions/session.ts";
 import { navFor, sectionFor, type BadgeKey } from "./nav.ts";
 import type { CurrentUser } from "@/lib/auth.ts";
@@ -63,6 +64,7 @@ function counts(facilityId: number): Record<BadgeKey, { text: string; tone: "blo
   const imaging = imagingWorklist();
   const imagingCritical = uncommunicatedCritical();
   const buying = procurementSummary(facilityId);
+  const ledger = ledgerSummary(facilityId);
   const waiting = queue(facilityId);
 
   const n = (
@@ -108,6 +110,11 @@ function counts(facilityId: number): Record<BadgeKey, { text: string; tone: "blo
     requisitions: n(buying.requisitionsWaiting, "clock"),
     lateOrders: n(buying.lateOrders, "clock"),
     queriedInvoices: n(buying.queriedInvoices, "block"),
+    // Red when the books do not balance, amber when the posting job is
+    // merely behind: those are different problems.
+    unposted: ledger.trialBalanceDifferenceCents !== 0
+      ? { text: "!", tone: "block" as const }
+      : n(ledger.unpostedSources, "clock"),
     alerts: n(alerts.total, alerts.critical > 0 ? "block" : "clock"),
   };
 }

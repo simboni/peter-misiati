@@ -2300,3 +2300,80 @@ CREATE TABLE IF NOT EXISTS supplier_invoice_lines (
   unit_cost_cents INTEGER NOT NULL,
   UNIQUE (invoice_id, product_code)
 );
+
+-- ============================================================================
+-- M61 Accounting
+--
+-- A double-entry general ledger that the rest of the system posts into. The
+-- point is not that a facility gets a ledger — it is that the ledger and the
+-- operational record are the same facts, so they cannot drift apart and
+-- nobody has to type anything twice.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS accounts (
+  code          TEXT PRIMARY KEY,
+  name          TEXT NOT NULL,
+  kind          TEXT NOT NULL CHECK (kind IN ('asset','liability','equity','income','expense')),
+  -- Which side increases this account. Stored rather than derived from `kind`
+  -- so a contra account (accumulated depreciation, an allowance) can be
+  -- defined without a special case running through every report.
+  normal_side   TEXT NOT NULL CHECK (normal_side IN ('debit','credit')),
+  parent_code   TEXT REFERENCES accounts(code),
+  -- A cash or bank account the operational side can be reconciled against.
+  reconcilable  INTEGER NOT NULL DEFAULT 0,
+  active        INTEGER NOT NULL DEFAULT 1,
+  created_at    TEXT NOT NULL
+);
+
+-- An accounting period. Once closed it takes no postings: a late entry goes to
+-- the open period carrying a reference to what it is about, which is what
+-- actually happens in a real ledger.
+CREATE TABLE IF NOT EXISTS periods (
+  code          TEXT PRIMARY KEY,
+  facility_id   INTEGER NOT NULL REFERENCES facilities(id),
+  starts_on     TEXT NOT NULL,
+  ends_on       TEXT NOT NULL,
+  status        TEXT NOT NULL CHECK (status IN ('open','closed')),
+  closed_at     TEXT,
+  closed_by     INTEGER REFERENCES users(id),
+  closer_name   TEXT NOT NULL DEFAULT '',
+  created_at    TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS journals (
+  id            TEXT PRIMARY KEY,
+  facility_id   INTEGER NOT NULL REFERENCES facilities(id),
+  period_code   TEXT NOT NULL REFERENCES periods(code),
+  entry_date    TEXT NOT NULL,
+  narrative     TEXT NOT NULL,
+  -- What in the operational record this journal is the accounting for. The
+  -- pair is UNIQUE, which is what makes posting idempotent: running the
+  -- posting job twice cannot double-count anything.
+  source_kind   TEXT NOT NULL DEFAULT 'manual',
+  source_ref    TEXT,
+  -- A reversal points at what it reverses. A posted journal is never edited.
+  reverses      TEXT REFERENCES journals(id),
+  reversal_reason TEXT NOT NULL DEFAULT '',
+  posted_by     INTEGER REFERENCES users(id),
+  poster_name   TEXT NOT NULL,
+  posted_at     TEXT NOT NULL,
+  device_code   TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_journal_source
+  ON journals(source_kind, source_ref) WHERE source_ref IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_journal_period ON journals(period_code, entry_date);
+
+CREATE TABLE IF NOT EXISTS journal_lines (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  journal_id    TEXT NOT NULL REFERENCES journals(id),
+  account_code  TEXT NOT NULL REFERENCES accounts(code),
+  -- One of these is zero. Kept as two columns rather than one signed amount
+  -- because a trial balance is read in two columns, and a ledger that has to
+  -- decide what a negative debit means has already gone wrong.
+  debit_cents   INTEGER NOT NULL DEFAULT 0 CHECK (debit_cents >= 0),
+  credit_cents  INTEGER NOT NULL DEFAULT 0 CHECK (credit_cents >= 0),
+  memo          TEXT NOT NULL DEFAULT '',
+  CHECK ((debit_cents = 0) <> (credit_cents = 0))
+);
+CREATE INDEX IF NOT EXISTS idx_jline_journal ON journal_lines(journal_id);
+CREATE INDEX IF NOT EXISTS idx_jline_account ON journal_lines(account_code);

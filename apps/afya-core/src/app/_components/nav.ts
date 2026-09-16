@@ -69,6 +69,7 @@ export type BadgeKey =
   | "requisitions"
   | "lateOrders"
   | "queriedInvoices"
+  | "unposted"
   | "alerts";
 
 export const NAV: NavSection[] = [
@@ -200,6 +201,10 @@ export const NAV: NavSection[] = [
       { href: "/claims?view=preauth", label: "Pre-authorisations", permission: ["preauth.request", "report.read"], badge: "preauth" },
       { href: "/remittance", label: "Remittance", permission: ["claim.prepare", "report.read"], badge: "unsettled" },
       { href: "/remittance?view=taxonomy", label: "Why claims fail", permission: ["claim.prepare", "report.read"] },
+      { href: "/ledger", label: "Ledger & reconciliation", permission: ["report.read"], badge: "unposted" },
+      { href: "/ledger?view=reports", label: "Income & balance sheet", permission: ["report.read"] },
+      { href: "/ledger?view=journals", label: "Journals", permission: ["report.read"] },
+      { href: "/ledger?view=periods", label: "Periods", permission: ["report.read"] },
     ],
   },
   {

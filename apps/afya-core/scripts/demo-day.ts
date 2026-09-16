@@ -61,6 +61,10 @@ import {
   recordIncision, closeCase, leaveTheatre, completeCase, cancelCase,
   theatreSummary, CHECKLIST, type Stage,
 } from "../src/lib/theatre.ts";
+import {
+  postJournal, postFromOperations, reverseJournal, ledgerSummary, reconcile as reconcileLedger,
+  trialBalance, incomeStatement,
+} from "../src/lib/accounting.ts";
 import { closeDb, run, get, all as dbAll, verifyAuditChain, today } from "../src/lib/db.ts";
 
 const { facilityId, adminId, clinicianId, receptionistId, pharmacistId, labTechId } = seedDemo();
@@ -1636,6 +1640,7 @@ blockSupplier({
   ...BUYER,
 });
 
+
 // ------------------------------------------------------------- remittance
 //
 // A payment advice from SHA covering the submitted claims: most paid in full,
@@ -1763,6 +1768,57 @@ if (stillOwed.at(-1)) {
 
 // ------------------------------------------------------------------- summary
 
+// ------------------------------------------------------------------ the ledger
+//
+// Everything above already happened. This turns it into books, without anybody
+// choosing an account — and then proves the books agree with the till.
+//
+// The opening capital and the rent are posted by hand, because those are the
+// entries that genuinely have no operational source. Everything else is
+// derived.
+
+const GL = { byUserId: adminId, byUserName: "Facility Administrator" };
+
+postJournal({
+  facilityId, entryDate: inDays(-90),
+  narrative: "Opening capital introduced by the owner",
+  lines: [
+    { accountCode: "1030", debitCents: 2_500_000 },
+    { accountCode: "3000", creditCents: 2_500_000 },
+  ],
+  ...GL,
+});
+
+postJournal({
+  facilityId, entryDate: inDays(-3),
+  narrative: "Rent and utilities for the month",
+  lines: [
+    { accountCode: "5200", debitCents: 180_000 },
+    { accountCode: "1030", creditCents: 180_000 },
+  ],
+  ...GL,
+});
+
+// One posted against the wrong account and reversed, so the log shows what a
+// correction looks like: two entries, both standing.
+const misposted = postJournal({
+  facilityId, entryDate: inDays(-2),
+  narrative: "Staff advance",
+  lines: [
+    { accountCode: "5100", debitCents: 40_000 },
+    { accountCode: "1010", creditCents: 40_000 },
+  ],
+  ...GL,
+});
+reverseJournal({
+  journalId: misposted,
+  reason: "An advance is a receivable, not a staff cost — re-entered against the right account",
+  ...GL,
+});
+
+// And the whole day's operations, turned into journals in one pass.
+const postedFromOps = postFromOperations({ facilityId, ...GL });
+
 const summary = claimsSummary();
 const chain = verifyAuditChain();
 const facility = getFacility(facilityId)!;
@@ -1782,6 +1838,7 @@ console.log(`  lab orders        ${count(`SELECT COUNT(*) AS n FROM orders`)} ·
 console.log(`  admissions        ${count(`SELECT COUNT(*) AS n FROM admissions`)} · ${count(`SELECT COUNT(*) AS n FROM admissions WHERE discharged_at IS NULL`)} still in a bed`);
 console.log(`  appointments      ${count(`SELECT COUNT(*) AS n FROM appointments`)} booked`);
 console.log(`  programmes        ${count(`SELECT COUNT(*) AS n FROM enrolments WHERE status = 'active'`)} on the registers · HIV retention ${cohortReport("HIV")[0]?.retentionPercent ?? 0}%`);
+console.log(`  ledger            ${ledgerSummary(facilityId).journals} journals · trial balance ${ledgerSummary(facilityId).trialBalanceDifferenceCents === 0 ? "balanced" : "OUT"} · ${reconcileLedger(facilityId).agrees ? "agrees with the till" : "DISAGREES with the till"}`);
 console.log(`  procurement       ${procurementSummary(facilityId).openOrders} orders open · ${procurementSummary(facilityId).queriedInvoices} invoice queried · ${Math.round(procurementSummary(facilityId).varianceCents / 100)} KES overcharged, caught`);
 console.log(`  radiology         ${radiologySummary().studies} studies · ${radiologySummary().blocked} blocked · ${radiologySummary().totalDoseMsv} mSv delivered · ${radiologySummary().criticalUncommunicated} critical untold`);
 console.log(`  theatre           ${theatreSummary(facilityId).booked} cases · checklist ${theatreSummary(facilityId).checklistCompliantPercent ?? 0}% complete · ${theatreSummary(facilityId).countMismatches} count mismatch resolved`);
