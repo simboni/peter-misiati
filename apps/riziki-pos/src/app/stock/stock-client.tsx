@@ -12,6 +12,7 @@
  * keystroke would be unusable.
  */
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import { formatKes, formatQty, formatUnits } from "@/lib/units";
 import { Chip, Empty, Stat, TableWrap, Th, Td, inputClass } from "@/components/ui";
@@ -180,7 +181,21 @@ export function StockClient({
             {shown.map((l) => (
               <tr key={l.id} className="hover:bg-wash/50">
                 <Td>
-                  <span className="font-bold">{l.name}</span>
+                  {/*
+                    The name is the way in to the ledger behind the number.
+
+                    Only for the owner: an attendant who could read what each
+                    batch took, line by line, could work the recipe out by
+                    subtraction — the same reason they never receive the reagent
+                    quantities on this screen at all.
+                  */}
+                  {owner ? (
+                    <Link href={`/stock/${l.id}`} className="font-bold text-ink hover:underline">
+                      {l.name}
+                    </Link>
+                  ) : (
+                    <span className="font-bold">{l.name}</span>
+                  )}
                   {l.chemicalName && l.chemicalName !== l.name ? (
                     <span className="ml-1.5 text-[11px] text-muted">{l.chemicalName}</span>
                   ) : null}

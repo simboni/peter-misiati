@@ -14,7 +14,7 @@
  */
 
 import { all, get, run, audit, db } from "./db.ts";
-import { BUSINESS, type Invoice } from "./credit.ts";
+import { getBusiness, type Invoice } from "./credit.ts";
 import { lineDiscountCents } from "./sales.ts";
 import { formatDateTime, formatQty } from "./units.ts";
 import { isPaperWidth, type PaperWidth, type Receipt, type ReceiptLine } from "./escpos.ts";
@@ -81,6 +81,17 @@ export interface PrintSettings {
   footer: string;
   /** Print without being asked once a sale is recorded, if a printer is paired. */
   autoPrint: boolean;
+  /**
+   * When these were last saved, as the database wrote it. Empty if never.
+   *
+   * It travels to the counter for one reason: the phone may be looking at a
+   * SAVED COPY of the sell screen — the service worker hands one over whenever
+   * the network is slow or gone — and a saved copy carries the settings as they
+   * were when it was saved. A receipt printed from that copy would use an old
+   * header, which is exactly the "it went back to the default" this fixes. The
+   * stamp lets the counter tell which of the two it holds is the newer.
+   */
+  savedAt: string;
 }
 
 export interface PrintSettingsInput {
@@ -99,9 +110,19 @@ export const MAX_HEADER_LINES = 6;
  * the A5 invoice prints, so the two documents never disagree.
  */
 export function defaultPrintSettings(): PrintSettings {
+  /*
+    The shop as the OWNER typed it, not as it was written into the source.
+
+    This read the hardcoded constant, so a shop that had put its real name,
+    address and phone into Shop details and never opened the printer screen got
+    a receipt header that ignored every word of it — and any later loss of the
+    saved header dropped the printout back to a name in the code rather than the
+    one on the door.
+  */
+  const shop = getBusiness();
   return {
     paper: 58,
-    header: [BUSINESS.name, BUSINESS.address, BUSINESS.phone, BUSINESS.kraPin ? `PIN ${BUSINESS.kraPin}` : ""]
+    header: [shop.name, shop.address, shop.phone, shop.kraPin ? `PIN ${shop.kraPin}` : ""]
       .map((l) => l.trim())
       .filter(Boolean),
     footer: "Asante sana for your business.",
@@ -115,6 +136,7 @@ export function defaultPrintSettings(): PrintSettings {
       paired simply never fires one.
     */
     autoPrint: true,
+    savedAt: "",
   };
 }
 
@@ -141,7 +163,16 @@ export function getPrintSettings(): PrintSettings {
     // Unset means "never chosen", which takes the default above rather than
     // reading as a deliberate no.
     autoPrint: getSetting(KEY.auto) === undefined ? fallback.autoPrint : getSetting(KEY.auto) === "1",
+    savedAt: savedAtStamp(),
   };
+}
+
+/** The most recent time any printer setting was written. */
+function savedAtStamp(): string {
+  const row = get<{ at: string | null }>(
+    `SELECT MAX(updated_at) AS at FROM settings WHERE key LIKE 'printer.%'`,
+  );
+  return row?.at ?? "";
 }
 
 export function savePrintSettings(input: PrintSettingsInput, userId?: number | null): PrintSettings {
@@ -237,7 +268,7 @@ export function receiptFromInvoice(invoice: Invoice, settings: PrintSettings): R
     })),
     note:
       balanceCents > 0
-        ? `Goods remain the property of ${BUSINESS.name} until paid in full.`
+        ? `Goods remain the property of ${getBusiness().name} until paid in full.`
         : sale.note || null,
     footer: settings.footer,
     voided: sale.status === "voided",

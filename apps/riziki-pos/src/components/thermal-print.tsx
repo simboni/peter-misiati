@@ -33,6 +33,7 @@ import {
 import { Alert, Button, Chip, Field, inputClass } from "@/components/ui";
 import { receiptBytes, receiptText, testReceipt, type PaperWidth, type Receipt } from "@/lib/escpos";
 import * as link from "@/lib/printer-link";
+import { formatDateTime } from "@/lib/units";
 
 // ------------------------------------------------------------ the button
 
@@ -401,6 +402,8 @@ export interface PrinterFields {
   header: string[];
   footer: string;
   autoPrint: boolean;
+  /** When these were last written. Empty means nobody has ever saved them. */
+  savedAt?: string;
 }
 
 export interface PrinterFormState {
@@ -505,6 +508,21 @@ export function PrinterSettingsForm({
         <Button type="submit" className="w-full" disabled={pending}>
           {pending ? "Saving…" : "Save printer settings"}
         </Button>
+
+        {/*
+          When this was last saved, and what it means if it never was.
+
+          The owner's complaint was that the receipt "went back to the default",
+          and there was no way on this screen to tell a setting that had saved
+          from one that had not. This is that way: a date means the shop's own
+          words are in the database, and no date means every receipt is printing
+          the shop details from Users and settings instead.
+        */}
+        <p className="text-center text-xs text-muted">
+          {settings.savedAt
+            ? `Last saved ${formatDateTime(settings.savedAt)}. Every phone picks this up on its next load.`
+            : "Never saved. Receipts are printing the shop details from Users and settings."}
+        </p>
       </form>
 
       <ThermalPrint receipt={sample} paper={paper} label="Print test receipt" />

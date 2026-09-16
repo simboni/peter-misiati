@@ -424,6 +424,63 @@ const QUEUED_METHOD_LABEL: Record<string, string> = { cash: "Cash", mpesa: "M-Pe
  * PENDING and says so on the page, rather than showing a number that might
  * not match what prints again once the sale has synced.
  */
+/** The shop's letterhead, as it travels to the counter. */
+export interface PrinterPrefs {
+  paper: PaperWidth;
+  header: string[];
+  footer: string;
+  autoPrint: boolean;
+  /** When the database last wrote these. Empty means never set by hand. */
+  savedAt: string;
+}
+
+const PRINTER_KEY = "riziki_printer";
+
+/**
+ * The newer of two answers: the one this page came with, and the one this phone
+ * stored the last time it had a fresh one.
+ *
+ * Nothing here decides what the settings ARE — the database does that. This
+ * only stops a saved copy of the screen, which the service worker serves
+ * whenever the line is slow, from printing a header the owner changed days ago.
+ * Stored per device because that is where the stale page lives.
+ */
+function useFreshestPrinter(fromServer: PrinterPrefs): PrinterPrefs {
+  /*
+    Decided once, when the screen opens, and never again while it is open.
+
+    Deliberately not a state that settles a beat later: the receipt may print
+    itself the instant a sale is taken, and a header that arrives on the second
+    render is a header that arrives after the paper has moved.
+  */
+  const [settings] = useState<PrinterPrefs>(() => {
+    if (typeof window === "undefined") return fromServer;
+    let stored: PrinterPrefs | null = null;
+    try {
+      const raw = window.localStorage.getItem(PRINTER_KEY);
+      stored = raw ? (JSON.parse(raw) as PrinterPrefs) : null;
+    } catch {
+      // A phone with storage switched off simply uses what the page brought.
+      stored = null;
+    }
+    const stamp = fromServer.savedAt ?? "";
+    return stored && typeof stored.savedAt === "string" && stored.savedAt > stamp ? stored : fromServer;
+  });
+
+  useEffect(() => {
+    // Only a page that turned out to be the fresher of the two is worth
+    // remembering; writing back the stale one would undo the whole point.
+    if (settings !== fromServer) return;
+    try {
+      window.localStorage.setItem(PRINTER_KEY, JSON.stringify(fromServer));
+    } catch {
+      // Not being able to remember is not a reason to fail a sale.
+    }
+  }, [settings, fromServer]);
+
+  return settings;
+}
+
 function receiptFromQueued(
   q: Extract<SellState, { status: "queued" }>,
   byId: Map<number, SellItem>,
@@ -683,7 +740,7 @@ export default function SellClient({
   onLastOrder,
   onMix,
   onKeepPrice,
-  printer,
+  printer: printerFromServer,
 }: {
   items: SellItem[];
   topSellerIds: number[];
@@ -711,8 +768,25 @@ export default function SellClient({
   ) => Promise<{ ok: true; message: string } | { ok: false; error: string; needsPin: boolean }>;
   /** The shop's letterhead — nothing owner-sensitive — so a queued sale can
    *  build its own receipt on the phone with no server round trip. */
-  printer: { paper: PaperWidth; header: string[]; footer: string; autoPrint: boolean };
+  printer: PrinterPrefs;
 }) {
+  /*
+    The letterhead this phone will actually print, which is not always the one
+    that came with the page.
+
+    The service worker hands over a SAVED COPY of this screen whenever the
+    network is slow or gone — that is what keeps the counter working on one bar
+    — and a saved copy carries the header as it was on the day it was saved. So
+    a header changed on the settings screen kept coming out of the printer as
+    the old one, for as long as that copy stayed in the phone. The owner reads
+    that as "it reset itself".
+
+    Each fresh load stores what the server sent, stamped with when it was saved
+    in the database; a page that turns out to be older than what is stored uses
+    the stored one instead. Whichever is newer wins, and neither can be a
+    default nobody chose.
+  */
+  const printer = useFreshestPrinter(printerFromServer);
   const [cart, setCart] = useState<CartLine[]>([]);
   const [query, setQuery] = useState("");
   const [board, setBoard] = useState<Board>("products");

@@ -391,3 +391,148 @@ export function performStocktake(input: StocktakeInput): StocktakeResult {
   });
 }
 
+
+// ------------------------------------------------------- where a count came from
+
+/**
+ * One entry in an item's stock ledger, in words.
+ *
+ * The ledger has always been there — every figure in this app is a sum of these
+ * rows — but nothing ever showed it. "The Ungerol has gone up by twenty kilos
+ * again and nobody delivered any" was therefore unanswerable from inside the
+ * system: the shelf said what it said, and the reason was in a table only a
+ * developer could read. This is that table, said out loud.
+ */
+export interface StockMove {
+  id: number;
+  at: string;
+  /** Positive: it came in. Negative: it went out. Never zero. */
+  deltaMilli: number;
+  /** The running total after this entry, oldest to newest. */
+  balanceMilli: number;
+  reason: string;
+  /** What the reason means in the shop's words. */
+  said: string;
+  refType: string | null;
+  refId: number | null;
+  /** Where to go and look at the thing that caused it, if there is a screen. */
+  href: string | null;
+  note: string;
+  who: string | null;
+}
+
+const MOVE_SAID: Record<string, string> = {
+  opening: "Opening count",
+  purchase: "Delivery recorded",
+  sale: "Sold",
+  sale_void: "Sale voided — put back",
+  repack_out: "Poured out for repacking",
+  repack_in: "Repacked in",
+  repack_loss: "Lost in repacking",
+  batch_consume: "Mixed into a batch",
+  batch_output: "Made by a batch",
+  adjustment: "Adjusted by hand",
+  stocktake: "Stock take",
+};
+
+function hrefFor(refType: string | null, refId: number | null): string | null {
+  if (!refId) return null;
+  if (refType === "sale") return `/invoice/${refId}`;
+  if (refType === "purchase") return `/purchases`;
+  if (refType === "batch") return `/mix`;
+  return null;
+}
+
+/**
+ * Every entry behind one item's count, newest first, with the running balance.
+ *
+ * The balance is worked out oldest-first over the whole history and then
+ * reversed, so the number beside each row is what the shelf said at that moment
+ * — which is what makes a jump legible: the row where it went up by twenty is
+ * the row that did it.
+ */
+export function movementHistory(itemId: number, limit = 200): StockMove[] {
+  const rows = all<{
+    id: number;
+    at: string;
+    delta_milli: number;
+    reason: string;
+    ref_type: string | null;
+    ref_id: number | null;
+    note: string | null;
+    who: string | null;
+  }>(
+    `SELECT m.id, m.at, m.delta_milli, m.reason, m.ref_type, m.ref_id, m.note,
+            u.name AS who
+       FROM stock_movements m
+       LEFT JOIN users u ON u.id = m.user_id
+      WHERE m.item_id = ?
+      ORDER BY m.id`,
+    itemId,
+  );
+
+  let balance = 0;
+  const walked = rows.map((r) => {
+    balance += r.delta_milli;
+    return {
+      id: r.id,
+      at: r.at,
+      deltaMilli: r.delta_milli,
+      balanceMilli: balance,
+      reason: r.reason,
+      said: MOVE_SAID[r.reason] ?? r.reason,
+      refType: r.ref_type,
+      refId: r.ref_id,
+      href: hrefFor(r.ref_type, r.ref_id),
+      note: r.note ?? "",
+      who: r.who,
+    };
+  });
+
+  return walked.reverse().slice(0, limit);
+}
+
+/** A day of an item's ledger, as the shop's day: UTC+3, no daylight saving. */
+export interface StockDay {
+  date: string;
+  inMilli: number;
+  outMilli: number;
+  netMilli: number;
+  /** What the shelf said at the end of that day. */
+  closingMilli: number;
+}
+
+/**
+ * The last N days of one item, in and out.
+ *
+ * This is the shape the question is actually asked in — "it goes up twenty
+ * kilos a day" — and a list of forty individual movements does not answer it.
+ * A column of net figures does, at a glance, and then the list below says which
+ * entry it was.
+ */
+export function dailyStock(itemId: number, days = 14): StockDay[] {
+  const rows = all<{ d: string; inm: number; outm: number }>(
+    `SELECT date(at, '+3 hours') AS d,
+            COALESCE(SUM(CASE WHEN delta_milli > 0 THEN delta_milli END), 0) AS inm,
+            COALESCE(SUM(CASE WHEN delta_milli < 0 THEN -delta_milli END), 0) AS outm
+       FROM stock_movements
+      WHERE item_id = ?
+      GROUP BY d
+      ORDER BY d`,
+    itemId,
+  );
+
+  let closing = 0;
+  const walked = rows.map((r) => {
+    closing += r.inm - r.outm;
+    return {
+      date: r.d,
+      inMilli: r.inm,
+      outMilli: r.outm,
+      netMilli: r.inm - r.outm,
+      closingMilli: closing,
+    };
+  });
+
+  return walked.slice(-days).reverse();
+}

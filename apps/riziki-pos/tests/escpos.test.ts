@@ -348,6 +348,28 @@ test("a receipt with no lines still prints and still cuts", () => {
 
 // ------------------------------------------------------------- settings
 
+test("before anyone sets a header, the receipt uses the shop details the owner typed", () => {
+  /*
+    This read a constant out of the source, so a shop that had put its real
+    name, address and phone into Users and settings and never opened the printer
+    screen got a receipt header that ignored every word of it. Whatever the
+    owner typed IS the shop, and it is the only thing a default may say.
+  */
+  dbm.run(
+    `INSERT INTO settings (key, value) VALUES ('shop_name', 'Riziki Industrial Chemicals')
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+  );
+  dbm.run(
+    `INSERT INTO settings (key, value) VALUES ('shop_phone', '0720463864/0713880085')
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+  );
+
+  const fallback = settings.defaultPrintSettings();
+  assert.ok(fallback.header.includes("0720463864/0713880085"), "the phone the owner typed");
+  assert.equal(fallback.header[0], "Riziki Industrial Chemicals");
+  assert.equal(fallback.savedAt, "", "and it says plainly that nobody has saved a header");
+});
+
 test("printer settings round-trip through the database", () => {
   const before = settings.getPrintSettings();
   assert.equal(before.paper, 58, "58 mm is the sensible default for a small shop");
@@ -369,6 +391,17 @@ test("printer settings round-trip through the database", () => {
   // Read back through a fresh call, not the return value.
   const reloaded = settings.getPrintSettings();
   assert.deepEqual(reloaded, saved);
+
+  /*
+    And stamped with when it was written.
+
+    The counter carries this stamp so a SAVED COPY of the sell screen — which
+    the service worker hands over whenever the line is slow — cannot print a
+    header the owner changed days ago. Without it, the shop's own complaint:
+    the settings "reset back to the default" on their own.
+  */
+  assert.ok(reloaded.savedAt, "a saved setting knows when it was saved");
+  assert.match(reloaded.savedAt, /^\d{4}-\d{2}-\d{2} /);
 
   assert.throws(() => settings.savePrintSettings({ paper: "57", header: "x" }), /58 mm or 80 mm/);
   assert.throws(() => settings.savePrintSettings({ paper: "58", header: "   " }), /shop's name/);

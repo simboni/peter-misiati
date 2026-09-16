@@ -17,9 +17,8 @@ import assert from "node:assert/strict";
 
 const { get, all, postMovement, stockOf } = await import("../src/lib/db.ts");
 const { seed } = await import("../src/lib/seed.ts");
-const { performStocktake, planStocktake, stockStatus, stockView } = await import(
-  "../src/lib/stock-service.ts"
-);
+const { performStocktake, planStocktake, stockStatus, stockView, movementHistory, dailyStock } =
+  await import("../src/lib/stock-service.ts");
 
 seed();
 
@@ -133,3 +132,47 @@ test("the stock view puts one row under each chemical", () => {
 });
 
 // ------------------------------------------------------------- (f) voiding
+
+// ------------------------------------------------- where a count came from
+
+test("the ledger behind one item reads back, newest first, with a running total", () => {
+  const id = itemId("Caustic Soda");
+  const opening = stockOf(id);
+
+  postMovement({ itemId: id, deltaMilli: 20_000, reason: "purchase", userId: OWNER, note: "the lorry" });
+  postMovement({ itemId: id, deltaMilli: -5_000, reason: "sale", refType: "sale", refId: 4242, userId: OWNER });
+
+  const moves = movementHistory(id);
+  assert.equal(moves[0].deltaMilli, -5_000, "newest first");
+  assert.equal(moves[0].said, "Sold", "in the shop's words, not the column's");
+  assert.equal(moves[0].href, "/invoice/4242", "and the way to the thing that caused it");
+  assert.equal(moves[1].deltaMilli, 20_000);
+  assert.equal(moves[1].note, "the lorry");
+
+  // The balance beside each row is what the shelf said at that moment, which is
+  // what makes a jump legible: the row where it went up IS the row that did it.
+  assert.equal(moves[0].balanceMilli, opening + 15_000);
+  assert.equal(moves[1].balanceMilli, opening + 20_000);
+  assert.equal(moves[0].balanceMilli, stockOf(id), "and the newest is today's count");
+
+  // Everything is attributed. An entry with nobody against it is the one worth
+  // asking about, so the name is carried rather than defaulted.
+  assert.equal(moves[0].who, "Owner");
+});
+
+test("the day-by-day column answers \"it goes up every day\" on its own", () => {
+  const id = itemId("Salt");
+  const before = stockOf(id);
+
+  postMovement({ itemId: id, deltaMilli: 20_000, reason: "purchase", userId: OWNER });
+  postMovement({ itemId: id, deltaMilli: -3_000, reason: "sale", userId: OWNER });
+
+  const days = dailyStock(id, 14);
+  assert.ok(days.length > 0);
+  const today = days[0];
+  assert.equal(today.inMilli >= 20_000, true, "what came in");
+  assert.equal(today.outMilli >= 3_000, true, "what went out");
+  assert.equal(today.netMilli, today.inMilli - today.outMilli);
+  assert.equal(today.closingMilli, stockOf(id), "and where the shelf ended up");
+  assert.equal(today.closingMilli, before + 17_000);
+});
