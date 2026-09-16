@@ -3,7 +3,7 @@
 Kenya-compliant hospital management system (HMIS). Built to the plan in
 [`docs/hms/`](../../docs/hms/) at the repository root.
 
-**Current state: every module on the roadmap is built — 46 of them, 914 tests,
+**Current state: every module on the roadmap is built — 46 of them, 915 tests,
 thirty-six screens.** A patient is registered, checked in, triaged, consulted,
 diagnosed, prescribed for, investigated in the laboratory, dispensed to from
 batch-tracked stock, admitted to a bed, billed, invoiced through eTIMS and

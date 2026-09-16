@@ -7,7 +7,7 @@
  * duplicate rather than a double-count.
  */
 import { mkdtempSync } from "node:fs";
-import { writeFileSync, readFileSync, rmSync } from "node:fs";
+import { writeFileSync, readFileSync, rmSync, truncateSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -374,8 +374,10 @@ test("the folder is made when a batch is written into one that does not exist", 
   // A stick plugged into a machine that has never synced is the normal first
   // case, not something to report back to the person holding it.
   somethingToPush("SYN1");
-  const name = X.outboundName("syn1", "2026-09-16T17:20:31.000Z");
-  assert.equal(name, "outbound-SYN1-20260916T172031.json");
+  const name = X.outboundName("syn1", "2026-09-16T17:20:31.500Z");
+  assert.equal(name, "outbound-SYN1-20260916T172031.500.json");
+  // To the millisecond, so two batches inside one second cannot share a name.
+  assert.notEqual(name, X.outboundName("syn1", "2026-09-16T17:20:31.501Z"));
 
   const result = X.exchange({
     transport: X.fileTransport(X.batchPath(name)),
@@ -411,7 +413,7 @@ test("a second batch never overwrites the first", () => {
   assert.equal(before.length, 1);
 
   somethingToPush("SYN1");
-  const second = X.outboundName("SYN1", "2026-09-17T08:00:00.000Z");
+  const second = X.outboundName("SYN1", "2026-09-17T08:00:00.250Z");
   assert.notEqual(second, before[0].name);
   const envelope = X.packOutbound({ deviceCode: "SYN1", facilityId });
   assert.equal(X.fileTransport(X.batchPath(second)).send(envelope).ok, true);
@@ -424,6 +426,19 @@ test("a second batch never overwrites the first", () => {
   assert.equal(older.ops, before[0].ops);
   // Newest first, so the one somebody just wrote is the one they are looking for.
   assert.equal(after[0].name, second);
+});
+
+test("a file too large to be a batch is described, not read", () => {
+  // Reading it to find out what it is would mean pulling whatever somebody left
+  // on the stick into memory.
+  const big = join(folder, "enormous.json");
+  writeFileSync(big, "", "utf8");
+  truncateSync(big, X.MAX_BATCH_BYTES + 1);
+
+  const file = X.listBatches().find((f) => f.name === "enormous.json")!;
+  assert.match(file.problem!, /too large to be a batch/);
+  assert.equal(file.ops, null);
+  rmSync(big);
 });
 
 test("a folder that does not exist is nothing to collect, not a failure", () => {

@@ -89,6 +89,15 @@ export const MAX_LAMPORT = 2 ** 40;
  */
 export const MAX_BATCH_OPS = 10_000;
 
+/**
+ * The largest file the folder listing will read.
+ *
+ * A batch at the operation ceiling is a few megabytes even with long clinical
+ * notes. Anything at this size is not a batch, and reading it to find that out
+ * would mean pulling whatever somebody left on the stick into memory.
+ */
+export const MAX_BATCH_BYTES = 32 * 1_048_576;
+
 /** Separators for the digest, chosen because no field can contain them. */
 const FIELD_SEPARATOR = "\u0000";
 const OP_SEPARATOR = "\u0001";
@@ -537,7 +546,9 @@ export function batchPath(name: string): string {
  * work gone with nothing to recover it from.
  */
 export function outboundName(deviceCode: string, at = now()): string {
-  return `${outboundPrefix(deviceCode)}${at.replace(/[-:]/g, "").slice(0, 15)}.json`;
+  // To the millisecond, not the second: two batches written inside one second
+  // would share a name, and "never overwrites" with a caveat is not a rule.
+  return `${outboundPrefix(deviceCode)}${at.replace(/[-:]/g, "").slice(0, 19)}.json`;
 }
 
 /** What every batch this device has written begins with. */
@@ -584,7 +595,15 @@ export function listBatches(): BatchFile[] {
     .sort((a, b) => (a < b ? 1 : a > b ? -1 : 0))
     .map((name): BatchFile => {
       const path = join(batchFolder(), name);
-      const stat = statSync(path);
+      let stat;
+      try {
+        stat = statSync(path);
+      } catch {
+        // Somebody pulled the stick out between reading the folder and reading
+        // the file. Not a reason to fail the whole screen.
+        return { name, sizeBytes: 0, modifiedAt: "", from: null, ops: null, sentAt: null, digest: null,
+                 problem: "that file is no longer there" };
+      }
       const base = {
         name,
         sizeBytes: stat.size,
@@ -595,6 +614,12 @@ export function listBatches(): BatchFile[] {
         digest: null,
         problem: null as string | null,
       };
+      // Described from its size alone rather than read into memory. A batch at
+      // the op ceiling is a few megabytes; anything at this size is not one,
+      // and a folder is not a place to be trusting about what is in it.
+      if (stat.size > MAX_BATCH_BYTES) {
+        return { ...base, problem: `that file is ${Math.round(stat.size / 1_048_576)} MB, too large to be a batch` };
+      }
       try {
         const parsed = JSON.parse(readFileSync(path, "utf8")) as Envelope;
         if (typeof parsed?.version !== "number" || !Array.isArray(parsed.ops)) {
