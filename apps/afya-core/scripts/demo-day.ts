@@ -47,6 +47,10 @@ import {
   recordOutcome as recordReferralOutcome, referralSummary,
 } from "../src/lib/referrals.ts";
 import {
+  openStudy, justifyStudy, answerSafetyCheck, performStudy, reportStudy,
+  recordCommunication, radiologySummary, MRI_SCREENING,
+} from "../src/lib/radiology.ts";
+import {
   bookCase, recordSurgicalConsent, addTeamMember, answerChecklist, completeStage,
   recordCountIn, recordCountOut, resolveCount, arriveInTheatre, startAnaesthesia,
   recordIncision, closeCase, leaveTheatre, completeCase, cancelCase,
@@ -1391,6 +1395,127 @@ cancelCase({
   ...OTSIGN,
 });
 
+
+// ---------------------------------------------------------------- radiology
+//
+// Four studies covering the states that matter: a chest film with a critical
+// finding that has been telephoned to a named clinician, an obstetric
+// ultrasound needing no pregnancy check at all, a chest film on a woman who
+// might be pregnant — escalated, not blocked, because a necessary film in a
+// shocked patient is still the right film — and one waiting for a
+// justification nobody has written yet.
+
+const RAD = { byUserId: clinicianId, byUserName: DOC.byUserName, deviceCode: REC };
+const RADAT = { facilityId, byUserId: clinicianId, byUserName: DOC.byUserName };
+
+let radNid = 51_000_000;
+const imagingPatient = (given: string, family: string, sex: "male" | "female", dob: string) => {
+  const mrn = registerPatient({
+    facilityId, deviceCode: REC, givenName: given, familyName: family, sex,
+    dateOfBirth: dob, nationalId: String(++radNid), county: "Nairobi", ...DESK,
+  });
+  recordConsent({ patientMrn: mrn, purpose: "treatment", granted: true, ...DESK });
+  return mrn;
+};
+
+const imagingRequest = (mrn: string, service: string, question: string) => {
+  const enc = openEncounter({
+    facilityId, patientMrn: mrn, kind: "outpatient",
+    clinicianId, clinicianName: DOC.byUserName, deviceCode: REC,
+  });
+  addDiagnosis({ encounterId: enc, code: "CA40", byUserId: clinicianId, byUserName: DOC.byUserName, deviceCode: REC });
+  return placeOrder({
+    encounterId: enc, kind: "imaging", serviceCode: service, payerCode: "CASH",
+    clinicalQuestion: question, deviceCode: REC,
+    ordererId: clinicianId, ordererName: DOC.byUserName,
+  });
+};
+
+// The one that matters: a tension pneumothorax found and telephoned.
+const pneumothorax = openStudy({
+  orderId: imagingRequest(
+    imagingPatient("Charles", "Odhiambo", "male", "1972-11-04"),
+    "IMG-CXR", "Sudden breathlessness after a fall — rule out pneumothorax",
+  ),
+  modality: "xray", bodyPart: "Chest", laterality: "not_applicable", ...RAD,
+});
+justifyStudy({
+  studyId: pneumothorax,
+  justification: "Sudden breathlessness with reduced air entry on the right. Decompression decision depends on it.",
+  ...RADAT,
+});
+performStudy({
+  studyId: pneumothorax, radiographerName: "Mr. Barasa",
+  equipment: "Shimadzu mobile, casualty", doseUgyM2: 124, doseUsv: 92, images: 1, ...RADAT,
+});
+const criticalReport = reportStudy({
+  studyId: pneumothorax, kind: "provisional",
+  findings: "Large right-sided pneumothorax with a visible pleural edge and mediastinal shift to the left.",
+  impression: "Tension pneumothorax — needs decompression now",
+  critical: true, ...RADAT,
+});
+recordCommunication({
+  reportId: criticalReport, communicatedTo: "Dr. Achieng Wanjiru, by telephone at the casualty desk",
+  byUserId: clinicianId, byUserName: DOC.byUserName,
+});
+reportStudy({
+  studyId: pneumothorax, kind: "final",
+  findings: "Right-sided pneumothorax, now with an intercostal drain in situ and the lung re-expanded.",
+  impression: "Treated pneumothorax, drain well sited", ...RADAT,
+});
+
+// An obstetric ultrasound. No ionising radiation, so no pregnancy question and
+// no dose — which is the point of distinguishing the modalities at all.
+const obstetric = openStudy({
+  orderId: imagingRequest(
+    imagingPatient("Lilian", "Kariuki", "female", "1996-05-22"),
+    "IMG-USS-OBS", "Dating scan, uncertain last menstrual period",
+  ),
+  modality: "ultrasound", bodyPart: "Gravid uterus", laterality: "not_applicable", ...RAD,
+});
+justifyStudy({ studyId: obstetric, justification: "Pregnancy of uncertain dates, antenatal schedule depends on it", ...RADAT });
+performStudy({ studyId: obstetric, radiographerName: "Mr. Barasa", equipment: "Mindray DC-40", images: 6, ...RADAT });
+reportStudy({
+  studyId: obstetric, kind: "final",
+  findings: "Single live intrauterine pregnancy. Crown-rump length corresponds to 12 weeks and 3 days.",
+  impression: "Viable intrauterine pregnancy at 12+3. Expected date of delivery revised accordingly.",
+  ...RADAT,
+});
+
+// A film on a woman who might be pregnant. Escalated, and taken.
+const possiblyPregnant = openStudy({
+  orderId: imagingRequest(
+    imagingPatient("Jane", "Muthoni", "female", "1998-01-30"),
+    "IMG-CXR", "Road traffic collision, shocked — chest film before theatre",
+  ),
+  modality: "xray", bodyPart: "Chest", laterality: "not_applicable", ...RAD,
+});
+justifyStudy({
+  studyId: possiblyPregnant,
+  justification: "Shocked trauma patient going to theatre. The film changes the anaesthetic plan.",
+  pregnancyCheck: "possible", pregnancyNote: "Last period uncertain, no test available before theatre",
+  ...RADAT,
+});
+performStudy({
+  studyId: possiblyPregnant, radiographerName: "Mr. Barasa",
+  equipment: "Shimadzu mobile, casualty", doseUgyM2: 96, doseUsv: 71, images: 1,
+  ...RADAT,
+});
+reportStudy({
+  studyId: possiblyPregnant, kind: "final",
+  findings: "No pneumothorax, no haemothorax. Fractures of the left fifth and sixth ribs. Lead shielding over the pelvis.",
+  impression: "Rib fractures, no immediate thoracic emergency", ...RADAT,
+});
+
+// And one nobody has justified yet, so the worklist shows what blocked means.
+openStudy({
+  orderId: imagingRequest(
+    imagingPatient("Simon", "Wekesa", "male", "1959-07-15"),
+    "IMG-XRAY", "Chronic knee pain, query osteoarthritis",
+  ),
+  modality: "xray", bodyPart: "Right knee", laterality: "right", ...RAD,
+});
+
 // ------------------------------------------------------------- remittance
 //
 // A payment advice from SHA covering the submitted claims: most paid in full,
@@ -1537,6 +1662,7 @@ console.log(`  lab orders        ${count(`SELECT COUNT(*) AS n FROM orders`)} ·
 console.log(`  admissions        ${count(`SELECT COUNT(*) AS n FROM admissions`)} · ${count(`SELECT COUNT(*) AS n FROM admissions WHERE discharged_at IS NULL`)} still in a bed`);
 console.log(`  appointments      ${count(`SELECT COUNT(*) AS n FROM appointments`)} booked`);
 console.log(`  programmes        ${count(`SELECT COUNT(*) AS n FROM enrolments WHERE status = 'active'`)} on the registers · HIV retention ${cohortReport("HIV")[0]?.retentionPercent ?? 0}%`);
+console.log(`  radiology         ${radiologySummary().studies} studies · ${radiologySummary().blocked} blocked · ${radiologySummary().totalDoseMsv} mSv delivered · ${radiologySummary().criticalUncommunicated} critical untold`);
 console.log(`  theatre           ${theatreSummary(facilityId).booked} cases · checklist ${theatreSummary(facilityId).checklistCompliantPercent ?? 0}% complete · ${theatreSummary(facilityId).countMismatches} count mismatch resolved`);
 console.log(`  referrals         ${referralSummary(facilityId).live} live · ${referralSummary(facilityId).loopBroken} never came back · loop closed ${referralSummary(facilityId).loopClosedPercent ?? 0}%`);
 console.log(`  casualty          ${emergencySummary(facilityId).open} in the department · ${emergencySummary(facilityId).breached + emergencySummary(facilityId).untriaged} past target · ${emergencySummary(facilityId).withinTargetPercent ?? 0}% seen in time`);

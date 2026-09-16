@@ -2027,3 +2027,96 @@ CREATE TABLE IF NOT EXISTS theatre_team (
   user_id       INTEGER REFERENCES users(id),
   UNIQUE (case_id, role, person_name)
 );
+
+-- ============================================================================
+-- M32 Radiology
+--
+-- Built on the same `orders` row the laboratory uses, because an imaging
+-- request IS an order and duplicating that would give a facility two worklists
+-- and two ideas of what is outstanding. What is added here is everything that
+-- makes imaging different from a blood test: a dose, a justification, and a
+-- question nobody can un-ask once the exposure has happened.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS imaging_studies (
+  id            TEXT PRIMARY KEY,
+  order_id      TEXT NOT NULL REFERENCES orders(id),
+  patient_mrn   TEXT NOT NULL REFERENCES patients(mrn),
+  -- The number the images are filed under. Unique because two studies sharing
+  -- an accession is how one patient's film ends up on another's report.
+  accession     TEXT NOT NULL UNIQUE,
+  modality      TEXT NOT NULL CHECK (modality IN ('xray','ultrasound','ct','mri','fluoroscopy','mammography')),
+  body_part     TEXT NOT NULL,
+  laterality    TEXT CHECK (laterality IN ('left','right','bilateral','not_applicable')),
+  -- Why this exposure is justified. Required for anything ionising: the
+  -- Radiation Protection Act and the IAEA standards both put justification
+  -- before the exposure, not in a file afterwards.
+  justification TEXT NOT NULL DEFAULT '',
+  justified_by  INTEGER REFERENCES users(id),
+  justifier_name TEXT NOT NULL DEFAULT '',
+  -- The pregnancy question, asked before any ionising exposure of a woman who
+  -- could be pregnant. 'not_applicable' is an answer and says why.
+  pregnancy_check TEXT CHECK (pregnancy_check IN ('not_pregnant','possible','pregnant','not_applicable','declined')),
+  pregnancy_note TEXT NOT NULL DEFAULT '',
+  -- Dose area product in µGy·m², the quantity an X-ray unit actually reports.
+  -- Integer, like every other measurement here.
+  dose_ugy_m2   INTEGER,
+  -- Effective dose in microsieverts, where the equipment or a conversion gives
+  -- one. This is what a cumulative total is meaningfully summed in.
+  dose_usv      INTEGER,
+  images        INTEGER,
+  repeat_of     TEXT REFERENCES imaging_studies(id),
+  repeat_reason TEXT NOT NULL DEFAULT '',
+  status        TEXT NOT NULL CHECK (status IN
+                  ('requested','justified','scheduled','performed','reported','verified','cancelled')),
+  performed_at  TEXT,
+  performed_by  INTEGER REFERENCES users(id),
+  radiographer_name TEXT NOT NULL DEFAULT '',
+  equipment     TEXT NOT NULL DEFAULT '',
+  cancel_reason TEXT NOT NULL DEFAULT '',
+  device_code   TEXT,
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_study_order ON imaging_studies(order_id);
+CREATE INDEX IF NOT EXISTS idx_study_patient ON imaging_studies(patient_mrn);
+CREATE INDEX IF NOT EXISTS idx_study_status ON imaging_studies(status);
+
+-- The safety screening for a modality that has one. MRI is the reason this
+-- exists: a pacemaker or a ferromagnetic implant in an MRI scanner is fatal,
+-- and the screening is a different set of questions from the pregnancy check.
+CREATE TABLE IF NOT EXISTS imaging_safety_checks (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  study_id      TEXT NOT NULL REFERENCES imaging_studies(id),
+  item_code     TEXT NOT NULL,
+  answer        TEXT NOT NULL CHECK (answer IN ('yes','no','unknown')),
+  note          TEXT NOT NULL DEFAULT '',
+  answered_by   INTEGER REFERENCES users(id),
+  answerer_name TEXT NOT NULL,
+  answered_at   TEXT NOT NULL,
+  UNIQUE (study_id, item_code)
+);
+
+-- Reports. A provisional read and a final one are both kept: the provisional is
+-- what the ward acted on overnight, and if the final disagrees that difference
+-- is the most useful thing in the whole module.
+CREATE TABLE IF NOT EXISTS imaging_reports (
+  id            TEXT PRIMARY KEY,
+  study_id      TEXT NOT NULL REFERENCES imaging_studies(id),
+  kind          TEXT NOT NULL CHECK (kind IN ('provisional','final','addendum')),
+  findings      TEXT NOT NULL,
+  impression    TEXT NOT NULL,
+  -- A finding that cannot wait for somebody to open the report. Communicated
+  -- to a named person at a recorded time, exactly as a panic laboratory value
+  -- is: "it was in the report" is not communication.
+  critical      INTEGER NOT NULL DEFAULT 0,
+  communicated_to TEXT NOT NULL DEFAULT '',
+  communicated_at TEXT,
+  -- Set on a final report that disagrees with the provisional one.
+  discrepancy   INTEGER NOT NULL DEFAULT 0,
+  discrepancy_note TEXT NOT NULL DEFAULT '',
+  reported_by   INTEGER REFERENCES users(id),
+  reporter_name TEXT NOT NULL,
+  reporter_licence TEXT,
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_report_study ON imaging_reports(study_id, created_at);

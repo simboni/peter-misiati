@@ -64,6 +64,8 @@ export type BadgeKey =
   | "loopBroken"
   | "theatre"
   | "theatreBlocked"
+  | "imaging"
+  | "imagingCritical"
   | "alerts";
 
 export const NAV: NavSection[] = [
@@ -130,12 +132,15 @@ export const NAV: NavSection[] = [
   },
   {
     key: "diagnostics",
-    title: "Laboratory",
+    title: "Diagnostics",
     href: "/laboratory",
     badge: "bench",
     links: [
-      { href: "/laboratory", label: "The bench", permission: ["lab.result.release", "report.read"], badge: "bench" },
+      { href: "/laboratory", label: "Laboratory bench", permission: ["lab.result.release", "report.read"], badge: "bench" },
       { href: "/laboratory?view=unread", label: "Results to acknowledge", permission: ["patient.read"], badge: "unread" },
+      { href: "/radiology", label: "Imaging worklist", permission: ["patient.read"], badge: "imaging" },
+      { href: "/radiology?view=critical", label: "Critical findings", permission: ["patient.read"], badge: "imagingCritical" },
+      { href: "/radiology?view=log", label: "Imaging log", permission: ["patient.read"] },
     ],
   },
   {

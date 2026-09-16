@@ -276,26 +276,78 @@ theatre and a never-event.
    should not be booked here at all, and the system currently records it
    without comment.
 
-## 11. Public health
+## 11. Radiology
+
+Everything here follows from one fact: you cannot un-expose somebody. Two of
+these rules are the only things standing between a patient and an avoidable
+dose, and one is the only thing standing between a patient and a magnet.
 
 | # | Rule | Where | Source | Status |
 |---|---|---|---|---|
-| 11.1 | Notifiable conditions are detected from coded diagnoses as they are made, because the Act's clock runs from diagnosis | `reporting.ts` | Public Health Act | ✅ |
-| 11.2 | **The notifiable list is four conditions** — malaria, tuberculosis, cholera, measles. The full schedule must be loaded | `reporting.ts` `NOTIFIABLE_PREFIXES` | — | 🔴 |
-| 11.3 | Reporting one requires the county's reference — it is the proof it was made | `reporting.ts` | Design rule | ✅ |
-| 11.4 | MOH 705A is under five, 705B is five and over, split by age **on the day of the visit** | `reporting.ts` | MOH forms | ✅ |
-| 11.5 | A condition is counted whichever code in its ICD-11 family the clinician used | `reporting.ts` `MOH705_CONDITIONS` | Design rule | ⚠️ |
-| 11.6 | **The 705 condition list is six conditions.** The real form has many more rows | `reporting.ts` | — | 🔴 |
+| 11.1 | **Nothing ionising is exposed without a recorded justification**, and it is enforced at `performStudy`, not collected afterwards | `radiology.ts` | Radiation Protection Act; IAEA BSS | ✅ |
+| 11.2 | **The pregnancy question is answered before an ionising exposure** of a female patient who could be pregnant. "Not applicable" is an answer and has to say why | `radiology.ts` `justifyStudy` | Practice | ✅ |
+| 11.3 | **Childbearing age is taken as 12 to 55.** A convention, not a law: too narrow and somebody is missed, too wide and the question becomes noise that gets clicked through | `radiology.ts` `CHILDBEARING_AGE` | Judgement | 🔴 |
+| 11.4 | A female patient with **no date of birth is asked anyway** — unknown is not a reason to skip the question | `radiology.ts` `needsPregnancyCheck` | Design rule | ✅ |
+| 11.5 | **A possible or confirmed pregnancy escalates the study; it does not block it.** A necessary film in a shocked patient is still the right film, and blocking teaches people to answer "not pregnant" to get past the screen | `radiology.ts` | Design rule | ⚠️ |
+| 11.6 | **Ultrasound and MRI are not ionising**, so neither needs a dose justification or a pregnancy check | `radiology.ts` `IONISING` | Physics | ✅ |
+| 11.7 | **MRI is the one place the system refuses outright.** A "yes" or "unknown" on pacemaker, aneurysm clip, cochlear implant or metal in the eye stops the scan until a radiologist or MRI safety officer clears it | `radiology.ts` `performStudy` | Practice | ⚠️ |
+| 11.8 | An MRI cannot run until **every** screening question is answered | `radiology.ts` | Practice | ✅ |
+| 11.9 | **The seven MRI screening questions**, and which four of them block | `radiology.ts` `MRI_SCREENING` | Standard screening, abbreviated | 🔴 |
+| 11.10 | **Dose is cumulative and per patient.** "How much has this child had this year" is the question nobody can usually answer, because dose is recorded per study and never summed | `radiology.ts` `cumulativeDose` | Design rule | ✅ |
+| 11.11 | Where equipment reports no dose, a **typical figure is used and marked as an estimate**, so a cumulative total is never silently zero for a facility with older machines | `radiology.ts` `TYPICAL_DOSE_USV` | Design rule | ⚠️ |
+| 11.12 | **The typical dose figures are illustrative** — X-ray 100 µSv, CT 7000, fluoroscopy 3000, mammography 400. They must be replaced with the facility's own measured values | `radiology.ts` | — | 🔴 |
+| 11.13 | **A repeat must record why the first study was not adequate.** A repeat is a second dose, and a department needs to know which projection or which machine keeps repeating | `radiology.ts` `openStudy` | Practice | ✅ |
+| 11.14 | Two studies never share an accession — that is how one patient's film lands on another's report | `schema.sql` | Design rule | ✅ |
+| 11.15 | **A critical finding is communicated to a named person at a recorded time**, exactly as a panic laboratory value is. Filing it is not communicating it | `radiology.ts` `recordCommunication` | Practice | ✅ |
+| 11.16 | **A final report that disagrees with the provisional is kept as a discrepancy**, and the provisional is never overwritten — it is what the ward acted on overnight | `radiology.ts` `reportStudy` | Practice | ✅ |
+| 11.17 | A discrepancy must say what the difference is **and what follows from it** | `radiology.ts` | Design rule | ✅ |
+| 11.18 | A report must give an **impression**, not only findings — findings without one leave the decision to the reader | `radiology.ts` | Practice | ⚠️ |
+| 11.19 | A second report of the same kind is refused; **a correction is an addendum** | `radiology.ts` | Practice | ✅ |
+| 11.20 | Every report is **signed**, with the reporter's licence number where one is current | `radiology.ts` | Design rule | ✅ |
+| 11.21 | An imaging request is an **order**, on the same table the laboratory uses — one worklist, one idea of what is outstanding | `radiology.ts`, `orders.ts` | Design rule | ✅ |
 
-## 12. Revenue (for the claims specialist, not the clinician)
+### What to ask a radiographer and a radiologist
+
+1. **Is 12 to 55 the right window for the pregnancy question?** Marked red.
+   It is the single most-answered question in the module, and getting it wrong
+   either misses somebody or turns the prompt into a reflex click.
+2. **Is the MRI screening list complete enough, and is the blocking set
+   right?** Marked red. The seven questions are an abbreviation of the
+   standard screening. A facility with an MRI needs its own full form and its
+   own named safety officer — and if the facility has no MRI, this is dead
+   code that should be turned off rather than left looking functional.
+3. **What are this facility's actual doses?** The typical figures are
+   order-of-magnitude placeholders so that a cumulative total is never
+   silently zero. They are honest about being estimates — the screen says what
+   share of the total is estimated rather than measured — but they are not
+   this facility's numbers, and dose audit needs real ones.
+
+Also worth a decision from whoever holds the facility's radiation licence:
+this module records dose and justification, but the **licence itself, the
+personnel dosimetry and the equipment QA schedule sit with the national
+regulator, not with this software**. Nothing here should be mistaken for
+compliance with that.
+
+## 12. Public health
 
 | # | Rule | Where | Source | Status |
 |---|---|---|---|---|
-| 12.1 | Nine scrubber gates, each mapped to a documented SHA rejection cause | `claims.ts` `scrub` | SHA published causes | ⚠️ |
-| 12.2 | **The gates are inferred from documented causes, not from 50 real rejected claims.** The roadmap says to build them from a real corpus and that is still the right next step | — | — | 🔴 |
-| 12.3 | A claim beyond the payer's submission window (SHA: 7 days) escalates rather than blocking, because a late claim still has an appeal path | `claims.ts` | SHA | ⚠️ |
-| 12.4 | Tariffs and benefit rules are **illustrative**. The SHA schedule for the contracting cycle must be loaded | `seed.ts` | — | 🔴 |
-| 12.5 | Money is integer cents throughout, and a price is fixed as of the date of service | `billing.ts` | Design rule | ✅ |
+| 12.1 | Notifiable conditions are detected from coded diagnoses as they are made, because the Act's clock runs from diagnosis | `reporting.ts` | Public Health Act | ✅ |
+| 12.2 | **The notifiable list is four conditions** — malaria, tuberculosis, cholera, measles. The full schedule must be loaded | `reporting.ts` `NOTIFIABLE_PREFIXES` | — | 🔴 |
+| 12.3 | Reporting one requires the county's reference — it is the proof it was made | `reporting.ts` | Design rule | ✅ |
+| 12.4 | MOH 705A is under five, 705B is five and over, split by age **on the day of the visit** | `reporting.ts` | MOH forms | ✅ |
+| 12.5 | A condition is counted whichever code in its ICD-11 family the clinician used | `reporting.ts` `MOH705_CONDITIONS` | Design rule | ⚠️ |
+| 12.6 | **The 705 condition list is six conditions.** The real form has many more rows | `reporting.ts` | — | 🔴 |
+
+## 13. Revenue (for the claims specialist, not the clinician)
+
+| # | Rule | Where | Source | Status |
+|---|---|---|---|---|
+| 13.1 | Nine scrubber gates, each mapped to a documented SHA rejection cause | `claims.ts` `scrub` | SHA published causes | ⚠️ |
+| 13.2 | **The gates are inferred from documented causes, not from 50 real rejected claims.** The roadmap says to build them from a real corpus and that is still the right next step | — | — | 🔴 |
+| 13.3 | A claim beyond the payer's submission window (SHA: 7 days) escalates rather than blocking, because a late claim still has an appeal path | `claims.ts` | SHA | ⚠️ |
+| 13.4 | Tariffs and benefit rules are **illustrative**. The SHA schedule for the contracting cycle must be loaded | `seed.ts` | — | 🔴 |
+| 13.5 | Money is integer cents throughout, and a price is fixed as of the date of service | `billing.ts` | Design rule | ✅ |
 
 ---
 
@@ -329,3 +381,7 @@ Everything marked 🔴, in one list:
 18. Which WHO checklist items should raise an alert on a "no", confirmed by a
     surgeon and an anaesthetist
 19. The theatre urgency windows, and whether ASA grade should gate a booking
+20. The childbearing-age window for the imaging pregnancy question
+21. The MRI safety screening as this facility's own full form, with a named
+    safety officer — or the modality turned off if there is no scanner
+22. This facility's own measured dose figures, replacing the illustrative ones

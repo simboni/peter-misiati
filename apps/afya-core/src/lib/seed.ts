@@ -268,6 +268,10 @@ export function seedRevenueCycle(): void {
     { code: "LAB-MRDT", name: "Malaria rapid diagnostic test", category: "laboratory", etims: "SRV-LAB" },
     { code: "LAB-CBC", name: "Full haemogram", category: "laboratory", etims: "SRV-LAB" },
     { code: "LAB-URIN", name: "Urinalysis", category: "laboratory", etims: "SRV-LAB" },
+    { code: "IMG-CXR", name: "Chest X-ray", category: "imaging", etims: "SRV-IMG" },
+    { code: "IMG-XRAY", name: "Plain X-ray, other region", category: "imaging", etims: "SRV-IMG" },
+    { code: "IMG-USS-ABD", name: "Ultrasound, abdomen", category: "imaging", etims: "SRV-IMG" },
+    { code: "IMG-USS-OBS", name: "Ultrasound, obstetric", category: "imaging", etims: "SRV-IMG" },
     { code: "PROC-SUTURE", name: "Suturing, minor", category: "procedure", etims: "SRV-PROC" },
     { code: "PROC-NEB", name: "Nebulisation", category: "procedure", etims: "SRV-PROC" },
   ];
@@ -288,6 +292,7 @@ export function seedRevenueCycle(): void {
   const cash: [string, number][] = [
     ["CONSULT-OP", 50_000], ["CONSULT-REV", 30_000], ["BED-DAY", 250_000],
     ["LAB-MRDT", 20_000], ["LAB-CBC", 60_000], ["LAB-URIN", 25_000],
+    ["IMG-CXR", 120_000], ["IMG-XRAY", 100_000], ["IMG-USS-ABD", 200_000], ["IMG-USS-OBS", 180_000],
     ["PROC-SUTURE", 150_000], ["PROC-NEB", 80_000],
     ["AL-20-120", 35_000], ["PARA-500", 5_00], ["AMOX-500", 12_00], ["AMOX-125S", 25_000],
     ["CTX-960", 8_00], ["ORS-1L", 5_000], ["ZINC-20", 3_00], ["SALB-INH", 90_000],
