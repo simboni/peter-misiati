@@ -708,26 +708,65 @@ in fifty; wiring it up badly is wrong in ways nobody notices, which is worse.
 4. **Panels** (19.14). Which analytes a CBC or a urea-and-electrolytes expands
    to on this machine, so the worklist and the results line up.
 
-## 20. Public health
+## 20. Analytics and dashboards
+
+Every other module here answers "what is happening now". None of them answers
+"is it getting better", which is the only question a manager actually has. The
+rules below are about numbers this module refuses to print.
 
 | # | Rule | Where | Source | Status |
 |---|---|---|---|---|
-| 20.1 | Notifiable conditions are detected from coded diagnoses as they are made, because the Act's clock runs from diagnosis | `reporting.ts` | Public Health Act | ✅ |
-| 20.2 | **The notifiable list is four conditions** — malaria, tuberculosis, cholera, measles. The full schedule must be loaded | `reporting.ts` `NOTIFIABLE_PREFIXES` | — | 🔴 |
-| 20.3 | Reporting one requires the county's reference — it is the proof it was made | `reporting.ts` | Design rule | ✅ |
-| 20.4 | MOH 705A is under five, 705B is five and over, split by age **on the day of the visit** | `reporting.ts` | MOH forms | ✅ |
-| 20.5 | A condition is counted whichever code in its ICD-11 family the clinician used | `reporting.ts` `MOH705_CONDITIONS` | Design rule | ⚠️ |
-| 20.6 | **The 705 condition list is six conditions.** The real form has many more rows | `reporting.ts` | — | 🔴 |
+| 20.1 | **An indicator carries its definition.** Every figure states its numerator, its denominator and its source on the screen. "Compliance 87%" with no denominator is a number somebody made up as far as anybody reading it can tell | `indicators.ts` `INDICATORS` | Design rule | ✅ |
+| 20.2 | **A rate on fewer than 20 cases is withheld and the count shown instead.** One caesarean in two deliveries is not a 50% caesarean rate, it is two deliveries. A percentage built on four cases swings forty points next week and somebody makes a decision on the swing | `indicators.ts` `MIN_DENOMINATOR` | Design rule | ⚠️ |
+| 20.3 | **The floor of 20 is a convention.** It is defensible and it is not anybody's standard; a facility reporting to a programme with its own rule should use that instead | `indicators.ts` `MIN_DENOMINATOR` | Judgement | 🔴 |
+| 20.4 | **A disaggregated cell of four or fewer is suppressed.** A row showing one patient in a village is an identifiable patient whatever the column header says, and that is a Data Protection Act matter rather than a statistical nicety | `indicators.ts` `breakdown`, `SMALL_CELL` | DPA 2019 | ⚠️ |
+| 20.5 | Suppressed rows are counted in a footnote, so the table says out loud that its total is lower than the real one and why | `indicators.ts` `breakdown` | Design rule | ✅ |
+| 20.6 | **No secondary suppression.** Where one row is withheld and the total is known, the withheld figure can sometimes be worked out by subtraction. Proper disclosure control suppresses a second cell to prevent that, and this does not | — | — | 🔴 |
+| 20.7 | Every indicator names the screen holding the rows behind it. A figure nobody can drill into is a figure nobody believes | `indicators.ts` `drillTo` | Design rule | ✅ |
+| 20.8 | A period where nothing happened says so rather than reporting zero per cent | `indicators.ts` `rate` | Design rule | ✅ |
+| 20.9 | A sparkline omits withheld periods rather than drawing them as zero, which would invent a collapse that did not happen | `dashboard/page.tsx` `Spark` | Design rule | ✅ |
+| 20.10 | A duration shorter than its own unit reads "same day" or "under an hour" rather than "0 days", which reads as a missing number rather than a fast one | `indicators.ts` `present` | Design rule | ✅ |
+| 20.11 | Change is reported in the indicator's own unit and in the direction the indicator says is good — a turnaround that fell is an improvement, an acceptance rate that fell is not | `indicators.ts` `dashboard`, `presentChange` | Design rule | ✅ |
+| 20.12 | Indicators are computed on every view rather than stored. A stored number is one somebody has to remember to recompute, and nobody ever does | `indicators.ts` `measure` | Design rule | ⚠️ |
+| 20.13 | **"Consultations finished" replaced "encounters with a coded diagnosis", which was vacuous**: closing an encounter already requires a coded primary diagnosis, so that ratio could only ever read 100%. What varies is whether the clinician got to the end at all, and an encounter left open is one nobody can bill | `indicators.ts` | Design rule | ✅ |
+| 20.14 | **These are management indicators, not clinical quality measures.** A real indicator set — MOH's, SHA's, or a programme's — has case definitions this module does not encode, and the indicators here were chosen because this system can answer them and a Level 2 facility can act on them in a week | `indicators.ts` `INDICATORS` | — | 🔴 |
+| 20.15 | **The casualty target thresholds are duplicated here from the emergency module** rather than imported, so a change to the triage scale has to be made twice | `indicators.ts` | — | 🔴 |
+| 20.16 | **No case-mix adjustment, no confidence intervals, no seasonality.** A facility whose attendances fell in December did not get better at anything | — | — | 🔴 |
+| 20.17 | **Nothing is exported.** No CSV, no scheduled report, no emailed summary. A manager who wants these figures in a meeting has to screenshot them | — | — | 🔴 |
 
-## 21. Revenue (for the claims specialist, not the clinician)
+### What to ask a facility manager and the county, in order
+
+1. **Which indicators does anybody actually report on?** (20.14). The county
+   and any programme the facility is in have their own, with their own case
+   definitions. Those should replace or join this set rather than sitting beside
+   it in a spreadsheet.
+2. **The small-number rules** (20.2, 20.3, 20.6). The floors here are defensible
+   conventions. A facility publishing anything outside its own walls needs a
+   disclosure-control rule it can defend, including secondary suppression.
+3. **Export** (20.17). What has to leave this screen, in what format, and to
+   whom — because that decides whether the suppression rules above are a
+   nicety or a legal requirement.
+
+## 21. Public health
 
 | # | Rule | Where | Source | Status |
 |---|---|---|---|---|
-| 21.1 | Nine scrubber gates, each mapped to a documented SHA rejection cause | `claims.ts` `scrub` | SHA published causes | ⚠️ |
-| 21.2 | **The gates are inferred from documented causes, not from 50 real rejected claims.** The roadmap says to build them from a real corpus and that is still the right next step | — | — | 🔴 |
-| 21.3 | A claim beyond the payer's submission window (SHA: 7 days) escalates rather than blocking, because a late claim still has an appeal path | `claims.ts` | SHA | ⚠️ |
-| 21.4 | Tariffs and benefit rules are **illustrative**. The SHA schedule for the contracting cycle must be loaded | `seed.ts` | — | 🔴 |
-| 21.5 | Money is integer cents throughout, and a price is fixed as of the date of service | `billing.ts` | Design rule | ✅ |
+| 21.1 | Notifiable conditions are detected from coded diagnoses as they are made, because the Act's clock runs from diagnosis | `reporting.ts` | Public Health Act | ✅ |
+| 21.2 | **The notifiable list is four conditions** — malaria, tuberculosis, cholera, measles. The full schedule must be loaded | `reporting.ts` `NOTIFIABLE_PREFIXES` | — | 🔴 |
+| 21.3 | Reporting one requires the county's reference — it is the proof it was made | `reporting.ts` | Design rule | ✅ |
+| 21.4 | MOH 705A is under five, 705B is five and over, split by age **on the day of the visit** | `reporting.ts` | MOH forms | ✅ |
+| 21.5 | A condition is counted whichever code in its ICD-11 family the clinician used | `reporting.ts` `MOH705_CONDITIONS` | Design rule | ⚠️ |
+| 21.6 | **The 705 condition list is six conditions.** The real form has many more rows | `reporting.ts` | — | 🔴 |
+
+## 22. Revenue (for the claims specialist, not the clinician)
+
+| # | Rule | Where | Source | Status |
+|---|---|---|---|---|
+| 22.1 | Nine scrubber gates, each mapped to a documented SHA rejection cause | `claims.ts` `scrub` | SHA published causes | ⚠️ |
+| 22.2 | **The gates are inferred from documented causes, not from 50 real rejected claims.** The roadmap says to build them from a real corpus and that is still the right next step | — | — | 🔴 |
+| 22.3 | A claim beyond the payer's submission window (SHA: 7 days) escalates rather than blocking, because a late claim still has an appeal path | `claims.ts` | SHA | ⚠️ |
+| 22.4 | Tariffs and benefit rules are **illustrative**. The SHA schedule for the contracting cycle must be loaded | `seed.ts` | — | 🔴 |
+| 22.5 | Money is integer cents throughout, and a price is fixed as of the date of service | `billing.ts` | Design rule | ✅ |
 
 ---
 
@@ -821,3 +860,8 @@ Everything marked 🔴, in one list:
 49. The laboratory's own QC programme: targets, tolerances and which rules it
     works to. Control readings are recorded and not evaluated
 50. Which analytes each ordered panel expands to on the machine in use
+51. The indicator set the county and any programme actually report on, with
+    their case definitions, replacing this system's own management set
+52. A disclosure-control rule the facility can defend, including secondary
+    suppression, before any figure leaves the building
+53. Export — what has to leave the dashboard, in what format, and to whom

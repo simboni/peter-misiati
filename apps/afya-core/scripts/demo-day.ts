@@ -2030,6 +2030,96 @@ reverseJournal({
 const postedFromOps = postFromOperations({ facilityId, ...GL });
 
 
+
+// ==================================================================== history
+//
+// Five months of attendances before today, so the dashboard has a shape to
+// show and the returns have a month to compare against.
+//
+// ⚠️ THIS IS FABRICATED HISTORY AND IT IS THE ONLY PLACE IN THIS SCRIPT THAT
+// MOVES A CLOCK. Every record below is created through the real module API, so
+// every rule was enforced exactly as it would be on a live system — and then
+// its timestamps are rewritten to sit in the past, which no part of the running
+// system can do. A real facility's history is the one it lived through.
+
+const HISTORY_CODES = ["1F40", "CA07", "CA23", "CA40", "1A40", "GC08"] as const;
+const HISTORY_VILLAGES = ["Kayole", "Umoja", "Kibera", "Githurai", "Mwiki", "Kawangware"];
+
+/** Deterministic, so two runs of the demonstration tell the same story. */
+let historySeed = 20260916;
+const nextRandom = () => {
+  historySeed = (historySeed * 1103515245 + 12345) % 2147483648;
+  return historySeed / 2147483648;
+};
+const pick = <T,>(items: readonly T[]): T => items[Math.floor(nextRandom() * items.length)];
+
+let historyEncounters = 0;
+let historyCoded = 0;
+
+const todayDay = Number(today().slice(8, 10));
+
+for (let monthsBack = 5; monthsBack >= 0; monthsBack--) {
+  // Busier in the recent months than the distant ones, so the trend lines are
+  // not flat. The month in progress gets a share of its own, pro-rata to how
+  // much of it has happened.
+  const whole = 24 + (5 - monthsBack) * 7;
+  const attendances = monthsBack === 0 ? Math.round((whole * (todayDay - 1)) / 30) : whole;
+
+  for (let n = 0; n < attendances; n++) {
+    // Never later than yesterday: today's attendances are the ones the rest of
+    // this script creates, through the real clock.
+    const lastDay = monthsBack === 0 ? Math.max(1, todayDay - 1) : 27;
+    const day = 1 + Math.floor(nextRandom() * lastDay);
+    const when = new Date(
+      Date.UTC(2026, 8 - monthsBack, day, 8 + Math.floor(nextRandom() * 8), 30),
+    ).toISOString();
+
+    const mrn = registerPatient({
+      facilityId,
+      deviceCode: REC,
+      givenName: pick(["Agnes", "Boniface", "Caroline", "David", "Esther", "Fredrick"]),
+      familyName: pick(["Achieng", "Barasa", "Chege", "Dida", "Eshiwani", "Fundi"]),
+      sex: nextRandom() < 0.55 ? "female" : "male",
+      dateOfBirth: `${1955 + Math.floor(nextRandom() * 60)}-0${1 + Math.floor(nextRandom() * 9)}-1${Math.floor(nextRandom() * 9)}`,
+      county: "Nairobi",
+      village: pick(HISTORY_VILLAGES),
+      ...DESK,
+    });
+
+    const enc = openEncounter({
+      facilityId, patientMrn: mrn, kind: "outpatient",
+      clinicianId, clinicianName: DOC.byUserName, deviceCode: CONS,
+    });
+
+    // Not every encounter gets coded, and how often it does is the whole point
+    // of the compliance indicator. It improves across the five months, the way
+    // a facility that had just started using the system would.
+    const codes = nextRandom() < 0.62 + (5 - monthsBack) * 0.07;
+    if (codes) {
+      addDiagnosis({ encounterId: enc, code: pick(HISTORY_CODES), ...DOC, deviceCode: CONS });
+      historyCoded++;
+    }
+    writeNote({
+      encounterId: enc,
+      complaint: "Seen at the outpatient clinic",
+      assessment: codes ? "Coded at the consultation" : "Not coded at the consultation",
+      plan: "Treated and sent home",
+      authorId: clinicianId, authorName: DOC.byUserName, deviceCode: CONS,
+    });
+    if (codes) {
+      closeEncounter({ encounterId: enc, byUserId: clinicianId, byUserName: DOC.byUserName, deviceCode: CONS });
+    }
+
+    // The clock move. Only these rows, only here.
+    run(
+      `UPDATE encounters SET opened_at = ?, closed_at = CASE WHEN closed_at IS NULL THEN NULL ELSE ? END WHERE id = ?`,
+      when, when, enc,
+    );
+    run(`UPDATE patients SET created_at = ? WHERE mrn = ?`, when, mrn);
+    historyEncounters++;
+  }
+}
+
 // ===================================================================== estate
 //
 // The equipment the rest of the day depends on: an autoclave whose pressure
@@ -2338,6 +2428,7 @@ console.log(`  programmes        ${count(`SELECT COUNT(*) AS n FROM enrolments W
 console.log(`  HR                ${hrSummary(facilityId).staff} staff · ${hrSummary(facilityId).leaveWaiting} leave waiting · ${hrSummary(facilityId).uncoveredLeave} approved uncovered · ${hrSummary(facilityId).lapsedLicences} lapsed registration`);
 console.log(`  payroll           ${payrollSummary(facilityId).employees} staff · gross ${Math.round(payrollSummary(facilityId).monthlyGrossCents / 100)} KES · statutory ${Math.round(statutoryReturn(payrollRun.runId).totalRemittableCents / 100)} KES to remit${payrollRun.cappedEmployees ? ` · ${payrollRun.cappedEmployees} capped` : ""}`);
 console.log(`  estate            ${assetSummary(facilityId).assets} assets · ${assetSummary(facilityId).blockingOverdue} blocked by an overdue check · ${assetSummary(facilityId).criticalDown} critical down · fridge excursion quarantined ${excursion.quarantined} batches · depreciation ${Math.round(depreciation.amountCents / 100)} KES`);
+console.log(`  history           ${historyEncounters} backdated attendances over six months, ${historyCoded} of them coded — so the dashboard has a trend`);
 console.log(`  analysers         ${analyserSummary(facilityId).filed} readings filed · ${analyserSummary(facilityId).held} held for a person · ${analyserSummary(facilityId).qcRuns} control readings, none of them in a patient record`);
 console.log(`  biometrics        ${biometricSummary(facilityId).enrolled} enrolled · ${biometricSummary(facilityId).exceptions} on an exception · match rate ${biometricSummary(facilityId).matchRatePercent ?? 0}% · ${biometricSummary(facilityId).liveReaders} live readers, so none of it is evidence`);
 console.log(`  mortuary          ${mortuarySummary(facilityId).inStore} in store of ${mortuarySummary(facilityId).bays} bays · ${mortuarySummary(facilityId).blocked} not releasable · ${mortuarySummary(facilityId).unclaimed} unclaimed · longest ${mortuarySummary(facilityId).longestDays} days · ${Math.round(mortuarySummary(facilityId).accruedFeeCents / 100)} KES accrued`);

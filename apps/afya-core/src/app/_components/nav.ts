@@ -242,6 +242,7 @@ export const NAV: NavSection[] = [
     href: "/reports",
     badge: "notifiable",
     links: [
+      { href: "/dashboard", label: "Is it getting better?", permission: ["report.read"] },
       { href: "/reports", label: "MOH returns", permission: ["report.read"] },
       { href: "/reports?view=notifiable", label: "Notifiable diseases", permission: ["report.read"], badge: "notifiable" },
       { href: "/reports?view=revenue", label: "Revenue & leakage", permission: ["report.read"] },
