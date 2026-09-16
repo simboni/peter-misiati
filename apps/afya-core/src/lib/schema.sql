@@ -1908,3 +1908,122 @@ CREATE TABLE IF NOT EXISTS referral_events (
   by_name       TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_refev_referral ON referral_events(referral_id, at);
+
+-- ============================================================================
+-- M25 Theatre
+--
+-- The operating list, the WHO Surgical Safety Checklist, and the count.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS theatres (
+  code          TEXT PRIMARY KEY,
+  facility_id   INTEGER NOT NULL REFERENCES facilities(id),
+  name          TEXT NOT NULL,
+  -- Free text by design: what a theatre can actually do is not an enum, and
+  -- pretending it is books a caesarean into a minor-ops room.
+  capability    TEXT NOT NULL DEFAULT '',
+  active        INTEGER NOT NULL DEFAULT 1,
+  created_at    TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS theatre_cases (
+  id            TEXT PRIMARY KEY,
+  facility_id   INTEGER NOT NULL REFERENCES facilities(id),
+  patient_mrn   TEXT NOT NULL REFERENCES patients(mrn),
+  theatre_code  TEXT REFERENCES theatres(code),
+  encounter_id  TEXT REFERENCES encounters(id),
+  admission_id  TEXT REFERENCES admissions(id),
+  -- Where the case came from. A casualty patient sent to theatre and an
+  -- elective booking are the same operation and completely different logistics.
+  source        TEXT NOT NULL DEFAULT 'elective'
+                CHECK (source IN ('elective','casualty','ward','maternity','referral')),
+  attendance_id TEXT REFERENCES emergency_attendances(id),
+  urgency       TEXT NOT NULL CHECK (urgency IN ('immediate','urgent','expedited','elective')),
+  -- The procedure as consented. If what was actually done differs, that is a
+  -- deviation and is recorded as one, never by editing this.
+  procedure_planned TEXT NOT NULL,
+  procedure_code TEXT,
+  laterality    TEXT CHECK (laterality IN ('left','right','bilateral','not_applicable')),
+  surgeon_id    INTEGER REFERENCES users(id),
+  surgeon_name  TEXT NOT NULL DEFAULT '',
+  anaesthetist_name TEXT NOT NULL DEFAULT '',
+  anaesthesia   TEXT CHECK (anaesthesia IN ('general','spinal','regional','local','sedation')),
+  scheduled_for TEXT,
+  estimated_minutes INTEGER,
+  status        TEXT NOT NULL CHECK (status IN
+                  ('booked','sent_for','in_theatre','anaesthetised','incised','closed',
+                   'in_recovery','completed','cancelled')),
+  -- The three WHO checklist stages, each stamped when it was completed. Null is
+  -- not an oversight to be tidied up later: it is the state that blocks the
+  -- next step.
+  sign_in_at    TEXT,
+  time_out_at   TEXT,
+  sign_out_at   TEXT,
+  incision_at   TEXT,
+  closed_at     TEXT,
+  -- What actually happened.
+  procedure_performed TEXT NOT NULL DEFAULT '',
+  findings      TEXT NOT NULL DEFAULT '',
+  blood_loss_ml INTEGER,
+  specimen      TEXT NOT NULL DEFAULT '',
+  implant       TEXT NOT NULL DEFAULT '',
+  complications TEXT NOT NULL DEFAULT '',
+  asa_grade     INTEGER CHECK (asa_grade BETWEEN 1 AND 6),
+  -- Cancellation is a first-class outcome. Theatre utilisation is what a
+  -- hospital is judged on, and a cancelled list with no reason teaches nobody
+  -- anything.
+  cancel_reason TEXT NOT NULL DEFAULT '',
+  cancel_category TEXT CHECK (cancel_category IN
+                  ('no_theatre_time','no_surgeon','no_anaesthetist','no_bed','patient_unfit',
+                   'patient_did_not_attend','no_blood','no_equipment','no_consent','other')),
+  cancelled_at  TEXT,
+  booked_by     INTEGER REFERENCES users(id),
+  booker_name   TEXT NOT NULL,
+  device_code   TEXT,
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_case_list ON theatre_cases(facility_id, scheduled_for, status);
+CREATE INDEX IF NOT EXISTS idx_case_patient ON theatre_cases(patient_mrn);
+
+-- Each answer on the WHO checklist, kept individually rather than as a boolean
+-- "checklist done". A checklist recorded as one tick is a checklist nobody
+-- read out.
+CREATE TABLE IF NOT EXISTS checklist_answers (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  case_id       TEXT NOT NULL REFERENCES theatre_cases(id),
+  stage         TEXT NOT NULL CHECK (stage IN ('sign_in','time_out','sign_out')),
+  item_code     TEXT NOT NULL,
+  answer        TEXT NOT NULL CHECK (answer IN ('yes','no','not_applicable')),
+  note          TEXT NOT NULL DEFAULT '',
+  answered_by   INTEGER REFERENCES users(id),
+  answerer_name TEXT NOT NULL,
+  answered_at   TEXT NOT NULL,
+  UNIQUE (case_id, stage, item_code)
+);
+
+-- The count. Swabs, instruments and needles, counted in and counted out. A
+-- mismatch is a never-event and blocks sign-out.
+CREATE TABLE IF NOT EXISTS theatre_counts (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  case_id       TEXT NOT NULL REFERENCES theatre_cases(id),
+  item          TEXT NOT NULL,
+  counted_in    INTEGER NOT NULL,
+  counted_out   INTEGER,
+  -- Set when a discrepancy was resolved, with how. Never by editing the counts.
+  resolution    TEXT NOT NULL DEFAULT '',
+  counted_by    INTEGER REFERENCES users(id),
+  counter_name  TEXT NOT NULL,
+  updated_at    TEXT NOT NULL,
+  UNIQUE (case_id, item)
+);
+
+-- Who was in the room. An operation note that cannot name the scrub nurse is
+-- not a record anybody can rely on afterwards.
+CREATE TABLE IF NOT EXISTS theatre_team (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  case_id       TEXT NOT NULL REFERENCES theatre_cases(id),
+  role          TEXT NOT NULL,
+  person_name   TEXT NOT NULL,
+  user_id       INTEGER REFERENCES users(id),
+  UNIQUE (case_id, role, person_name)
+);

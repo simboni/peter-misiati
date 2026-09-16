@@ -30,6 +30,7 @@ import { defineWard, defineBed } from "./inpatient.ts";
 import { seedProgrammes } from "./programmes.ts";
 import { seedImmunisationSchedule } from "./maternity.ts";
 import { seedReferralDirectory } from "./referrals.ts";
+import { seedTheatres } from "./theatre.ts";
 
 /** The councils that license clinical practice in Kenya. */
 export const CADRES: { code: string; name: string; regulator: string; licensed: boolean }[] = [
@@ -506,6 +507,7 @@ export function seedDemo(): {
 
   // Stores and wards need a facility to belong to, so they come after it exists.
   seedStores(facilityId);
+  seedTheatres(facilityId);
   seedWards(facilityId);
 
   // Three roles, because that is what one person does in a Level 2 clinic: they

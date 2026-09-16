@@ -230,26 +230,72 @@ clinician's agreement and one needs the county's.
    a list, and getting it right is the difference between a referral somebody
    can telephone and a name on a form.
 
-## 10. Public health
+## 10. Theatre
+
+The checklist table below is the highest-consequence list in the system after
+the triage scale. Two of these rules are the only things standing between a
+theatre and a never-event.
 
 | # | Rule | Where | Source | Status |
 |---|---|---|---|---|
-| 10.1 | Notifiable conditions are detected from coded diagnoses as they are made, because the Act's clock runs from diagnosis | `reporting.ts` | Public Health Act | ✅ |
-| 10.2 | **The notifiable list is four conditions** — malaria, tuberculosis, cholera, measles. The full schedule must be loaded | `reporting.ts` `NOTIFIABLE_PREFIXES` | — | 🔴 |
-| 10.3 | Reporting one requires the county's reference — it is the proof it was made | `reporting.ts` | Design rule | ✅ |
-| 10.4 | MOH 705A is under five, 705B is five and over, split by age **on the day of the visit** | `reporting.ts` | MOH forms | ✅ |
-| 10.5 | A condition is counted whichever code in its ICD-11 family the clinician used | `reporting.ts` `MOH705_CONDITIONS` | Design rule | ⚠️ |
-| 10.6 | **The 705 condition list is six conditions.** The real form has many more rows | `reporting.ts` | — | 🔴 |
+| 10.1 | **Anaesthesia does not start without the sign-in.** Enforced, not advised | `theatre.ts` `startAnaesthesia` | WHO Surgical Safety Checklist | ✅ |
+| 10.2 | **The knife does not touch the patient without the time-out** | `theatre.ts` `recordIncision` | WHO | ✅ |
+| 10.3 | **The patient does not leave theatre without the sign-out** | `theatre.ts` `leaveTheatre` | WHO | ✅ |
+| 10.4 | Every checklist item is answered and stored **individually**, never as one "checklist done" flag — a checklist recorded as a single tick is one nobody read aloud | `schema.sql`, `theatre.ts` | Design rule | ✅ |
+| 10.5 | **"Not applicable" is an answer; silence is not.** A stage cannot be completed while any item is unanswered | `theatre.ts` `completeStage` | Design rule | ✅ |
+| 10.6 | **A "no" is recorded and escalated, never blocked.** Software that refuses to proceed on a "no" teaches a team to answer yes, which is worse than no checklist at all. The decision to proceed stays with the surgeon | `theatre.ts` `answerChecklist` | Design rule | ⚠️ |
+| 10.7 | **The 19 checklist items are the WHO checklist as published**, across three stages | `theatre.ts` `CHECKLIST` | WHO | ⚠️ |
+| 10.8 | **Which items are "critical"** — the ones where a "no" raises an alert: identity, site marking, anaesthesia check, oximeter, allergy, airway, blood loss risk, confirm-aloud, sterility, antibiotic, procedure recorded, counts, specimen | `theatre.ts` | Judgement | 🔴 |
+| 10.9 | Each completed stage is **signed**, with the answers as the signed content | `theatre.ts` `completeStage` | Design rule | ✅ |
+| 10.10 | **The count must reconcile before sign-out.** Swabs, instruments and needles counted in and out; a mismatch blocks the sign-out | `theatre.ts` `completeStage`, `countDiscrepancies` | Practice | ✅ |
+| 10.11 | A mismatch raises a **critical alert** saying nobody leaves theatre | `theatre.ts` `recordCountOut` | Practice | ✅ |
+| 10.12 | **A discrepancy is cleared by recording how it was resolved, never by editing the numbers.** The record has to show there was one | `theatre.ts` `resolveCount` | Design rule | ✅ |
+| 10.13 | Surgical consent is **separate from general treatment consent** and is signed against the procedure and the risks together, so a later change to either no longer matches | `theatre.ts` `recordSurgicalConsent` | Practice | ⚠️ |
+| 10.14 | **Anaesthesia does not start without recorded surgical consent** | `theatre.ts` | Practice | ✅ |
+| 10.15 | **What was performed is recorded separately from what was planned.** A difference is a deviation from consent, escalated as one; the plan is never edited to match | `theatre.ts` `closeCase` | Design rule | ✅ |
+| 10.16 | The operation note must say what was done **and** what was found, and is signed | `theatre.ts` | Practice | ✅ |
+| 10.17 | Who was in the room is recorded — an operation note that cannot name the scrub nurse is not a record anybody can rely on afterwards | `schema.sql` `theatre_team` | Practice | ⚠️ |
+| 10.18 | **Urgency windows: immediate 1 h, urgent 24 h, expedited 7 days, elective no clock** | `theatre.ts` `URGENCY_TARGET_HOURS` | NCEPOD classification | 🔴 |
+| 10.19 | **ASA grade 1 to 6**, recorded but not currently acted on | `schema.sql` | ASA | ⚠️ |
+| 10.20 | **Cancellation carries a category as well as a reason.** The categories are the ones a theatre manager argues about: no anaesthetist, no bed, no blood, patient unfit | `theatre.ts` `cancelCase` | Practice | ⚠️ |
+| 10.21 | "Cancelled on the day" means the patient had been called for, or the cancellation fell on the scheduled date — that is the cancellation a theatre manager is asked about | `theatre.ts` `theatreSummary` | Design rule | ⚠️ |
 
-## 11. Revenue (for the claims specialist, not the clinician)
+### What to ask a surgeon and an anaesthetist
+
+1. **Is this your checklist?** The 19 items are WHO's. Many facilities have
+   adapted them — added a fire-risk item, split the antibiotic item, dropped
+   one that never applies. The items are data in one constant; the adaptation
+   is a small change and should be made before anyone is trained on it.
+2. **Which items should raise an alert on a "no"?** Marked 🔴 because the
+   critical set is my judgement, not a published list. Get it wrong in one
+   direction and the alerts are ignored; in the other, the one that mattered
+   never fired.
+3. **Are the urgency windows right?** 1 hour / 24 hours / 7 days is the NCEPOD
+   classification. Also worth deciding: should ASA grade gate anything — an
+   ASA 4 on an elective list in a level 2 facility is arguably a case that
+   should not be booked here at all, and the system currently records it
+   without comment.
+
+## 11. Public health
 
 | # | Rule | Where | Source | Status |
 |---|---|---|---|---|
-| 11.1 | Nine scrubber gates, each mapped to a documented SHA rejection cause | `claims.ts` `scrub` | SHA published causes | ⚠️ |
-| 11.2 | **The gates are inferred from documented causes, not from 50 real rejected claims.** The roadmap says to build them from a real corpus and that is still the right next step | — | — | 🔴 |
-| 11.3 | A claim beyond the payer's submission window (SHA: 7 days) escalates rather than blocking, because a late claim still has an appeal path | `claims.ts` | SHA | ⚠️ |
-| 11.4 | Tariffs and benefit rules are **illustrative**. The SHA schedule for the contracting cycle must be loaded | `seed.ts` | — | 🔴 |
-| 11.5 | Money is integer cents throughout, and a price is fixed as of the date of service | `billing.ts` | Design rule | ✅ |
+| 11.1 | Notifiable conditions are detected from coded diagnoses as they are made, because the Act's clock runs from diagnosis | `reporting.ts` | Public Health Act | ✅ |
+| 11.2 | **The notifiable list is four conditions** — malaria, tuberculosis, cholera, measles. The full schedule must be loaded | `reporting.ts` `NOTIFIABLE_PREFIXES` | — | 🔴 |
+| 11.3 | Reporting one requires the county's reference — it is the proof it was made | `reporting.ts` | Design rule | ✅ |
+| 11.4 | MOH 705A is under five, 705B is five and over, split by age **on the day of the visit** | `reporting.ts` | MOH forms | ✅ |
+| 11.5 | A condition is counted whichever code in its ICD-11 family the clinician used | `reporting.ts` `MOH705_CONDITIONS` | Design rule | ⚠️ |
+| 11.6 | **The 705 condition list is six conditions.** The real form has many more rows | `reporting.ts` | — | 🔴 |
+
+## 12. Revenue (for the claims specialist, not the clinician)
+
+| # | Rule | Where | Source | Status |
+|---|---|---|---|---|
+| 12.1 | Nine scrubber gates, each mapped to a documented SHA rejection cause | `claims.ts` `scrub` | SHA published causes | ⚠️ |
+| 12.2 | **The gates are inferred from documented causes, not from 50 real rejected claims.** The roadmap says to build them from a real corpus and that is still the right next step | — | — | 🔴 |
+| 12.3 | A claim beyond the payer's submission window (SHA: 7 days) escalates rather than blocking, because a late claim still has an appeal path | `claims.ts` | SHA | ⚠️ |
+| 12.4 | Tariffs and benefit rules are **illustrative**. The SHA schedule for the contracting cycle must be loaded | `seed.ts` | — | 🔴 |
+| 12.5 | Money is integer cents throughout, and a price is fixed as of the date of service | `billing.ts` | Design rule | ✅ |
 
 ---
 
@@ -280,3 +326,6 @@ Everything marked 🔴, in one list:
     neighbours
 17. The referral acceptance windows and the broken-loop threshold, agreed with
     the county referral coordinator
+18. Which WHO checklist items should raise an alert on a "no", confirmed by a
+    surgeon and an anaesthetist
+19. The theatre urgency windows, and whether ASA grade should gate a booking

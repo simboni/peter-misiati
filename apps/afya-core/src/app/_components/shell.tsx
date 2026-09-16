@@ -17,8 +17,9 @@ import { defaulters } from "@/lib/programmes.ts";
 import { ancDefaulters } from "@/lib/maternity.ts";
 import { board as casualtyBoard, listIncidents } from "@/lib/emergency.ts";
 import { referralSummary } from "@/lib/referrals.ts";
+import { theatreList, inTheatre } from "@/lib/theatre.ts";
 import { signOutAction } from "@/app/actions/session.ts";
-import { navFor, type BadgeKey } from "./nav.ts";
+import { navFor, sectionFor, type BadgeKey } from "./nav.ts";
 import type { CurrentUser } from "@/lib/auth.ts";
 
 /**
@@ -55,6 +56,8 @@ function counts(facilityId: number): Record<BadgeKey, { text: string; tone: "blo
   const casualty = casualtyBoard(facilityId);
   const liveIncidents = listIncidents(facilityId).filter((i) => !i.stood_down_at);
   const referrals = referralSummary(facilityId);
+  const list = theatreList(facilityId);
+  const running = inTheatre(facilityId);
   const waiting = queue(facilityId);
 
   const n = (
@@ -90,6 +93,11 @@ function counts(facilityId: number): Record<BadgeKey, { text: string; tone: "blo
     incidents: n(liveIncidents.length, "block"),
     referrals: n(referrals.live, referrals.unanswered > 0 ? "block" : "quiet"),
     loopBroken: n(referrals.loopBroken, "block"),
+    theatre: n(
+      list.filter((r) => !["completed", "cancelled"].includes(r.theatreCase.status)).length,
+      list.some((r) => r.blockedBy) ? "clock" : "quiet",
+    ),
+    theatreBlocked: n(running.length, running.some((r) => r.blockedBy) ? "block" : "quiet"),
     alerts: n(alerts.total, alerts.critical > 0 ? "block" : "clock"),
   };
 }
@@ -115,14 +123,30 @@ export function Shell({
 }) {
   const facility = getFacility(user.facilityId)!;
   const licence = licenceStatus(user.userId);
-  const groups = navFor(user.granted);
+  const sections = navFor(user.granted);
   const badge = counts(user.facilityId);
   const alerts = badge.alerts;
+  const openSection = sectionFor(current);
 
   const badgeTone = {
     block: "bg-block text-white",
     clock: "bg-clock-soft text-clock",
     quiet: "bg-brand-soft text-brand-dark",
+  };
+
+  /** One badge, wherever it appears. */
+  const Badge = ({ which, inverted }: { which: BadgeKey | undefined; inverted?: boolean }) => {
+    const count = which ? badge[which] : null;
+    if (!count) return null;
+    return (
+      <span
+        className={`tnum text-[10px] font-bold rounded-full px-1.5 py-px shrink-0 ${
+          inverted ? "bg-brand text-white" : badgeTone[count.tone]
+        }`}
+      >
+        {count.text}
+      </span>
+    );
   };
 
   return (
@@ -139,38 +163,62 @@ export function Shell({
           </p>
         </div>
 
+        {/*
+          Two levels, one open at a time, and which one comes from the URL
+          rather than from client state — so a pasted link opens the menu the
+          same way for the person who receives it.
+        */}
         <nav className="px-2 py-3">
-          {groups.map((group) => (
-            <div key={group.title} className="mb-3">
-              <div className="px-2 pb-1 text-[10px] font-bold tracking-[0.14em] uppercase text-white/40">
-                {group.title}
-              </div>
-              {group.links.map((link) => {
-                const selected = link.href === current;
-                const count = link.badge ? badge[link.badge] : null;
-                return (
-                  <Link
-                    key={link.href}
-                    href={link.href}
-                    className={`flex items-center gap-2 rounded px-2 py-1.5 text-[13px] leading-tight ${
-                      selected ? "bg-wash text-ink font-semibold" : "text-white/80 hover:bg-white/10"
+          {sections.map((section) => {
+            const isOpen = section.key === openSection;
+            return (
+              <div key={section.key} className="mb-0.5">
+                <Link
+                  href={section.href}
+                  aria-current={isOpen ? "true" : undefined}
+                  className={`flex items-center gap-2 rounded px-2 py-2 text-[13px] leading-tight ${
+                    isOpen
+                      ? "bg-white/15 text-white font-semibold"
+                      : "text-white/75 hover:bg-white/10"
+                  }`}
+                >
+                  <span
+                    aria-hidden
+                    className={`text-[9px] w-2 shrink-0 transition-transform ${isOpen ? "rotate-90" : ""} ${
+                      section.links.length > 1 ? "opacity-60" : "opacity-0"
                     }`}
                   >
-                    <span className="flex-1">{link.label}</span>
-                    {count ? (
-                      <span
-                        className={`tnum text-[10px] font-bold rounded-full px-1.5 py-px shrink-0 ${
-                          selected ? "bg-brand text-white" : badgeTone[count.tone]
-                        }`}
-                      >
-                        {count.text}
-                      </span>
-                    ) : null}
-                  </Link>
-                );
-              })}
-            </div>
-          ))}
+                    ▸
+                  </span>
+                  <span className="flex-1">{section.title}</span>
+                  {/* The collapsed line carries the one number that would make
+                      somebody open it; expanded, the numbers live on the links
+                      themselves and repeating one here would be noise. */}
+                  {!isOpen ? <Badge which={section.badge} /> : null}
+                </Link>
+
+                {isOpen && section.links.length > 1 ? (
+                  <div className="mt-0.5 mb-2 ml-4 pl-2 border-l border-white/15">
+                    {section.links.map((link) => {
+                      const selected = link.href === current;
+                      return (
+                        <Link
+                          key={link.href}
+                          href={link.href}
+                          className={`flex items-center gap-2 rounded px-2 py-1.5 text-[13px] leading-tight ${
+                            selected ? "bg-wash text-ink font-semibold" : "text-white/70 hover:bg-white/10"
+                          }`}
+                        >
+                          <span className="flex-1">{link.label}</span>
+                          <Badge which={link.badge} inverted={selected} />
+                        </Link>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
         </nav>
 
         <div className="px-4 py-3 border-t border-white/10 mt-auto">

@@ -46,6 +46,12 @@ import {
   raiseReferral, acceptReferral, declineReferral, departReferral, confirmArrival,
   recordOutcome as recordReferralOutcome, referralSummary,
 } from "../src/lib/referrals.ts";
+import {
+  bookCase, recordSurgicalConsent, addTeamMember, answerChecklist, completeStage,
+  recordCountIn, recordCountOut, resolveCount, arriveInTheatre, startAnaesthesia,
+  recordIncision, closeCase, leaveTheatre, completeCase, cancelCase,
+  theatreSummary, CHECKLIST, type Stage,
+} from "../src/lib/theatre.ts";
 import { closeDb, run, get, all as dbAll, verifyAuditChain, today } from "../src/lib/db.ts";
 
 const { facilityId, adminId, clinicianId, receptionistId, pharmacistId, labTechId } = seedDemo();
@@ -1227,6 +1233,164 @@ raiseReferral({
   raisedAt: daysAgo(2), ...REFER,
 });
 
+
+// ------------------------------------------------------------------- theatre
+//
+// The caesarean that casualty and maternity have both been pointing at, taken
+// all the way through the WHO checklist, plus a case cancelled for the reason
+// Kenyan theatres are cancelled for most often, and one where the count did
+// not reconcile and had to be resolved.
+//
+// The checklist is answered item by item rather than ticked, because that is
+// the mechanism: a checklist recorded as one tick is a checklist nobody read
+// out loud.
+
+const OT = { byUserId: clinicianId, byUserName: DOC.byUserName, deviceCode: REC };
+const OTSIGN = { byUserId: clinicianId, byUserName: DOC.byUserName };
+
+let otNid = 49_000_000;
+const theatrePatient = (given: string, family: string, sex: "male" | "female", dob: string) => {
+  const mrn = registerPatient({
+    facilityId, deviceCode: REC, givenName: given, familyName: family, sex,
+    dateOfBirth: dob, nationalId: String(++otNid), county: "Nairobi", ...DESK,
+  });
+  recordConsent({ patientMrn: mrn, purpose: "treatment", granted: true, ...DESK });
+  return mrn;
+};
+
+const answerStage = (caseId: string, stage: Stage, overrides: Record<string, "yes" | "no" | "not_applicable"> = {}) => {
+  for (const item of CHECKLIST[stage]) {
+    answerChecklist({
+      caseId, stage, itemCode: item.code,
+      answer: overrides[item.code] ?? "yes",
+      byUserId: clinicianId, byUserName: "Sister Adhiambo",
+    });
+  }
+};
+
+// The completed case. Everything done properly, which is what "good" looks
+// like on the compliance figure.
+const caesarean = bookCase({
+  facilityId, patientMrn: theatrePatient("Janet", "Wangeci", "female", "1994-06-30"),
+  theatreCode: "OT1", procedurePlanned: "Emergency caesarean section",
+  urgency: "urgent", laterality: "not_applicable", source: "maternity",
+  surgeonId: clinicianId, surgeonName: DOC.byUserName,
+  estimatedMinutes: 45, asaGrade: 2,
+  scheduledFor: `${today()}T07:30:00.000Z`, ...OT,
+});
+recordSurgicalConsent({
+  caseId: caesarean,
+  risksDiscussed: "Bleeding, infection, injury to bladder or bowel, need for hysterectomy, anaesthetic risk, risk to the baby",
+  ...OTSIGN,
+});
+addTeamMember({ caseId: caesarean, role: "Surgeon", personName: DOC.byUserName, userId: clinicianId });
+addTeamMember({ caseId: caesarean, role: "Anaesthetist", personName: "Dr. Kimathi" });
+addTeamMember({ caseId: caesarean, role: "Scrub nurse", personName: "Sister Adhiambo" });
+addTeamMember({ caseId: caesarean, role: "Circulating nurse", personName: "Nurse Chebet" });
+arriveInTheatre({ caseId: caesarean, ...OTSIGN });
+answerStage(caesarean, "sign_in");
+completeStage({ caseId: caesarean, stage: "sign_in", ...OTSIGN });
+startAnaesthesia({ caseId: caesarean, anaesthesia: "spinal", anaesthetistName: "Dr. Kimathi", ...OTSIGN });
+answerStage(caesarean, "time_out");
+completeStage({ caseId: caesarean, stage: "time_out", ...OTSIGN });
+recordIncision({ caseId: caesarean, ...OTSIGN });
+recordCountIn({ caseId: caesarean, item: "Swabs", count: 10, ...OTSIGN });
+recordCountIn({ caseId: caesarean, item: "Needles", count: 4, ...OTSIGN });
+recordCountIn({ caseId: caesarean, item: "Instruments", count: 32, ...OTSIGN });
+closeCase({
+  caseId: caesarean, procedurePerformed: "Emergency caesarean section",
+  findings: "Live female infant 3100 g, Apgar 8 and 9. Uterus contracted well. No extension of the incision.",
+  bloodLossMl: 600, specimen: "Placenta for histology", ...OTSIGN,
+});
+for (const [item, count] of [["Swabs", 10], ["Needles", 4], ["Instruments", 32]] as const) {
+  recordCountOut({ caseId: caesarean, item, count, ...OTSIGN });
+}
+answerStage(caesarean, "sign_out");
+completeStage({ caseId: caesarean, stage: "sign_out", ...OTSIGN });
+leaveTheatre({ caseId: caesarean, ...OTSIGN });
+completeCase({ caseId: caesarean, ...OTSIGN });
+
+// The one where the count did not reconcile and a swab was found. This is what
+// the record is meant to look like afterwards: the discrepancy still visible,
+// and how it was resolved beside it.
+const laparotomy = bookCase({
+  facilityId, patientMrn: theatrePatient("Anthony", "Mutiso", "male", "1981-03-17"),
+  theatreCode: "OT1", procedurePlanned: "Diagnostic laparoscopy", urgency: "immediate",
+  source: "casualty", surgeonId: clinicianId, surgeonName: DOC.byUserName,
+  estimatedMinutes: 60, asaGrade: 3, scheduledFor: `${today()}T05:00:00.000Z`, ...OT,
+});
+recordSurgicalConsent({
+  caseId: laparotomy,
+  consentedProcedure: "Diagnostic laparoscopy, proceed to laparotomy if indicated",
+  risksDiscussed: "Bleeding, conversion to open surgery, bowel injury, need for transfusion",
+  ...OTSIGN,
+});
+addTeamMember({ caseId: laparotomy, role: "Surgeon", personName: DOC.byUserName, userId: clinicianId });
+addTeamMember({ caseId: laparotomy, role: "Scrub nurse", personName: "Sister Adhiambo" });
+arriveInTheatre({ caseId: laparotomy, ...OTSIGN });
+// A "no" that was recorded rather than hidden: the site marker was missing.
+answerStage(laparotomy, "sign_in", { SITE_MARKED: "no" });
+answerChecklist({
+  caseId: laparotomy, stage: "sign_in", itemCode: "SITE_MARKED", answer: "no",
+  note: "Marker pen missing from the trolley. Site confirmed verbally with the patient and on the scan.",
+  byUserId: clinicianId, byUserName: "Sister Adhiambo",
+});
+completeStage({ caseId: laparotomy, stage: "sign_in", ...OTSIGN });
+startAnaesthesia({ caseId: laparotomy, anaesthesia: "general", anaesthetistName: "Dr. Kimathi", ...OTSIGN });
+answerStage(laparotomy, "time_out");
+completeStage({ caseId: laparotomy, stage: "time_out", ...OTSIGN });
+recordIncision({ caseId: laparotomy, ...OTSIGN });
+recordCountIn({ caseId: laparotomy, item: "Swabs", count: 12, ...OTSIGN });
+closeCase({
+  caseId: laparotomy,
+  procedurePerformed: "Laparotomy and repair of small bowel perforation",
+  findings: "Perforated ileum with 400 ml of purulent fluid. Converted to open. Peritoneal lavage, primary repair.",
+  bloodLossMl: 350, complications: "Converted from laparoscopic to open", ...OTSIGN,
+});
+recordCountOut({ caseId: laparotomy, item: "Swabs", count: 11, ...OTSIGN });
+resolveCount({
+  caseId: laparotomy, item: "Swabs",
+  resolution: "Twelfth swab found under the drape after a full search of the field and the floor. Recount correct. No imaging needed.",
+  ...OTSIGN,
+});
+answerStage(laparotomy, "sign_out");
+completeStage({ caseId: laparotomy, stage: "sign_out", ...OTSIGN });
+leaveTheatre({ caseId: laparotomy, ...OTSIGN });
+
+// On today's list, waiting.
+const hernia = bookCase({
+  facilityId, patientMrn: theatrePatient("Francis", "Njoroge", "male", "1966-12-05"),
+  theatreCode: "OT1", procedurePlanned: "Right inguinal hernia repair, mesh",
+  urgency: "elective", laterality: "right", surgeonId: clinicianId, surgeonName: DOC.byUserName,
+  estimatedMinutes: 60, asaGrade: 2, scheduledFor: `${today()}T11:00:00.000Z`, ...OT,
+});
+recordSurgicalConsent({
+  caseId: hernia,
+  risksDiscussed: "Bleeding, infection, recurrence, chronic groin pain, injury to the cord structures",
+  ...OTSIGN,
+});
+
+// And one not yet consented, so the list shows what a blocked case looks like.
+bookCase({
+  facilityId, patientMrn: theatrePatient("Alice", "Wangui", "female", "1990-02-21"),
+  theatreCode: "OT2", procedurePlanned: "Excision of breast lump", urgency: "elective",
+  laterality: "left", surgeonName: DOC.byUserName, estimatedMinutes: 30, asaGrade: 1,
+  scheduledFor: `${today()}T13:00:00.000Z`, ...OT,
+});
+
+// Cancelled for the reason Kenyan theatres are cancelled for most often.
+const cancelled = bookCase({
+  facilityId, patientMrn: theatrePatient("Beatrice", "Achieng", "female", "1975-08-09"),
+  theatreCode: "OT1", procedurePlanned: "Total abdominal hysterectomy", urgency: "elective",
+  surgeonName: DOC.byUserName, estimatedMinutes: 120, asaGrade: 2,
+  scheduledFor: `${today()}T09:00:00.000Z`, ...OT,
+});
+cancelCase({
+  caseId: cancelled, category: "no_anaesthetist",
+  reason: "The only anaesthetist was called to the emergency laparotomy and the list could not be covered",
+  ...OTSIGN,
+});
+
 // ------------------------------------------------------------- remittance
 //
 // A payment advice from SHA covering the submitted claims: most paid in full,
@@ -1373,6 +1537,7 @@ console.log(`  lab orders        ${count(`SELECT COUNT(*) AS n FROM orders`)} ·
 console.log(`  admissions        ${count(`SELECT COUNT(*) AS n FROM admissions`)} · ${count(`SELECT COUNT(*) AS n FROM admissions WHERE discharged_at IS NULL`)} still in a bed`);
 console.log(`  appointments      ${count(`SELECT COUNT(*) AS n FROM appointments`)} booked`);
 console.log(`  programmes        ${count(`SELECT COUNT(*) AS n FROM enrolments WHERE status = 'active'`)} on the registers · HIV retention ${cohortReport("HIV")[0]?.retentionPercent ?? 0}%`);
+console.log(`  theatre           ${theatreSummary(facilityId).booked} cases · checklist ${theatreSummary(facilityId).checklistCompliantPercent ?? 0}% complete · ${theatreSummary(facilityId).countMismatches} count mismatch resolved`);
 console.log(`  referrals         ${referralSummary(facilityId).live} live · ${referralSummary(facilityId).loopBroken} never came back · loop closed ${referralSummary(facilityId).loopClosedPercent ?? 0}%`);
 console.log(`  casualty          ${emergencySummary(facilityId).open} in the department · ${emergencySummary(facilityId).breached + emergencySummary(facilityId).untriaged} past target · ${emergencySummary(facilityId).withinTargetPercent ?? 0}% seen in time`);
 console.log(`  maternity         ${maternitySummary().activePregnancies} pregnancies booked · ${maternitySummary().deliveries} deliveries · caesarean rate ${maternitySummary().caesareanRatePercent ?? 0}%`);
