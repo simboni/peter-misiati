@@ -135,6 +135,42 @@ Be straight with the client about what the integrations table is telling them:
 **the SHA and KRA connections are simulated until those specifications are in
 hand.** Everything either side of them is real.
 
+### If they want another twenty minutes
+
+Pick whichever of these matters to the facility in front of you. Each is one
+screen and one point.
+
+**Equipment & estates → Cold chain (`admin`).** The vaccine fridge read 14.2 °C
+at 6am and every batch in that store is quarantined. Nobody did that; writing
+the reading down did it. Then Maintenance due: the autoclave's DOSHS pressure
+test lapsed 35 days ago. Go to **Wards & theatre → Theatre list** and the hernia
+repair is refused because of it — the estates register is not a separate world.
+
+**Mortuary (`admin`).** Three bodies and what is holding each one up. The police
+case has been identified and examined and still cannot be released, because the
+release order has not come from the station. Try releasing it: the refusal names
+the OB number. This is the only part of the system with no undo and it is worth
+saying so.
+
+**Reports → Is it getting better? (`admin`).** Six months of trend with every
+figure carrying its numerator, its denominator and where the definition came
+from, plus a link to the rows behind it. Point at a card reading "2 of 3 — too
+few for a percentage to mean anything": that is the system refusing to print a
+number that would mislead. Then the village breakdown, where a row holding one
+patient is withheld and a second goes with it.
+
+**Patients → Patient portal (`j.otieno`).** Open Grace Njeri. The screen shows
+exactly the text message she would get — and her HIV result is not in it. She is
+told a result exists and that the clinic will go through it with her. No app, no
+data bundle, and the code goes to the number the clinic already holds.
+
+**Administration → Thresholds & sign-off (`admin`).** The last screen, and the
+honest one. Every number this system chose rather than derived, what it means,
+which rule in the clinical review register it sits behind, and who ought to
+confirm it. Sign one off in front of them — it takes ten seconds and it is the
+difference between software that asserts and software that can be audited. Then
+"Fixed in the code": six rules that cannot be switched off, each saying why.
+
 ## Why SQLite, not Postgres
 
 `docs/hms/05-architecture.md` proposed Postgres for the cloud tier. The facility
@@ -197,7 +233,7 @@ tier. `src/lib/db.ts` is the only module that would change.
 | — | `src/lib/totp.ts` | RFC 6238 two-factor codes, checked against the RFC's own test vectors |
 | — | `src/lib/seed.ts` | Cadres, permissions, roles, ICD-11, formulary, stores, wards, reference ranges |
 
-## Eighteen rules the code enforces
+## Twenty-four rules the code enforces
 
 These are compliance requirements expressed as code, not documentation. Each has
 a test that fails if it regresses.
@@ -308,6 +344,43 @@ a test that fails if it regresses.
     counter cannot dispense a controlled drug an hour after the pharmacist
     walked away.
 
+19. **A cold chain excursion quarantines the stock, at the moment the reading
+    is written down.** Not a task for somebody later: a nurse must not be able
+    to draw up a vaccine from a fridge that failed overnight, and the only
+    reliable way to stop her is to make the stock unpickable before anybody
+    thinks to connect the temperature log to the shelf. Every batch in that
+    store, not only the vaccines — whatever was in the fridge was at that
+    temperature.
+
+20. **An overdue blocking check closes the theatre.** A room declares the
+    equipment it cannot work without, and an autoclave past its DOSHS pressure
+    test stops the list rather than appearing as a red line on an estates
+    screen nobody opens. A failed check does not advance its own due date, and
+    it takes the asset out of service.
+
+21. **A body is not released on a name.** Somebody who knew the person must
+    have viewed it and signed, a police case needs a written release authority,
+    and a required postmortem happens first because it cannot happen after
+    burial. This is the one part of the system with no undo, and the only part
+    where three separate checks all block outright.
+
+22. **A machine does not file a result against the wrong person.** A reading
+    for a specimen nobody ordered is held — not filed, and not discarded,
+    because it is somebody's blood. A unit that does not match is an exception
+    rather than a number, since an analyser reporting glucose in mg/dL into a
+    system expecting mmol/L turns 5.5 into 99. And a control is never filed
+    against a patient.
+
+23. **A result reaches a patient's phone after a clinician has seen it, never
+    before**, and some findings never reach it at all. A panic potassium
+    arriving at 9pm with nobody to ask is not transparency. The patient is
+    still told a result exists, because hiding that would be its own harm.
+
+24. **A rate on fewer than twenty cases is not printed, and a row holding one
+    person is withheld along with a second.** One caesarean in two deliveries
+    is not a 50% caesarean rate. And hiding the only small row while publishing
+    the total hides nothing, because anybody can subtract.
+
 ## Testing
 
 ```bash
@@ -375,7 +448,7 @@ reason, which is recorded.
 
 ## Not done — be clear about this
 
-The system runs end to end, but a facility cannot go live on it yet:
+Every module on the roadmap is built. A facility still cannot go live on it:
 
 - **The SHA and KRA connections are simulated.** This is the one to say out
   loud in any demonstration. The integration hub runs deterministic simulators
@@ -404,8 +477,24 @@ The system runs end to end, but a facility cannot go live on it yet:
 - **Sync has no network transport.** `src/lib/sync.ts` has the operation log,
   the Lamport ordering and the conflict policy, and they are tested. What is
   missing is the code that moves ops between two machines.
-- **Not yet built:** radiology, theatre, maternity, the patient portal,
-  procurement, telemedicine. Phases 3–5 of the roadmap.
+- **No hardware driver exists for anything that plugs in.** The analyser
+  interface does ASTM framing and checksums, E1394 and HL7 v2 parsing, and the
+  code and unit mapping — but no serial port is opened and no listener is
+  bound, and the parsers are written from the standards rather than from a real
+  machine's output. The same is true of the fingerprint readers: the capture
+  interface is a string from a driver nobody has written, and every reader is
+  in demo mode until one exists. Which analyser and which reader a facility
+  buys decides what those drivers do.
+- **Telemedicine carries no video and records nothing.** The platform is a
+  third party, and a facility doing this at scale needs a platform decision, a
+  data processing agreement, and KMPDC's current telemedicine guidance.
+- **Sixty-four things need a person's signature, not a programmer.**
+  `docs/hms/06-clinical-review.md` lists every clinical and regulatory rule the
+  code enforces, with its source, and what must be replaced or confirmed before
+  go-live. Most are not defects — they are numbers nobody has yet confirmed,
+  like the 2–8 °C cold chain range or which findings must never be sent in a
+  text message. The configuration studio exists so a named clinician can sign
+  one off without anybody touching code.
 - **No CI.** Tests, typecheck and build all pass and are run on every change by
   hand; nothing enforces that automatically.
 - **NEWS2 omits two components.** The consciousness and supplemental-oxygen
