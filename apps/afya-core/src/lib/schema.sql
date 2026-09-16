@@ -2990,3 +2990,120 @@ CREATE TABLE IF NOT EXISTS biometric_exceptions (
   created_at    TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_bio_exception ON biometric_exceptions(patient_mrn, active);
+
+-- ==================================================== M31 Analyser Interface
+--
+-- A laboratory analyser is the one device in a clinic that generates clinical
+-- facts by itself. Three things follow from that, and all three are in the
+-- shape of these tables:
+--
+--   THE RAW MESSAGE IS KEPT VERBATIM. When a result is disputed months later,
+--   the question is what the machine actually said, and a parsed row cannot
+--   answer it.
+--
+--   A RESULT FOR A SPECIMEN NOBODY ORDERED IS HELD, NOT FILED. It is not
+--   discarded either — it is somebody's blood.
+--
+--   NOTHING THE MACHINE SENDS IS RELEASED. It arrives preliminary and a
+--   licensed technologist turns it into a result, exactly as if it had been
+--   typed.
+
+CREATE TABLE IF NOT EXISTS analysers (
+  code          TEXT PRIMARY KEY,
+  facility_id   INTEGER NOT NULL REFERENCES facilities(id),
+  name          TEXT NOT NULL,
+  make          TEXT NOT NULL DEFAULT '',
+  model         TEXT NOT NULL DEFAULT '',
+  -- 'astm' (E1381/E1394) or 'hl7' (v2.x ORU^R01). Everything else is a driver
+  -- that has not been written.
+  protocol      TEXT NOT NULL CHECK (protocol IN ('astm','hl7')),
+  -- Where it is plugged in, as a note. No serial port is opened from here.
+  connection    TEXT NOT NULL DEFAULT '',
+  -- The asset register entry for the machine itself, so its service schedule
+  -- and its faults live where every other piece of equipment's do.
+  asset_id      TEXT REFERENCES assets(id),
+  -- 'demo' means no machine: messages are ones somebody pasted in or the
+  -- simulator produced, and every result it files says so.
+  mode          TEXT NOT NULL DEFAULT 'demo' CHECK (mode IN ('demo','live')),
+  active        INTEGER NOT NULL DEFAULT 1,
+  last_seen_at  TEXT,
+  created_at    TEXT NOT NULL
+);
+
+-- What the analyser calls a test, and what this system calls it. Without this
+-- mapping every message is an exception, and it is the single thing that takes
+-- longest to get right when an analyser is installed.
+CREATE TABLE IF NOT EXISTS analyser_tests (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  analyser_code TEXT NOT NULL REFERENCES analysers(code),
+  -- The code in the machine's own message.
+  their_code    TEXT NOT NULL,
+  -- The analyte in this system.
+  analyte       TEXT NOT NULL,
+  -- The unit the machine reports in. A result in different units silently
+  -- accepted is how a glucose of 5.5 becomes a glucose of 99.
+  their_unit    TEXT NOT NULL DEFAULT '',
+  -- Multiply the machine's number by this to get our unit. 1 means the same
+  -- unit; null means no conversion is known and results are held.
+  factor        REAL,
+  active        INTEGER NOT NULL DEFAULT 1,
+  created_at    TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_analyser_test
+  ON analyser_tests(analyser_code, their_code) WHERE active = 1;
+
+CREATE TABLE IF NOT EXISTS analyser_messages (
+  id            TEXT PRIMARY KEY,
+  analyser_code TEXT NOT NULL REFERENCES analysers(code),
+  direction     TEXT NOT NULL CHECK (direction IN ('in','out')),
+  -- Exactly what came off the wire. Never rewritten, never normalised.
+  raw           TEXT NOT NULL,
+  -- 'accepted', 'held' (something needs a person), 'rejected' (bad frame).
+  status        TEXT NOT NULL CHECK (status IN ('accepted','held','rejected')),
+  note          TEXT NOT NULL DEFAULT '',
+  results       INTEGER NOT NULL DEFAULT 0,
+  held          INTEGER NOT NULL DEFAULT 0,
+  received_at   TEXT NOT NULL,
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_analyser_msg ON analyser_messages(analyser_code, received_at);
+
+-- A reading the interface could not file. It is not discarded — it is
+-- somebody's blood, and the commonest cause is a specimen barcode typed wrong
+-- at the bench, which a person can fix in ten seconds if they are told.
+CREATE TABLE IF NOT EXISTS analyser_exceptions (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  message_id    TEXT NOT NULL REFERENCES analyser_messages(id),
+  analyser_code TEXT NOT NULL REFERENCES analysers(code),
+  specimen_ref  TEXT NOT NULL DEFAULT '',
+  their_code    TEXT NOT NULL DEFAULT '',
+  analyte       TEXT NOT NULL DEFAULT '',
+  value_text    TEXT NOT NULL DEFAULT '',
+  unit          TEXT NOT NULL DEFAULT '',
+  reason        TEXT NOT NULL,
+  resolved_at   TEXT,
+  resolution    TEXT NOT NULL DEFAULT '',
+  resolved_by   INTEGER REFERENCES users(id),
+  resolver_name TEXT NOT NULL DEFAULT '',
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_analyser_exception ON analyser_exceptions(analyser_code, resolved_at);
+
+-- Quality control readings. A control is not a patient and must never be filed
+-- against one, so it has its own table rather than a flag on a result.
+CREATE TABLE IF NOT EXISTS analyser_qc (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  analyser_code TEXT NOT NULL REFERENCES analysers(code),
+  message_id    TEXT REFERENCES analyser_messages(id),
+  control_ref   TEXT NOT NULL,
+  analyte       TEXT NOT NULL,
+  value_milli   INTEGER,
+  unit          TEXT NOT NULL DEFAULT '',
+  -- What the control is supposed to read, and how far out it may be.
+  target_milli  INTEGER,
+  tolerance_milli INTEGER,
+  in_range      INTEGER,
+  run_at        TEXT NOT NULL,
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_analyser_qc ON analyser_qc(analyser_code, run_at);

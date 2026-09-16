@@ -312,7 +312,12 @@ export function enterResult(input: {
   /** A qualitative result, e.g. "Positive". */
   valueText?: string;
   unit?: string;
-  enteredBy: number;
+  /**
+   * The person who entered it — or null when an analyser filed it directly.
+   * A machine is not a user, and inventing one would put a name on a reading
+   * nobody typed.
+   */
+  enteredBy: number | null;
   enteredByName: string;
   deviceCode: string;
   preliminary?: boolean;

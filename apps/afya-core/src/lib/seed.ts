@@ -38,6 +38,7 @@ import { seedLeaveTypes } from "./hr.ts";
 import { seedAssets } from "./assets.ts";
 import { seedMortuary } from "./mortuary.ts";
 import { seedBiometrics } from "./biometrics.ts";
+import { seedAnalysers } from "./analysers.ts";
 
 /** The councils that license clinical practice in Kenya. */
 export const CADRES: { code: string; name: string; regulator: string; licensed: boolean }[] = [
@@ -688,6 +689,9 @@ export function seedDemo(): {
   // One reader, in demo mode, because there is no hardware. Everything it
   // produces says so on the screen.
   seedBiometrics(facilityId);
+  // Two analysers, both in demo mode, with the test codes a small chemistry
+  // and haematology bench would need mapped.
+  seedAnalysers(facilityId);
 
   audit({
     action: "demo_seeded",

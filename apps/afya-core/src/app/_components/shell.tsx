@@ -26,6 +26,7 @@ import { hrSummary } from "@/lib/hr.ts";
 import { assetSummary } from "@/lib/assets.ts";
 import { mortuarySummary } from "@/lib/mortuary.ts";
 import { biometricSummary } from "@/lib/biometrics.ts";
+import { analyserSummary } from "@/lib/analysers.ts";
 import { signOutAction } from "@/app/actions/session.ts";
 import { navFor, sectionFor, type BadgeKey } from "./nav.ts";
 import type { CurrentUser } from "@/lib/auth.ts";
@@ -75,6 +76,7 @@ function counts(facilityId: number): Record<BadgeKey, { text: string; tone: "blo
   const estate = assetSummary(facilityId);
   const mortuary = mortuarySummary(facilityId);
   const biometrics = biometricSummary(facilityId);
+  const interfaces = analyserSummary(facilityId);
   const waiting = queue(facilityId);
 
   const n = (
@@ -145,6 +147,9 @@ function counts(facilityId: number): Record<BadgeKey, { text: string; tone: "blo
     // watching is a different problem from a fridge that has already failed.
     // Somebody failing repeatedly has a bad enrolment and is being told at every
     // visit that they are not who they say they are.
+    // A reading the interface could not file is somebody's blood sitting in a
+    // queue nobody is watching.
+    analysers: n(interfaces.held, "block"),
     biometrics: n(biometrics.repeatFailures.length + biometrics.poorQualityEnrolments, "clock"),
     mortuary: n(mortuary.inStore, mortuary.free === 0 ? "block" : "quiet"),
     // A body nobody has come for, or one that cannot be released, is the thing

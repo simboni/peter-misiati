@@ -669,26 +669,65 @@ is to say, to the people least able to argue with it.
    position is that it should not. A facility that disagrees should say which
    action, and why care would not be denied by it.
 
-## 19. Public health
+## 19. Analyser interface
+
+A laboratory analyser is the only device in a clinic that produces clinical
+facts on its own. Typing its numbers in by hand is slow and wrong about one time
+in fifty; wiring it up badly is wrong in ways nobody notices, which is worse.
 
 | # | Rule | Where | Source | Status |
 |---|---|---|---|---|
-| 19.1 | Notifiable conditions are detected from coded diagnoses as they are made, because the Act's clock runs from diagnosis | `reporting.ts` | Public Health Act | ✅ |
-| 19.2 | **The notifiable list is four conditions** — malaria, tuberculosis, cholera, measles. The full schedule must be loaded | `reporting.ts` `NOTIFIABLE_PREFIXES` | — | 🔴 |
-| 19.3 | Reporting one requires the county's reference — it is the proof it was made | `reporting.ts` | Design rule | ✅ |
-| 19.4 | MOH 705A is under five, 705B is five and over, split by age **on the day of the visit** | `reporting.ts` | MOH forms | ✅ |
-| 19.5 | A condition is counted whichever code in its ICD-11 family the clinician used | `reporting.ts` `MOH705_CONDITIONS` | Design rule | ⚠️ |
-| 19.6 | **The 705 condition list is six conditions.** The real form has many more rows | `reporting.ts` | — | 🔴 |
+| 19.1 | **Nothing an analyser sends is released.** It files as preliminary and a KMLTTB-registered technologist turns it into a result, exactly as if it had been typed. An interface that auto-releases has removed the only person the law registers for the purpose | `analysers.ts` `fileResult` | Design rule | ✅ |
+| 19.2 | **A reading for a specimen nobody ordered is held, never filed and never discarded.** It is somebody's blood. The commonest cause is a barcode typed wrong at the bench, which a person fixes in ten seconds if they are told | `analysers.ts` `fileResult` | Design rule | ✅ |
+| 19.3 | **A unit that does not match is an exception, not a number.** An analyser reporting glucose in mg/dL into a system expecting mmol/L turns 5.5 into 99, and every range, flag and panic threshold downstream is then wrong. Conversion happens only where a factor was written down on purpose | `analysers.ts` `fileResult`, `mapTest` | Design rule | ✅ |
+| 19.4 | **The conversion factors are a facility's to check.** The one seeded example (creatinine mg/dL to µmol/L, ×88.4) is correct arithmetic, but which analyte a given machine reports in which unit is a question about that machine | `analysers.ts` `seedAnalysers` | Judgement | 🔴 |
+| 19.5 | **A control is not a patient.** QC readings go to their own table; a control filed against a patient is a fabricated result in somebody's record, and it is an easy mistake for an interface to make | `analysers.ts` `fileQc` | Design rule | ✅ |
+| 19.6 | **QC is recorded and not evaluated.** No target, no tolerance, no Levey-Jennings chart and no Westgard rules. A laboratory running its own QC programme needs all of them and none is here | `analysers.ts` `qcFor` | — | 🔴 |
+| 19.7 | The raw message is stored exactly as it arrived and is never rewritten. When a result is disputed six months later, the question is what the machine actually said | `schema.sql` `analyser_messages` | Design rule | ✅ |
+| 19.8 | A frame that fails its ASTM checksum is recorded as rejected, not silently dropped. A laboratory losing one result in a hundred and not knowing is worse than one that loses none and would have been told | `analysers.ts` `checkFrame` | ASTM E1381 | ✅ |
+| 19.9 | A result on a rejected specimen is refused, the same as one typed in | `analysers.ts`, `laboratory.ts` | Design rule | ✅ |
+| 19.10 | A held reading resolved to the right specimen leaves the exception on the record. One bench, one shift, the same mistake is what tells a manager the process is wrong rather than the machine | `analysers.ts` `resolveHeld` | Design rule | ✅ |
+| 19.11 | Results are attributed to the analyser, with no user invented for them. A machine is not a person, and putting a name on a reading nobody typed is a lie the audit log would carry for good | `analysers.ts`, `laboratory.ts` `enterResult` | Design rule | ✅ |
+| 19.12 | **No serial port is opened and no TCP listener is bound.** What this module owns is the part worth getting right and testable without hardware: framing, parsing, mapping and the rules above. The transport is a driver that has not been written | — | — | 🔴 |
+| 19.13 | **The parsers are written from the standards, not from a real machine's output.** Every analyser deviates from ASTM and HL7 in small ways, and the first week of any installation is spent finding out how | `analysers.ts` `parseAstm`, `parseHl7` | — | 🔴 |
+| 19.14 | **A panel is not expanded into its analytes.** A CBC is one order and several readings, and which analytes a panel expands to is the analyser's own configuration. The worklist sends what was ordered and the results come back per analyte | `analysers.ts` `worklist` | — | 🔴 |
+| 19.15 | **A re-run files a second reading rather than replacing the first.** Both stand, which is what lets somebody ask why the machine was asked twice — but nothing yet marks the earlier one superseded automatically | `laboratory.ts` | — | ⚠️ |
+| 19.16 | **No reference-range check against the analyser's own ranges.** Ranges belong to this system and are matched to the patient; an analyser's built-in ranges are ignored, which is the right default and worth a technologist confirming | `laboratory.ts` `rangeFor` | Judgement | ⚠️ |
 
-## 20. Revenue (for the claims specialist, not the clinician)
+### What to ask a laboratory technologist, in order
+
+1. **Which analyser, and can you get a capture of its output?** (19.13). One
+   real message from the machine on the bench is worth more than both standards
+   documents, because it shows the deviations.
+2. **Every test code and every unit** (19.3, 19.4). This mapping is the single
+   thing that takes longest to get right at installation, and each wrong unit is
+   a patient-safety defect rather than an inconvenience.
+3. **What the QC programme actually is** (19.6). Targets, tolerances and which
+   rules the laboratory works to. Recording control readings without evaluating
+   them is half a job.
+4. **Panels** (19.14). Which analytes a CBC or a urea-and-electrolytes expands
+   to on this machine, so the worklist and the results line up.
+
+## 20. Public health
 
 | # | Rule | Where | Source | Status |
 |---|---|---|---|---|
-| 20.1 | Nine scrubber gates, each mapped to a documented SHA rejection cause | `claims.ts` `scrub` | SHA published causes | ⚠️ |
-| 20.2 | **The gates are inferred from documented causes, not from 50 real rejected claims.** The roadmap says to build them from a real corpus and that is still the right next step | — | — | 🔴 |
-| 20.3 | A claim beyond the payer's submission window (SHA: 7 days) escalates rather than blocking, because a late claim still has an appeal path | `claims.ts` | SHA | ⚠️ |
-| 20.4 | Tariffs and benefit rules are **illustrative**. The SHA schedule for the contracting cycle must be loaded | `seed.ts` | — | 🔴 |
-| 20.5 | Money is integer cents throughout, and a price is fixed as of the date of service | `billing.ts` | Design rule | ✅ |
+| 20.1 | Notifiable conditions are detected from coded diagnoses as they are made, because the Act's clock runs from diagnosis | `reporting.ts` | Public Health Act | ✅ |
+| 20.2 | **The notifiable list is four conditions** — malaria, tuberculosis, cholera, measles. The full schedule must be loaded | `reporting.ts` `NOTIFIABLE_PREFIXES` | — | 🔴 |
+| 20.3 | Reporting one requires the county's reference — it is the proof it was made | `reporting.ts` | Design rule | ✅ |
+| 20.4 | MOH 705A is under five, 705B is five and over, split by age **on the day of the visit** | `reporting.ts` | MOH forms | ✅ |
+| 20.5 | A condition is counted whichever code in its ICD-11 family the clinician used | `reporting.ts` `MOH705_CONDITIONS` | Design rule | ⚠️ |
+| 20.6 | **The 705 condition list is six conditions.** The real form has many more rows | `reporting.ts` | — | 🔴 |
+
+## 21. Revenue (for the claims specialist, not the clinician)
+
+| # | Rule | Where | Source | Status |
+|---|---|---|---|---|
+| 21.1 | Nine scrubber gates, each mapped to a documented SHA rejection cause | `claims.ts` `scrub` | SHA published causes | ⚠️ |
+| 21.2 | **The gates are inferred from documented causes, not from 50 real rejected claims.** The roadmap says to build them from a real corpus and that is still the right next step | — | — | 🔴 |
+| 21.3 | A claim beyond the payer's submission window (SHA: 7 days) escalates rather than blocking, because a late claim still has an appeal path | `claims.ts` | SHA | ⚠️ |
+| 21.4 | Tariffs and benefit rules are **illustrative**. The SHA schedule for the contracting cycle must be loaded | `seed.ts` | — | 🔴 |
+| 21.5 | Money is integer cents throughout, and a price is fixed as of the date of service | `billing.ts` | Design rule | ✅ |
 
 ---
 
@@ -775,3 +814,10 @@ Everything marked 🔴, in one list:
     do not
 46. The quality and age floors for enrolment, set from the reader actually in
     use rather than from a convention
+47. A transport driver for each analyser — serial or TCP — and a captured
+    message from the real machine to test the parsers against
+48. Every analyser test code and unit mapped and checked, including the
+    conversion factors, which are patient-safety defects when wrong
+49. The laboratory's own QC programme: targets, tolerances and which rules it
+    works to. Control readings are recorded and not evaluated
+50. Which analytes each ordered panel expands to on the machine in use

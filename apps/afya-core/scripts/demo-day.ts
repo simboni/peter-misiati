@@ -86,6 +86,9 @@ import {
   enrol as enrolFinger, verify as verifyFinger, recordException as biometricException,
   recordFallback, simulateCapture, biometricSummary,
 } from "../src/lib/biometrics.ts";
+import {
+  receiveMessage as receiveAnalyserMessage, simulateAstm, analyserSummary,
+} from "../src/lib/analysers.ts";
 import { closeDb, run, get, all as dbAll, verifyAuditChain, today } from "../src/lib/db.ts";
 
 const { facilityId, adminId, clinicianId, receptionistId, pharmacistId, labTechId } = seedDemo();
@@ -2255,6 +2258,64 @@ biometricException({
   note: "Declined at registration. Treated exactly the same.", ...BIO,
 });
 
+
+// ================================================================== analysers
+//
+// The chemistry analyser sends four readings: two that file, one for a tube
+// barcode nobody typed correctly, and one in the wrong units. Plus a control,
+// which must never reach anybody's record.
+
+const BENCH = { byUserId: labTechId, byUserName: "Samuel Mutiso", deviceCode: "LAB1" };
+
+const benchSpecimen = get<{ id: string }>(
+  `SELECT s.id FROM specimens s JOIN orders o ON o.id = s.order_id
+    WHERE s.rejected_at IS NULL AND o.kind = 'lab' ORDER BY s.collected_at LIMIT 1`,
+);
+
+if (benchSpecimen) {
+  receiveAnalyserMessage({
+    analyserCode: "CHEM1",
+    raw: simulateAstm({
+      specimenId: benchSpecimen.id,
+      readings: [
+        { code: "GLU", value: "5.4", unit: "mmol/L" },
+        { code: "K", value: "4.2", unit: "mmol/L" },
+        // Creatinine in mg/dL, and no conversion has been written down. Held
+        // rather than turned into a number that is wrong by a factor of 88.
+        { code: "CREA", value: "1.2", unit: "mg/dL" },
+      ],
+      at: inDays(0) + "T08:40:00.000Z",
+    }),
+    ...BENCH,
+  });
+}
+
+// A barcode typed wrong at the bench. Not discarded — it is somebody's blood.
+receiveAnalyserMessage({
+  analyserCode: "CHEM1",
+  raw: simulateAstm({
+    specimenId: "LAB1-8Q2XZ4",
+    readings: [{ code: "GLU", value: "11.8", unit: "mmol/L" }],
+    at: inDays(0) + "T08:52:00.000Z",
+  }),
+  ...BENCH,
+});
+
+// The morning control run.
+receiveAnalyserMessage({
+  analyserCode: "CHEM1",
+  raw: simulateAstm({
+    specimenId: "QC-LEVEL-2",
+    readings: [
+      { code: "GLU", value: "5.1", unit: "mmol/L" },
+      { code: "K", value: "4.0", unit: "mmol/L" },
+    ],
+    at: inDays(0) + "T07:05:00.000Z",
+    control: true,
+  }),
+  ...BENCH,
+});
+
 const summary = claimsSummary();
 const chain = verifyAuditChain();
 const facility = getFacility(facilityId)!;
@@ -2277,6 +2338,7 @@ console.log(`  programmes        ${count(`SELECT COUNT(*) AS n FROM enrolments W
 console.log(`  HR                ${hrSummary(facilityId).staff} staff · ${hrSummary(facilityId).leaveWaiting} leave waiting · ${hrSummary(facilityId).uncoveredLeave} approved uncovered · ${hrSummary(facilityId).lapsedLicences} lapsed registration`);
 console.log(`  payroll           ${payrollSummary(facilityId).employees} staff · gross ${Math.round(payrollSummary(facilityId).monthlyGrossCents / 100)} KES · statutory ${Math.round(statutoryReturn(payrollRun.runId).totalRemittableCents / 100)} KES to remit${payrollRun.cappedEmployees ? ` · ${payrollRun.cappedEmployees} capped` : ""}`);
 console.log(`  estate            ${assetSummary(facilityId).assets} assets · ${assetSummary(facilityId).blockingOverdue} blocked by an overdue check · ${assetSummary(facilityId).criticalDown} critical down · fridge excursion quarantined ${excursion.quarantined} batches · depreciation ${Math.round(depreciation.amountCents / 100)} KES`);
+console.log(`  analysers         ${analyserSummary(facilityId).filed} readings filed · ${analyserSummary(facilityId).held} held for a person · ${analyserSummary(facilityId).qcRuns} control readings, none of them in a patient record`);
 console.log(`  biometrics        ${biometricSummary(facilityId).enrolled} enrolled · ${biometricSummary(facilityId).exceptions} on an exception · match rate ${biometricSummary(facilityId).matchRatePercent ?? 0}% · ${biometricSummary(facilityId).liveReaders} live readers, so none of it is evidence`);
 console.log(`  mortuary          ${mortuarySummary(facilityId).inStore} in store of ${mortuarySummary(facilityId).bays} bays · ${mortuarySummary(facilityId).blocked} not releasable · ${mortuarySummary(facilityId).unclaimed} unclaimed · longest ${mortuarySummary(facilityId).longestDays} days · ${Math.round(mortuarySummary(facilityId).accruedFeeCents / 100)} KES accrued`);
 console.log(`  ledger            ${ledgerSummary(facilityId).journals} journals · trial balance ${ledgerSummary(facilityId).trialBalanceDifferenceCents === 0 ? "balanced" : "OUT"} · ${reconcileLedger(facilityId).agrees ? "agrees with the till" : "DISAGREES with the till"}`);

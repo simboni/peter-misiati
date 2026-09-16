@@ -81,6 +81,7 @@ export type BadgeKey =
   | "mortuary"
   | "mortuaryBlocked"
   | "biometrics"
+  | "analysers"
   | "alerts";
 
 export const NAV: NavSection[] = [
@@ -157,6 +158,7 @@ export const NAV: NavSection[] = [
       { href: "/radiology", label: "Imaging worklist", permission: ["patient.read"], badge: "imaging" },
       { href: "/radiology?view=critical", label: "Critical findings", permission: ["patient.read"], badge: "imagingCritical" },
       { href: "/radiology?view=log", label: "Imaging log", permission: ["patient.read"] },
+      { href: "/analysers", label: "Analyser bench", permission: ["lab.result.release", "report.read"], badge: "analysers" },
     ],
   },
   {
