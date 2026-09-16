@@ -37,6 +37,7 @@ import { seedStatutoryRates } from "./payroll.ts";
 import { seedLeaveTypes } from "./hr.ts";
 import { seedAssets } from "./assets.ts";
 import { seedMortuary } from "./mortuary.ts";
+import { seedBiometrics } from "./biometrics.ts";
 
 /** The councils that license clinical practice in Kenya. */
 export const CADRES: { code: string; name: string; regulator: string; licensed: boolean }[] = [
@@ -684,6 +685,9 @@ export function seedDemo(): {
   // Two small cold rooms. A facility with no mortuary defines no units and the
   // module simply stays empty.
   seedMortuary(facilityId);
+  // One reader, in demo mode, because there is no hardware. Everything it
+  // produces says so on the screen.
+  seedBiometrics(facilityId);
 
   audit({
     action: "demo_seeded",

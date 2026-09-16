@@ -82,6 +82,10 @@ import {
   receiveBody, recordViewing, recordPostmortem, recordNotification, release,
   mortuarySummary, storageFee, getBody,
 } from "../src/lib/mortuary.ts";
+import {
+  enrol as enrolFinger, verify as verifyFinger, recordException as biometricException,
+  recordFallback, simulateCapture, biometricSummary,
+} from "../src/lib/biometrics.ts";
 import { closeDb, run, get, all as dbAll, verifyAuditChain, today } from "../src/lib/db.ts";
 
 const { facilityId, adminId, clinicianId, receptionistId, pharmacistId, labTechId } = seedDemo();
@@ -2198,6 +2202,59 @@ recordViewing({
   relationship: "neighbour", identified: true, ...MORT,
 });
 
+
+// ================================================================= biometrics
+//
+// Four patients: two enrolled and verifying, one whose ridges are worn flat
+// from twenty years of masonry, and one who said no. The last two are the ones
+// worth looking at — they are what a system that requires a fingerprint gets
+// wrong, and they get exactly the same care as the first two.
+
+const BIO = { byUserId: receptionistId, byUserName: "Joseph Otieno" };
+const BIO_DEV = { ...BIO, deviceCode: "REC1" };
+
+// Grace and Samuel enrol and verify. Peter has laid block for twenty years.
+// Mercy said no.
+const [bioOne, bioTwo, , bioWorn, bioRefused] = mrns;
+
+for (const mrn of [bioOne, bioTwo]) {
+  recordConsent({ patientMrn: mrn, purpose: "biometric", granted: true, ...BIO });
+  enrolFinger({
+    patientMrn: mrn, finger: "right_thumb",
+    capture: simulateCapture(mrn, "right_thumb"), readerCode: "FP1", ...BIO_DEV,
+  });
+  verifyFinger({
+    patientMrn: mrn, capture: simulateCapture(mrn, "right_thumb"),
+    readerCode: "FP1", purpose: "claim", finger: "right_thumb", ...BIO_DEV,
+  });
+}
+
+// Enrolled, and the finger will not read. The failure stays on the record and
+// identity is settled from the card in his pocket — which is the whole point.
+recordConsent({ patientMrn: bioWorn, purpose: "biometric", granted: true, ...BIO });
+enrolFinger({
+  patientMrn: bioWorn, finger: "right_thumb",
+  capture: { template: `worn-ridges:${bioWorn}`, quality: 22 }, readerCode: "FP1", ...BIO_DEV,
+});
+for (let attempt = 0; attempt < 2; attempt++) {
+  const failed = verifyFinger({
+    patientMrn: bioWorn, capture: simulateCapture(bioWorn, "right_thumb", false),
+    readerCode: "FP1", purpose: "service", finger: "right_thumb", ...BIO_DEV,
+  });
+  recordFallback({
+    verificationId: failed.verificationId,
+    fallback: "National ID seen at the desk",
+    ...BIO,
+  });
+}
+
+// She said no, which is a complete answer and needs no further justification.
+recordConsent({ patientMrn: bioRefused, purpose: "biometric", granted: false, ...BIO });
+biometricException({
+  patientMrn: bioRefused, reason: "refused",
+  note: "Declined at registration. Treated exactly the same.", ...BIO,
+});
+
 const summary = claimsSummary();
 const chain = verifyAuditChain();
 const facility = getFacility(facilityId)!;
@@ -2220,6 +2277,7 @@ console.log(`  programmes        ${count(`SELECT COUNT(*) AS n FROM enrolments W
 console.log(`  HR                ${hrSummary(facilityId).staff} staff · ${hrSummary(facilityId).leaveWaiting} leave waiting · ${hrSummary(facilityId).uncoveredLeave} approved uncovered · ${hrSummary(facilityId).lapsedLicences} lapsed registration`);
 console.log(`  payroll           ${payrollSummary(facilityId).employees} staff · gross ${Math.round(payrollSummary(facilityId).monthlyGrossCents / 100)} KES · statutory ${Math.round(statutoryReturn(payrollRun.runId).totalRemittableCents / 100)} KES to remit${payrollRun.cappedEmployees ? ` · ${payrollRun.cappedEmployees} capped` : ""}`);
 console.log(`  estate            ${assetSummary(facilityId).assets} assets · ${assetSummary(facilityId).blockingOverdue} blocked by an overdue check · ${assetSummary(facilityId).criticalDown} critical down · fridge excursion quarantined ${excursion.quarantined} batches · depreciation ${Math.round(depreciation.amountCents / 100)} KES`);
+console.log(`  biometrics        ${biometricSummary(facilityId).enrolled} enrolled · ${biometricSummary(facilityId).exceptions} on an exception · match rate ${biometricSummary(facilityId).matchRatePercent ?? 0}% · ${biometricSummary(facilityId).liveReaders} live readers, so none of it is evidence`);
 console.log(`  mortuary          ${mortuarySummary(facilityId).inStore} in store of ${mortuarySummary(facilityId).bays} bays · ${mortuarySummary(facilityId).blocked} not releasable · ${mortuarySummary(facilityId).unclaimed} unclaimed · longest ${mortuarySummary(facilityId).longestDays} days · ${Math.round(mortuarySummary(facilityId).accruedFeeCents / 100)} KES accrued`);
 console.log(`  ledger            ${ledgerSummary(facilityId).journals} journals · trial balance ${ledgerSummary(facilityId).trialBalanceDifferenceCents === 0 ? "balanced" : "OUT"} · ${reconcileLedger(facilityId).agrees ? "agrees with the till" : "DISAGREES with the till"}`);
 console.log(`  procurement       ${procurementSummary(facilityId).openOrders} orders open · ${procurementSummary(facilityId).queriedInvoices} invoice queried · ${Math.round(procurementSummary(facilityId).varianceCents / 100)} KES overcharged, caught`);

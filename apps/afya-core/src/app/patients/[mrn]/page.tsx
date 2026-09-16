@@ -7,6 +7,7 @@ import { check } from "@/lib/access.ts";
 import { startEncounterAction } from "@/app/encounters/actions.ts";
 import { checkInAction } from "@/app/queue/actions.ts";
 import { missingConsents } from "@/lib/frontdesk.ts";
+import { enrolmentsFor, activeException } from "@/lib/biometrics.ts";
 import { patientResults, formatValue } from "@/lib/laboratory.ts";
 import { dispensingHistory } from "@/lib/pharmacy.ts";
 import { appointmentsFor } from "@/lib/scheduling.ts";
@@ -48,6 +49,8 @@ export default async function PatientPage(props: { params: Promise<{ mrn: string
   const appointments = appointmentsFor(patient.mrn).filter((a) => a.slot_date >= today()).slice(0, 5);
   const inBed = currentAdmission(patient.mrn);
   const outstandingConsents = missingConsents(patient.mrn);
+  const fingers = enrolmentsFor(patient.mrn);
+  const biometricException = activeException(patient.mrn);
   const access = accessHistory(patient.mrn, 8);
   const age = patient.date_of_birth
     ? Math.floor((Date.now() - Date.parse(patient.date_of_birth)) / (365.25 * 86_400_000))
@@ -153,6 +156,29 @@ export default async function PatientPage(props: { params: Promise<{ mrn: string
           has to be asked, not assumed.
         </p>
       ) : null}
+
+      {/* How this person's identity is established. A claim that cannot say is a
+          claim that gets queried, and a patient on an exception is not a
+          patient with a problem. */}
+      <p className="mt-3 text-sm text-muted">
+        Identity:{" "}
+        {fingers.length > 0 ? (
+          <span className="text-ink">
+            {fingers.length} finger{fingers.length === 1 ? "" : "s"} enrolled
+          </span>
+        ) : biometricException ? (
+          <span className="text-ink">
+            no fingerprint on file — {biometricException.reason.replace("_", " ")}
+            {biometricException.note ? ` (${biometricException.note})` : ""}
+          </span>
+        ) : (
+          <span>documents only</span>
+        )}{" "}
+        ·{" "}
+        <Link href={`/biometrics?mrn=${patient.mrn}`} className="text-brand hover:underline">
+          identity &amp; biometrics
+        </Link>
+      </p>
 
       {!patient.national_id && !patient.sha_number ? (
         <p className="mt-3 bg-clock-soft border border-clock/25 text-clock rounded px-4 py-2.5 text-sm">

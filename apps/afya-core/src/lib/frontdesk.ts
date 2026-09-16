@@ -26,7 +26,7 @@ export class FrontDeskError extends Error {}
 
 // ------------------------------------------------------------------- consent
 
-export type ConsentPurpose = "treatment" | "billing" | "claim" | "research" | "data_sharing";
+export type ConsentPurpose = "treatment" | "billing" | "claim" | "research" | "data_sharing" | "biometric";
 
 export interface Consent {
   id: number;
@@ -48,6 +48,9 @@ export const CONSENT_VERSIONS: Record<ConsentPurpose, string> = {
   claim: "claim-v1",
   research: "research-v1",
   data_sharing: "data-sharing-v1",
+  // Its own wording, because the Data Protection Act treats biometric data as a
+  // special category and consent to be treated is not consent to be fingerprinted.
+  biometric: "biometric-v1",
 };
 
 export function recordConsent(input: {

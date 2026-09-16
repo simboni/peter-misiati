@@ -623,26 +623,72 @@ why three of the rules below block outright and one deliberately does not.
 4. **The cold room temperature** (17.19). Either a per-asset range in the cold
    chain module, or an honest statement that nobody is watching it.
 
-## 18. Public health
+## 18. Biometric identity
+
+SHA verifies members biometrically at the point of service and counties are
+deploying readers, so a facility that cannot do it turns patients away or eats
+rejected claims. That is why the module exists. It is not why it is built this
+way: a system that *requires* a fingerprint refuses care to infants, to people
+whose hands are worn from work, to amputees, and to anybody who says no — which
+is to say, to the people least able to argue with it.
 
 | # | Rule | Where | Source | Status |
 |---|---|---|---|---|
-| 18.1 | Notifiable conditions are detected from coded diagnoses as they are made, because the Act's clock runs from diagnosis | `reporting.ts` | Public Health Act | ✅ |
-| 18.2 | **The notifiable list is four conditions** — malaria, tuberculosis, cholera, measles. The full schedule must be loaded | `reporting.ts` `NOTIFIABLE_PREFIXES` | — | 🔴 |
-| 18.3 | Reporting one requires the county's reference — it is the proof it was made | `reporting.ts` | Design rule | ✅ |
-| 18.4 | MOH 705A is under five, 705B is five and over, split by age **on the day of the visit** | `reporting.ts` | MOH forms | ✅ |
-| 18.5 | A condition is counted whichever code in its ICD-11 family the clinician used | `reporting.ts` `MOH705_CONDITIONS` | Design rule | ⚠️ |
-| 18.6 | **The 705 condition list is six conditions.** The real form has many more rows | `reporting.ts` | — | 🔴 |
+| 18.1 | **A failed match never denies care.** `verify` returns a result and a route to documents; it does not throw and nothing downstream refuses on it. A worn thumb, a wet finger, a bad enrolment and a cheap reader all produce the same non-match | `biometrics.ts` `verify` | Design rule | ✅ |
+| 18.2 | **A patient who refuses is recorded and treated identically.** Consent is a special-category requirement under the Data Protection Act 2019, and "no" is a complete answer needing no further justification | `biometrics.ts` `enrol`, `recordException` | DPA 2019 | ✅ |
+| 18.3 | Consent to treatment is not consent to be fingerprinted — biometric consent is its own versioned purpose | `frontdesk.ts` `CONSENT_VERSIONS` | DPA 2019 | ✅ |
+| 18.4 | **No image and no raw template is ever stored** — only a digest, which is deliberately useless to anybody who copies the table. A fingerprint image in a hospital database is a breach nobody can remediate: a person cannot be issued with a new thumb | `biometrics.ts` `templateRef` | DPA 2019 | ✅ |
+| 18.5 | The template reference never reaches the audit log, which is the artefact most likely to be exported and emailed | `biometrics.ts` `enrol` | Design rule | ✅ |
+| 18.6 | Withdrawing an enrolment erases the reference rather than flagging it. A withdrawal that leaves the template in place is not a withdrawal | `biometrics.ts` `withdrawEnrolment` | DPA 2019 | ✅ |
+| 18.7 | **Matching happens on the reader, not here.** This module records the score the device returned and the threshold it was set to. A score here is evidence of what a device said, not a claim this software can verify | `biometrics.ts` | Design rule | ✅ |
+| 18.8 | **A reader in demo mode never pretends.** Captures are simulated, the comparison is a string equality, every result is marked `demo`, the screen says so, and `citableFor` refuses it as claim evidence | `biometrics.ts` `citableFor` | Design rule | ✅ |
+| 18.9 | Going live requires the template format and matching algorithm on the record. A template captured on one vendor's reader does not match on another's, and a facility that cannot say its format re-enrols every patient when it changes supplier | `biometrics.ts` `goLive` | Practice | ⚠️ |
+| 18.10 | A failed attempt stays on the record even after identity is settled from documents, attached to the failure rather than replacing it — which is the only way a bad enrolment is ever found | `biometrics.ts` `recordFallback` | Design rule | ✅ |
+| 18.11 | More than one failure in 90 days is surfaced as a bad enrolment, not a bad person | `biometrics.ts` `biometricSummary` | Design rule | ✅ |
+| 18.12 | A poor-quality capture is enrolled and warns, rather than being refused — a bad template beats none for a patient about to walk out of the door | `biometrics.ts` `enrol` | Judgement | ⚠️ |
+| 18.13 | **The quality floor of 40 is a convention, not a standard**, and the right number depends on the reader a facility actually bought | `biometrics.ts` `MIN_QUALITY` | Judgement | 🔴 |
+| 18.14 | **The age floor of 5 years is a working convention.** Infant ridge detail is too fine for the readers a Level 2 facility buys, but a facility doing infant biometrics has different hardware | `biometrics.ts` `MIN_AGE_YEARS` | Judgement | 🔴 |
+| 18.15 | Eligibility is advisory throughout. It tells a clerk what to expect so a two-year-old is not held over a scanner for five minutes; it refuses nothing | `biometrics.ts` `eligibility` | Design rule | ✅ |
+| 18.16 | **Liveness detection is not modelled at all.** A photograph of a finger, a gelatine cast and a real thumb are the same thing to this module, because whether they are the same to the reader is a procurement question | — | — | 🔴 |
+| 18.17 | **No actual SHA biometric integration.** What SHA's member verification API expects, what it returns, and whether a local match is acceptable to it are unknown here; a verification recorded in this system is not a verification SHA has seen | — | — | 🔴 |
+| 18.18 | **No device driver exists.** The capture interface is a plain string from a driver that has not been written, and which reader a facility buys decides what that driver has to do | — | — | 🔴 |
+| 18.19 | **Nothing yet requires a verification.** The claim scrubber does not ask how identity was established and dispensing does not either, so the module records rather than enforces — deliberately, until a real integration says what enforcing would mean | — | — | 🔴 |
 
-## 19. Revenue (for the claims specialist, not the clinician)
+### What to ask before buying a reader, in order
+
+1. **What does SHA actually require?** (18.17). Whether SHA accepts a locally
+   matched verification or insists on its own API call changes what this module
+   is for. Everything else is a detail next to it.
+2. **Which reader, and what does its driver return?** (18.9, 18.18). The
+   template format decides whether this facility can ever change supplier.
+   Settle it before the contract, not after.
+3. **Liveness** (18.16). If the reader does not do presentation-attack
+   detection, the honest position is that this verifies a finger was presented
+   and nothing more.
+4. **Whether a failed match should ever block anything** (18.19). The module's
+   position is that it should not. A facility that disagrees should say which
+   action, and why care would not be denied by it.
+
+## 19. Public health
 
 | # | Rule | Where | Source | Status |
 |---|---|---|---|---|
-| 19.1 | Nine scrubber gates, each mapped to a documented SHA rejection cause | `claims.ts` `scrub` | SHA published causes | ⚠️ |
-| 19.2 | **The gates are inferred from documented causes, not from 50 real rejected claims.** The roadmap says to build them from a real corpus and that is still the right next step | — | — | 🔴 |
-| 19.3 | A claim beyond the payer's submission window (SHA: 7 days) escalates rather than blocking, because a late claim still has an appeal path | `claims.ts` | SHA | ⚠️ |
-| 19.4 | Tariffs and benefit rules are **illustrative**. The SHA schedule for the contracting cycle must be loaded | `seed.ts` | — | 🔴 |
-| 19.5 | Money is integer cents throughout, and a price is fixed as of the date of service | `billing.ts` | Design rule | ✅ |
+| 19.1 | Notifiable conditions are detected from coded diagnoses as they are made, because the Act's clock runs from diagnosis | `reporting.ts` | Public Health Act | ✅ |
+| 19.2 | **The notifiable list is four conditions** — malaria, tuberculosis, cholera, measles. The full schedule must be loaded | `reporting.ts` `NOTIFIABLE_PREFIXES` | — | 🔴 |
+| 19.3 | Reporting one requires the county's reference — it is the proof it was made | `reporting.ts` | Design rule | ✅ |
+| 19.4 | MOH 705A is under five, 705B is five and over, split by age **on the day of the visit** | `reporting.ts` | MOH forms | ✅ |
+| 19.5 | A condition is counted whichever code in its ICD-11 family the clinician used | `reporting.ts` `MOH705_CONDITIONS` | Design rule | ⚠️ |
+| 19.6 | **The 705 condition list is six conditions.** The real form has many more rows | `reporting.ts` | — | 🔴 |
+
+## 20. Revenue (for the claims specialist, not the clinician)
+
+| # | Rule | Where | Source | Status |
+|---|---|---|---|---|
+| 20.1 | Nine scrubber gates, each mapped to a documented SHA rejection cause | `claims.ts` `scrub` | SHA published causes | ⚠️ |
+| 20.2 | **The gates are inferred from documented causes, not from 50 real rejected claims.** The roadmap says to build them from a real corpus and that is still the right next step | — | — | 🔴 |
+| 20.3 | A claim beyond the payer's submission window (SHA: 7 days) escalates rather than blocking, because a late claim still has an appeal path | `claims.ts` | SHA | ⚠️ |
+| 20.4 | Tariffs and benefit rules are **illustrative**. The SHA schedule for the contracting cycle must be loaded | `seed.ts` | — | 🔴 |
+| 20.5 | Money is integer cents throughout, and a price is fixed as of the date of service | `billing.ts` | Design rule | ✅ |
 
 ---
 
@@ -721,3 +767,11 @@ Everything marked 🔴, in one list:
     for a facility that has none
 42. A cold chain range per asset, so a mortuary cold room can be monitored at
     all
+43. What SHA's biometric member verification actually requires — its API, and
+    whether a locally matched fingerprint satisfies it at all
+44. A device driver for whichever fingerprint reader the facility buys, and its
+    template format recorded before the contract is signed
+45. Whether the readers do liveness detection, and an honest statement if they
+    do not
+46. The quality and age floors for enrolment, set from the reader actually in
+    use rather than from a convention

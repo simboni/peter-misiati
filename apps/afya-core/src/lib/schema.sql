@@ -826,7 +826,10 @@ CREATE TABLE IF NOT EXISTS consents (
   patient_mrn  TEXT NOT NULL REFERENCES patients(mrn),
   -- What was consented to. Granular, because consent to treatment is not
   -- consent to share a record with an employer.
-  purpose      TEXT NOT NULL CHECK (purpose IN ('treatment','billing','claim','research','data_sharing')),
+  -- 'biometric' is its own purpose rather than part of treatment: the Data
+  -- Protection Act treats biometric data as a special category, and consent to
+  -- be treated is not consent to have your fingerprint taken.
+  purpose      TEXT NOT NULL CHECK (purpose IN ('treatment','billing','claim','research','data_sharing','biometric')),
   -- The wording shown, versioned. Consent to text that has since changed is not
   -- consent to the new text.
   version      TEXT NOT NULL,
@@ -2878,3 +2881,112 @@ CREATE TABLE IF NOT EXISTS body_events (
   created_at    TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_body_event ON body_events(body_id, happened_at);
+
+-- =============================================== M12 Biometric Verification
+--
+-- Biometric data is a special category under the Data Protection Act 2019.
+-- Two things follow, and both are structural rather than procedural:
+--
+--   NO IMAGE IS EVER STORED. What is kept is a reference to a template the
+--   reader produced, and the format it is in. A fingerprint image in a hospital
+--   database is a liability nobody needs and a breach nobody can remediate —
+--   a person cannot be issued with a new thumb.
+--
+--   MATCHING HAPPENS ON THE READER. This system records the score the device
+--   returned and the threshold it was set to. It does not implement matching,
+--   and a score here is evidence of what a device said, not a claim this
+--   software can verify.
+
+CREATE TABLE IF NOT EXISTS biometric_readers (
+  code          TEXT PRIMARY KEY,
+  facility_id   INTEGER NOT NULL REFERENCES facilities(id),
+  label         TEXT NOT NULL,
+  make          TEXT NOT NULL DEFAULT '',
+  model         TEXT NOT NULL DEFAULT '',
+  -- The template format and the matching algorithm the device uses. A template
+  -- captured on one vendor's reader does not match on another's, and a facility
+  -- that changes vendor re-enrols everybody. Writing it down is how that is
+  -- discovered before the contract is signed rather than after.
+  template_format TEXT NOT NULL DEFAULT '',
+  algorithm     TEXT NOT NULL DEFAULT '',
+  -- The score at or above which this device calls it a match, as configured.
+  threshold     INTEGER NOT NULL DEFAULT 40,
+  -- 'demo' means no hardware: captures are simulated and every verification it
+  -- produces is marked as such and can never be cited as evidence.
+  mode          TEXT NOT NULL DEFAULT 'demo' CHECK (mode IN ('demo','live')),
+  active        INTEGER NOT NULL DEFAULT 1,
+  created_at    TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS biometric_enrolments (
+  id            TEXT PRIMARY KEY,
+  patient_mrn   TEXT NOT NULL REFERENCES patients(mrn),
+  finger        TEXT NOT NULL,
+  -- An opaque reference to the template, never an image and never a raw
+  -- template. It is deliberately useless to anybody who copies this table.
+  template_ref  TEXT NOT NULL,
+  template_format TEXT NOT NULL DEFAULT '',
+  algorithm     TEXT NOT NULL DEFAULT '',
+  -- What the reader said about the capture, 0-100. A poor capture enrolled is a
+  -- patient who fails verification every visit afterwards.
+  quality       INTEGER,
+  reader_code   TEXT REFERENCES biometric_readers(code),
+  -- Captured on a reader in demo mode. Never usable as evidence.
+  demo          INTEGER NOT NULL DEFAULT 0,
+  status        TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','superseded','withdrawn')),
+  withdrawn_at  TEXT,
+  withdrawn_reason TEXT NOT NULL DEFAULT '',
+  captured_at   TEXT NOT NULL,
+  captured_by   INTEGER REFERENCES users(id),
+  capturer_name TEXT NOT NULL,
+  device_code   TEXT,
+  created_at    TEXT NOT NULL
+);
+-- One active enrolment per finger. A re-capture supersedes rather than
+-- duplicates, so there is never a question of which template is current.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_bio_finger
+  ON biometric_enrolments(patient_mrn, finger) WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS idx_bio_patient ON biometric_enrolments(patient_mrn, status);
+
+-- Every attempt, matched or not. The failures are the important rows: a patient
+-- who fails verification three visits running has a bad enrolment, and nobody
+-- finds that out from a table that only keeps the successes.
+CREATE TABLE IF NOT EXISTS biometric_verifications (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  patient_mrn   TEXT NOT NULL REFERENCES patients(mrn),
+  purpose       TEXT NOT NULL,
+  enrolment_id  TEXT REFERENCES biometric_enrolments(id),
+  finger        TEXT NOT NULL DEFAULT '',
+  reader_code   TEXT REFERENCES biometric_readers(code),
+  matched       INTEGER NOT NULL,
+  score         INTEGER,
+  threshold     INTEGER,
+  demo          INTEGER NOT NULL DEFAULT 0,
+  -- How identity was established when the finger did not do it. Care is never
+  -- refused for a failed match.
+  fallback      TEXT NOT NULL DEFAULT '',
+  attempted_at  TEXT NOT NULL,
+  attempted_by  INTEGER REFERENCES users(id),
+  attempter_name TEXT NOT NULL,
+  device_code   TEXT,
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_bio_verif ON biometric_verifications(patient_mrn, attempted_at);
+
+-- Why this patient has no fingerprint on file. An infant, a mason whose ridges
+-- are worn flat, an amputee, somebody with leprosy, or somebody who said no.
+-- A system that requires a fingerprint denies care to exactly the people least
+-- able to argue with it, so the exception is a first-class record rather than
+-- a blank row.
+CREATE TABLE IF NOT EXISTS biometric_exceptions (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  patient_mrn   TEXT NOT NULL REFERENCES patients(mrn),
+  reason        TEXT NOT NULL CHECK (reason IN ('infant','worn_ridges','amputation','disease','refused','no_reader','other')),
+  note          TEXT NOT NULL DEFAULT '',
+  active        INTEGER NOT NULL DEFAULT 1,
+  recorded_at   TEXT NOT NULL,
+  recorded_by   INTEGER REFERENCES users(id),
+  recorder_name TEXT NOT NULL,
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_bio_exception ON biometric_exceptions(patient_mrn, active);

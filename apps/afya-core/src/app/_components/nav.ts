@@ -80,6 +80,7 @@ export type BadgeKey =
   | "coldChain"
   | "mortuary"
   | "mortuaryBlocked"
+  | "biometrics"
   | "alerts";
 
 export const NAV: NavSection[] = [
@@ -96,6 +97,7 @@ export const NAV: NavSection[] = [
     links: [
       { href: "/patients", label: "Find a patient", permission: ["patient.read"] },
       { href: "/patients/new", label: "Register a patient", permission: ["patient.register"] },
+      { href: "/biometrics", label: "Identity & biometrics", permission: ["patient.read"], badge: "biometrics" },
     ],
   },
   {
