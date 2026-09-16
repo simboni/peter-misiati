@@ -84,7 +84,8 @@ with a secret nobody else has ever seen.
 Stop the server with `Ctrl-C`. To wipe and start over: `rm -rf data && npm run demo`.
 
 ```bash
-npm test         # 859 tests, no network or database server needed
+npm test         # 872 tests, no network or database server needed
+npm run typecheck # the same check CI runs
 ```
 
 ## Showing it to a client
@@ -495,8 +496,10 @@ Every module on the roadmap is built. A facility still cannot go live on it:
   like the 2–8 °C cold chain range or which findings must never be sent in a
   text message. The configuration studio exists so a named clinician can sign
   one off without anybody touching code.
-- **No CI.** Tests, typecheck and build all pass and are run on every change by
-  hand; nothing enforces that automatically.
+- **CI does not know about the other two apps.** `.github/workflows/afya-core.yml`
+  typechecks, tests, builds and loads the demonstration on every push that
+  touches this app, and verifies the audit chain against the database that
+  demonstration just built. `riziki-pos` and `riziki-web` have no equivalent.
 - **NEWS2 omits two components.** The consciousness and supplemental-oxygen
   scores are not recorded yet, so the score under-reads rather than over-reads
   and the escalation threshold is set accordingly.

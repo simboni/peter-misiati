@@ -1,0 +1,77 @@
+# Afya Core: typecheck, tests, build, and a demonstration that still loads.
+#
+# The last of those is the one worth explaining. Every module's rules are
+# enforced at runtime rather than by types, so a change that breaks a rule
+# compiles and passes any test that does not happen to touch it — and then the
+# demonstration falls over in front of a client. Loading the whole demonstration
+# is the cheapest way to find that out here instead.
+name: Afya Core
+
+on:
+  push:
+    paths:
+      - "apps/afya-core/**"
+      - ".github/workflows/afya-core.yml"
+  pull_request:
+    paths:
+      - "apps/afya-core/**"
+      - ".github/workflows/afya-core.yml"
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: apps/afya-core
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # node:sqlite and --experimental-strip-types both need 22.6 or newer, and
+      # the package.json engines field says so. Pinning the major here rather
+      # than taking "latest" keeps a Node release from breaking the build on a
+      # morning nobody touched the code.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+          cache: npm
+          cache-dependency-path: apps/afya-core/package-lock.json
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # 872 tests, no network and no database server: each suite makes its own
+      # SQLite file in a temporary directory.
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      # A demonstration that does not load is a demonstration that cannot be
+      # given. This catches the class of break that types and unit tests both
+      # miss: a rule that now refuses something the seed data does.
+      - name: The demonstration still loads
+        run: |
+          rm -f data/afya.db
+          npm run demo
+
+      # The audit log is a hash chain, and a change that writes history without
+      # chaining it correctly breaks nothing else. Verify it against the
+      # database the demonstration just built, from outside the demonstration.
+      - name: The audit chain verifies
+        run: |
+          node --disable-warning=ExperimentalWarning --experimental-strip-types -e '
+            const { verifyAuditChain } = await import("./src/lib/db.ts");
+            const chain = verifyAuditChain();
+            if (!chain.ok) {
+              console.error(`audit chain ${chain.reason} at entry ${chain.failedAtId}`);
+              process.exit(1);
+            }
+            console.log(`audit chain intact, ${chain.checked} entries verified`);
+          '
