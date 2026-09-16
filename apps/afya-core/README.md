@@ -237,7 +237,7 @@ tier. `src/lib/db.ts` is the only module that would change.
 | — | `src/lib/totp.ts` | RFC 6238 two-factor codes, checked against the RFC's own test vectors |
 | — | `src/lib/seed.ts` | Cadres, permissions, roles, ICD-11, formulary, stores, wards, reference ranges |
 
-## Twenty-six rules the code enforces
+## Twenty-seven rules the code enforces
 
 These are compliance requirements expressed as code, not documentation. Each has
 a test that fails if it regresses.
@@ -356,7 +356,15 @@ a test that fails if it regresses.
     transaction, so "nobody saw it" is not available as an outcome. A result
     stays outstanding until somebody says they have read it.
 
-20. **A second factor is proved, not merely enrolled.** TOTP written against
+20. **A short code is stored under a slow hash, not a fast one.** A six-digit
+    patient-portal code has a million possibilities, and a million SHA-256
+    operations take under a second — so a "hashed" code in a stolen table hands
+    over every live code in it, which is the exact thing hashing was meant to
+    prevent. scrypt with a per-code salt takes the same search from 0.9 seconds
+    to 9.6 hours, measured, against a code that dies in ten minutes. Comparison
+    is constant-time.
+
+21. **A second factor is proved, not merely enrolled.** TOTP written against
     RFC 6238 and checked against the RFC's own vectors, so it agrees with
     Google Authenticator rather than only with itself. A code proved at
     sign-in or stepped up stays good for fifteen minutes; an MFA-gated action
@@ -364,7 +372,7 @@ a test that fails if it regresses.
     counter cannot dispense a controlled drug an hour after the pharmacist
     walked away.
 
-21. **A cold chain excursion quarantines the stock, at the moment the reading
+22. **A cold chain excursion quarantines the stock, at the moment the reading
     is written down.** Not a task for somebody later: a nurse must not be able
     to draw up a vaccine from a fridge that failed overnight, and the only
     reliable way to stop her is to make the stock unpickable before anybody
@@ -372,31 +380,31 @@ a test that fails if it regresses.
     store, not only the vaccines — whatever was in the fridge was at that
     temperature.
 
-22. **An overdue blocking check closes the theatre.** A room declares the
+23. **An overdue blocking check closes the theatre.** A room declares the
     equipment it cannot work without, and an autoclave past its DOSHS pressure
     test stops the list rather than appearing as a red line on an estates
     screen nobody opens. A failed check does not advance its own due date, and
     it takes the asset out of service.
 
-23. **A body is not released on a name.** Somebody who knew the person must
+24. **A body is not released on a name.** Somebody who knew the person must
     have viewed it and signed, a police case needs a written release authority,
     and a required postmortem happens first because it cannot happen after
     burial. This is the one part of the system with no undo, and the only part
     where three separate checks all block outright.
 
-24. **A machine does not file a result against the wrong person.** A reading
+25. **A machine does not file a result against the wrong person.** A reading
     for a specimen nobody ordered is held — not filed, and not discarded,
     because it is somebody's blood. A unit that does not match is an exception
     rather than a number, since an analyser reporting glucose in mg/dL into a
     system expecting mmol/L turns 5.5 into 99. And a control is never filed
     against a patient.
 
-25. **A result reaches a patient's phone after a clinician has seen it, never
+26. **A result reaches a patient's phone after a clinician has seen it, never
     before**, and some findings never reach it at all. A panic potassium
     arriving at 9pm with nobody to ask is not transparency. The patient is
     still told a result exists, because hiding that would be its own harm.
 
-26. **A rate on fewer than twenty cases is not printed, and a row holding one
+27. **A rate on fewer than twenty cases is not printed, and a row holding one
     person is withheld along with a second.** One caesarean in two deliveries
     is not a 50% caesarean rate. And hiding the only small row while publishing
     the total hides nothing, because anybody can subtract.

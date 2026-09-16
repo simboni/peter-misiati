@@ -40,7 +40,7 @@
  * No `next/*` imports, so this runs under `node --test`.
  */
 
-import { createHash, randomInt } from "node:crypto";
+import { randomBytes, randomInt, scryptSync, timingSafeEqual } from "node:crypto";
 import { all, get, run, tx, audit, now, today } from "./db.ts";
 import { resolvePatient, normalisePhone } from "./patients.ts";
 import { patientResults, formatValue } from "./laboratory.ts";
@@ -199,8 +199,35 @@ export function revoke(input: {
 
 // ------------------------------------------------------------------- codes
 
-function hashCode(patientMrn: string, code: string): string {
-  return createHash("sha256").update(`${patientMrn}:${code}`).digest("hex");
+/**
+ * How a one-time code is stored.
+ *
+ * NOT a plain digest. A six-digit code has a million possibilities, and a
+ * million SHA-256 operations take under a second — so a stolen table of
+ * "hashed" codes hands over every live code in it, which is the exact thing
+ * hashing them was supposed to prevent. scrypt makes the same search take
+ * hours, against a code that is dead in ten minutes.
+ *
+ * The salt is per code and stored beside the hash: it stops one search from
+ * covering every row at once, and there is nothing secret about it.
+ */
+function hashCode(patientMrn: string, code: string, salt: Buffer): Buffer {
+  return scryptSync(`${patientMrn}:${code}`, salt, 32);
+}
+
+/** Stored as salt:hash, both hex. */
+function sealCode(patientMrn: string, code: string): string {
+  const salt = randomBytes(16);
+  return `${salt.toString("hex")}:${hashCode(patientMrn, code, salt).toString("hex")}`;
+}
+
+/** Constant-time, so a wrong code cannot be narrowed down by how long it took. */
+function codeMatches(patientMrn: string, code: string, sealed: string): boolean {
+  const [saltHex, hashHex] = sealed.split(":");
+  if (!saltHex || !hashHex) return false;
+  const expected = Buffer.from(hashHex, "hex");
+  const actual = hashCode(patientMrn, code, Buffer.from(saltHex, "hex"));
+  return expected.length === actual.length && timingSafeEqual(expected, actual);
 }
 
 /**
@@ -230,7 +257,7 @@ export function sendCode(input: {
       `INSERT INTO portal_codes (patient_mrn, code_hash, sent_to, issued_at, expires_at, created_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
       account.patient_mrn,
-      hashCode(account.patient_mrn, code),
+      sealCode(account.patient_mrn, code),
       account.phone,
       issuedAt,
       expiresAt,
@@ -282,7 +309,7 @@ export function checkCode(input: { patientMrn: string; code: string }): { ok: bo
   if (row.expires_at < now()) return { ok: false, why: "that code has expired — ask for another" };
   if (row.attempts >= MAX_ATTEMPTS) return { ok: false, why: "too many wrong tries — ask for another code" };
 
-  if (row.code_hash !== hashCode(input.patientMrn, input.code.trim())) {
+  if (!codeMatches(input.patientMrn, input.code.trim(), row.code_hash)) {
     run(`UPDATE portal_codes SET attempts = attempts + 1 WHERE id = ?`, row.id);
     const left = MAX_ATTEMPTS - (row.attempts + 1);
     return { ok: false, why: left > 0 ? `that code is wrong — ${left} tries left` : "too many wrong tries — ask for another code" };

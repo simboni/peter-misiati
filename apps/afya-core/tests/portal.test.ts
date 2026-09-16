@@ -108,15 +108,31 @@ test("revoking records why", () => {
 
 // -------------------------------------------------------------------- codes
 
-test("a code is never stored in the clear", () => {
-  // A table of live codes opens every record in the clinic if it is copied.
+test("a code is never stored in the clear, and not under a fast hash either", () => {
+  // A million SHA-256 operations take under a second, so a "hashed" six-digit
+  // code in a stolen table is not hashed in any useful sense. scrypt with a
+  // per-row salt makes the same search take hours, against a code that dies in
+  // ten minutes.
   const mrn = aPatient();
   T.enrol({ patientMrn: mrn, ...BY });
   const sent = T.sendCode({ patientMrn: mrn });
 
   const rows = all<{ code_hash: string }>(`SELECT code_hash FROM portal_codes WHERE patient_mrn = ?`, mrn);
-  assert.match(rows[0].code_hash, /^[0-9a-f]{64}$/);
-  assert.ok(!rows.some((r) => r.code_hash === sent.code));
+  assert.match(rows[0].code_hash, /^[0-9a-f]{32}:[0-9a-f]{64}$/, "salt and hash");
+  assert.ok(!rows[0].code_hash.includes(sent.code!));
+});
+
+test("two codes with the same value do not share a stored hash", () => {
+  // The per-row salt: one search must not cover every row at once.
+  const one = aPatient();
+  const two = aPatient();
+  T.enrol({ patientMrn: one, ...BY });
+  T.enrol({ patientMrn: two, ...BY });
+  T.sendCode({ patientMrn: one });
+  T.sendCode({ patientMrn: two });
+
+  const hashes = all<{ code_hash: string }>(`SELECT code_hash FROM portal_codes`).map((r) => r.code_hash);
+  assert.equal(new Set(hashes).size, hashes.length);
 });
 
 test("a code goes to the number on the record and nowhere else", () => {
