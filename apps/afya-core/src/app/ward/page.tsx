@@ -4,7 +4,8 @@ import { currentUser } from "@/lib/auth.ts";
 import { can } from "@/lib/access.ts";
 import {
   bedBoard, census, currentAdmission, observationsFor, drugChart, missedDoses,
-  bedHistory, bedsAvailableFor, NEWS2_ESCALATION,
+  bedHistory, bedsAvailableFor, NEWS2_ESCALATION, CONSCIOUSNESS_LABEL,
+  type Consciousness,
 } from "@/lib/inpatient.ts";
 import { searchPatients } from "@/lib/patients.ts";
 import { listPayers } from "@/lib/payers.ts";
@@ -365,6 +366,31 @@ function PatientPanel({
             />
           </label>
         ))}
+        {/* The two parameters that are not numbers. Between them they are worth
+            five of NEWS2's twenty points, and the patient they catch —
+            confused, on oxygen, with unremarkable observations — is exactly the
+            one a numbers-only score misses. Both start blank: an unanswered
+            consciousness question is not the same as "alert". */}
+        <label className="text-xs text-muted">
+          Consciousness
+          <select
+            name="consciousness"
+            className="block w-40 border border-line rounded px-2 py-1.5 text-sm bg-white"
+          >
+            <option value="">—</option>
+            {(Object.keys(CONSCIOUSNESS_LABEL) as Consciousness[]).map((key) => (
+              <option key={key} value={key}>{CONSCIOUSNESS_LABEL[key]}</option>
+            ))}
+          </select>
+        </label>
+        <label className="text-xs text-muted">
+          On oxygen
+          <select name="onOxygen" className="block w-24 border border-line rounded px-2 py-1.5 text-sm bg-white">
+            <option value="">—</option>
+            <option value="no">Air</option>
+            <option value="yes">Yes</option>
+          </select>
+        </label>
         <label className="text-xs text-muted flex-1 min-w-[10rem]">
           Note
           <input name="note" className="block w-full border border-line rounded px-2 py-1.5 text-sm bg-white" />
@@ -385,6 +411,8 @@ function PatientPanel({
                 <th className="px-3 py-2 font-medium text-right">Pulse</th>
                 <th className="px-3 py-2 font-medium text-right">Resp</th>
                 <th className="px-3 py-2 font-medium text-right">SpO₂</th>
+                <th className="px-3 py-2 font-medium">ACVPU</th>
+                <th className="px-3 py-2 font-medium text-right">O₂</th>
                 <th className="px-3 py-2 font-medium text-right">NEWS2</th>
                 <th className="px-3 py-2 font-medium">By</th>
               </tr>
@@ -398,12 +426,24 @@ function PatientPanel({
                   <td className="px-3 py-1.5 text-right tnum">{o.pulse_bpm ?? "—"}</td>
                   <td className="px-3 py-1.5 text-right tnum">{o.resp_rate ?? "—"}</td>
                   <td className="px-3 py-1.5 text-right tnum">{o.spo2_percent ?? "—"}</td>
+                  <td className={`px-3 py-1.5 ${o.consciousness && o.consciousness !== "alert" ? "text-block" : "text-muted"}`}>
+                    {o.consciousness ? CONSCIOUSNESS_LABEL[o.consciousness] : "—"}
+                  </td>
+                  <td className={`px-3 py-1.5 text-right ${o.on_oxygen === 1 ? "text-clock" : "text-muted"}`}>
+                    {o.on_oxygen === null ? "—" : o.on_oxygen === 1 ? "yes" : "air"}
+                  </td>
                   <td
                     className={`px-3 py-1.5 text-right tnum font-bold ${
                       o.news2_score >= 7 ? "text-block" : o.news2_score >= NEWS2_ESCALATION ? "text-clock" : ""
                     }`}
                   >
                     {o.news2_score}
+                    {/* A 2 from five parameters and a 2 from seven are not the
+                        same 2, and six hours later nobody can tell which it was
+                        unless the row says. */}
+                    {o.news2_complete === 0 ? (
+                      <span className="text-muted font-normal" title="scored from an incomplete set">*</span>
+                    ) : null}
                   </td>
                   <td className="px-3 py-1.5 text-muted">{o.recorder_name}</td>
                 </tr>

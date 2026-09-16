@@ -1357,9 +1357,22 @@ CREATE TABLE IF NOT EXISTS ward_observations (
   pulse_bpm       INTEGER,
   resp_rate       INTEGER,
   spo2_percent    INTEGER,
+  -- The two parameters NEWS2 has that a set of numbers does not. Without them
+  -- the score under-reads, and the patient it under-reads on is the confused
+  -- one on oxygen — which is the patient it most needs to catch.
+  --
+  -- ACVPU: alert, new confusion, voice, pain, unresponsive. Anything but alert
+  -- scores 3 on its own.
+  consciousness   TEXT CHECK (consciousness IN ('alert','confused','voice','pain','unresponsive')),
+  -- On any supplemental oxygen at all, whatever the device or the flow.
+  on_oxygen       INTEGER,
   -- The aggregate early-warning score, computed and stored so a ward round can
   -- see a trend without recomputing history under a changed scoring table.
   news2_score  INTEGER,
+  -- Whether the score was computed from a full set. A 2 from five parameters
+  -- and a 2 from seven are not the same 2, and a ward round should be able to
+  -- tell them apart six hours later.
+  news2_complete INTEGER NOT NULL DEFAULT 0,
   note         TEXT NOT NULL DEFAULT '',
   recorded_by  INTEGER REFERENCES users(id),
   recorder_name TEXT NOT NULL,

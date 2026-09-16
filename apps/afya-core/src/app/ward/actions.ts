@@ -2,7 +2,10 @@
 
 import { act } from "@/app/_components/act.ts";
 import { requireUser } from "@/lib/auth.ts";
-import { admit, transfer, recordObservation, discharge, billBedNights, type DischargeType } from "@/lib/inpatient.ts";
+import {
+  admit, transfer, recordObservation, discharge, billBedNights,
+  type DischargeType, type Consciousness,
+} from "@/lib/inpatient.ts";
 import { openEncounterFor, openEncounter } from "@/lib/encounters.ts";
 import { deviceFor } from "@/app/_components/device.ts";
 
@@ -67,6 +70,16 @@ export async function observationAction(formData: FormData): Promise<void> {
         pulse: num("pulse"),
         respRate: num("respRate"),
         spo2: num("spo2"),
+        // The two NEWS2 parameters that are not numbers, and between them worth
+        // five points. Left undefined rather than assumed: an unanswered
+        // consciousness question is not the same as "alert".
+        consciousness: (String(formData.get("consciousness") ?? "").trim() || undefined) as
+          | Consciousness
+          | undefined,
+        onOxygen:
+          String(formData.get("onOxygen") ?? "").trim() === ""
+            ? undefined
+            : formData.get("onOxygen") === "yes",
       },
       note: String(formData.get("note") ?? "").trim() || undefined,
       byUserId: user.userId,

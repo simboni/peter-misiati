@@ -117,8 +117,10 @@ prescription closed and the controlled register updated — one event, four
 consequences, none of them re-keyed.
 
 **5. The ward (`a.wanjiru`).** Peter Omondi is in GEN-1, two nights in, with a
-NEWS2 trend running 9 → 5 → 0 and a drug chart showing one dose given and one
-withheld with its reason. Note that the transfer list offers no maternity bed.
+NEWS2 trend running 11 → 7 → 0 and a drug chart showing one dose given and one
+withheld with its reason. Two of those points are the oxygen he was admitted on
+and came off overnight — the trend a score built only from numbers would not
+show. Note that the transfer list offers no maternity bed.
 
 **6. Claims (`admin`).** The nine gates, each mapped to a documented SHA
 rejection cause and each naming the person who can fix it. Show a claim that is
@@ -234,7 +236,7 @@ tier. `src/lib/db.ts` is the only module that would change.
 | — | `src/lib/totp.ts` | RFC 6238 two-factor codes, checked against the RFC's own test vectors |
 | — | `src/lib/seed.ts` | Cadres, permissions, roles, ICD-11, formulary, stores, wards, reference ranges |
 
-## Twenty-four rules the code enforces
+## Twenty-five rules the code enforces
 
 These are compliance requirements expressed as code, not documentation. Each has
 a test that fails if it regresses.
@@ -330,14 +332,22 @@ a test that fails if it regresses.
     happened — there is a test that proves it, because a shelf and a bill that
     disagree never agree again.
 
-17. **A reading is not a result, and a panic value is a phone call.** A number
+17. **An early-warning score says what it was made from.** NEWS2 is scored on
+    all seven parameters, and a missing one scores nothing — which means an
+    incomplete set always under-reads. So completeness travels with the score:
+    a 2 from five parameters and a 2 from seven are not the same 2, and six
+    hours later nobody can tell which it was unless the row says. A single
+    parameter scoring 3 escalates even when the total is below the threshold,
+    because an aggregate hides exactly that patient.
+
+18. **A reading is not a result, and a panic value is a phone call.** A number
     off the analyser becomes a result when a KMLTTB-registered technologist
     releases it, and only then does it reach a clinician. Releasing a critical
     value raises an alert on the ordering clinician's desk in the same
     transaction, so "nobody saw it" is not available as an outcome. A result
     stays outstanding until somebody says they have read it.
 
-18. **A second factor is proved, not merely enrolled.** TOTP written against
+19. **A second factor is proved, not merely enrolled.** TOTP written against
     RFC 6238 and checked against the RFC's own vectors, so it agrees with
     Google Authenticator rather than only with itself. A code proved at
     sign-in or stepped up stays good for fifteen minutes; an MFA-gated action
@@ -345,7 +355,7 @@ a test that fails if it regresses.
     counter cannot dispense a controlled drug an hour after the pharmacist
     walked away.
 
-19. **A cold chain excursion quarantines the stock, at the moment the reading
+20. **A cold chain excursion quarantines the stock, at the moment the reading
     is written down.** Not a task for somebody later: a nurse must not be able
     to draw up a vaccine from a fridge that failed overnight, and the only
     reliable way to stop her is to make the stock unpickable before anybody
@@ -353,31 +363,31 @@ a test that fails if it regresses.
     store, not only the vaccines — whatever was in the fridge was at that
     temperature.
 
-20. **An overdue blocking check closes the theatre.** A room declares the
+21. **An overdue blocking check closes the theatre.** A room declares the
     equipment it cannot work without, and an autoclave past its DOSHS pressure
     test stops the list rather than appearing as a red line on an estates
     screen nobody opens. A failed check does not advance its own due date, and
     it takes the asset out of service.
 
-21. **A body is not released on a name.** Somebody who knew the person must
+22. **A body is not released on a name.** Somebody who knew the person must
     have viewed it and signed, a police case needs a written release authority,
     and a required postmortem happens first because it cannot happen after
     burial. This is the one part of the system with no undo, and the only part
     where three separate checks all block outright.
 
-22. **A machine does not file a result against the wrong person.** A reading
+23. **A machine does not file a result against the wrong person.** A reading
     for a specimen nobody ordered is held — not filed, and not discarded,
     because it is somebody's blood. A unit that does not match is an exception
     rather than a number, since an analyser reporting glucose in mg/dL into a
     system expecting mmol/L turns 5.5 into 99. And a control is never filed
     against a patient.
 
-23. **A result reaches a patient's phone after a clinician has seen it, never
+24. **A result reaches a patient's phone after a clinician has seen it, never
     before**, and some findings never reach it at all. A panic potassium
     arriving at 9pm with nobody to ask is not transparency. The patient is
     still told a result exists, because hiding that would be its own harm.
 
-24. **A rate on fewer than twenty cases is not printed, and a row holding one
+25. **A rate on fewer than twenty cases is not printed, and a row holding one
     person is withheld along with a second.** One caesarean in two deliveries
     is not a 50% caesarean rate. And hiding the only small row while publishing
     the total hides nothing, because anybody can subtract.
@@ -500,6 +510,7 @@ Every module on the roadmap is built. A facility still cannot go live on it:
   typechecks, tests, builds and loads the demonstration on every push that
   touches this app, and verifies the audit chain against the database that
   demonstration just built. `riziki-pos` and `riziki-web` have no equivalent.
-- **NEWS2 omits two components.** The consciousness and supplemental-oxygen
-  scores are not recorded yet, so the score under-reads rather than over-reads
-  and the escalation threshold is set accordingly.
+- **The NEWS2 escalation threshold needs a clinician's sign-off.** All seven
+  parameters are scored to the Royal College of Physicians' published table and
+  a single parameter scoring 3 escalates on its own, but who gets called and how
+  fast is a local decision rather than a property of the scale.

@@ -65,14 +65,16 @@ clinician's judgement · 🔴 placeholder, must be replaced before go-live
 
 | # | Rule | Where | Source | Status |
 |---|---|---|---|---|
-| 4.1 | NEWS2 aggregate early-warning score, standard scoring table | `inpatient.ts` `news2` | RCP NEWS2 | ⚠️ |
-| 4.2 | **The consciousness (AVPU) and supplemental-oxygen components are NOT recorded**, so the score under-reads rather than over-reads | `inpatient.ts` | — | 🔴 |
-| 4.3 | Escalation threshold is set at **5**, chosen to account for 4.2 | `inpatient.ts` `NEWS2_ESCALATION` | — | ⚠️ |
-| 4.4 | A score of 7 or more is critical rather than a warning | `inpatient.ts` | RCP NEWS2 | ⚠️ |
-| 4.5 | A temperature outside 25–45 °C is refused as a mis-keyed reading | `inpatient.ts` | Design rule | ⚠️ |
-| 4.6 | Diastolic above systolic is refused as the two being the wrong way round | `inpatient.ts` | Design rule | ✅ |
-| 4.7 | A dose not given must record why. "No entry" could mean refused, vomited, absent or forgotten, and at an inquest those are entirely different | `inpatient.ts` | Design rule | ✅ |
-| 4.8 | A sex-restricted ward refuses an admission of the other sex | `inpatient.ts` | Design rule | ⚠️ |
+| 4.1 | NEWS2 aggregate early-warning score, **all seven parameters** on the published scoring table | `inpatient.ts` `news2` | RCP NEWS2 | ⚠️ |
+| 4.2 | **Consciousness (ACVPU) and supplemental oxygen are scored.** Anything short of alert scores 3, any supplemental oxygen scores 2 — five points between them, and the patient they catch is the confused one on oxygen whose numbers look unremarkable | `inpatient.ts` `news2` | RCP NEWS2 | ⚠️ |
+| 4.3 | **A missing parameter scores nothing, so an incomplete set always under-reads — and the score carries whether it was complete.** A 2 from five parameters and a 2 from seven are not the same 2, and six hours later nobody can tell which it was unless the row says so. The escalation alert names what was missing | `inpatient.ts` `missingParameters`, `recordObservation` | Design rule | ✅ |
+| 4.4 | **A single parameter scoring 3 escalates on its own**, even when the aggregate is below the threshold. An aggregate hides exactly that patient, and the published scale calls for urgent review on it | `inpatient.ts` `redScore` | RCP NEWS2 | ⚠️ |
+| 4.5 | Escalation threshold is **5**, NEWS2's own key threshold for urgent response. **Who is called and how fast is a local decision** a clinician must set | `inpatient.ts` `NEWS2_ESCALATION` | RCP NEWS2 | 🔴 |
+| 4.6 | A score of 7 or more is critical rather than a warning, as is any single red score | `inpatient.ts` | RCP NEWS2 | ⚠️ |
+| 4.7 | A temperature outside 25–45 °C is refused as a mis-keyed reading | `inpatient.ts` | Design rule | ⚠️ |
+| 4.8 | Diastolic above systolic is refused as the two being the wrong way round | `inpatient.ts` | Design rule | ✅ |
+| 4.9 | A dose not given must record why. "No entry" could mean refused, vomited, absent or forgotten, and at an inquest those are entirely different | `inpatient.ts` | Design rule | ✅ |
+| 4.10 | A sex-restricted ward refuses an admission of the other sex | `inpatient.ts` | Design rule | ⚠️ |
 
 ## 5. Triage and the queue
 
@@ -900,7 +902,8 @@ Everything marked 🔴, in one list:
 4. Laboratory reference ranges validated against the facility's own analyser
 5. The full Public Health Act notifiable-disease schedule
 6. The complete MOH 705A/705B condition rows
-7. NEWS2 consciousness and supplemental-oxygen scoring
+7. The NEWS2 escalation threshold and what it triggers — who is called, how
+   fast, and what happens if nobody comes
 8. Drug–drug interaction checking
 9. Paediatric dose calculation
 10. A scrubber rule set built from 50 real rejected claims

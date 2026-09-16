@@ -499,6 +499,17 @@ export function billBedNights(input: {
 
 // ------------------------------------------------------------- observations
 
+/** ACVPU. Anything but alert scores 3 on its own. */
+export type Consciousness = "alert" | "confused" | "voice" | "pain" | "unresponsive";
+
+export const CONSCIOUSNESS_LABEL: Record<Consciousness, string> = {
+  alert: "Alert",
+  confused: "New confusion",
+  voice: "Responds to voice",
+  pain: "Responds to pain only",
+  unresponsive: "Unresponsive",
+};
+
 export interface Observation {
   temp?: number;
   systolic?: number;
@@ -506,6 +517,26 @@ export interface Observation {
   pulse?: number;
   respRate?: number;
   spo2?: number;
+  /** ACVPU. New confusion counts, and is the one people forget. */
+  consciousness?: Consciousness;
+  /** Any supplemental oxygen at all, whatever the device or the flow. */
+  onOxygen?: boolean;
+}
+
+/** The seven parameters the scale is built from. */
+export const NEWS2_PARAMETERS = [
+  "respRate",
+  "spo2",
+  "onOxygen",
+  "systolic",
+  "pulse",
+  "consciousness",
+  "temp",
+] as const;
+
+/** Which of the seven are missing from this set. */
+export function missingParameters(obs: Observation): string[] {
+  return NEWS2_PARAMETERS.filter((p) => obs[p as keyof Observation] === undefined);
 }
 
 /**
@@ -515,13 +546,24 @@ export interface Observation {
  * trend that was actually acted on. Recomputing history under a changed scoring
  * table would rewrite what people knew at the time.
  *
- * This is the standard scoring table without the supplemental-oxygen and
- * consciousness components, which this module does not yet record — so it
- * under-reads rather than over-reads, and the threshold below is set
- * accordingly.
+ * ⚠️ The scoring table is the Royal College of Physicians' published NEWS2, all
+ * seven parameters. A Kenyan facility should still have a clinician confirm the
+ * escalation threshold, which is a local decision about who is called and how
+ * fast rather than a property of the scale.
+ *
+ * A missing parameter scores nothing, which means an incomplete set always
+ * under-reads. That is the safe direction and it is not a free one: `complete`
+ * travels with the score and the ward screen says so, because a 2 from five
+ * parameters and a 2 from seven are not the same 2.
  */
 export function news2(obs: Observation): number {
   let score = 0;
+
+  // Two parameters that are not numbers, and between them worth five points.
+  // The patient they catch — confused, on oxygen, with unremarkable
+  // observations — is exactly the one a numbers-only score misses.
+  if (obs.consciousness !== undefined && obs.consciousness !== "alert") score += 3;
+  if (obs.onOxygen) score += 2;
 
   if (obs.respRate !== undefined) {
     score += obs.respRate <= 8 ? 3 : obs.respRate <= 11 ? 1 : obs.respRate <= 20 ? 0 : obs.respRate <= 24 ? 2 : 3;
@@ -543,8 +585,29 @@ export function news2(obs: Observation): number {
   return score;
 }
 
-/** A score at or above this is escalated rather than filed. */
+/**
+ * A score at or above this is escalated rather than filed.
+ *
+ * ⚠️ 5 is NEWS2's own "key threshold for urgent response". A single parameter
+ * scoring 3 also warrants review under the published scale, which this does not
+ * separately model — a clinician should confirm both before go-live.
+ */
 export const NEWS2_ESCALATION = 5;
+
+/**
+ * A single parameter scoring 3 is a red score under NEWS2 and warrants urgent
+ * review even when the aggregate is low. Surfaced rather than folded into the
+ * total, because the two mean different things at the bedside.
+ */
+export function redScore(obs: Observation): string | null {
+  if (obs.respRate !== undefined && (obs.respRate <= 8 || obs.respRate >= 25)) return "respiratory rate";
+  if (obs.spo2 !== undefined && obs.spo2 <= 91) return "oxygen saturation";
+  if (obs.systolic !== undefined && (obs.systolic <= 90 || obs.systolic >= 220)) return "blood pressure";
+  if (obs.pulse !== undefined && (obs.pulse <= 40 || obs.pulse >= 131)) return "pulse";
+  if (obs.temp !== undefined && obs.temp <= 35) return "temperature";
+  if (obs.consciousness !== undefined && obs.consciousness !== "alert") return "consciousness";
+  return null;
+}
 
 export function recordObservation(input: {
   admissionId: string;
@@ -552,7 +615,16 @@ export function recordObservation(input: {
   note?: string;
   byUserId: number;
   byUserName: string;
-}): { id: number; score: number; escalated: boolean } {
+}): {
+  id: number;
+  score: number;
+  escalated: boolean;
+  /** Whether all seven parameters were recorded. An incomplete score under-reads. */
+  complete: boolean;
+  missing: string[];
+  /** The single parameter scoring 3, if there is one. */
+  red: string | null;
+} {
   const admission = getAdmission(input.admissionId);
   if (!admission) throw new WardError("no such admission");
   if (admission.discharged_at) throw new WardError("that patient has been discharged");
@@ -569,14 +641,19 @@ export function recordObservation(input: {
   }
 
   const score = news2(o);
-  const escalated = score >= NEWS2_ESCALATION;
+  const missing = missingParameters(o);
+  const red = redScore(o);
+  // A single parameter scoring 3 warrants urgent review under NEWS2 even when
+  // the aggregate is below the threshold, so it escalates on its own.
+  const escalated = score >= NEWS2_ESCALATION || red !== null;
 
   return tx(() => {
     const { lastInsertRowid } = run(
       `INSERT INTO ward_observations
          (admission_id, patient_mrn, temp_tenths_c, systolic_mmhg, diastolic_mmhg, pulse_bpm,
-          resp_rate, spo2_percent, news2_score, note, recorded_by, recorder_name, recorded_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          resp_rate, spo2_percent, consciousness, on_oxygen, news2_score, news2_complete,
+          note, recorded_by, recorder_name, recorded_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       input.admissionId,
       admission.patient_mrn,
       o.temp === undefined ? null : Math.round(o.temp * 10),
@@ -585,7 +662,10 @@ export function recordObservation(input: {
       o.pulse ?? null,
       o.respRate ?? null,
       o.spo2 ?? null,
+      o.consciousness ?? null,
+      o.onOxygen === undefined ? null : o.onOxygen ? 1 : 0,
       score,
+      missing.length === 0 ? 1 : 0,
       input.note?.trim() ?? "",
       input.byUserId,
       input.byUserName,
@@ -597,19 +677,24 @@ export function recordObservation(input: {
       notify({
         facilityId: ward.facility_id,
         ownerRole: "clinician",
-        severity: score >= 7 ? "critical" : "warning",
+        severity: score >= 7 || red !== null ? "critical" : "warning",
         kind: "deteriorating_patient",
-        subject: `${admission.patient_mrn} in ${admission.bed_code} scores NEWS2 ${score}`,
-        body: "A deteriorating patient. This needs a clinical review now.",
+        subject: red
+          ? `${admission.patient_mrn} in ${admission.bed_code}: ${red} alone scores 3 (NEWS2 ${score})`
+          : `${admission.patient_mrn} in ${admission.bed_code} scores NEWS2 ${score}`,
+        body:
+          missing.length > 0
+            ? `A deteriorating patient. This needs a clinical review now. The score is from an incomplete set — ${missing.join(", ")} not recorded — so it can only be an underestimate.`
+            : "A deteriorating patient. This needs a clinical review now.",
         entity: "admission",
         entityId: admission.id,
         // Keyed on the score too, so a patient getting worse escalates again
         // rather than hiding behind an alert somebody already acknowledged.
-        dedupeKey: `news2:${admission.id}:${score}`,
+        dedupeKey: `news2:${admission.id}:${score}:${red ?? ""}`,
       });
     }
 
-    return { id: lastInsertRowid, score, escalated };
+    return { id: lastInsertRowid, score, escalated, complete: missing.length === 0, missing, red };
   });
 }
 
@@ -622,7 +707,10 @@ export function observationsFor(admissionId: string) {
     pulse_bpm: number | null;
     resp_rate: number | null;
     spo2_percent: number | null;
+    consciousness: Consciousness | null;
+    on_oxygen: number | null;
     news2_score: number;
+    news2_complete: number;
     note: string;
     recorder_name: string;
     recorded_at: string;

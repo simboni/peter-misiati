@@ -584,10 +584,25 @@ run(`UPDATE admissions SET admitted_at = ? WHERE id = ?`, `${inDays(-2)}T14:20:0
 // A patient who arrived unwell and is improving — the trend a ward round reads.
 // Stamped hours apart, because three observations at the same minute read as a
 // data-entry exercise rather than a patient getting better.
+// All seven parameters each time, including the two that are not numbers: he
+// was admitted on oxygen and came off it overnight, which is two points of the
+// trend a numbers-only score would not show.
 const rounds = [
-  { hoursAgo: 44, obs: { respRate: 26, spo2: 92, systolic: 104, diastolic: 62, pulse: 112, temp: 38.9 }, note: "On admission. Started IV ceftriaxone." },
-  { hoursAgo: 20, obs: { respRate: 22, spo2: 94, systolic: 112, diastolic: 70, pulse: 96, temp: 38.1 }, note: "Overnight. Settled, sleeping." },
-  { hoursAgo: 2, obs: { respRate: 18, spo2: 96, systolic: 118, diastolic: 76, pulse: 84, temp: 37.2 }, note: "Morning round. Much improved, eating." },
+  {
+    hoursAgo: 44,
+    obs: { respRate: 26, spo2: 92, systolic: 104, diastolic: 62, pulse: 112, temp: 38.9, consciousness: "alert" as const, onOxygen: true },
+    note: "On admission. Started IV ceftriaxone, 2L nasal cannula.",
+  },
+  {
+    hoursAgo: 20,
+    obs: { respRate: 22, spo2: 94, systolic: 112, diastolic: 70, pulse: 96, temp: 38.1, consciousness: "alert" as const, onOxygen: true },
+    note: "Overnight. Settled, sleeping, still on oxygen.",
+  },
+  {
+    hoursAgo: 2,
+    obs: { respRate: 18, spo2: 96, systolic: 118, diastolic: 76, pulse: 84, temp: 37.2, consciousness: "alert" as const, onOxygen: false },
+    note: "Morning round. Much improved, eating, off oxygen since 06:00.",
+  },
 ];
 
 for (const round of rounds) {

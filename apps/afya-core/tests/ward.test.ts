@@ -449,3 +449,110 @@ test("the audit chain survives scheduling and the ward", () => {
   const v = verifyAuditChain();
   assert.equal(v.ok, true, v.ok ? "" : `broken at entry ${v.failedAtId}`);
 });
+
+// ------------------------------------------------- NEWS2, all seven parameters
+
+/** Somebody in a bed, so an observation has an admission to hang off. */
+let newsBed = 0;
+function admitSomebody(reason: string): string {
+  const mrn = newPatient(`News${++newsBed}`);
+  const enc = consultation(mrn);
+  // Each in their own bed, because a bed holds one patient and that is enforced.
+  return W.admit({
+    encounterId: enc, wardCode: "GEN", bedCode: `GEN-${newsBed}`,
+    reason, deviceCode: DEV, byUserId: clinicianId, byUserName: DOC.byUserName,
+  });
+}
+
+test("consciousness and oxygen are worth five points between them", () => {
+  // The patient they catch — confused, on oxygen, with unremarkable
+  // observations — is exactly the one a numbers-only score misses.
+  const numbersOnly = { temp: 37, systolic: 120, pulse: 80, respRate: 16, spo2: 97 };
+  assert.equal(W.news2(numbersOnly), 0);
+
+  assert.equal(W.news2({ ...numbersOnly, consciousness: "alert", onOxygen: false }), 0);
+  assert.equal(W.news2({ ...numbersOnly, consciousness: "confused", onOxygen: false }), 3);
+  assert.equal(W.news2({ ...numbersOnly, consciousness: "alert", onOxygen: true }), 2);
+  assert.equal(W.news2({ ...numbersOnly, consciousness: "confused", onOxygen: true }), 5);
+});
+
+test("any response short of alert scores the same three", () => {
+  const base = { temp: 37, systolic: 120, pulse: 80, respRate: 16, spo2: 97 };
+  for (const level of ["confused", "voice", "pain", "unresponsive"] as const) {
+    assert.equal(W.news2({ ...base, consciousness: level }), 3, level);
+  }
+});
+
+test("an unanswered parameter is not an answer, and the score says so", () => {
+  const partial = { temp: 37, systolic: 120, pulse: 80 };
+  assert.deepEqual(W.missingParameters(partial).sort(), ["consciousness", "onOxygen", "respRate", "spo2"]);
+  assert.deepEqual(W.missingParameters({
+    temp: 37, systolic: 120, pulse: 80, respRate: 16, spo2: 97,
+    consciousness: "alert", onOxygen: false,
+  }), []);
+});
+
+test("a confused patient on oxygen escalates on those two parameters alone", () => {
+  const admission = admitSomebody("Confused");
+  const out = W.recordObservation({
+    admissionId: admission,
+    observation: {
+      temp: 37, systolic: 120, pulse: 80, respRate: 16, spo2: 97,
+      consciousness: "confused", onOxygen: true,
+    },
+    byUserId: clinicianId!, byUserName: "Dr. Achieng Wanjiru",
+  });
+
+  assert.equal(out.score, 5);
+  assert.equal(out.escalated, true);
+  assert.equal(out.complete, true);
+  assert.equal(out.red, "consciousness");
+});
+
+test("a single parameter scoring three escalates even when the total is low", () => {
+  // NEWS2's own rule, and the one an aggregate hides: a saturation of 88 with
+  // everything else normal totals 3 and still needs somebody now.
+  const admission = admitSomebody("Hypoxic");
+  const out = W.recordObservation({
+    admissionId: admission,
+    observation: {
+      temp: 37, systolic: 120, pulse: 80, respRate: 16, spo2: 88,
+      consciousness: "alert", onOxygen: false,
+    },
+    byUserId: clinicianId!, byUserName: "Dr. Achieng Wanjiru",
+  });
+
+  assert.ok(out.score < W.NEWS2_ESCALATION, "the aggregate alone would not have escalated");
+  assert.equal(out.red, "oxygen saturation");
+  assert.equal(out.escalated, true);
+});
+
+test("an incomplete score is stored as incomplete, because it can only under-read", () => {
+  const admission = admitSomebody("Partial");
+  const out = W.recordObservation({
+    admissionId: admission,
+    observation: { temp: 37, systolic: 120, pulse: 80 },
+    byUserId: clinicianId!, byUserName: "Dr. Achieng Wanjiru",
+  });
+
+  assert.equal(out.complete, false);
+  assert.ok(out.missing.includes("consciousness"));
+
+  const [row] = W.observationsFor(admission);
+  assert.equal(row.news2_complete, 0);
+});
+
+test("the alert says the score was incomplete rather than letting it read as a full one", () => {
+  const admission = admitSomebody("Sick and partial");
+  W.recordObservation({
+    admissionId: admission,
+    observation: { respRate: 6, systolic: 85 },
+    byUserId: clinicianId!, byUserName: "Dr. Achieng Wanjiru",
+  });
+
+  const alert = N.inbox(facilityId).find(
+    (n) => n.kind === "deteriorating_patient" && n.entity_id === admission,
+  )!;
+  assert.match(alert.body, /incomplete set/);
+  assert.match(alert.body, /consciousness/);
+});
