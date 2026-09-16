@@ -530,26 +530,75 @@ system that refuses is a system nobody uses — but a facility may prefer that
 certain registrations (a sole pharmacist, a sole anaesthetist) block outright.
 That would be a short list in configuration, and it does not exist yet.
 
-## 16. Public health
+## 16. Equipment, cold chain and estates
+
+An asset register is usually a finance artefact. Two of the rules below are
+clinical, and they are the reason this module is in this document at all.
 
 | # | Rule | Where | Source | Status |
 |---|---|---|---|---|
-| 16.1 | Notifiable conditions are detected from coded diagnoses as they are made, because the Act's clock runs from diagnosis | `reporting.ts` | Public Health Act | ✅ |
-| 16.2 | **The notifiable list is four conditions** — malaria, tuberculosis, cholera, measles. The full schedule must be loaded | `reporting.ts` `NOTIFIABLE_PREFIXES` | — | 🔴 |
-| 16.3 | Reporting one requires the county's reference — it is the proof it was made | `reporting.ts` | Design rule | ✅ |
-| 16.4 | MOH 705A is under five, 705B is five and over, split by age **on the day of the visit** | `reporting.ts` | MOH forms | ✅ |
-| 16.5 | A condition is counted whichever code in its ICD-11 family the clinician used | `reporting.ts` `MOH705_CONDITIONS` | Design rule | ⚠️ |
-| 16.6 | **The 705 condition list is six conditions.** The real form has many more rows | `reporting.ts` | — | 🔴 |
+| 16.1 | **An overdue blocking check stops the equipment being used.** An autoclave past its pressure test is not a maintenance backlog item, it is a theatre that should not open | `assets.ts` `usable` | Design rule | ✅ |
+| 16.2 | **Blocking is a property of the check, not of the asset.** A pressure test or a radiation licence blocks; a furniture inspection warns, because a chair with a late inspection is not a chair nobody may sit in | `assets.ts` `usable` | Design rule | ⚠️ |
+| 16.3 | **Which checks block, and which assets are critical, are facility decisions.** The seeded set — pressure vessel test, radiation facility licence, QA survey — is a convention and not a regulation this system verified | `assets.ts` `seedAssets` | Judgement | 🔴 |
+| 16.4 | **A failed check does not advance the next due date.** The work still has to be done, and a system that treats "inspected and failed" as "inspected" is worse than one that records nothing | `assets.ts` `recordMaintenance` | Design rule | ✅ |
+| 16.5 | A failed blocking check takes the asset out of service and raises a critical alert | `assets.ts` `recordMaintenance` | Design rule | ✅ |
+| 16.6 | **A failed check must record what was found.** That row is the most important one in the table — it is what somebody comes looking for | `assets.ts` `recordMaintenance` | Design rule | ✅ |
+| 16.7 | **A cold chain excursion quarantines every batch in that fridge's store, at the moment the reading is written down.** Not a task for somebody later: a nurse must not be able to draw up a vaccine from a fridge that failed overnight | `assets.ts` `recordTemperature`, `inventory.ts` `quarantineBatch` | Design rule | ✅ |
+| 16.8 | **The cold chain range is 2–8 °C**, the WHO range KEPI works to for most antigens. Some products differ, and a facility storing them needs a range per asset — which this does not yet support | `assets.ts` `COLD_CHAIN_RANGE` | WHO / KEPI | 🔴 |
+| 16.9 | **Quarantine is not disposal.** The stock is unpickable, not written off: each batch is assessed against its own stability data before anything is released or destroyed, and that assessment is a pharmacist's judgement this system does not make | `inventory.ts` `releaseBatch` | Design rule | ⚠️ |
+| 16.10 | Every batch in the store is quarantined, not only the vaccines — whatever was in the fridge was at that temperature | `assets.ts` `recordTemperature` | Design rule | ✅ |
+| 16.11 | A fridge unread for more than 24 hours is flagged as unwatched, whatever its last reading said | `assets.ts` `coldChainBoard` | Practice | ⚠️ |
+| 16.12 | **The excursion duration is not modelled.** A reading is a point in time; how long the stock was out of range between two readings is unknown, and cumulative exposure is what actually decides whether a vaccine is still viable | — | — | 🔴 |
+| 16.13 | **Twice-daily reading is not enforced and no data logger is integrated.** The board says who has not read a fridge; nothing makes them | — | — | 🔴 |
+| 16.14 | A reading outside −40 to 60 °C is refused as a transposed digit rather than recorded | `assets.ts` `recordTemperature` | Design rule | ✅ |
+| 16.15 | **Downtime runs from when the fault was reported**, not from when somebody opened a job card — which is the number a maintenance department would rather report | `assets.ts` `openFaults` | Design rule | ✅ |
+| 16.16 | A fault on a critical asset raises an alert; a fault reported as still usable warns rather than blocks | `assets.ts` `reportFault` | Design rule | ✅ |
+| 16.17 | Fixing one fault does not return an asset to service while another still holds it out | `assets.ts` `closeWorkOrder` | Design rule | ✅ |
+| 16.18 | **Warranty is captured at the moment the fault is reported**, from the warranty date then. Working it out afterwards is how a facility pays for a repair it was owed free — and a repair billed under warranty is surfaced on the summary | `assets.ts` `reportFault`, `assetSummary` | Design rule | ✅ |
+| 16.19 | **Depreciation is straight line over the useful life**, posted idempotently into the same ledger as everything else, and the register's book value is computed on the same basis so the two cannot drift | `assets.ts` `postDepreciation`, `bookValue` | Convention | ⚠️ |
+| 16.20 | **Useful lives are conventions, not policy.** 120 months for equipment, 96 for a vehicle, 84 for a fridge. A facility's own policy, and the KRA wear-and-tear classes that matter for tax, are different questions | `assets.ts` `seedAssets` | Judgement | 🔴 |
+| 16.21 | Depreciation credits an accumulated depreciation contra-account rather than the asset, so the ledger keeps saying what the thing cost | `accounting.ts` `ACCOUNT` | Standard practice | ✅ |
+| 16.22 | **Disposal is a status change, not an accounting entry.** Nothing computes a gain or loss on disposal, and PPADA disposal procedure for public facilities is not modelled at all | `assets.ts` `setAssetStatus` | — | 🔴 |
+| 16.23 | **Nothing else in the system asks `usable()` yet.** The theatre can still book a list against an autoclave whose pressure test has lapsed; the answer exists but is not wired into theatre or radiology | — | — | 🔴 |
+| 16.24 | **No calibration traceability, no spare parts, no meter readings, no planned-maintenance labour costing** | — | — | 🔴 |
 
-## 17. Revenue (for the claims specialist, not the clinician)
+### What to ask a biomedical engineer and a pharmacist, in order
+
+1. **Which checks block** (16.2, 16.3). A biomedical engineer's list of what may
+   not be used when a check is overdue, and what merely warns. Getting this
+   wrong in either direction is expensive: too much blocking and the facility
+   works around the system, too little and it does not do its job.
+2. **The cold chain range per product** (16.8). 2–8 °C covers most KEPI
+   antigens. A facility holding anything else needs a range on the asset, and
+   that column does not exist yet.
+3. **What happens after an excursion** (16.9, 16.12). The stock is frozen
+   pending assessment, which is the safe default, but the assessment itself —
+   cumulative exposure against each product's stability data — is a pharmacist's
+   decision the system only records. Whether a data logger should feed this at
+   all is the same conversation.
+4. **Wiring `usable()` into theatre and radiology** (16.23). The rule exists and
+   nothing asks it. Until it does, rule 16.1 is a screen rather than a control.
+
+## 17. Public health
 
 | # | Rule | Where | Source | Status |
 |---|---|---|---|---|
-| 17.1 | Nine scrubber gates, each mapped to a documented SHA rejection cause | `claims.ts` `scrub` | SHA published causes | ⚠️ |
-| 17.2 | **The gates are inferred from documented causes, not from 50 real rejected claims.** The roadmap says to build them from a real corpus and that is still the right next step | — | — | 🔴 |
-| 17.3 | A claim beyond the payer's submission window (SHA: 7 days) escalates rather than blocking, because a late claim still has an appeal path | `claims.ts` | SHA | ⚠️ |
-| 17.4 | Tariffs and benefit rules are **illustrative**. The SHA schedule for the contracting cycle must be loaded | `seed.ts` | — | 🔴 |
-| 17.5 | Money is integer cents throughout, and a price is fixed as of the date of service | `billing.ts` | Design rule | ✅ |
+| 17.1 | Notifiable conditions are detected from coded diagnoses as they are made, because the Act's clock runs from diagnosis | `reporting.ts` | Public Health Act | ✅ |
+| 17.2 | **The notifiable list is four conditions** — malaria, tuberculosis, cholera, measles. The full schedule must be loaded | `reporting.ts` `NOTIFIABLE_PREFIXES` | — | 🔴 |
+| 17.3 | Reporting one requires the county's reference — it is the proof it was made | `reporting.ts` | Design rule | ✅ |
+| 17.4 | MOH 705A is under five, 705B is five and over, split by age **on the day of the visit** | `reporting.ts` | MOH forms | ✅ |
+| 17.5 | A condition is counted whichever code in its ICD-11 family the clinician used | `reporting.ts` `MOH705_CONDITIONS` | Design rule | ⚠️ |
+| 17.6 | **The 705 condition list is six conditions.** The real form has many more rows | `reporting.ts` | — | 🔴 |
+
+## 18. Revenue (for the claims specialist, not the clinician)
+
+| # | Rule | Where | Source | Status |
+|---|---|---|---|---|
+| 18.1 | Nine scrubber gates, each mapped to a documented SHA rejection cause | `claims.ts` `scrub` | SHA published causes | ⚠️ |
+| 18.2 | **The gates are inferred from documented causes, not from 50 real rejected claims.** The roadmap says to build them from a real corpus and that is still the right next step | — | — | 🔴 |
+| 18.3 | A claim beyond the payer's submission window (SHA: 7 days) escalates rather than blocking, because a late claim still has an appeal path | `claims.ts` | SHA | ⚠️ |
+| 18.4 | Tariffs and benefit rules are **illustrative**. The SHA schedule for the contracting cycle must be loaded | `seed.ts` | — | 🔴 |
+| 18.5 | Money is integer cents throughout, and a price is fixed as of the date of service | `billing.ts` | Design rule | ✅ |
 
 ---
 
@@ -608,3 +657,12 @@ Everything marked 🔴, in one list:
     employee a day they were entitled to anyway
 33. Whether certain sole registrations should block leave outright rather than
     being approved on an acknowledgement
+34. A biomedical engineer's list of which maintenance checks block use, and
+    which assets are critical
+35. The cold chain range per product, and what a pharmacist does with stock
+    after an excursion — cumulative exposure is not modelled and a point
+    reading is not a duration
+36. `usable()` wired into theatre and radiology, so an overdue pressure test
+    stops a list rather than merely showing on a screen
+37. Useful lives and a disposal policy, including the KRA wear-and-tear classes
+    and, for a public facility, PPADA disposal procedure

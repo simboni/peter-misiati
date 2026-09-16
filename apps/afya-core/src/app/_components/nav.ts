@@ -75,6 +75,9 @@ export type BadgeKey =
   | "leave"
   | "expiries"
   | "hrCases"
+  | "assetsBlocked"
+  | "assetsDown"
+  | "coldChain"
   | "alerts";
 
 export const NAV: NavSection[] = [
@@ -191,6 +194,19 @@ export const NAV: NavSection[] = [
       { href: "/procurement?view=orders", label: "Purchase orders", permission: ["report.read"], badge: "lateOrders" },
       { href: "/procurement?view=invoices", label: "Invoices & matching", permission: ["report.read"], badge: "queriedInvoices" },
       { href: "/procurement?view=suppliers", label: "Suppliers", permission: ["report.read"] },
+    ],
+  },
+  {
+    key: "equipment",
+    title: "Equipment & estates",
+    href: "/assets",
+    badge: "assetsBlocked",
+    links: [
+      { href: "/assets", label: "Maintenance due", permission: ["report.read"], badge: "assetsBlocked" },
+      { href: "/assets?view=faults", label: "Faults & repairs", permission: ["report.read"], badge: "assetsDown" },
+      { href: "/assets?view=cold", label: "Cold chain", permission: ["report.read"], badge: "coldChain" },
+      { href: "/assets?view=register", label: "Asset register", permission: ["report.read"] },
+      { href: "/assets?view=value", label: "Value & depreciation", permission: ["facility.configure"] },
     ],
   },
   {

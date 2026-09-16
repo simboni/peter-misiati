@@ -23,6 +23,7 @@ import { procurementSummary } from "@/lib/procurement.ts";
 import { ledgerSummary } from "@/lib/accounting.ts";
 import { payrollSummary } from "@/lib/payroll.ts";
 import { hrSummary } from "@/lib/hr.ts";
+import { assetSummary } from "@/lib/assets.ts";
 import { signOutAction } from "@/app/actions/session.ts";
 import { navFor, sectionFor, type BadgeKey } from "./nav.ts";
 import type { CurrentUser } from "@/lib/auth.ts";
@@ -69,6 +70,7 @@ function counts(facilityId: number): Record<BadgeKey, { text: string; tone: "blo
   const ledger = ledgerSummary(facilityId);
   const pay = payrollSummary(facilityId);
   const people = hrSummary(facilityId);
+  const estate = assetSummary(facilityId);
   const waiting = queue(facilityId);
 
   const n = (
@@ -129,6 +131,17 @@ function counts(facilityId: number): Record<BadgeKey, { text: string; tone: "blo
       ? { text: String(people.lapsedLicences + people.expiringSoon), tone: "block" as const }
       : n(people.expiringSoon, "clock"),
     hrCases: n(people.openCases, "clock"),
+    // An overdue blocking check is red because the equipment is already being
+    // refused, not because somebody is behind on paperwork.
+    assetsBlocked: estate.blockingOverdue > 0
+      ? { text: String(estate.blockingOverdue), tone: "block" as const }
+      : n(estate.dueSoon, "clock"),
+    assetsDown: n(estate.openFaults, estate.criticalDown > 0 ? "block" : "clock"),
+    // Out of range is red, unread since yesterday is amber: a fridge nobody is
+    // watching is a different problem from a fridge that has already failed.
+    coldChain: estate.coldChainOutOfRange > 0
+      ? { text: String(estate.coldChainOutOfRange), tone: "block" as const }
+      : n(estate.coldChainUnread, "clock"),
     alerts: n(alerts.total, alerts.critical > 0 ? "block" : "clock"),
   };
 }

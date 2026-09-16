@@ -2641,3 +2641,131 @@ CREATE TABLE IF NOT EXISTS hr_cases (
   created_at    TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_hrcase_emp ON hr_cases(employee_id);
+
+-- ============================================================================
+-- M63 Assets & Maintenance
+--
+-- An asset register is the boring half. The half that matters is that some of
+-- this equipment must not be used when a check is overdue, and one of it — the
+-- vaccine fridge — can ruin everything inside it without anybody noticing.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS assets (
+  id            TEXT PRIMARY KEY,
+  facility_id   INTEGER NOT NULL REFERENCES facilities(id),
+  tag           TEXT NOT NULL,
+  name          TEXT NOT NULL,
+  category      TEXT NOT NULL DEFAULT 'equipment'
+                CHECK (category IN ('equipment','vehicle','furniture','building','it','cold_chain')),
+  -- Where it is, in the words the facility uses. Free text because a theatre
+  -- is called different things in different buildings.
+  location      TEXT NOT NULL DEFAULT '',
+  -- The store this asset holds stock for, where it is a fridge or a cabinet.
+  -- Set on cold chain assets so a temperature excursion can reach the batches.
+  store_code    TEXT REFERENCES stores(code),
+  serial_no     TEXT NOT NULL DEFAULT '',
+  manufacturer  TEXT NOT NULL DEFAULT '',
+  model         TEXT NOT NULL DEFAULT '',
+  -- Equipment whose failure stops clinical work. An overdue check on one of
+  -- these is refused rather than warned about.
+  critical      INTEGER NOT NULL DEFAULT 0,
+  status        TEXT NOT NULL DEFAULT 'in_service'
+                CHECK (status IN ('in_service','out_of_service','under_repair','disposed')),
+  status_reason TEXT NOT NULL DEFAULT '',
+  acquired_on   TEXT,
+  cost_cents    INTEGER,
+  -- Straight line, in months. Null where the facility does not depreciate it.
+  useful_life_months INTEGER,
+  supplier_code TEXT REFERENCES suppliers(code),
+  warranty_until TEXT,
+  service_contract TEXT NOT NULL DEFAULT '',
+  disposed_on   TEXT,
+  disposal_note TEXT NOT NULL DEFAULT '',
+  created_at    TEXT NOT NULL,
+  UNIQUE (facility_id, tag)
+);
+CREATE INDEX IF NOT EXISTS idx_asset_status ON assets(facility_id, status);
+
+-- What has to be done to an asset, how often, and what it is for. Calibration,
+-- a pressure-vessel test, a radiation QA survey and an oil change are the same
+-- shape; only the consequence of missing one differs.
+CREATE TABLE IF NOT EXISTS maintenance_schedules (
+  id            TEXT PRIMARY KEY,
+  asset_id      TEXT NOT NULL REFERENCES assets(id),
+  kind          TEXT NOT NULL CHECK (kind IN ('service','calibration','safety_test','inspection','licence')),
+  name          TEXT NOT NULL,
+  every_days    INTEGER NOT NULL,
+  -- Who does it, and under what authority. A radiation QA survey has a
+  -- regulator behind it; a filter change does not.
+  regulator     TEXT NOT NULL DEFAULT '',
+  -- When missing it stops the asset being used, rather than merely being late.
+  blocks_use    INTEGER NOT NULL DEFAULT 0,
+  last_done_on  TEXT,
+  next_due_on   TEXT NOT NULL,
+  note          TEXT NOT NULL DEFAULT '',
+  active        INTEGER NOT NULL DEFAULT 1,
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sched_due ON maintenance_schedules(next_due_on, active);
+
+CREATE TABLE IF NOT EXISTS maintenance_records (
+  id            TEXT PRIMARY KEY,
+  asset_id      TEXT NOT NULL REFERENCES assets(id),
+  schedule_id   TEXT REFERENCES maintenance_schedules(id),
+  kind          TEXT NOT NULL,
+  done_on       TEXT NOT NULL,
+  -- A check that was done and FAILED is the most important row in this table,
+  -- and a system that only records successful maintenance hides it.
+  passed        INTEGER NOT NULL DEFAULT 1,
+  findings      TEXT NOT NULL DEFAULT '',
+  certificate   TEXT NOT NULL DEFAULT '',
+  performed_by  TEXT NOT NULL DEFAULT '',
+  cost_cents    INTEGER,
+  created_by    INTEGER REFERENCES users(id),
+  creator_name  TEXT NOT NULL,
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_maint_asset ON maintenance_records(asset_id, done_on);
+
+-- A breakdown. Downtime is measured from when it was reported, not from when
+-- somebody got round to writing a work order.
+CREATE TABLE IF NOT EXISTS work_orders (
+  id            TEXT PRIMARY KEY,
+  asset_id      TEXT NOT NULL REFERENCES assets(id),
+  fault         TEXT NOT NULL,
+  reported_at   TEXT NOT NULL,
+  reported_by   INTEGER REFERENCES users(id),
+  reporter_name TEXT NOT NULL,
+  -- Whether the asset is unusable while this is open. A noisy fan is not the
+  -- same as a dead autoclave.
+  out_of_service INTEGER NOT NULL DEFAULT 1,
+  status        TEXT NOT NULL CHECK (status IN ('open','in_progress','fixed','beyond_repair','cancelled')),
+  assigned_to   TEXT NOT NULL DEFAULT '',
+  -- Under warranty or a service contract, a bill is money the facility should
+  -- not have paid.
+  under_warranty INTEGER NOT NULL DEFAULT 0,
+  cost_cents    INTEGER,
+  resolution    TEXT NOT NULL DEFAULT '',
+  closed_at     TEXT,
+  device_code   TEXT,
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_wo_asset ON work_orders(asset_id, status);
+
+-- Cold chain readings. A vaccine fridge that went out of range for six hours
+-- overnight has ruined what is inside it, and the only way anybody finds out
+-- is if the reading is recorded and compared against a range.
+CREATE TABLE IF NOT EXISTS temperature_readings (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  asset_id      TEXT NOT NULL REFERENCES assets(id),
+  -- Tenths of a degree, like every other temperature here.
+  reading_tenths INTEGER NOT NULL,
+  taken_at      TEXT NOT NULL,
+  in_range      INTEGER NOT NULL,
+  -- Set when this excursion caused the stock to be quarantined.
+  excursion_action TEXT NOT NULL DEFAULT '',
+  taken_by      INTEGER REFERENCES users(id),
+  taker_name    TEXT NOT NULL,
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_temp_asset ON temperature_readings(asset_id, taken_at);

@@ -35,6 +35,7 @@ import { seedSuppliers } from "./procurement.ts";
 import { seedChartOfAccounts } from "./accounting.ts";
 import { seedStatutoryRates } from "./payroll.ts";
 import { seedLeaveTypes } from "./hr.ts";
+import { seedAssets } from "./assets.ts";
 
 /** The councils that license clinical practice in Kenya. */
 export const CADRES: { code: string; name: string; regulator: string; licensed: boolean }[] = [
@@ -230,7 +231,10 @@ export const ICD11_STARTER: { code: string; term: string; synonyms?: string }[] 
  * match whatever brand is on the shelf that week.
  */
 export const FORMULARY_STARTER: {
-  code: string; name: string; genericName: string; form: string; strength: string; controlled?: boolean;
+  code: string; name: string; genericName: string; form: string; strength: string;
+  controlled?: boolean;
+  /** Lives in the fridge, so its reorder level belongs to the vaccine store. */
+  coldChain?: boolean;
 }[] = [
   { code: "AL-20-120", name: "Artemether/Lumefantrine 20/120", genericName: "artemether lumefantrine", form: "tablet", strength: "20/120 mg" },
   { code: "PARA-500", name: "Paracetamol 500mg", genericName: "paracetamol", form: "tablet", strength: "500 mg" },
@@ -243,6 +247,14 @@ export const FORMULARY_STARTER: {
   { code: "METRO-400", name: "Metronidazole 400mg", genericName: "metronidazole", form: "tablet", strength: "400 mg" },
   { code: "IBU-400", name: "Ibuprofen 400mg", genericName: "ibuprofen", form: "tablet", strength: "400 mg" },
   { code: "MORPH-10", name: "Morphine sulphate 10mg", genericName: "morphine", form: "tablet", strength: "10 mg", controlled: true },
+
+  // KEPI antigens. They are here because the cold chain is not an abstraction:
+  // a fridge excursion has to have something inside it to ruin, and these are
+  // what is inside it.
+  { code: "BCG", name: "BCG vaccine", genericName: "BCG", form: "injection", strength: "0.05 ml", coldChain: true },
+  { code: "OPV", name: "Oral polio vaccine", genericName: "poliomyelitis vaccine (oral)", form: "drops", strength: "2 drops", coldChain: true },
+  { code: "PENTA", name: "Pentavalent vaccine", genericName: "DTP-HepB-Hib", form: "injection", strength: "0.5 ml", coldChain: true },
+  { code: "MEASLES-R", name: "Measles-rubella vaccine", genericName: "measles rubella vaccine", form: "injection", strength: "0.5 ml", coldChain: true },
 ];
 
 
@@ -345,12 +357,16 @@ export function seedRevenueCycle(): void {
 export function seedStores(facilityId = 1): void {
   defineStore({ facilityId, code: "MAIN", name: "Main store", kind: "main" });
   defineStore({ facilityId, code: "PHARM", name: "Pharmacy", kind: "pharmacy", dispensing: true });
+  // The vaccine fridge is its own store. Keeping it separate is what lets a
+  // cold chain excursion quarantine what was in the fridge without taking the
+  // whole pharmacy off the shelf with it.
+  defineStore({ facilityId, code: "VACC", name: "Vaccine fridge", kind: "main" });
 
   // Illustrative levels. A real facility sets these from its own consumption —
   // and until it does, the reorder report says so rather than assuming zero.
   for (const p of FORMULARY_STARTER) {
     setReorderLevel({
-      storeCode: "PHARM",
+      storeCode: p.coldChain ? "VACC" : "PHARM",
       productCode: p.code,
       reorderAt: p.controlled ? 10 : 50,
       reorderTo: p.controlled ? 40 : 300,
@@ -659,6 +675,11 @@ export function seedDemo(): {
   for (const userId of [adminId, pharmacistId]) {
     enableMfa({ userId, secret: DEMO_MFA_SECRET, byUserName: "seed" });
   }
+
+  // The estate: a fridge that holds the pharmacy stock, and the equipment a
+  // theatre and a casualty depend on. Seeded last because a cold chain asset
+  // has to point at a store that already exists.
+  seedAssets(facilityId, "REC1");
 
   audit({
     action: "demo_seeded",

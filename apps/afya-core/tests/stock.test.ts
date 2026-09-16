@@ -66,9 +66,12 @@ function prescribed(product: string, quantity: number): { mrn: string; enc: stri
 
 test("a clinic is seeded with a store that receives and a counter that dispenses", () => {
   const stores = S.listStores(facilityId);
-  assert.deepEqual(stores.map((s) => s.code).sort(), ["MAIN", "PHARM"]);
+  // The vaccine fridge is a third store of its own, so a cold chain excursion
+  // can quarantine what was in the fridge without emptying the pharmacy.
+  assert.deepEqual(stores.map((s) => s.code).sort(), ["MAIN", "PHARM", "VACC"]);
   assert.equal(S.getStore("PHARM")!.dispensing, 1);
   assert.equal(S.getStore("MAIN")!.dispensing, 0, "stock must not leave from somewhere nobody is counting");
+  assert.equal(S.getStore("VACC")!.dispensing, 0);
 });
 
 test("a delivery is refused without a batch number and an expiry date", () => {

@@ -630,6 +630,10 @@ export const ACCOUNT = {
   RECEIVABLE_PATIENT: "1200",
   RECEIVABLE_PAYER: "1210",
   STOCK: "1300",
+  EQUIPMENT: "1500",
+  // Contra-asset: the wearing-out is held here rather than netted off 1500, so
+  // the ledger keeps saying what the thing cost long after it is worthless.
+  ACCUMULATED_DEPRECIATION: "1510",
   PAYABLE_SUPPLIER: "2100",
   PAYABLE_STAFF: "2200",
   TAX_PAYABLE: "2300",
@@ -637,6 +641,7 @@ export const ACCOUNT = {
   INCOME_PHARMACY: "4100",
   EXPENSE_PURCHASES: "5000",
   EXPENSE_STAFF: "5100",
+  EXPENSE_DEPRECIATION: "5300",
   EXPENSE_WRITEOFF: "5900",
 } as const;
 
@@ -1019,6 +1024,7 @@ export function seedChartOfAccounts(): void {
     ["1210", "Receivable — payers", "asset", false],
     ["1300", "Stock on hand", "asset", false],
     ["1500", "Equipment", "asset", false],
+    ["1510", "Accumulated depreciation", "asset", false],
     ["2100", "Payable — suppliers", "liability", false],
     ["2200", "Payable — staff", "liability", false],
     ["2300", "Tax payable", "liability", false],
@@ -1028,6 +1034,7 @@ export function seedChartOfAccounts(): void {
     ["5000", "Cost of goods", "expense", false],
     ["5100", "Staff costs", "expense", false],
     ["5200", "Rent and utilities", "expense", false],
+    ["5300", "Depreciation", "expense", false],
     ["5900", "Waivers and bad debt", "expense", false],
   ];
   for (const [code, name, kind, reconcilable] of accounts) {

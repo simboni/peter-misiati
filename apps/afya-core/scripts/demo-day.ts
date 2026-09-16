@@ -74,6 +74,10 @@ import {
   issueContract, requestLeave, decideLeave, openCase, recordHearing,
   closeCase as closeHrCase, hrSummary,
 } from "../src/lib/hr.ts";
+import {
+  assetByTag, scheduleMaintenance, recordMaintenance, reportFault, closeWorkOrder,
+  recordTemperature, postDepreciation, assetSummary, schedulesFor,
+} from "../src/lib/assets.ts";
 import { closeDb, run, get, all as dbAll, verifyAuditChain, today } from "../src/lib/db.ts";
 
 const { facilityId, adminId, clinicianId, receptionistId, pharmacistId, labTechId } = seedDemo();
@@ -2014,6 +2018,104 @@ reverseJournal({
 // And the whole day's operations, turned into journals in one pass.
 const postedFromOps = postFromOperations({ facilityId, ...GL });
 
+
+// ===================================================================== estate
+//
+// The equipment the rest of the day depends on: an autoclave whose pressure
+// test has lapsed, a generator that will not start, and a vaccine fridge that
+// spent part of the night at fourteen degrees.
+
+const ESTATE = { byUserId: adminId, byUserName: "Facility Administrator" };
+const ESTATE_DEV = { ...ESTATE, deviceCode: "REC1" };
+
+// Vaccines in the fridge, so the excursion has something to ruin.
+for (const [code, batch, days, quantity] of [
+  ["BCG", "BCG-2411", 200, 40],
+  ["PENTA", "PEN-2508", 260, 60],
+  ["MEASLES-R", "MR-2503", 150, 30],
+] as [string, string, number, number][]) {
+  receiveStock({
+    storeCode: "VACC", productCode: code, batchNumber: batch,
+    expiresOn: inDays(days), quantity, unitCostCents: 0,
+    reference: "KEPI issue", deviceCode: "REC1", ...ESTATE,
+  });
+}
+
+const autoclave = assetByTag(facilityId, "OT-AC-01")!;
+const pressureTest = schedulesFor(autoclave.id).find((x) => x.name === "Pressure vessel test")!;
+// Backdate the pressure test so it has actually lapsed: the whole point of the
+// module is what a facility sees when a blocking check is overdue, and a demo
+// where everything is in date shows none of it.
+run(
+  `UPDATE maintenance_schedules SET last_done_on = ?, next_due_on = ? WHERE id = ?`,
+  inDays(-400),
+  inDays(-35),
+  pressureTest.id,
+);
+
+// The X-ray QA survey, done and passed, with the certificate on the record.
+const xray = assetByTag(facilityId, "RAD-01")!;
+const qa = schedulesFor(xray.id).find((x) => x.kind === "calibration")!;
+recordMaintenance({
+  assetId: xray.id, scheduleId: qa.id, kind: "calibration", doneOn: inDays(-3),
+  passed: true, performedBy: "KNRA-approved medical physicist",
+  certificate: "QA/2026/0117", costCents: 45_000_00, ...ESTATE_DEV,
+});
+
+// The generator will not start. It is critical, so the facility is told.
+const generator = assetByTag(facilityId, "GEN-01")!;
+reportFault({
+  assetId: generator.id,
+  fault: "Will not crank — battery reads 9.4 V off load",
+  reportedAt: new Date(Date.now() - 6 * 3_600_000).toISOString(),
+  ...ESTATE_DEV,
+});
+
+// The X-ray was repaired and the invoice was paid, on a machine still inside
+// its three-year warranty. Nobody checked. The summary says so out loud,
+// because saying it afterwards is the only time it can still be recovered.
+const xrayFault = reportFault({
+  assetId: xray.id, fault: "Collimator lamp failing intermittently",
+  reportedAt: inDays(-9) + "T09:40:00.000Z", outOfService: false, ...ESTATE_DEV,
+});
+closeWorkOrder({
+  workOrderId: xrayFault, status: "fixed",
+  resolution: "Lamp and holder replaced",
+  costCents: 31_500_00, assignedTo: "Shimadzu East Africa", ...ESTATE,
+});
+
+// The ambulance went in and came back, out of warranty and properly paid for.
+const ambulance = assetByTag(facilityId, "AMB-01")!;
+scheduleMaintenance({
+  assetId: ambulance.id, kind: "service", name: "10,000 km service", everyDays: 120,
+  lastDoneOn: inDays(-95), deviceCode: "REC1",
+});
+const ambulanceFault = reportFault({
+  assetId: ambulance.id, fault: "Air conditioning not cooling the patient compartment",
+  reportedAt: inDays(-4) + "T08:10:00.000Z", ...ESTATE_DEV,
+});
+closeWorkOrder({
+  workOrderId: ambulanceFault, status: "fixed",
+  resolution: "Regassed and condenser fan replaced",
+  costCents: 22_000_00, assignedTo: "Toyota Kenya", ...ESTATE,
+});
+
+// The fridge: read morning and evening, as a facility should. Fine when it was
+// locked up last night; fourteen degrees when it was opened this morning. The
+// vaccines inside it are quarantined by the act of writing the reading down.
+const coldChainAsset = assetByTag(facilityId, "CC-01")!.id;
+recordTemperature({
+  assetId: coldChainAsset, readingTenths: 45,
+  takenAt: `${inDays(-1)}T19:40:00.000Z`, ...ESTATE,
+});
+const excursion = recordTemperature({
+  assetId: coldChainAsset, readingTenths: 142,
+  takenAt: `${today()}T06:05:00.000Z`, ...ESTATE,
+});
+
+// A month of depreciation, posted into the same ledger as everything else.
+const depreciation = postDepreciation({ facilityId, period: today().slice(0, 7), ...ESTATE });
+
 const summary = claimsSummary();
 const chain = verifyAuditChain();
 const facility = getFacility(facilityId)!;
@@ -2035,6 +2137,7 @@ console.log(`  appointments      ${count(`SELECT COUNT(*) AS n FROM appointments
 console.log(`  programmes        ${count(`SELECT COUNT(*) AS n FROM enrolments WHERE status = 'active'`)} on the registers · HIV retention ${cohortReport("HIV")[0]?.retentionPercent ?? 0}%`);
 console.log(`  HR                ${hrSummary(facilityId).staff} staff · ${hrSummary(facilityId).leaveWaiting} leave waiting · ${hrSummary(facilityId).uncoveredLeave} approved uncovered · ${hrSummary(facilityId).lapsedLicences} lapsed registration`);
 console.log(`  payroll           ${payrollSummary(facilityId).employees} staff · gross ${Math.round(payrollSummary(facilityId).monthlyGrossCents / 100)} KES · statutory ${Math.round(statutoryReturn(payrollRun.runId).totalRemittableCents / 100)} KES to remit${payrollRun.cappedEmployees ? ` · ${payrollRun.cappedEmployees} capped` : ""}`);
+console.log(`  estate            ${assetSummary(facilityId).assets} assets · ${assetSummary(facilityId).blockingOverdue} blocked by an overdue check · ${assetSummary(facilityId).criticalDown} critical down · fridge excursion quarantined ${excursion.quarantined} batches · depreciation ${Math.round(depreciation.amountCents / 100)} KES`);
 console.log(`  ledger            ${ledgerSummary(facilityId).journals} journals · trial balance ${ledgerSummary(facilityId).trialBalanceDifferenceCents === 0 ? "balanced" : "OUT"} · ${reconcileLedger(facilityId).agrees ? "agrees with the till" : "DISAGREES with the till"}`);
 console.log(`  procurement       ${procurementSummary(facilityId).openOrders} orders open · ${procurementSummary(facilityId).queriedInvoices} invoice queried · ${Math.round(procurementSummary(facilityId).varianceCents / 100)} KES overcharged, caught`);
 console.log(`  radiology         ${radiologySummary().studies} studies · ${radiologySummary().blocked} blocked · ${radiologySummary().totalDoseMsv} mSv delivered · ${radiologySummary().criticalUncommunicated} critical untold`);
