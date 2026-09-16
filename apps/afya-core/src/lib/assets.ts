@@ -474,6 +474,67 @@ export function usable(assetId: string, asOf = today()): Usability {
   return { usable: reasons.length === 0, reasons, warnings };
 }
 
+// --------------------------------------------------- what depends on what
+
+export type DependencyKind = "theatre" | "modality" | "store";
+
+/**
+ * Say that a room or a modality cannot work without a particular asset.
+ *
+ * This is what turns `usable()` from an answer into a control. Until something
+ * asked it, an autoclave past its pressure test was a red line on a screen and
+ * the theatre list went on as before.
+ */
+export function dependsOn(input: {
+  kind: DependencyKind;
+  ref: string;
+  assetId: string;
+  why?: string;
+}): void {
+  const asset = getAsset(input.assetId);
+  if (!asset) throw new AssetError("no such asset");
+  run(
+    `INSERT INTO equipment_dependencies (kind, ref, asset_id, why, created_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(kind, ref, asset_id) DO UPDATE SET why = excluded.why`,
+    input.kind,
+    input.ref.trim().toUpperCase(),
+    asset.id,
+    input.why?.trim() ?? "",
+    now(),
+  );
+}
+
+export function dependenciesFor(kind: DependencyKind, ref: string) {
+  return all<{ id: number; asset_id: string; why: string; tag: string; name: string }>(
+    `SELECT d.id, d.asset_id, d.why, a.tag, a.name
+       FROM equipment_dependencies d JOIN assets a ON a.id = d.asset_id
+      WHERE d.kind = ? AND d.ref = ? ORDER BY a.tag`,
+    kind,
+    ref.trim().toUpperCase(),
+  );
+}
+
+/**
+ * Why this room or modality cannot be used, or nothing.
+ *
+ * The one line a theatre list or an imaging worklist puts on the screen. Only
+ * blocking reasons count: a fault reported as still usable and an overdue
+ * furniture inspection do not stop a list, and saying they did would teach
+ * everybody to ignore the line.
+ */
+export function equipmentBlock(kind: DependencyKind, ref: string, asOf = today()): string | null {
+  for (const dependency of dependenciesFor(kind, ref)) {
+    const state = usable(dependency.asset_id, asOf);
+    if (!state.usable) {
+      return `${dependency.tag} ${dependency.name.toLowerCase()}${
+        dependency.why ? ` (${dependency.why})` : ""
+      }: ${state.reasons[0]}`;
+    }
+  }
+  return null;
+}
+
 // ------------------------------------------------------------ work orders
 
 export function reportFault(input: {
@@ -1116,6 +1177,14 @@ export function seedAssets(facilityId: number, deviceCode: string): void {
     assetId: generator, kind: "service", name: "Oil and filter change", everyDays: 90,
     lastDoneOn: since(75), deviceCode,
   });
+
+  // What each room and modality cannot work without. This is the wiring that
+  // turns `usable()` from an answer into a control: without it an autoclave
+  // past its pressure test is a red line on the estates screen and the theatre
+  // list goes on as before.
+  dependsOn({ kind: "theatre", ref: "OT1", assetId: autoclave, why: "sterile instruments" });
+  dependsOn({ kind: "theatre", ref: "OT2", assetId: autoclave, why: "sterile instruments" });
+  dependsOn({ kind: "modality", ref: "xray", assetId: xray, why: "the only unit" });
 
   addAsset({
     facilityId, tag: "AMB-01", name: "Ambulance", category: "vehicle",

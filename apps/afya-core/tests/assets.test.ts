@@ -369,3 +369,43 @@ test("the summary counts what somebody has to act on", () => {
 test("the audit chain still verifies after all of that", () => {
   assert.equal(verifyAuditChain().ok, true);
 });
+
+// ------------------------------------------------ what depends on what
+
+test("a dependency turns usable() from an answer into a control", () => {
+  const fridge = asset("Blood bank fridge", { category: "cold_chain", storeCode: "MAIN" });
+  A.dependsOn({ kind: "store", ref: "BLOOD", assetId: fridge, why: "the only one" });
+
+  assert.equal(A.equipmentBlock("store", "BLOOD"), null);
+
+  A.reportFault({ assetId: fridge, fault: "Compressor stopped", ...MAKE });
+  const blocked = A.equipmentBlock("store", "BLOOD");
+  assert.match(blocked!, /the only one/);
+  assert.match(blocked!, /Compressor stopped/);
+});
+
+test("a warning does not block, because a line everybody ignores is worse than none", () => {
+  const chairs = asset("Waiting chairs", { category: "furniture", critical: false });
+  A.scheduleMaintenance({
+    assetId: chairs, kind: "inspection", name: "Annual inspection", everyDays: 365,
+    lastDoneOn: ago(400), deviceCode: DEV,
+  });
+  A.dependsOn({ kind: "store", ref: "WAITING", assetId: chairs });
+
+  assert.equal(A.usable(chairs).warnings.length, 1);
+  assert.equal(A.equipmentBlock("store", "WAITING"), null);
+});
+
+test("a dependency on an asset that does not exist is refused", () => {
+  assert.throws(() => A.dependsOn({ kind: "theatre", ref: "OT9", assetId: "nothing" }), /no such asset/);
+});
+
+test("naming the same dependency twice updates it rather than duplicating it", () => {
+  const generator = asset("Backup generator");
+  A.dependsOn({ kind: "theatre", ref: "OT9", assetId: generator, why: "power" });
+  A.dependsOn({ kind: "theatre", ref: "OT9", assetId: generator, why: "power and lighting" });
+
+  const deps = A.dependenciesFor("theatre", "OT9");
+  assert.equal(deps.length, 1);
+  assert.equal(deps[0].why, "power and lighting");
+});

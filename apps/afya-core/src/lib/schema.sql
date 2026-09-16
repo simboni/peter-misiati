@@ -3290,3 +3290,22 @@ CREATE TABLE IF NOT EXISTS config_history (
   created_at    TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_config_history ON config_history(key, happened_at);
+
+-- What a room or a modality cannot work without.
+--
+-- `usable()` answers "may this asset be used" and, until this table existed,
+-- nothing asked it — which made an overdue pressure test a screen rather than a
+-- control. A theatre names the autoclave it depends on, an imaging modality
+-- names the machine, and the worklist for each asks before it says a case is
+-- ready.
+CREATE TABLE IF NOT EXISTS equipment_dependencies (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  -- 'theatre' with a theatre code, or 'modality' with an imaging modality.
+  kind          TEXT NOT NULL CHECK (kind IN ('theatre','modality','store')),
+  ref           TEXT NOT NULL,
+  asset_id      TEXT NOT NULL REFERENCES assets(id),
+  -- What it is needed for, in the words the list would use.
+  why           TEXT NOT NULL DEFAULT '',
+  created_at    TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_equipment_dep ON equipment_dependencies(kind, ref, asset_id);

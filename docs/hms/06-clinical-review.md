@@ -559,8 +559,11 @@ clinical, and they are the reason this module is in this document at all.
 | 16.20 | **Useful lives are conventions, not policy.** 120 months for equipment, 96 for a vehicle, 84 for a fridge. A facility's own policy, and the KRA wear-and-tear classes that matter for tax, are different questions | `assets.ts` `seedAssets` | Judgement | 🔴 |
 | 16.21 | Depreciation credits an accumulated depreciation contra-account rather than the asset, so the ledger keeps saying what the thing cost | `accounting.ts` `ACCOUNT` | Standard practice | ✅ |
 | 16.22 | **Disposal is a status change, not an accounting entry.** Nothing computes a gain or loss on disposal, and PPADA disposal procedure for public facilities is not modelled at all | `assets.ts` `setAssetStatus` | — | 🔴 |
-| 16.23 | **Nothing else in the system asks `usable()` yet.** The theatre can still book a list against an autoclave whose pressure test has lapsed; the answer exists but is not wired into theatre or radiology | — | — | 🔴 |
-| 16.24 | **No calibration traceability, no spare parts, no meter readings, no planned-maintenance labour costing** | — | — | 🔴 |
+| 16.23 | **The theatre list and the imaging worklist ask `usable()`.** A room or a modality names the equipment it cannot work without, and an overdue blocking check on any of it stops the list — which is what makes rule 16.1 a control rather than a line on an estates screen | `assets.ts` `dependsOn`, `equipmentBlock`; `theatre.ts`, `radiology.ts` | Design rule | ✅ |
+| 16.24 | **A safety gate is never displaced by a maintenance one.** Consent outranks the autoclave on a theatre list, and an unanswered pregnancy question outranks a broken X-ray unit on an imaging worklist: the equipment line comes last, because a defect about the patient still needs fixing when the machine is repaired | `theatre.ts`, `radiology.ts` | Design rule | ✅ |
+| 16.25 | The equipment check stops at anaesthesia. Telling a list that a case already under way is blocked by a service schedule is noise that teaches everybody to ignore the column | `theatre.ts` `blockedBy` | Design rule | ✅ |
+| 16.26 | **Which assets a room depends on is a facility's to declare.** The seeded links — both theatres on the autoclave, plain radiography on the one X-ray unit — are the obvious ones and nothing else is wired | `assets.ts` `seedAssets` | Judgement | 🔴 |
+| 16.27 | **No calibration traceability, no spare parts, no meter readings, no planned-maintenance labour costing** | — | — | 🔴 |
 
 ### What to ask a biomedical engineer and a pharmacist, in order
 
@@ -576,8 +579,10 @@ clinical, and they are the reason this module is in this document at all.
    cumulative exposure against each product's stability data — is a pharmacist's
    decision the system only records. Whether a data logger should feed this at
    all is the same conversation.
-4. **Wiring `usable()` into theatre and radiology** (16.23). The rule exists and
-   nothing asks it. Until it does, rule 16.1 is a screen rather than a control.
+4. **Which room depends on which machine** (16.26). The theatre list and the
+   imaging worklist now refuse on an overdue blocking check, so the links are
+   live — but only the obvious ones are declared. A laboratory bench, a
+   delivery room and a dental chair each depend on something too.
 
 ## 17. Mortuary
 
@@ -944,8 +949,9 @@ Everything marked 🔴, in one list:
 35. The cold chain range per product, and what a pharmacist does with stock
     after an excursion — cumulative exposure is not modelled and a point
     reading is not a duration
-36. `usable()` wired into theatre and radiology, so an overdue pressure test
-    stops a list rather than merely showing on a screen
+36. The equipment each room and modality depends on, declared beyond the
+    obvious autoclave and X-ray unit — a laboratory bench and a delivery room
+    depend on something too
 37. Useful lives and a disposal policy, including the KRA wear-and-tear classes
     and, for a public facility, PPADA disposal procedure
 38. Whether a missing death notification should block a release outright, rather

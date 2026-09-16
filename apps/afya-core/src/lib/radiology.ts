@@ -49,6 +49,7 @@ import { all, get, run, tx, audit, now, today } from "./db.ts";
 import { mintLocalId } from "./ids.ts";
 import { resolvePatient } from "./patients.ts";
 import { notify } from "./notifications.ts";
+import { equipmentBlock } from "./assets.ts";
 import { getOrder, setOrderStatus } from "./orders.ts";
 import { licenceStatus } from "./access.ts";
 import { sign } from "./documents.ts";
@@ -816,6 +817,11 @@ function decorate(rows: (Study & { patient_name: string; priority: string; clini
         if (state.outstanding.length > 0) blockedBy = "MRI screening incomplete";
         else if (state.blocking.length > 0) blockedBy = "MRI screening blocks the scan";
       }
+      // The machine comes last on purpose. A safety gate must never be hidden
+      // behind a maintenance one: an unanswered pregnancy question is still
+      // unanswered when the machine is fixed, and it is the line the
+      // radiographer has to see.
+      if (!blockedBy) blockedBy = equipmentBlock("modality", s.modality);
     }
     return {
       study: s,

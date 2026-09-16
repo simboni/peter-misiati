@@ -486,3 +486,54 @@ test("every checklist stage and every count problem is on the audit chain", () =
   const v = verifyAuditChain();
   assert.equal(v.ok, true);
 });
+
+// ------------------------------------------------- M63 equipment dependency
+
+test("an autoclave past its pressure test stops the list, not just the estates screen", async () => {
+  // `usable()` answered this from the day it was written, and until the theatre
+  // asked it the rule was a red line on a screen somewhere else.
+  const A = await import("../src/lib/assets.ts");
+
+  const caseId = book("Sterile");
+  consent(caseId);
+  assert.equal(
+    T.theatreList(facilityId).find((r) => r.theatreCase.id === caseId)!.blockedBy,
+    null,
+    "nothing is wrong yet",
+  );
+
+  const autoclave = A.assetByTag(facilityId, "OT-AC-01")!;
+  const schedule = A.schedulesFor(autoclave.id).find((s) => s.blocks_use === 1)!;
+  A.recordMaintenance({
+    assetId: autoclave.id, scheduleId: schedule.id, kind: "safety_test",
+    passed: false, findings: "Door seal fails at 1.8 bar",
+    byUserId: adminId!, byUserName: "Facility Administrator", deviceCode: DEV,
+  });
+
+  const blocked = T.theatreList(facilityId).find((r) => r.theatreCase.id === caseId)!;
+  assert.match(blocked.blockedBy!, /OT-AC-01 autoclave \(sterile instruments\)/);
+  assert.match(blocked.blockedBy!, /Failed Pressure vessel test/);
+});
+
+test("consent still outranks the autoclave", () => {
+  // A safety gate about this patient is never displaced by one about the room.
+  const caseId = book("Unconsented");
+  assert.equal(
+    T.theatreList(facilityId).find((r) => r.theatreCase.id === caseId)!.blockedBy,
+    "no recorded consent",
+  );
+});
+
+test("a completed case is not blocked by equipment that failed afterwards", () => {
+  const done = T.theatreList(facilityId).filter((r) => r.theatreCase.status === "completed");
+  assert.ok(done.every((r) => r.blockedBy === null));
+});
+
+test("a case already under anaesthesia is not blocked by a service schedule", () => {
+  // The operation is happening. Telling the list it is blocked by a pressure
+  // test is noise that teaches everybody to ignore the column.
+  const caseId = toIncision("Underway");
+  const row = T.theatreList(facilityId).find((r) => r.theatreCase.id === caseId)!;
+  assert.equal(row.theatreCase.status, "incised");
+  assert.equal(row.blockedBy, null);
+});

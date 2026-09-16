@@ -40,6 +40,7 @@ import { all, get, run, tx, audit, now, today } from "./db.ts";
 import { mintLocalId } from "./ids.ts";
 import { resolvePatient } from "./patients.ts";
 import { notify } from "./notifications.ts";
+import { equipmentBlock } from "./assets.ts";
 import { sign, signedFor } from "./documents.ts";
 
 export class TheatreError extends Error {}
@@ -955,6 +956,18 @@ function blockedBy(row: ListRow): string | null {
   const c = row.theatreCase;
   if (c.status === "cancelled" || c.status === "completed") return null;
   if (!row.consented) return "no recorded consent";
+  // An autoclave past its pressure test is not a maintenance backlog item, it
+  // is a theatre that should not open. Asked here rather than shown on the
+  // estates screen, because a rule nobody asks is a rule nobody follows.
+  //
+  // Only until the patient is anaesthetised. After that the operation is
+  // happening or has happened, and telling the list that a finished case is
+  // blocked by a service schedule is noise that teaches everybody to ignore
+  // the column.
+  if (c.theatre_code && (c.status === "booked" || c.status === "sent_for" || c.status === "in_theatre")) {
+    const equipment = equipmentBlock("theatre", c.theatre_code);
+    if (equipment) return equipment;
+  }
   if (c.status === "in_theatre" && !row.signInDone) return "sign-in not complete";
   if (c.status === "anaesthetised" && !row.timeOutDone) return "time-out not complete";
   if (c.status === "closed" && row.countOutstanding > 0) return "count does not reconcile";
