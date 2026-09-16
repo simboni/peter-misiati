@@ -430,26 +430,76 @@ is how the operational side is mapped into it.
 Nothing in this module is tax advice, and the facility's own accountant should
 see the chart and the mappings before a single figure is relied on.
 
-## 14. Public health
+## 14. Payroll (for the accountant, urgently)
+
+**This section needs an accountant before anybody is paid from this module.**
+It is the most Kenya-specific code in the system and the easiest to be
+confidently wrong about: PAYE bands, the NSSF tier limits, the SHIF rate and
+the housing levy have each changed within the last three years.
 
 | # | Rule | Where | Source | Status |
 |---|---|---|---|---|
-| 14.1 | Notifiable conditions are detected from coded diagnoses as they are made, because the Act's clock runs from diagnosis | `reporting.ts` | Public Health Act | ✅ |
-| 14.2 | **The notifiable list is four conditions** — malaria, tuberculosis, cholera, measles. The full schedule must be loaded | `reporting.ts` `NOTIFIABLE_PREFIXES` | — | 🔴 |
-| 14.3 | Reporting one requires the county's reference — it is the proof it was made | `reporting.ts` | Design rule | ✅ |
-| 14.4 | MOH 705A is under five, 705B is five and over, split by age **on the day of the visit** | `reporting.ts` | MOH forms | ✅ |
-| 14.5 | A condition is counted whichever code in its ICD-11 family the clinician used | `reporting.ts` `MOH705_CONDITIONS` | Design rule | ⚠️ |
-| 14.6 | **The 705 condition list is six conditions.** The real form has many more rows | `reporting.ts` | — | 🔴 |
+| 14.1 | **Every statutory rate is a row with the date it took effect and a note of its source** — not a constant. Correcting one after a Finance Act is a data change, not a release | `schema.sql` `statutory_rates` | Design rule | ✅ |
+| 14.2 | A payslip is computed from the rates in force on **its own pay date**, and the result is stored. Reprinting one from two years ago shows what was actually paid | `payroll.ts` `computePay`, `payslips` | Design rule | ✅ |
+| 14.3 | **Loading the rates twice does not double anybody's deductions.** Idempotent on (kind, date, lower bound), with a COALESCE in the index because SQLite treats nulls as distinct | `payroll.ts` `setRate` | Design rule | ✅ |
+| 14.4 | A payroll will not run if no rate is in force for the pay date — **producing zero deductions silently would be far worse than refusing** | `payroll.ts` `createRun` | Design rule | ✅ |
+| 14.5 | **PAYE bands: 10% / 25% / 30% / 32.5% / 35%**, monthly, seeded as in force from 1 July 2023 | `payroll.ts` `seedStatutoryRates` | Published rates | 🔴 |
+| 14.6 | **Personal relief KES 2,400 a month**, taken off the tax and never refunded as pay | `payroll.ts` | Published rates | 🔴 |
+| 14.7 | **NSSF two tiers at 6% each**, employee and employer, on limits of KES 8,000 and KES 72,000 — seeded as in force from February 2025. The limits rise on a published schedule | `payroll.ts` | NSSF Act 2013 | 🔴 |
+| 14.8 | **SHIF at 2.75% of gross, minimum KES 300**, in force from October 2024 when it replaced NHIF | `payroll.ts` | SHIF | 🔴 |
+| 14.9 | **Housing levy at 1.5% of gross, matched by the employer**, in force from March 2024 | `payroll.ts` | Affordable Housing Act 2024 | 🔴 |
+| 14.10 | **The order of the deductions**: NSSF, SHIF and the housing levy come off gross, PAYE is computed on what is left, and relief comes off the tax. Getting that order wrong changes what a person is paid | `payroll.ts` `computePay` | Tax law | 🔴 |
+| 14.11 | **Whether an allowance is taxable is explicit, never assumed.** It is the commonest payroll error there is | `schema.sql` `pay_items.taxable` | Practice | ✅ |
+| 14.12 | **A non-taxable allowance is excluded from the NSSF, SHIF and housing bases as well as from PAYE.** Defensible for a genuine reimbursement, but it is a judgement and it changes three figures | `payroll.ts` | Judgement | 🔴 |
+| 14.13 | **Net pay is never negative.** Statutory deductions take priority and a SACCO or advance recovery gets what is left; the shortfall is reported so it can be rescheduled, not carried | `payroll.ts` | Design rule | ✅ |
+| 14.14 | **Prepared by one person, approved by another.** Payroll is where a facility's largest recurring payment leaves, and one person controlling it end to end is how a ghost worker gets paid for three years | `payroll.ts` `approveRun` | Standard control | ✅ |
+| 14.15 | **A paid run is never edited or cancelled.** A correction is a new run — a payslip is evidence in an employment dispute | `payroll.ts` `cancelRun` | Practice | ✅ |
+| 14.16 | A cancelled run releases its period, so it can be rerun. Enforced by a **partial** unique index, because a plain one would block the rerun | `schema.sql` `idx_run_period` | Design rule | ✅ |
+| 14.17 | Paying a run posts **the whole cost of employment** — gross plus the employer's own contributions — not just the bank transfer. Posting only the net understates staff costs by roughly a third | `payroll.ts` `payRun` | Accounting | ✅ |
+| 14.18 | The deductions are a **liability until remitted**, not an expense already settled | `payroll.ts` | Accounting | ✅ |
+| 14.19 | An employee with **no KRA PIN is surfaced** — there is no PAYE return without one | `payroll.ts` `payrollSummary` | KRA | ✅ |
+| 14.20 | A leaver stays on the record, off the payroll, and off the next run | `payroll.ts` `endEmployment` | Design rule | ✅ |
+| 14.21 | **No NITA levy, no leave accrual, no gratuity, no overtime rules, no casual-worker treatment** | — | — | 🔴 |
 
-## 15. Revenue (for the claims specialist, not the clinician)
+### What to ask the accountant, in order
+
+1. **Check all six rate tables against the current law.** Marked red because
+   they are the module's entire output. They were seeded from published rates
+   as understood at the time of writing, which is not the same as being right
+   today. The whole design exists so that this is a data change, and the
+   Statutory rates screen says so in a red box above the table.
+2. **Confirm the order of the deductions** (rule 14.10) and **what a
+   non-taxable allowance is exempt from** (rule 14.12). The second is the
+   subtler one: the module excludes a genuine reimbursement from the NSSF,
+   SHIF and housing bases as well as from PAYE. That is defensible, and it is
+   still a judgement that changes three figures on every affected payslip.
+3. **Decide what is missing.** NITA levy, leave accrual, gratuity, overtime and
+   the treatment of casual workers are all absent. For a small private clinic
+   that may be acceptable for a first release; for anything with unionised
+   staff it is not.
+
+Nothing in this module is tax advice.
+
+## 15. Public health
 
 | # | Rule | Where | Source | Status |
 |---|---|---|---|---|
-| 15.1 | Nine scrubber gates, each mapped to a documented SHA rejection cause | `claims.ts` `scrub` | SHA published causes | ⚠️ |
-| 15.2 | **The gates are inferred from documented causes, not from 50 real rejected claims.** The roadmap says to build them from a real corpus and that is still the right next step | — | — | 🔴 |
-| 15.3 | A claim beyond the payer's submission window (SHA: 7 days) escalates rather than blocking, because a late claim still has an appeal path | `claims.ts` | SHA | ⚠️ |
-| 15.4 | Tariffs and benefit rules are **illustrative**. The SHA schedule for the contracting cycle must be loaded | `seed.ts` | — | 🔴 |
-| 15.5 | Money is integer cents throughout, and a price is fixed as of the date of service | `billing.ts` | Design rule | ✅ |
+| 15.1 | Notifiable conditions are detected from coded diagnoses as they are made, because the Act's clock runs from diagnosis | `reporting.ts` | Public Health Act | ✅ |
+| 15.2 | **The notifiable list is four conditions** — malaria, tuberculosis, cholera, measles. The full schedule must be loaded | `reporting.ts` `NOTIFIABLE_PREFIXES` | — | 🔴 |
+| 15.3 | Reporting one requires the county's reference — it is the proof it was made | `reporting.ts` | Design rule | ✅ |
+| 15.4 | MOH 705A is under five, 705B is five and over, split by age **on the day of the visit** | `reporting.ts` | MOH forms | ✅ |
+| 15.5 | A condition is counted whichever code in its ICD-11 family the clinician used | `reporting.ts` `MOH705_CONDITIONS` | Design rule | ⚠️ |
+| 15.6 | **The 705 condition list is six conditions.** The real form has many more rows | `reporting.ts` | — | 🔴 |
+
+## 16. Revenue (for the claims specialist, not the clinician)
+
+| # | Rule | Where | Source | Status |
+|---|---|---|---|---|
+| 16.1 | Nine scrubber gates, each mapped to a documented SHA rejection cause | `claims.ts` `scrub` | SHA published causes | ⚠️ |
+| 16.2 | **The gates are inferred from documented causes, not from 50 real rejected claims.** The roadmap says to build them from a real corpus and that is still the right next step | — | — | 🔴 |
+| 16.3 | A claim beyond the payer's submission window (SHA: 7 days) escalates rather than blocking, because a late claim still has an appeal path | `claims.ts` | SHA | ⚠️ |
+| 16.4 | Tariffs and benefit rules are **illustrative**. The SHA schedule for the contracting cycle must be loaded | `seed.ts` | — | 🔴 |
+| 16.5 | Money is integer cents throughout, and a price is fixed as of the date of service | `billing.ts` | Design rule | ✅ |
 
 ---
 
@@ -495,3 +545,10 @@ Everything marked 🔴, in one list:
 26. Cost of goods sold: stock is capitalised on receipt and never relieved on
     issue, so the surplus figure overstates until issues post against it
 27. VAT treatment and withholding tax on supplier payments
+28. **All six payroll rate tables, checked against current law** — PAYE bands,
+    personal relief, NSSF tiers, SHIF, housing levy, and the order in which the
+    deductions apply
+29. Whether a non-taxable allowance is exempt from NSSF, SHIF and the housing
+    levy as well as from PAYE
+30. NITA levy, leave accrual, gratuity, overtime and casual-worker treatment,
+    none of which the payroll handles

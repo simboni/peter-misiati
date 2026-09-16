@@ -21,6 +21,7 @@ import { theatreList, inTheatre } from "@/lib/theatre.ts";
 import { imagingWorklist, uncommunicatedCritical } from "@/lib/radiology.ts";
 import { procurementSummary } from "@/lib/procurement.ts";
 import { ledgerSummary } from "@/lib/accounting.ts";
+import { payrollSummary } from "@/lib/payroll.ts";
 import { signOutAction } from "@/app/actions/session.ts";
 import { navFor, sectionFor, type BadgeKey } from "./nav.ts";
 import type { CurrentUser } from "@/lib/auth.ts";
@@ -65,6 +66,7 @@ function counts(facilityId: number): Record<BadgeKey, { text: string; tone: "blo
   const imagingCritical = uncommunicatedCritical();
   const buying = procurementSummary(facilityId);
   const ledger = ledgerSummary(facilityId);
+  const pay = payrollSummary(facilityId);
   const waiting = queue(facilityId);
 
   const n = (
@@ -115,6 +117,9 @@ function counts(facilityId: number): Record<BadgeKey, { text: string; tone: "blo
     unposted: ledger.trialBalanceDifferenceCents !== 0
       ? { text: "!", tone: "block" as const }
       : n(ledger.unpostedSources, "clock"),
+    // A draft run waiting for approval is the thing somebody has to act on.
+    payroll: pay.lastRunStatus === "draft" ? { text: "1", tone: "clock" as const } : null,
+    payrollGaps: n(pay.missingKraPin + pay.missingBank, "block"),
     alerts: n(alerts.total, alerts.critical > 0 ? "block" : "clock"),
   };
 }

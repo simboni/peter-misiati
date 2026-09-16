@@ -33,6 +33,7 @@ import { seedReferralDirectory } from "./referrals.ts";
 import { seedTheatres } from "./theatre.ts";
 import { seedSuppliers } from "./procurement.ts";
 import { seedChartOfAccounts } from "./accounting.ts";
+import { seedStatutoryRates } from "./payroll.ts";
 
 /** The councils that license clinical practice in Kenya. */
 export const CADRES: { code: string; name: string; regulator: string; licensed: boolean }[] = [
@@ -456,6 +457,7 @@ export function seedReferenceData(): void {
   seedReferralDirectory();
   seedSuppliers();
   seedChartOfAccounts();
+  seedStatutoryRates();
 
   // Every way out of the building, installed in demo mode. Nothing calls a real
   // payer or the tax authority until an operator switches an endpoint to live,

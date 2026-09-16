@@ -2377,3 +2377,147 @@ CREATE TABLE IF NOT EXISTS journal_lines (
 );
 CREATE INDEX IF NOT EXISTS idx_jline_journal ON journal_lines(journal_id);
 CREATE INDEX IF NOT EXISTS idx_jline_account ON journal_lines(account_code);
+
+-- ============================================================================
+-- M62 Payroll
+--
+-- The most Kenya-specific module here, and the one most certain to be wrong if
+-- its rates are compiled in. PAYE bands, NSSF tiers, SHIF and the housing levy
+-- all change by Act of Parliament, usually in July and sometimes in between. So
+-- every rate is a row with a date it took effect, and a payslip is computed
+-- from the rates in force on ITS pay date rather than today's.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS employees (
+  id            TEXT PRIMARY KEY,
+  facility_id   INTEGER NOT NULL REFERENCES facilities(id),
+  -- The system user, where they have one. A cleaner has no login; a clinician
+  -- does, and the two must be the same person in the payroll.
+  user_id       INTEGER REFERENCES users(id),
+  payroll_no    TEXT NOT NULL,
+  given_name    TEXT NOT NULL,
+  family_name   TEXT NOT NULL,
+  national_id   TEXT,
+  -- Without a KRA PIN there is no PAYE return. Without an NSSF or SHIF number
+  -- the contribution cannot be credited to the person it was deducted from.
+  kra_pin       TEXT,
+  nssf_no       TEXT,
+  shif_no       TEXT,
+  job_title     TEXT NOT NULL DEFAULT '',
+  department    TEXT NOT NULL DEFAULT '',
+  employment    TEXT NOT NULL DEFAULT 'permanent'
+                CHECK (employment IN ('permanent','contract','locum','intern','casual')),
+  basic_cents   INTEGER NOT NULL DEFAULT 0,
+  bank_name     TEXT NOT NULL DEFAULT '',
+  bank_account  TEXT NOT NULL DEFAULT '',
+  started_on    TEXT NOT NULL,
+  ended_on      TEXT,
+  end_reason    TEXT NOT NULL DEFAULT '',
+  active        INTEGER NOT NULL DEFAULT 1,
+  created_at    TEXT NOT NULL,
+  UNIQUE (facility_id, payroll_no)
+);
+CREATE INDEX IF NOT EXISTS idx_emp_active ON employees(facility_id, active);
+
+-- A recurring allowance or deduction that is not statutory: house allowance,
+-- a SACCO deduction, a salary advance being recovered.
+CREATE TABLE IF NOT EXISTS pay_items (
+  id            TEXT PRIMARY KEY,
+  employee_id   TEXT NOT NULL REFERENCES employees(id),
+  code          TEXT NOT NULL,
+  name          TEXT NOT NULL,
+  kind          TEXT NOT NULL CHECK (kind IN ('allowance','deduction')),
+  amount_cents  INTEGER NOT NULL,
+  -- Whether PAYE is charged on this allowance. Getting it wrong is the
+  -- commonest payroll error there is, so it is explicit rather than assumed.
+  taxable       INTEGER NOT NULL DEFAULT 1,
+  starts_on     TEXT NOT NULL,
+  ends_on       TEXT,
+  note          TEXT NOT NULL DEFAULT '',
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_payitem_emp ON pay_items(employee_id);
+
+-- Statutory rates, each with the date it took effect. Nothing here is a
+-- constant in code, because a payroll whose rates are compiled in is a payroll
+-- that is wrong the month after every Finance Act.
+CREATE TABLE IF NOT EXISTS statutory_rates (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind          TEXT NOT NULL CHECK (kind IN ('paye_band','personal_relief','nssf','shif','housing_levy')),
+  effective_from TEXT NOT NULL,
+  -- For a PAYE band: the lower bound in cents and the rate in basis points.
+  -- For the rest: whatever that deduction needs, named in `label`.
+  lower_cents   INTEGER,
+  upper_cents   INTEGER,
+  rate_bp       INTEGER,
+  amount_cents  INTEGER,
+  min_cents     INTEGER,
+  max_cents     INTEGER,
+  label         TEXT NOT NULL DEFAULT '',
+  -- Where this figure came from. An auditor will ask, and so will the next
+  -- person to change it.
+  source        TEXT NOT NULL DEFAULT '',
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_rate_kind ON statutory_rates(kind, effective_from);
+-- One row per rate per date. Loading the rates twice must not double everybody's
+-- deductions, and a plain UNIQUE would not stop it: the non-band rates have a
+-- null lower bound, and SQLite treats nulls as distinct. Hence the COALESCE.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_rate_key
+  ON statutory_rates(kind, effective_from, COALESCE(lower_cents, -1));
+
+CREATE TABLE IF NOT EXISTS payroll_runs (
+  id            TEXT PRIMARY KEY,
+  facility_id   INTEGER NOT NULL REFERENCES facilities(id),
+  period        TEXT NOT NULL,
+  pay_date      TEXT NOT NULL,
+  status        TEXT NOT NULL CHECK (status IN ('draft','approved','paid','cancelled')),
+  -- Prepared by one person, approved by another. The same control as
+  -- procurement, and for the same reason.
+  prepared_by   INTEGER REFERENCES users(id),
+  preparer_name TEXT NOT NULL,
+  prepared_at   TEXT NOT NULL,
+  approved_by   INTEGER REFERENCES users(id),
+  approver_name TEXT NOT NULL DEFAULT '',
+  approved_at   TEXT,
+  paid_at       TEXT,
+  payment_ref   TEXT NOT NULL DEFAULT '',
+  cancel_reason TEXT NOT NULL DEFAULT '',
+  device_code   TEXT,
+  created_at    TEXT NOT NULL
+);
+-- One run per period, but a CANCELLED run does not hold the period: a run
+-- abandoned before approval has to be repeatable. A plain UNIQUE would block
+-- that, so this is partial.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_run_period
+  ON payroll_runs(facility_id, period) WHERE status <> 'cancelled';
+
+-- A payslip, with the computation stored rather than recomputed. Reprinting a
+-- payslip from two years ago must show what was actually paid, not what
+-- today's rates would give.
+CREATE TABLE IF NOT EXISTS payslips (
+  id            TEXT PRIMARY KEY,
+  run_id        TEXT NOT NULL REFERENCES payroll_runs(id),
+  employee_id   TEXT NOT NULL REFERENCES employees(id),
+  basic_cents   INTEGER NOT NULL,
+  allowances_cents INTEGER NOT NULL DEFAULT 0,
+  gross_cents   INTEGER NOT NULL,
+  nssf_cents    INTEGER NOT NULL DEFAULT 0,
+  shif_cents    INTEGER NOT NULL DEFAULT 0,
+  housing_levy_cents INTEGER NOT NULL DEFAULT 0,
+  taxable_cents INTEGER NOT NULL DEFAULT 0,
+  paye_cents    INTEGER NOT NULL DEFAULT 0,
+  relief_cents  INTEGER NOT NULL DEFAULT 0,
+  other_deductions_cents INTEGER NOT NULL DEFAULT 0,
+  net_cents     INTEGER NOT NULL,
+  -- What the employer pays on top, which never appears on the payslip but is
+  -- a real cost and belongs in the ledger.
+  employer_nssf_cents INTEGER NOT NULL DEFAULT 0,
+  employer_housing_cents INTEGER NOT NULL DEFAULT 0,
+  -- The working, kept as JSON so a payslip can show how it was arrived at.
+  workings      TEXT NOT NULL DEFAULT '',
+  created_at    TEXT NOT NULL,
+  UNIQUE (run_id, employee_id)
+);
+CREATE INDEX IF NOT EXISTS idx_payslip_run ON payslips(run_id);
+CREATE INDEX IF NOT EXISTS idx_payslip_emp ON payslips(employee_id);

@@ -70,6 +70,8 @@ export type BadgeKey =
   | "lateOrders"
   | "queriedInvoices"
   | "unposted"
+  | "payroll"
+  | "payrollGaps"
   | "alerts";
 
 export const NAV: NavSection[] = [
@@ -227,6 +229,9 @@ export const NAV: NavSection[] = [
     links: [
       { href: "/admin", label: "Facility & compliance", permission: ["facility.configure", "user.manage"] },
       { href: "/admin?view=staff", label: "Staff & licences", permission: ["user.manage"] },
+      { href: "/payroll", label: "Payroll runs", permission: ["user.manage"], badge: "payroll" },
+      { href: "/payroll?view=staff", label: "Payroll staff", permission: ["user.manage"], badge: "payrollGaps" },
+      { href: "/payroll?view=rates", label: "Statutory rates", permission: ["user.manage"] },
       { href: "/admin?view=tariffs", label: "Services & tariffs", permission: ["facility.configure"] },
       { href: "/admin?view=integrations", label: "Integrations", permission: ["facility.configure"], badge: "deadLetters" },
       { href: "/audit", label: "Audit log", permission: ["audit.read", "facility.configure"] },

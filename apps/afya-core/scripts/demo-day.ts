@@ -65,6 +65,10 @@ import {
   postJournal, postFromOperations, reverseJournal, ledgerSummary, reconcile as reconcileLedger,
   trialBalance, incomeStatement,
 } from "../src/lib/accounting.ts";
+import {
+  addEmployee, addPayItem, createRun as createPayrollRun, approveRun, payRun,
+  payrollSummary, statutoryReturn,
+} from "../src/lib/payroll.ts";
 import { closeDb, run, get, all as dbAll, verifyAuditChain, today } from "../src/lib/db.ts";
 
 const { facilityId, adminId, clinicianId, receptionistId, pharmacistId, labTechId } = seedDemo();
@@ -1768,6 +1772,80 @@ if (stillOwed.at(-1)) {
 
 // ------------------------------------------------------------------- summary
 
+
+// ------------------------------------------------------------------ payroll
+//
+// Eight staff on the salaries a Kenyan level 2 clinic actually pays, run
+// through the statutory deductions: PAYE on the bands, NSSF in two tiers, SHIF
+// at 2.75% with a floor, and the housing levy at 1.5% matched by the employer.
+//
+// One of them has a SACCO recovery larger than what is left after the statutory
+// deductions, so the run shows what capping looks like: the statutory
+// deductions come out in full, the SACCO gets what remains, and the shortfall
+// is reported rather than carried.
+
+const PAYROLL_PERIOD = today().slice(0, 7);
+const PAY_DATE = `${PAYROLL_PERIOD}-28`;
+const HR = { byUserId: pharmacistId, byUserName: "Grace Kimani", deviceCode: REC };
+const HRAPPROVE = { byUserId: adminId, byUserName: "Facility Administrator" };
+
+// ⚠️ Illustrative salaries for a private level 2 clinic. A real facility loads
+// its own, and they vary enormously between public and private.
+const STAFF: [string, string, string, number, string][] = [
+  ["Achieng", "Wanjiru", "Medical Officer", 12_000_000, "Clinical"],
+  ["Joseph", "Otieno", "Records Officer", 3_200_000, "Front desk"],
+  ["Grace", "Kimani", "Pharmacist", 6_500_000, "Pharmacy"],
+  ["Samuel", "Mutiso", "Laboratory Technologist", 4_800_000, "Laboratory"],
+  ["Mary", "Adhiambo", "Nurse", 4_200_000, "Outpatient"],
+  ["Peter", "Barasa", "Radiographer", 5_200_000, "Imaging"],
+  ["Esther", "Chebet", "Nurse", 3_900_000, "Maternity"],
+  ["Daniel", "Mwangi", "Cleaner", 1_800_000, "Support"],
+];
+
+let staffNo = 100;
+const staffIds: Record<string, string> = {};
+for (const [given, family, title, basic, department] of STAFF) {
+  staffIds[given] = addEmployee({
+    facilityId, payrollNo: `EMP-${++staffNo}`, givenName: given, familyName: family,
+    kraPin: `A0${staffNo}45678X`, nssfNo: `NSSF-${staffNo}`, shifNo: `SHIF-${staffNo}`,
+    jobTitle: title, department, basicCents: basic,
+    bankName: "Equity Bank", bankAccount: `0123456${staffNo}`,
+    startedOn: "2024-01-15", ...HR,
+  });
+}
+
+// House allowance is taxable; reimbursed transport is not. Getting that
+// distinction wrong is the commonest payroll error there is.
+addPayItem({
+  employeeId: staffIds.Achieng, code: "HSE", name: "House allowance", kind: "allowance",
+  amountCents: 3_000_000, taxable: true, startsOn: "2024-01-15", deviceCode: REC,
+});
+addPayItem({
+  employeeId: staffIds.Achieng, code: "CALL", name: "On-call allowance", kind: "allowance",
+  amountCents: 1_500_000, taxable: true, startsOn: "2024-01-15", deviceCode: REC,
+});
+addPayItem({
+  employeeId: staffIds.Samuel, code: "TRANS", name: "Reimbursed transport", kind: "allowance",
+  amountCents: 800_000, taxable: false, startsOn: "2024-01-15", deviceCode: REC,
+});
+addPayItem({
+  employeeId: staffIds.Grace, code: "SACCO", name: "SACCO monthly contribution", kind: "deduction",
+  amountCents: 1_500_000, startsOn: "2024-01-15", deviceCode: REC,
+});
+// More than is left after the statutory deductions — deliberately, so the run
+// shows what capping looks like.
+addPayItem({
+  employeeId: staffIds.Daniel, code: "ADV", name: "Salary advance recovery", kind: "deduction",
+  amountCents: 2_000_000, startsOn: "2024-01-15",
+  note: "Advanced in August for school fees", deviceCode: REC,
+});
+
+const payrollRun = createPayrollRun({
+  facilityId, period: PAYROLL_PERIOD, payDate: PAY_DATE, ...HR,
+});
+approveRun({ runId: payrollRun.runId, ...HRAPPROVE });
+payRun({ runId: payrollRun.runId, paymentRef: `EFT-PAYROLL-${PAYROLL_PERIOD.replace("-", "")}`, ...HRAPPROVE });
+
 // ------------------------------------------------------------------ the ledger
 //
 // Everything above already happened. This turns it into books, without anybody
@@ -1838,6 +1916,7 @@ console.log(`  lab orders        ${count(`SELECT COUNT(*) AS n FROM orders`)} ·
 console.log(`  admissions        ${count(`SELECT COUNT(*) AS n FROM admissions`)} · ${count(`SELECT COUNT(*) AS n FROM admissions WHERE discharged_at IS NULL`)} still in a bed`);
 console.log(`  appointments      ${count(`SELECT COUNT(*) AS n FROM appointments`)} booked`);
 console.log(`  programmes        ${count(`SELECT COUNT(*) AS n FROM enrolments WHERE status = 'active'`)} on the registers · HIV retention ${cohortReport("HIV")[0]?.retentionPercent ?? 0}%`);
+console.log(`  payroll           ${payrollSummary(facilityId).employees} staff · gross ${Math.round(payrollSummary(facilityId).monthlyGrossCents / 100)} KES · statutory ${Math.round(statutoryReturn(payrollRun.runId).totalRemittableCents / 100)} KES to remit${payrollRun.cappedEmployees ? ` · ${payrollRun.cappedEmployees} capped` : ""}`);
 console.log(`  ledger            ${ledgerSummary(facilityId).journals} journals · trial balance ${ledgerSummary(facilityId).trialBalanceDifferenceCents === 0 ? "balanced" : "OUT"} · ${reconcileLedger(facilityId).agrees ? "agrees with the till" : "DISAGREES with the till"}`);
 console.log(`  procurement       ${procurementSummary(facilityId).openOrders} orders open · ${procurementSummary(facilityId).queriedInvoices} invoice queried · ${Math.round(procurementSummary(facilityId).varianceCents / 100)} KES overcharged, caught`);
 console.log(`  radiology         ${radiologySummary().studies} studies · ${radiologySummary().blocked} blocked · ${radiologySummary().totalDoseMsv} mSv delivered · ${radiologySummary().criticalUncommunicated} critical untold`);
