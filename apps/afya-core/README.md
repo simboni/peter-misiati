@@ -197,6 +197,7 @@ tier. `src/lib/db.ts` is the only module that would change.
 | **M02** Audit | `src/lib/db.ts` | Hash-chained append-only audit log, with verification |
 | — | `src/lib/ids.ts` | Device-prefixed identifiers that cannot collide offline |
 | **M03** Sync Engine | `src/lib/sync.ts` | Offline operation log, Lamport ordering, conflict resolution by data class |
+| **M03** Sync Transport | `src/lib/sync-transport.ts` | The batch format and its digest, the refusal rules, and a file transport — the stick a clinic with no line actually syncs on |
 | **M10** Patient Registry & MPI | `src/lib/patients.ts` | Patients, identifier normalisation, duplicate matching, merge and unmerge |
 | **M21** Terminology | `src/lib/terminology.ts` | Coded catalogues, verified-only coding search, favourites, coverage |
 | **M20** Encounter | `src/lib/encounters.ts` | Consultations, append-only notes, coded diagnoses, readiness |
@@ -236,7 +237,7 @@ tier. `src/lib/db.ts` is the only module that would change.
 | — | `src/lib/totp.ts` | RFC 6238 two-factor codes, checked against the RFC's own test vectors |
 | — | `src/lib/seed.ts` | Cadres, permissions, roles, ICD-11, formulary, stores, wards, reference ranges |
 
-## Twenty-five rules the code enforces
+## Twenty-six rules the code enforces
 
 These are compliance requirements expressed as code, not documentation. Each has
 a test that fails if it regresses.
@@ -259,59 +260,67 @@ a test that fails if it regresses.
    invoice number — are never minted locally; they are assigned on transmission
    and both are kept.
 
-5. **Sync order comes from a Lamport clock, and conflict policy depends on what
+5. **An operation is marked pushed when it is acknowledged, never when it is
+   sent.** Packing a batch and confirming it are two separate calls, so a link
+   that dies between them costs a duplicate batch — which the merge is
+   idempotent against — rather than the operations, which nothing could
+   recover. A batch that does not match its own digest is refused whole: half a
+   batch applied in Lamport order looks exactly like a complete one until the
+   missing half arrives and cannot be placed.
+
+6. **Sync order comes from a Lamport clock, and conflict policy depends on what
    the data is.** Wall time would let a tablet with a fast clock win every
    conflict. Clinical content is never overwritten (both versions kept, a person
    reconciles); stock and money defer to the server with the variance logged;
    demographics merge field by field. Ops carry changed fields only, so a device
    that was offline for two days cannot revert what someone else fixed.
 
-6. **The system never auto-merges two patients.** A strong identifier match is
+7. **The system never auto-merges two patients.** A strong identifier match is
    definite; everything else is scored, shown with its reasons, and decided by a
    person. Merges are reversible, and two records carrying different national IDs
    are refused outright — one record for two patients is the worst outcome the
    index can produce.
 
-7. **An unverified code can never reach a claim.** A wrong diagnosis code is a
+8. **An unverified code can never reach a claim.** A wrong diagnosis code is a
    named SHA rejection cause, so only codes checked against the issuing authority
    are offered for coding. A guessed code is worse than none: no code stops at
    the scrubber, a wrong one is paid and then clawed back.
 
-8. **The licence is pinned when care is given, and an encounter cannot close
+9. **The licence is pinned when care is given, and an encounter cannot close
    without a coded primary diagnosis.** A claim cites the practitioner's
    registration as it stood on the day, so it is copied onto the encounter rather
    than resolved later. And the diagnosis is demanded while the clinician is
    still with the patient — the cheapest moment in the whole revenue cycle to
    fix it.
 
-9. **Only one grade of warning interrupts.** A severe or anaphylactic allergy
+10. **Only one grade of warning interrupts.** A severe or anaphylactic allergy
    blocks prescribing and needs a written override; a mild allergy informs and
    stops nothing; a controlled drug flags the pharmacy, not the prescriber. A
    system that blocks on everything teaches clinicians to override reflexively,
    and then the warning that mattered is overridden too.
 
-10. **An override is only recorded when something was actually overridden.** A
+11. **An override is only recorded when something was actually overridden.** A
     stale reason carried forward from a previous attempt is dropped, because a
     record claiming a prescriber overrode a warning they were never shown is a
     lie in a clinical record.
 
-11. **A payer being unreachable never blocks care.** Verification degrades
+12. **A payer being unreachable never blocks care.** Verification degrades
     through online → cached → provisional → emergency, and the flag is never
     laundered: a provisional verification reaches the scrubber as provisional.
     When SHA's pre-authorisation platform failed nationwide in March 2026,
     facilities had no fallback. This is that fallback.
 
-12. **Money is integer cents, and a price is fixed as of the date of service.**
+13. **Money is integer cents, and a price is fixed as of the date of service.**
     A tariff revised last month must not silently reprice care given before it,
     and an unpriced line is refused rather than billed at zero.
 
-13. **A claim is validated before it is created, not on day six.** Nine gates,
+14. **A claim is validated before it is created, not on day six.** Nine gates,
     each mapped to a documented rejection cause, each naming the person who can
     fix it. A blocked claim cannot reach the payer, and the verdict it was
     checked against is stored so a rejection can be compared with what we
     believed at submission.
 
-14. **A simulated answer is never mistakable for a real one.** Every endpoint
+15. **A simulated answer is never mistakable for a real one.** Every endpoint
     runs in `demo`, `live` or `disabled`, the mode is on the integrations
     screen, every result carries `simulated`, and the integration log records
     which mode each call ran in. Switching to live is refused while no live
@@ -319,20 +328,20 @@ a test that fails if it regresses.
     claiming when it is not. Credentials are redacted before anything is
     logged, because the log goes to auditors.
 
-15. **Stock is held per batch, the ledger is append-only, and picking is
+16. **Stock is held per batch, the ledger is append-only, and picking is
     first-expiry-first-out.** A recall names a batch; an expiry belongs to a
     batch; a pharmacist asked which batch a patient received must be able to
     answer. A correction is another movement with a reason, never an edit, so
     the sum of movements equals what is on the shelf and a discrepancy has a
     history rather than a mystery.
 
-16. **One event, four consequences.** A pharmacist hands medicine over once,
+17. **One event, four consequences.** A pharmacist hands medicine over once,
     and the stock ledger, the bill, the prescription and the controlled
     register all move in the same transaction. If any would fail, none of them
     happened — there is a test that proves it, because a shelf and a bill that
     disagree never agree again.
 
-17. **An early-warning score says what it was made from.** NEWS2 is scored on
+18. **An early-warning score says what it was made from.** NEWS2 is scored on
     all seven parameters, and a missing one scores nothing — which means an
     incomplete set always under-reads. So completeness travels with the score:
     a 2 from five parameters and a 2 from seven are not the same 2, and six
@@ -340,14 +349,14 @@ a test that fails if it regresses.
     parameter scoring 3 escalates even when the total is below the threshold,
     because an aggregate hides exactly that patient.
 
-18. **A reading is not a result, and a panic value is a phone call.** A number
+19. **A reading is not a result, and a panic value is a phone call.** A number
     off the analyser becomes a result when a KMLTTB-registered technologist
     releases it, and only then does it reach a clinician. Releasing a critical
     value raises an alert on the ordering clinician's desk in the same
     transaction, so "nobody saw it" is not available as an outcome. A result
     stays outstanding until somebody says they have read it.
 
-19. **A second factor is proved, not merely enrolled.** TOTP written against
+20. **A second factor is proved, not merely enrolled.** TOTP written against
     RFC 6238 and checked against the RFC's own vectors, so it agrees with
     Google Authenticator rather than only with itself. A code proved at
     sign-in or stepped up stays good for fifteen minutes; an MFA-gated action
@@ -355,7 +364,7 @@ a test that fails if it regresses.
     counter cannot dispense a controlled drug an hour after the pharmacist
     walked away.
 
-20. **A cold chain excursion quarantines the stock, at the moment the reading
+21. **A cold chain excursion quarantines the stock, at the moment the reading
     is written down.** Not a task for somebody later: a nurse must not be able
     to draw up a vaccine from a fridge that failed overnight, and the only
     reliable way to stop her is to make the stock unpickable before anybody
@@ -363,31 +372,31 @@ a test that fails if it regresses.
     store, not only the vaccines — whatever was in the fridge was at that
     temperature.
 
-21. **An overdue blocking check closes the theatre.** A room declares the
+22. **An overdue blocking check closes the theatre.** A room declares the
     equipment it cannot work without, and an autoclave past its DOSHS pressure
     test stops the list rather than appearing as a red line on an estates
     screen nobody opens. A failed check does not advance its own due date, and
     it takes the asset out of service.
 
-22. **A body is not released on a name.** Somebody who knew the person must
+23. **A body is not released on a name.** Somebody who knew the person must
     have viewed it and signed, a police case needs a written release authority,
     and a required postmortem happens first because it cannot happen after
     burial. This is the one part of the system with no undo, and the only part
     where three separate checks all block outright.
 
-23. **A machine does not file a result against the wrong person.** A reading
+24. **A machine does not file a result against the wrong person.** A reading
     for a specimen nobody ordered is held — not filed, and not discarded,
     because it is somebody's blood. A unit that does not match is an exception
     rather than a number, since an analyser reporting glucose in mg/dL into a
     system expecting mmol/L turns 5.5 into 99. And a control is never filed
     against a patient.
 
-24. **A result reaches a patient's phone after a clinician has seen it, never
+25. **A result reaches a patient's phone after a clinician has seen it, never
     before**, and some findings never reach it at all. A panic potassium
     arriving at 9pm with nobody to ask is not transparency. The patient is
     still told a result exists, because hiding that would be its own harm.
 
-25. **A rate on fewer than twenty cases is not printed, and a row holding one
+26. **A rate on fewer than twenty cases is not printed, and a row holding one
     person is withheld along with a second.** One caesarean in two deliveries
     is not a 50% caesarean rate. And hiding the only small row while publishing
     the total hides nothing, because anybody can subtract.
@@ -485,9 +494,13 @@ Every module on the roadmap is built. A facility still cannot go live on it:
   real data — but that corpus does not exist yet.
 - **The notifiable-disease list is four conditions.** The full Public Health
   Act schedule must be loaded before go-live.
-- **Sync has no network transport.** `src/lib/sync.ts` has the operation log,
-  the Lamport ordering and the conflict policy, and they are tested. What is
-  missing is the code that moves ops between two machines.
+- **Sync has no network hub to talk to.** The operation log, the Lamport
+  ordering and the conflict policy are in `src/lib/sync.ts`; the batch format,
+  its digest, the refusal rules and the exchange are in
+  `src/lib/sync-transport.ts`. A file transport works today and is the one a
+  clinic with no line actually uses — a batch on a phone or a stick, carried.
+  The HTTP transport is declared and refuses, because the hub it would talk to
+  has not been specified.
 - **No hardware driver exists for anything that plugs in.** The analyser
   interface does ASTM framing and checksums, E1394 and HL7 v2 parsing, and the
   code and unit mapping — but no serial port is opened and no listener is
