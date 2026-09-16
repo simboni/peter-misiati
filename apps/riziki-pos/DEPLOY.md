@@ -148,6 +148,19 @@ Netlify — nothing about the build changes.)
 
 ## If something goes wrong
 
+**Start with `RUNBOOK.md`, beside this file.** It is the recovery procedures
+written for somebody with no developer on call: one health check that says what
+is wrong, and a numbered procedure for each answer — app down, lost PIN, wrong
+figures, restoring a backup, rebuilding on a new server, full disk. Print it.
+
+```
+sh deploy/health.sh              is the shop all right?
+sh deploy/restore-backup.sh      put a snapshot back, safely
+sh deploy/reset-owner-pin.sh     get back in when no owner PIN works
+```
+
+The short version of the commonest cases:
+
 - **App won't start**: `docker compose logs pos`. The commonest cause after
   an update is a half-pulled build — rerun `docker compose up -d --build`.
 - **Website pages or pictures 404** (`smoke.sh` shows FAIL on `/products/` or
