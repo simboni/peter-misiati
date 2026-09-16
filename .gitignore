@@ -47,3 +47,6 @@ apps/riziki-pos/node_modules/
 # Sandbox artifacts: throwaway database and the tunnel binary
 apps/riziki-pos/sandbox-data/
 apps/riziki-pos/.sandbox/
+
+# Names an off-site backup destination (an account, not a secret key).
+apps/riziki-pos/deploy/offsite.env

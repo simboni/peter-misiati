@@ -105,6 +105,22 @@ else
   bad "no nightly backup in crontab  ->  see RUNBOOK.md, 'Backups'"
 fi
 
+# The snapshots above are on the same disk as the database. This is the line
+# that says whether a copy has left the building.
+STATE="$COMPOSE_DIR/data/offsite-last.txt"
+if [ -f "$STATE" ]; then
+  off_days=$(( ( $(date +%s) - $(date -r "$STATE" +%s) ) / 86400 ))
+  if [ "$off_days" -le 7 ]; then
+    ok "a copy left this server $off_days day(s) ago"
+  else
+    bad "the last copy off this server was $off_days days old"
+  fi
+  sed 's/^/        /' "$STATE"
+else
+  bad "no copy has ever left this server  ->  sh deploy/offsite-backup.sh"
+  note "A dead server loses everything if the only copies are on it."
+fi
+
 # --------------------------------------------------------------------- disk
 echo
 echo "Disk"

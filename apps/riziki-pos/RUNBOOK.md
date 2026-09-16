@@ -23,9 +23,18 @@ The database is ONE FILE:   /root/peter-misiati/apps/riziki-pos/data/riziki.db
 the code — those can all be rebuilt from GitHub in twenty minutes by anyone who
 can follow instructions. `riziki.db` is the only thing that cannot.
 
-So: **take the weekly off-server backup**. Reports → *Download full backup* →
-save it to your phone, Drive or email. If the VPS died tonight, that file plus
-these pages is the whole recovery.
+So the only question that matters is: **is there a copy of it somewhere that is
+not this server?** We did not buy the provider's backup add-on, and do not need
+to — compressed, the whole database is about 20 kB, so a free Google Drive
+account holds years of it:
+
+```
+sh deploy/offsite-backup.sh          # set it up once, §8, then cron it nightly
+```
+
+And keep the manual one as the backstop: Reports → *Download full backup* → your
+phone, weekly. If the VPS died tonight, that file plus these pages is the whole
+recovery.
 
 ---
 
@@ -45,7 +54,8 @@ prints a screen of lines, each marked `OK` or `!!`:
 - whether the three containers are running (`pos`, `web`, `caddy`)
 - whether the public address answers, and which build is live
 - the database's integrity check, today's sales, the number of owner accounts
-- when the last backup was taken and whether the nightly job is still scheduled
+- when the last backup was taken, whether the nightly job is still scheduled,
+  and when a copy last left this server
 - free disk space
 
 **Act on the first `!!` line.** Each has a section below.
@@ -233,12 +243,74 @@ integrity-checked before it counts as one. Take one right now, any time:
 docker compose exec -T pos npm run backup
 ```
 
-Those live on the same machine: they protect against mistakes, not against the
-machine dying. **Weekly, off the server**: Reports → *Download full backup* →
-keep it somewhere that is not the VPS.
+Those live on the same machine. They protect against a mistake — a bad stock
+take, a restore to the wrong day — and against nothing else. **A dead server
+takes them with it.**
 
-`health.sh` tells you the age of the newest snapshot every time you run it. If
-it says more than a day old, the nightly job has stopped.
+### Getting a copy off the server, for nothing
+
+We did not buy the provider's backup add-on, and it is not needed, because of
+one fact about this shop's data: **the entire database, compressed, is about
+20 kB.** A year of trading will not make it a megabyte. Backing it up is not a
+storage problem — it is a "copy a small file somewhere else every night"
+problem, and any free account already does that.
+
+```
+sh deploy/offsite-backup.sh
+```
+
+It snapshots, compresses, sends, prunes anything older than 90 days at the far
+end, and writes `data/offsite-last.txt` so `health.sh` can tell you when a copy
+last left the building. Configure a destination once, in
+`deploy/offsite.env` (not in the repository — it names your account):
+
+```
+RIZIKI_OFFSITE_RCLONE="gdrive:riziki-backups"
+RIZIKI_OFFSITE_SCP="peter@192.168.1.5:/Users/peter/riziki-backups"
+```
+
+Set either, or both and it sends to both.
+
+**Google Drive, ten minutes, no cost** — you already have the account:
+
+```
+apt-get install -y rclone
+rclone config          # n → name it "gdrive" → choose "drive" → accept the
+                       # defaults → paste the code it prints into a browser
+rclone mkdir gdrive:riziki-backups
+sh deploy/offsite-backup.sh
+```
+
+Then have it run itself, half an hour after the nightly snapshot:
+
+```
+crontab -e
+0 3 * * * cd /root/peter-misiati/apps/riziki-pos && sh deploy/offsite-backup.sh >> /var/log/riziki-offsite.log 2>&1
+```
+
+**The alternatives, if Drive does not suit:** the free tier of Backblaze B2
+(10 GB) or any S3-compatible store, both via the same `rclone` line; or
+`RIZIKI_OFFSITE_SCP` to your own laptop or a second cheap VPS, which needs an
+ssh key on that machine because cron cannot answer a password prompt.
+
+**And keep the manual one as the backstop.** Reports → *Download full backup* →
+your phone, weekly. It costs two taps, it does not depend on the server being
+healthy enough to run a script, and it is the copy you will actually have in
+your hand if the VPS is gone.
+
+### Restoring from an off-site copy
+
+The file is a plain gzipped database. Uncompress it, put it under `data/`, and
+run the restore as normal:
+
+```
+gunzip -c riziki-2026-09-14.db.gz > /root/peter-misiati/apps/riziki-pos/data/backups/riziki-2026-09-14.db
+cd /root/peter-misiati/apps/riziki-pos
+sh deploy/restore-backup.sh data/backups/riziki-2026-09-14.db
+```
+
+`health.sh` tells you the age of the newest snapshot AND when a copy last left
+the server. If either is older than it should be, that job has stopped.
 
 ---
 
@@ -307,8 +379,9 @@ To work on it locally: `npm install`, `npm run seed`, `npm run dev`, open
 
 Do these on the first of the month and you will not meet most of this document:
 
-1. `sh deploy/health.sh` — read every line.
-2. Reports → *Download full backup* → save it off the server.
+1. `sh deploy/health.sh` — read every line, including "a copy left this server".
+2. Reports → *Download full backup* → save it off the server, by hand, as the
+   backstop to the nightly off-site job.
 3. Menu → Activity log — read the month: voids, price changes, failed sign-ins.
 4. Users & settings — switch off anyone who has left; clear any account still
    on its starting PIN.
