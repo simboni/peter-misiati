@@ -1,0 +1,43 @@
+# Afya Core — the whole deployment.
+#
+#   docker compose up -d           start
+#   ./deploy/update.sh             update (snapshot, pull, build, restart, verify)
+#   docker compose logs -f afya    watch it
+#
+# `caddy` terminates HTTPS. Not cosmetic: sessions ride a cookie, and a
+# clinical system on plain HTTP over a clinic's shared wifi is one laptop away
+# from somebody else's session. Put the real domain in deploy/Caddyfile before
+# starting — Caddy fetches the certificate itself once DNS resolves.
+
+services:
+  afya:
+    build: .
+    restart: unless-stopped
+    expose:
+      - "3200"
+    volumes:
+      # Everything the facility owns: the database, its snapshots, and the sync
+      # folder. Losing this directory is losing the clinical record — DEPLOY.md
+      # has the backup cron, and it is not optional.
+      - ./data:/app/data
+    environment:
+      # Where a carried batch is written and looked for. On a machine with a
+      # stick, point this at where it mounts and mount that path in too.
+      AFYA_SYNC_DIR: /app/data/sync
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - afya
+
+volumes:
+  caddy-data:
+  caddy-config:

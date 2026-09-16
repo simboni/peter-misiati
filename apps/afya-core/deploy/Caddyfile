@@ -1,0 +1,22 @@
+# Afya Core — HTTPS for the facility.
+#
+# Replace the host below with the facility's real domain and point an A record
+# at this server. Caddy fetches and renews the certificate on its own; the only
+# prerequisite is that DNS resolves.
+#
+# HTTPS is not decoration here. A session is a cookie, and a clinical system
+# served over plain HTTP on a clinic's shared wifi hands that cookie to anyone
+# on the same network.
+
+afya.example.co.ke {
+	reverse_proxy afya:3200
+	encode zstd gzip
+
+	# The record is patient data. Telling an intermediary not to keep a copy
+	# is cheap and occasionally true.
+	header {
+		Cache-Control "no-store"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "same-origin"
+	}
+}

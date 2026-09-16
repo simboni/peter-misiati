@@ -11,7 +11,9 @@
     "seed": "node --disable-warning=ExperimentalWarning --experimental-strip-types scripts/seed.ts",
     "test": "node --disable-warning=ExperimentalWarning --experimental-strip-types --test tests/*.test.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "demo": "node --disable-warning=ExperimentalWarning --experimental-strip-types scripts/seed.ts && node --disable-warning=ExperimentalWarning --experimental-strip-types scripts/demo-day.ts"
+    "demo": "node --disable-warning=ExperimentalWarning --experimental-strip-types scripts/seed.ts && node --disable-warning=ExperimentalWarning --experimental-strip-types scripts/demo-day.ts",
+    "backup": "node --disable-warning=ExperimentalWarning --experimental-strip-types scripts/backup.ts",
+    "check": "node --disable-warning=ExperimentalWarning --experimental-strip-types scripts/check.ts"
   },
   "dependencies": {
     "next": "16.2.10",
