@@ -191,6 +191,55 @@ test("a batch carrying somebody else's operation is refused", () => {
   assert.match((check as Refusal).why, /carries an operation from SYN1/);
 });
 
+test("an operation claiming an impossible clock is refused", () => {
+  // The clock advances to max(mine, theirs) + 1 on every received op, so one
+  // batch claiming a huge value moves this device's clock there for good —
+  // and near MAX_SAFE_INTEGER, adding one stops doing anything and the total
+  // order collapses onto the device code permanently.
+  const envelope = X.packOutbound({ deviceCode: "SYN2", facilityId });
+  const clockBefore = S.currentClock("SYN1");
+
+  const poisoned = envelope.ops.map((op, index) =>
+    index === 0 ? { ...op, lamport: Number.MAX_SAFE_INTEGER - 1 } : op,
+  );
+  const attack: Envelope = { ...envelope, ops: poisoned, digest: X.batchDigest(poisoned) };
+
+  const out = X.applyInbound({ envelope: attack, facilityId, localDeviceCode: "SYN1" });
+  assert.equal(out.ok, false);
+  assert.match((out as Refusal).why, /outside anything a real device could have reached/);
+  assert.equal(S.currentClock("SYN1"), clockBefore, "the clock did not move");
+});
+
+test("a clock that is merely high is still accepted — a device offline for months has one", () => {
+  const envelope = X.packOutbound({ deviceCode: "SYN2", facilityId });
+  const high = envelope.ops.map((op) => ({ ...op, lamport: X.MAX_LAMPORT - 1 }));
+  const batch: Envelope = { ...envelope, ops: high, digest: X.batchDigest(high) };
+
+  assert.equal(X.verifyEnvelope(batch, facilityId).ok, true);
+});
+
+test("a negative or fractional clock is not a clock", () => {
+  const envelope = X.packOutbound({ deviceCode: "SYN2", facilityId });
+  for (const bad of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+    const ops = envelope.ops.map((op) => ({ ...op, lamport: bad }));
+    const batch: Envelope = { ...envelope, ops, digest: X.batchDigest(ops) };
+    assert.equal(X.verifyEnvelope(batch, facilityId).ok, false, String(bad));
+  }
+});
+
+test("a batch far larger than anybody sends is refused rather than worked through", () => {
+  const envelope = X.packOutbound({ deviceCode: "SYN2", facilityId });
+  const many = Array.from({ length: X.MAX_BATCH_OPS + 1 }, (_, index) => ({
+    ...envelope.ops[0],
+    op_id: `flood-${index}`,
+  }));
+  const flood: Envelope = { ...envelope, ops: many, digest: X.batchDigest(many) };
+
+  const check = X.verifyEnvelope(flood, facilityId);
+  assert.equal(check.ok, false);
+  assert.match((check as Refusal).why, /send it in parts/);
+});
+
 test("something that is not a batch at all is refused without throwing", () => {
   const check = X.verifyEnvelope({} as Envelope, facilityId);
   assert.equal(check.ok, false);
