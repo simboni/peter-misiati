@@ -16,11 +16,13 @@
 
 import { redirect } from "next/navigation";
 import { currentUser, requireOwner } from "@/lib/auth";
+import Link from "next/link";
 import { formatKes, formatQty, formatDate, businessDate, pct } from "@/lib/units";
 import {
   dayRange,
   periodRange,
   describeRange,
+  booksStart,
   isPeriod,
   type Period,
   profitSummary,
@@ -95,11 +97,37 @@ export default async function ReportsPage(props: {
   const shrink = shrinkageByMonth(6, today);
 
   const deadValue = dead.reduce((sum, d) => sum + d.value_cents, 0);
+  const books = booksStart();
 
   return (
     <div>
       <PageTitle title="Reports" subtitle="Owner only · costs and profit are never shown to staff" />
       <PeriodPicker current={period} range={range} from={from} to={to} />
+
+      {/*
+        Where the books start, said on the screen that counts from it.
+
+        Without this line the figures are a claim with no scope: the shop was
+        trialled, emptied and started again, and a month that quietly includes
+        the practice trading is a month the owner is right to distrust.
+      */}
+      {books ? (
+        <p className="mb-3 text-xs text-muted">
+          These books start on <span className="font-bold text-ink">{formatDate(books)}</span> —
+          the day the shop was cleared and this system took over. Nothing before it is counted.{" "}
+          <Link href="/settings" className="font-bold text-brand">
+            Change
+          </Link>
+        </p>
+      ) : (
+        <p className="mb-3 text-xs text-muted">
+          Counting everything ever recorded, including any trial run.{" "}
+          <Link href="/settings" className="font-bold text-brand">
+            Set the day the books start
+          </Link>{" "}
+          to leave the practice figures out.
+        </p>
+      )}
 
       <div className="lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-4 xl:gap-x-5 2xl:gap-x-6">
       <div className="lg:col-span-5">
@@ -146,6 +174,31 @@ export default async function ReportsPage(props: {
         </p>
       </Card>
 
+      {/*
+        The two things that make a profit figure a lie, named.
+
+        A sale of goods whose cost nobody recorded shows as pure profit. It is
+        not profit, it is an unknown, and a total that hides it is the reason an
+        owner says the reports are wrong. Both lines below say the amount, so
+        the size of the doubt is visible rather than felt.
+      */}
+      {summary.uncostedSalesCents > 0 ? (
+        <div className="mt-2">
+          <Alert tone="bad">
+            <strong>{formatKes(summary.uncostedSalesCents)} of these sales have no cost price.</strong>{" "}
+            They are counted as pure profit above, which they are not. Record what those goods cost
+            — on the delivery under Suppliers &amp; purchases, or on the product under Products &amp;
+            prices — and this figure comes right.
+          </Alert>
+        </div>
+      ) : null}
+      {summary.estimatedCostCents > 0 ? (
+        <p className="mt-2 text-xs text-muted">
+          {formatKes(summary.estimatedCostCents)} of the cost above is valued at what those goods
+          cost today, because no cost was recorded when they were sold.
+        </p>
+      ) : null}
+
       </div>
       <div className="lg:col-span-7">
       <SectionLabel>Last 6 months</SectionLabel>
@@ -176,7 +229,13 @@ export default async function ReportsPage(props: {
               title={p.name}
               value={`${formatKes(p.profit_cents)} profit`}
               valueTone={p.profit_cents < 0 ? "bad" : "plain"}
-              meta={`${p.units} sold · ${formatKes(p.revenue_cents)} sales · ${p.margin_pct.toFixed(0)}% margin`}
+              meta={
+                p.uncosted
+                  ? `${p.units} sold · ${formatKes(p.revenue_cents)} sales · no cost price recorded`
+                  : `${p.units} sold · ${formatKes(p.revenue_cents)} sales · ${p.margin_pct.toFixed(0)}% margin${
+                      p.estimated ? " (cost estimated)" : ""
+                    }`
+              }
             />
           ))}
           {products.length > 8 ? (
@@ -191,7 +250,13 @@ export default async function ReportsPage(props: {
                     title={p.name}
                     value={`${formatKes(p.profit_cents)} profit`}
                     valueTone={p.profit_cents < 0 ? "bad" : "plain"}
-                    meta={`${p.units} sold · ${formatKes(p.revenue_cents)} sales · ${p.margin_pct.toFixed(0)}% margin`}
+                    meta={
+                p.uncosted
+                  ? `${p.units} sold · ${formatKes(p.revenue_cents)} sales · no cost price recorded`
+                  : `${p.units} sold · ${formatKes(p.revenue_cents)} sales · ${p.margin_pct.toFixed(0)}% margin${
+                      p.estimated ? " (cost estimated)" : ""
+                    }`
+              }
                   />
                 ))}
               </div>

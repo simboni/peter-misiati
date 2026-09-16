@@ -113,7 +113,16 @@ test("a sale books the cost of what it took, so the profit is honest", () => {
 test("the day's figures equal the sales that made them", () => {
   const d = dayTotals();
   const sales = all<{ total_cents: number; paid_cents: number }>(
-    `SELECT total_cents, paid_cents FROM sales WHERE status = 'completed' AND date(at) = date('now','+3 hours')`,
+    /*
+      Shop time on BOTH sides, or this test is a clock.
+
+      It read `date(at)` — the UTC date — against the shop's date, so between
+      midnight and 3am in Nairobi the two disagreed and the check failed
+      nightly for three hours while the code it guards was correct. The app is
+      consistently UTC+3; the test was the one place that was not.
+    */
+    `SELECT total_cents, paid_cents FROM sales
+      WHERE status = 'completed' AND date(at, '+3 hours') = date('now','+3 hours')`,
   );
   const mine = sales.reduce((n, s) => n + s.total_cents, 0);
   const paid = sales.reduce((n, s) => n + s.paid_cents, 0);

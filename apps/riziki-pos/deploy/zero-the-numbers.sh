@@ -209,6 +209,23 @@ tx(() => {
     first sale after this that nothing in the books supports.
   */
   run(`UPDATE items SET cost_cents = 0`);
+
+  /*
+    And the books start today.
+
+    The shop has just been cleared, so every figure from here is the real one
+    and everything before it was a trial. Stamped by the script rather than left
+    to the owner, because the day this ran IS the answer and nobody will
+    remember it in a month. `clampRange` in reports.ts holds every report inside
+    it.
+  */
+  const TODAY = new Date(Date.now() + 3 * 3600 * 1000).toISOString().slice(0, 10);
+  run(
+    `INSERT INTO settings (key, value) VALUES ('books_start', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    TODAY,
+  );
+  console.log(`The books now start on ${TODAY}.`);
 });
 
 console.log(`Carried across: ${ORDER.map((t) => `${(carried[t] ?? []).length} ${t}`).join(", ")}.`);

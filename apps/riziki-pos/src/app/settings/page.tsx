@@ -13,9 +13,11 @@ import {
   setSetting,
   UserError,
 } from "@/lib/users";
-import { formatDateTime, formatKes, toCents, fromCents } from "@/lib/units";
+import { formatDateTime, formatKes, toCents, fromCents, businessDate } from "@/lib/units";
 import { buildStamp } from "@/lib/build-stamp";
 import { oversellPolicy, setOversellPolicy } from "@/lib/borrowing";
+import { booksStart } from "@/lib/reports";
+import { get } from "@/lib/db";
 import {
   Alert,
   Button,
@@ -124,6 +126,16 @@ async function saveOversell(formData: FormData): Promise<void> {
 async function saveShop(formData: FormData): Promise<void> {
   "use server";
   const by = await guard();
+  /*
+    The day the books start.
+
+    Stored as a plain business date, or emptied to count everything. Every
+    report holds its own range inside it — see `clampRange` in reports.ts — so
+    the trial run this shop did before going live stops being averaged into a
+    real month's profit.
+  */
+  const books = String(formData.get("books_start") ?? "").trim();
+  setSetting("books_start", /^\d{4}-\d{2}-\d{2}$/.test(books) ? books : "", by);
   setSetting("shop_name", String(formData.get("shop_name") ?? ""), by);
   setSetting("shop_address", String(formData.get("shop_address") ?? ""), by);
   setSetting("shop_phone", String(formData.get("shop_phone") ?? ""), by);
@@ -168,6 +180,11 @@ export default async function SettingsPage(props: {
 
   const users = listUsers();
   const oversell = oversellPolicy();
+  const books = booksStart();
+  const firstSaleDate =
+    get<{ d: string }>(
+      `SELECT date(MIN(at), '+3 hours') AS d FROM sales WHERE status = 'completed'`,
+    )?.d ?? "";
   const demo = usersOnDemoPin();
   const build = buildStamp();
   const shopName = getSetting("shop_name", "Riziki Industrial Chemicals");
@@ -427,6 +444,25 @@ export default async function SettingsPage(props: {
           <p className="text-xs text-muted">
             Currently expecting {formatKes(floatCents)}{" "}
             in the drawer before the day’s takings.
+          </p>
+          <Field
+            label="The books start on"
+            hint="The day the shop was cleared and started trading on this system. Reports count nothing before it, so a trial run cannot sit inside a real month's profit. Leave it empty to count everything."
+          >
+            <input
+              className={inputClass}
+              type="date"
+              name="books_start"
+              defaultValue={books}
+              max={businessDate()}
+            />
+          </Field>
+          <p className="text-xs text-muted">
+            {books
+              ? `Reports count from ${books}.`
+              : firstSaleDate
+                ? `Nothing set, so reports go back to the first sale ever recorded, on ${firstSaleDate}.`
+                : "Nothing set, and no sales recorded yet."}
           </p>
           <Button type="submit" className="w-full">
             Save

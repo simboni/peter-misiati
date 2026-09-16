@@ -679,3 +679,126 @@ test("a period is described the way somebody would say it out loud", () => {
   assert.equal(describeRange({ from: "2026-07-28", to: "2026-08-03" }), "28 Jul – 3 Aug 2026");
   assert.equal(describeRange({ from: "2025-12-30", to: "2026-01-02" }), "30 Dec 2025 – 2 Jan 2026");
 });
+
+// ----------------------------------------------- the books, and unknown costs
+
+describe("where the books start", () => {
+  /*
+    The shop was set up, trialled, emptied and set up again. Nothing is ever
+    deleted here, so the trial's sales are still in the ledger — and a practice
+    sale at a practice price is pure invented margin. Averaged into a real
+    month it is exactly what an owner means by "these figures are wrong".
+  */
+  const day = "2026-03-11";
+  const trialDay = "2026-03-02";
+
+  before(() => {
+    run(`DELETE FROM settings WHERE key = 'books_start'`);
+    sale({
+      uuid: "books-trial",
+      atUtc: `${trialDay} 09:00:00`,
+      itemId: 1,
+      name: "Ungerol — 20 kg",
+      units: 5,
+      unitPriceCents: 100000,
+      lineCostCents: 0, // a trial sale: nobody had entered a cost yet
+    });
+    sale({
+      uuid: "books-real",
+      atUtc: `${day} 09:00:00`,
+      itemId: 1,
+      name: "Ungerol — 20 kg",
+      units: 1,
+      unitPriceCents: 100000,
+      lineCostCents: 76000,
+      cash: 100000,
+    });
+  });
+
+  test("with no start date, the trial run is counted — which is the complaint", () => {
+    run(`DELETE FROM settings WHERE key = 'books_start'`);
+    const march = profitSummary({ from: "2026-03-01", to: "2026-03-31" });
+    assert.equal(march.salesCents, 600000, "five practice sales plus one real one");
+  });
+
+  test("set the start date and the trial falls outside every report", () => {
+    run(
+      `INSERT INTO settings (key, value) VALUES ('books_start', ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      day,
+    );
+
+    const march = profitSummary({ from: "2026-03-01", to: "2026-03-31" });
+    assert.equal(march.salesCents, 100000, "only the trading that happened on the books");
+    assert.equal(march.cogsCents, 76000, "and only its cost");
+
+    // A range that ends before the books start has nothing in it at all.
+    const before = profitSummary({ from: "2026-02-01", to: "2026-02-28" });
+    assert.equal(before.salesCents, 0);
+    assert.equal(before.saleCount, 0);
+
+    // The product list is held to the same line, or the rows would not add up
+    // to the total above.
+    const products = profitPerProduct({ from: "2026-03-01", to: "2026-03-31" });
+    const ungerol = products.find((p) => p.item_id === 1);
+    assert.equal(ungerol?.revenue_cents, 100000);
+  });
+
+  test("a sale with no cost price recorded is named, not counted as pure profit", () => {
+    // The real case: the delivery note was in the driver's pocket, the goods
+    // were entered without a price, and everything sold from them carries a
+    // cost of zero. Zero cost is an unknown, not a free sale.
+    run(
+      `INSERT INTO settings (key, value) VALUES ('books_start', '2026-04-01')
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    );
+    sale({
+      uuid: "books-nocost",
+      atUtc: "2026-04-06 09:00:00",
+      itemId: 1, // cost_cents 3800 a kilo on the item, 20 kg to the pack
+      name: "Ungerol — 20 kg",
+      units: 1,
+      unitPriceCents: 100000,
+      lineCostCents: 0,
+      cash: 100000,
+    });
+
+    const april = profitSummary({ from: "2026-04-01", to: "2026-04-30" });
+    assert.equal(april.salesCents, 100000);
+    // The fixture's line is one kilogramme, so today's 3,800 a kilo is the cost.
+    assert.equal(april.cogsCents, 3800, "valued at what that product costs today");
+    assert.equal(april.estimatedCostCents, 3800, "and the screen is told how much was estimated");
+    assert.equal(april.uncostedSalesCents, 0, "nothing here is a complete unknown");
+
+    const row = profitPerProduct({ from: "2026-04-01", to: "2026-04-30" }).find(
+      (p) => p.item_id === 1,
+    )!;
+    assert.equal(row.estimated, true, "the row says the margin rests on an estimate");
+    assert.equal(row.uncosted, false);
+
+    // And a product with no cost anywhere is the one that must never read 100%.
+    run(`UPDATE items SET cost_cents = 0 WHERE id = 2`);
+    sale({
+      uuid: "books-unknown",
+      atUtc: "2026-04-07 09:00:00",
+      itemId: 2,
+      name: "1 L bottle",
+      units: 10,
+      unitPriceCents: 12000,
+      lineCostCents: 0,
+      cash: 120000,
+    });
+    const after = profitSummary({ from: "2026-04-01", to: "2026-04-30" });
+    assert.equal(after.uncostedSalesCents, 120000, "said out loud, in shillings");
+    const bottle = profitPerProduct({ from: "2026-04-01", to: "2026-04-30" }).find(
+      (p) => p.item_id === 2,
+    )!;
+    assert.equal(bottle.uncosted, true);
+  });
+
+  test("the books are put back for the rest of the suite", () => {
+    run(`DELETE FROM settings WHERE key = 'books_start'`);
+    run(`UPDATE items SET cost_cents = 6000 WHERE id = 2`);
+    assert.ok(true);
+  });
+});

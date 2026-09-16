@@ -85,6 +85,61 @@ export function dayRange(date: string): DateRange {
   return { from: date, to: date };
 }
 
+// ------------------------------------------------------- when the books start
+
+/*
+  THE DAY THE SHOP STARTED KEEPING THESE BOOKS.
+
+  Every system has a before. This one was set up, trialled, emptied and set up
+  again — and the trial's sales, its made-up prices and its practice deliveries
+  are still in the ledger, because nothing here is ever deleted. Averaged into a
+  month's profit they are not a small error: a practice sale at a practice price
+  is pure invented margin, and the owner reads the total and says the figures
+  are wrong. He is right.
+
+  So the books have a start date. Before it, nothing is counted: not sales, not
+  cost of goods, not expenses, not discounts, not shrinkage. The rows stay where
+  they are — they happened, and the stock they moved is real — they simply sit
+  outside the period every report reads.
+
+  It is one date for the whole shop, set once by the owner and stamped
+  automatically by the scripts that empty the shop for a fresh start.
+*/
+const BOOKS_KEY = "books_start";
+
+/** The first business date the reports will count. Empty means "everything". */
+export function booksStart(): string {
+  const row = get<{ value: string }>(`SELECT value FROM settings WHERE key = ?`, BOOKS_KEY);
+  const value = (row?.value ?? "").trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : "";
+}
+
+/**
+ * Hold a range inside the books.
+ *
+ * Applied inside every report rather than at the call sites, so no screen can
+ * forget it and no future one can be written without it. A range that ends
+ * before the books start comes back empty — `from` after `to` — which every
+ * BETWEEN below reads as no rows, which is the truth: the shop was not keeping
+ * these books yet.
+ */
+export function clampRange(range: DateRange): DateRange {
+  const start = booksStart();
+  if (!start || range.from >= start) return range;
+  return { from: start, to: range.to };
+}
+
+/** The month a chart may start at, given the books. */
+function clampMonths(keys: string[]): string[] {
+  const start = booksStart();
+  if (!start) return keys;
+  const startMonth = start.slice(0, 7);
+  const kept = keys.filter((k) => k >= startMonth);
+  // Never hand back nothing: a shop whose books start this month still has a
+  // chart, it just has one bar on it.
+  return kept.length ? kept : keys.slice(-1);
+}
+
 // ------------------------------------------------------------- the period
 
 /**
@@ -390,6 +445,17 @@ export interface ProfitSummary {
   expensesCents: number;
   netProfitCents: number;
   saleCount: number;
+  /**
+   * How much of the cost above was valued at today's cost price because none
+   * was recorded when the goods were sold. Zero on a shop with its prices in.
+   */
+  estimatedCostCents: number;
+  /**
+   * Sales whose cost is not known at all — no cost on the line, and none on the
+   * product today. These show as pure profit and are not profit; the figure is
+   * here so the screen can say so out loud instead of quietly overstating.
+   */
+  uncostedSalesCents: number;
 }
 
 /**
@@ -399,7 +465,9 @@ export interface ProfitSummary {
  * the per-line snapshot, so re-pricing an item tomorrow cannot change what last
  * month earned.
  */
-export function profitSummary(range: DateRange): ProfitSummary {
+export function profitSummary(asked: DateRange): ProfitSummary {
+  // Nothing before the day the books start is ever counted; see `clampRange`.
+  const range = clampRange(asked);
   const sales = get<{ total: number; n: number }>(
     `SELECT COALESCE(SUM(total_cents), 0) AS total, COUNT(*) AS n
        FROM sales
@@ -409,10 +477,51 @@ export function profitSummary(range: DateRange): ProfitSummary {
     range.to,
   );
 
-  const cogs = get<{ total: number }>(
-    `SELECT COALESCE(SUM(sl.cost_cents), 0) AS total
+  /*
+    COST OF GOODS, AND WHAT TO DO WHEN NOBODY WROTE ONE DOWN.
+
+    The line's own snapshot is the truth wherever there is one: what this cost
+    the shop on the day it was sold, frozen so that re-pricing tomorrow cannot
+    rewrite last month.
+
+    But a delivery can be recorded without a price — the note is in the lorry
+    driver's pocket, the owner enters the goods now and the money later — and
+    everything sold from it before the price arrived carries a cost of zero.
+    Zero cost is not a cheap sale, it is an unknown one, and summing it as
+    written reports a 100% margin on goods the shop paid real money for. That is
+    the "the profits are too high" complaint, in one line of SQL.
+
+    So a line with no cost is valued at what that product costs today, and the
+    amount of the bill that had to be valued that way is reported beside it.
+    What is left — no cost on the line and no cost on the product either — is
+    counted as unknown rather than free, and named.
+
+    The mixed-product line of a recipe sale is deliberately not swept up in
+    this: it has no item, and its cost sits on the ingredient lines underneath.
+  */
+  const cogs = get<{ total: number; estimated: number; uncosted: number }>(
+    `SELECT COALESCE(SUM(
+              CASE
+                WHEN sl.cost_cents > 0 THEN sl.cost_cents
+                WHEN sl.item_id IS NOT NULL AND COALESCE(i.cost_cents, 0) > 0
+                  THEN CAST(ROUND(1.0 * i.cost_cents * sl.qty_milli / 1000) AS INTEGER)
+                ELSE 0
+              END), 0) AS total,
+            COALESCE(SUM(
+              CASE
+                WHEN sl.cost_cents = 0 AND sl.item_id IS NOT NULL AND COALESCE(i.cost_cents, 0) > 0
+                  THEN CAST(ROUND(1.0 * i.cost_cents * sl.qty_milli / 1000) AS INTEGER)
+                ELSE 0
+              END), 0) AS estimated,
+            COALESCE(SUM(
+              CASE
+                WHEN sl.cost_cents = 0 AND sl.item_id IS NOT NULL AND COALESCE(i.cost_cents, 0) = 0
+                  THEN sl.line_total_cents
+                ELSE 0
+              END), 0) AS uncosted
        FROM sale_lines sl
        JOIN sales s ON s.id = sl.sale_id
+       LEFT JOIN items i ON i.id = sl.item_id
       WHERE s.status = 'completed'
         AND date(s.at, '+3 hours') BETWEEN ? AND ?`,
     range.from,
@@ -439,6 +548,8 @@ export function profitSummary(range: DateRange): ProfitSummary {
     expensesCents,
     netProfitCents: grossProfitCents - expensesCents,
     saleCount: sales?.n ?? 0,
+    estimatedCostCents: cogs?.estimated ?? 0,
+    uncostedSalesCents: cogs?.uncosted ?? 0,
   };
 }
 
@@ -452,7 +563,7 @@ export interface MonthSales {
 
 /** Sales per month for the bar chart. Missing months come back as zero. */
 export function monthlySales(months = 6, from: string = businessDate()): MonthSales[] {
-  const keys = lastMonths(months, from);
+  const keys = clampMonths(lastMonths(months, from));
   const rows = all<{ ym: string; total: number }>(
     `SELECT strftime('%Y-%m', at, '+3 hours') AS ym,
             COALESCE(SUM(total_cents), 0) AS total
@@ -480,6 +591,10 @@ export interface ProductProfit {
   cost_cents: number;
   profit_cents: number;
   margin_pct: number;
+  /** True when part of the cost above is today's cost price, not the line's. */
+  estimated: boolean;
+  /** True when nothing at all is known about what this cost the shop. */
+  uncosted: boolean;
 }
 
 /**
@@ -490,7 +605,9 @@ export interface ProductProfit {
  * `items` table is deliberately not joined — doing so would let today's price
  * rewrite last month's margin.
  */
-export function profitPerProduct(range: DateRange, limit = 20): ProductProfit[] {
+export function profitPerProduct(asked: DateRange, limit = 20): ProductProfit[] {
+  // Nothing before the day the books start is ever counted; see `clampRange`.
+  const range = clampRange(asked);
   const rows = all<{
     item_id: number | null;
     name: string;
@@ -498,18 +615,46 @@ export function profitPerProduct(range: DateRange, limit = 20): ProductProfit[] 
     unit_price_cents: number;
     revenue_cents: number;
     cost_cents: number;
+    estimated: number;
+    uncosted: number;
   }>(
-    `SELECT sl.item_id                                 AS item_id,
-            sl.name_snapshot                           AS name,
+    /*
+      Grouped by the PRODUCT where there is one, and only by name where there is
+      not — a renamed product used to come back as two rows that neither
+      reconciled with each other nor with the total, and the owner rightly read
+      that as the report being wrong. The name shown is the one it was last sold
+      under. Lines with no product are the priced line of a recipe sale, which
+      genuinely is a thing of its own.
+
+      Cost falls back to today's cost price exactly as `profitSummary` does, so
+      the rows add up to the total above instead of quietly disagreeing with it.
+    */
+    `SELECT MIN(sl.item_id)                            AS item_id,
+            (SELECT x.name_snapshot FROM sale_lines x
+              WHERE COALESCE(x.item_id, -1) = COALESCE(sl.item_id, -1)
+                AND (sl.item_id IS NOT NULL OR x.name_snapshot = sl.name_snapshot)
+              ORDER BY x.id DESC LIMIT 1)              AS name,
             COALESCE(SUM(sl.units), 0)                 AS units,
             COALESCE(MAX(sl.unit_price_cents), 0)      AS unit_price_cents,
             COALESCE(SUM(sl.line_total_cents), 0)      AS revenue_cents,
-            COALESCE(SUM(sl.cost_cents), 0)            AS cost_cents
+            COALESCE(SUM(
+              CASE
+                WHEN sl.cost_cents > 0 THEN sl.cost_cents
+                WHEN sl.item_id IS NOT NULL AND COALESCE(i.cost_cents, 0) > 0
+                  THEN CAST(ROUND(1.0 * i.cost_cents * sl.qty_milli / 1000) AS INTEGER)
+                ELSE 0
+              END), 0)                                 AS cost_cents,
+            MAX(CASE WHEN sl.cost_cents = 0 AND sl.item_id IS NOT NULL
+                      AND COALESCE(i.cost_cents, 0) > 0 THEN 1 ELSE 0 END)  AS estimated,
+            MAX(CASE WHEN sl.cost_cents = 0 AND sl.item_id IS NOT NULL
+                      AND COALESCE(i.cost_cents, 0) = 0 THEN 1 ELSE 0 END)  AS uncosted
        FROM sale_lines sl
        JOIN sales s ON s.id = sl.sale_id
+       LEFT JOIN items i ON i.id = sl.item_id
       WHERE s.status = 'completed'
         AND date(s.at, '+3 hours') BETWEEN ? AND ?
-      GROUP BY sl.item_id, sl.name_snapshot
+      GROUP BY COALESCE(sl.item_id, -1),
+               CASE WHEN sl.item_id IS NULL THEN sl.name_snapshot ELSE '' END
       ORDER BY (COALESCE(SUM(sl.line_total_cents), 0) - COALESCE(SUM(sl.cost_cents), 0)) DESC
       LIMIT ?`,
     range.from,
@@ -523,6 +668,8 @@ export function profitPerProduct(range: DateRange, limit = 20): ProductProfit[] 
       ...r,
       profit_cents: profit,
       margin_pct: r.revenue_cents === 0 ? 0 : (profit / r.revenue_cents) * 100,
+      estimated: r.estimated === 1,
+      uncosted: r.uncosted === 1,
     };
   });
 }
@@ -571,7 +718,9 @@ export interface DiscountSummary {
   belowFloorLines: number;
 }
 
-export function discountSummary(range: DateRange): DiscountSummary {
+export function discountSummary(asked: DateRange): DiscountSummary {
+  // Nothing before the day the books start is ever counted; see `clampRange`.
+  const range = clampRange(asked);
   const row = get<{ discount: number; at_list: number; n: number; below: number }>(
     `SELECT COALESCE(SUM(${DISCOUNT_SQL}), 0)                       AS discount,
             COALESCE(SUM(CASE WHEN ${PRICED_SQL}
@@ -620,7 +769,9 @@ export interface DiscountByPerson {
  * number rather than of a memory, and it is the reason the asking price is
  * snapshotted at all.
  */
-export function discountsByPerson(range: DateRange): DiscountByPerson[] {
+export function discountsByPerson(asked: DateRange): DiscountByPerson[] {
+  // Nothing before the day the books start is ever counted; see `clampRange`.
+  const range = clampRange(asked);
   return all<DiscountByPerson>(
     `SELECT s.user_id                                      AS user_id,
             u.name                                         AS user_name,
@@ -658,7 +809,9 @@ export interface DiscountByItem {
  * problem — it is a shelf price nobody believes, and the answer is to change
  * the price rather than to keep overriding it.
  */
-export function discountsByItem(range: DateRange, limit = 12): DiscountByItem[] {
+export function discountsByItem(asked: DateRange, limit = 12): DiscountByItem[] {
+  // Nothing before the day the books start is ever counted; see `clampRange`.
+  const range = clampRange(asked);
   return all<DiscountByItem>(
     `SELECT sl.item_id                                     AS item_id,
             sl.name_snapshot                               AS name,
@@ -692,7 +845,9 @@ export interface DiscountedSale {
 }
 
 /** The individual bills, newest first — where a figure above turns into a name. */
-export function discountedSales(range: DateRange, limit = 30): DiscountedSale[] {
+export function discountedSales(asked: DateRange, limit = 30): DiscountedSale[] {
+  // Nothing before the day the books start is ever counted; see `clampRange`.
+  const range = clampRange(asked);
   return all<DiscountedSale>(
     `SELECT s.id                                  AS sale_id,
             s.at                                  AS at,
@@ -746,7 +901,9 @@ function lineOfKind(kind: string | null): BusinessLine {
  * is whether those are worth the shelf space. "Other" holds the last of the
  * bottled stock as it sells out.
  */
-export function businessLineSplit(range: DateRange): LineSplit[] {
+export function businessLineSplit(asked: DateRange): LineSplit[] {
+  // Nothing before the day the books start is ever counted; see `clampRange`.
+  const range = clampRange(asked);
   const rows = all<{ kind: string | null; revenue_cents: number; cost_cents: number }>(
     `SELECT i.kind                                AS kind,
             COALESCE(SUM(sl.line_total_cents), 0) AS revenue_cents,
@@ -846,7 +1003,7 @@ export interface ShrinkageRow {
  * month is the thing this report exists to catch.
  */
 export function shrinkageByMonth(months = 6, from: string = businessDate()): ShrinkageRow[] {
-  const keys = lastMonths(months, from);
+  const keys = clampMonths(lastMonths(months, from));
   const rows = all<{ ym: string; milli: number; value_cents: number }>(
     `SELECT strftime('%Y-%m', m.at, '+3 hours') AS ym,
             COALESCE(SUM(m.delta_milli), 0)     AS milli,

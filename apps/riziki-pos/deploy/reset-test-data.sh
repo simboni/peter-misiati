@@ -120,6 +120,17 @@ tx(() => {
   for (const s of carried.settings) {
     run("INSERT INTO settings (key, value) VALUES (?, ?)", s.key, s.value);
   }
+  /*
+    And the books start today: everything before this wipe was a trial, and the
+    day the script ran is the answer nobody will remember in a month. Every
+    report holds its range inside it — see `clampRange` in reports.ts.
+  */
+  const BOOKS_TODAY = new Date(Date.now() + 3 * 3600 * 1000).toISOString().slice(0, 10);
+  run(
+    `INSERT INTO settings (key, value) VALUES ('books_start', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    BOOKS_TODAY,
+  );
 });
 console.log(`Carried across: ${carried.users.length} account(s), ${carried.settings.length} setting(s).`);
 
