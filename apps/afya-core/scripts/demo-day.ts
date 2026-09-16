@@ -2210,7 +2210,7 @@ const alerts = countOpen(facilityId);
 
 console.log(`Demo day loaded for ${facility.name} (KMHFL ${facility.kmhfl_code}).`);
 console.log(``);
-console.log(`  patients          ${count(`SELECT COUNT(*) AS n FROM patients WHERE merged_into IS NULL`)}`);
+console.log(`  patient records   ${count(`SELECT COUNT(*) AS n FROM patients WHERE merged_into IS NULL`)} · ${PEOPLE.length} of them play a part in the script`);
 console.log(`  in the queue      ${waiting.length}`);
 console.log(`  dispensed         ${count(`SELECT COUNT(*) AS n FROM dispenses`)} · stock on the shelf ${Math.round(stock.valueCents / 100)} KES`);
 console.log(`  lab orders        ${count(`SELECT COUNT(*) AS n FROM orders`)} · ${count(`SELECT COUNT(*) AS n FROM lab_results WHERE released_at IS NOT NULL`)} results released`);
