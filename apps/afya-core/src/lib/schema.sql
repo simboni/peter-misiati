@@ -2521,3 +2521,123 @@ CREATE TABLE IF NOT EXISTS payslips (
 );
 CREATE INDEX IF NOT EXISTS idx_payslip_run ON payslips(run_id);
 CREATE INDEX IF NOT EXISTS idx_payslip_emp ON payslips(employee_id);
+
+-- ============================================================================
+-- M60 Human Resources
+--
+-- Built on the payroll's `employees` and the access module's
+-- `practitioner_licences` rather than a third list of staff. What is added here
+-- is contracts, leave, and the question a clinical HR module exists to ask:
+-- if this person is away, who covers them?
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS contracts (
+  id            TEXT PRIMARY KEY,
+  employee_id   TEXT NOT NULL REFERENCES employees(id),
+  kind          TEXT NOT NULL CHECK (kind IN ('permanent','fixed_term','locum','internship','probation')),
+  starts_on     TEXT NOT NULL,
+  -- Null for permanent. For anything else, the date somebody is working
+  -- without a contract if nobody notices.
+  ends_on       TEXT,
+  notice_days   INTEGER,
+  terms         TEXT NOT NULL DEFAULT '',
+  signed_on     TEXT,
+  superseded_by TEXT REFERENCES contracts(id),
+  created_by    INTEGER REFERENCES users(id),
+  creator_name  TEXT NOT NULL,
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_contract_emp ON contracts(employee_id, starts_on);
+
+-- Statutory leave entitlements, as data with an effective date — the same
+-- pattern as the payroll rates, and for the same reason. The Employment Act
+-- sets minimums; a facility may be more generous and its own figures go here.
+CREATE TABLE IF NOT EXISTS leave_types (
+  code          TEXT PRIMARY KEY,
+  name          TEXT NOT NULL,
+  -- Days a year. Null where the entitlement is per event rather than annual,
+  -- like maternity or compassionate leave.
+  annual_days   INTEGER,
+  per_event_days INTEGER,
+  paid          INTEGER NOT NULL DEFAULT 1,
+  -- Whether unused days roll into next year. Annual leave usually does, in
+  -- part; sick leave does not.
+  carries_over  INTEGER NOT NULL DEFAULT 0,
+  max_carry_days INTEGER,
+  effective_from TEXT NOT NULL,
+  source        TEXT NOT NULL DEFAULT '',
+  active        INTEGER NOT NULL DEFAULT 1,
+  created_at    TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS leave_requests (
+  id            TEXT PRIMARY KEY,
+  employee_id   TEXT NOT NULL REFERENCES employees(id),
+  leave_code    TEXT NOT NULL REFERENCES leave_types(code),
+  starts_on     TEXT NOT NULL,
+  ends_on       TEXT NOT NULL,
+  -- Working days, computed at request time and stored. Recomputing later under
+  -- a changed calendar would change what somebody was charged.
+  days          INTEGER NOT NULL,
+  reason        TEXT NOT NULL DEFAULT '',
+  status        TEXT NOT NULL CHECK (status IN ('requested','approved','declined','cancelled','taken')),
+  -- Who is covering the work. Null is allowed, but it is recorded as a null
+  -- rather than left unasked: a department with nobody covering is a fact the
+  -- approver should have seen.
+  cover_employee_id TEXT REFERENCES employees(id),
+  cover_note    TEXT NOT NULL DEFAULT '',
+  -- Set when the approver went ahead knowing nobody holds the same
+  -- registration. The acknowledgement is the record.
+  uncovered_ack TEXT NOT NULL DEFAULT '',
+  decided_by    INTEGER REFERENCES users(id),
+  decider_name  TEXT NOT NULL DEFAULT '',
+  decided_at    TEXT,
+  decision_note TEXT NOT NULL DEFAULT '',
+  requested_by  INTEGER REFERENCES users(id),
+  requester_name TEXT NOT NULL,
+  requested_at  TEXT NOT NULL,
+  device_code   TEXT,
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_leave_emp ON leave_requests(employee_id, starts_on);
+CREATE INDEX IF NOT EXISTS idx_leave_status ON leave_requests(status, starts_on);
+
+-- An adjustment to a leave balance that is not a request: an opening balance,
+-- days bought out, days forfeited at year end. Kept separate so a balance is
+-- always the sum of rows rather than a number somebody edited.
+CREATE TABLE IF NOT EXISTS leave_adjustments (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  employee_id   TEXT NOT NULL REFERENCES employees(id),
+  leave_code    TEXT NOT NULL REFERENCES leave_types(code),
+  year          INTEGER NOT NULL,
+  days          INTEGER NOT NULL,
+  reason        TEXT NOT NULL,
+  by_user_id    INTEGER REFERENCES users(id),
+  by_name       TEXT NOT NULL,
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_leaveadj_emp ON leave_adjustments(employee_id, year);
+
+-- A disciplinary or grievance record. Kept because due process has dates, and
+-- a facility that cannot show it followed them loses at the tribunal whatever
+-- actually happened.
+CREATE TABLE IF NOT EXISTS hr_cases (
+  id            TEXT PRIMARY KEY,
+  employee_id   TEXT NOT NULL REFERENCES employees(id),
+  kind          TEXT NOT NULL CHECK (kind IN ('disciplinary','grievance','performance')),
+  summary       TEXT NOT NULL,
+  raised_on     TEXT NOT NULL,
+  -- The Employment Act requires notice and a hearing at which the employee may
+  -- be accompanied. These dates are the proof it happened.
+  notified_on   TEXT,
+  heard_on      TEXT,
+  accompanied_by TEXT NOT NULL DEFAULT '',
+  outcome       TEXT CHECK (outcome IN
+                  ('no_action','counselled','written_warning','final_warning','dismissed','upheld','not_upheld','withdrawn')),
+  outcome_on    TEXT,
+  outcome_note  TEXT NOT NULL DEFAULT '',
+  opened_by     INTEGER REFERENCES users(id),
+  opener_name   TEXT NOT NULL,
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_hrcase_emp ON hr_cases(employee_id);

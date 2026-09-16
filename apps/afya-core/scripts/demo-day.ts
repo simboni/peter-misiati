@@ -14,6 +14,7 @@
 
 import { seedDemo, DEMO_MFA_SECRET } from "../src/lib/seed.ts";
 import { registerDevice, setOdpcRegistration, getFacility } from "../src/lib/facility.ts";
+import { recordLicence, createUser } from "../src/lib/users.ts";
 import { registerPatient } from "../src/lib/patients.ts";
 import { recordConsent, checkIn, recordVitals, setPriority, advanceVisit } from "../src/lib/frontdesk.ts";
 import { openEncounter, addDiagnosis, writeNote, closeEncounter } from "../src/lib/encounters.ts";
@@ -69,6 +70,10 @@ import {
   addEmployee, addPayItem, createRun as createPayrollRun, approveRun, payRun,
   payrollSummary, statutoryReturn,
 } from "../src/lib/payroll.ts";
+import {
+  issueContract, requestLeave, decideLeave, openCase, recordHearing,
+  closeCase as closeHrCase, hrSummary,
+} from "../src/lib/hr.ts";
 import { closeDb, run, get, all as dbAll, verifyAuditChain, today } from "../src/lib/db.ts";
 
 const { facilityId, adminId, clinicianId, receptionistId, pharmacistId, labTechId } = seedDemo();
@@ -1802,11 +1807,22 @@ const STAFF: [string, string, string, number, string][] = [
   ["Daniel", "Mwangi", "Cleaner", 1_800_000, "Support"],
 ];
 
+// Four of these are the same people as the system's users. Linking them is the
+// whole point: a facility that keeps three lists of its staff ends up paying
+// somebody who left and rostering somebody whose licence expired.
+const STAFF_USERS: Record<string, number | null> = {
+  Achieng: clinicianId,
+  Joseph: receptionistId,
+  Grace: pharmacistId,
+  Samuel: labTechId,
+};
+
 let staffNo = 100;
 const staffIds: Record<string, string> = {};
 for (const [given, family, title, basic, department] of STAFF) {
   staffIds[given] = addEmployee({
     facilityId, payrollNo: `EMP-${++staffNo}`, givenName: given, familyName: family,
+    userId: STAFF_USERS[given] ?? null,
     kraPin: `A0${staffNo}45678X`, nssfNo: `NSSF-${staffNo}`, shifNo: `SHIF-${staffNo}`,
     jobTitle: title, department, basicCents: basic,
     bankName: "Equity Bank", bankAccount: `0123456${staffNo}`,
@@ -1845,6 +1861,107 @@ const payrollRun = createPayrollRun({
 });
 approveRun({ runId: payrollRun.runId, ...HRAPPROVE });
 payRun({ runId: payrollRun.runId, paymentRef: `EFT-PAYROLL-${PAYROLL_PERIOD.replace("-", "")}`, ...HRAPPROVE });
+
+
+// ----------------------------------------------------------------------- HR
+//
+// Contracts for everybody, leave over the coming weeks, and the case the
+// module exists to handle: the only laboratory technologist asks for a week
+// off. Nobody else holds a KMLTTB registration, so the approver has to say in
+// writing how the work will be covered — and the facility is told.
+//
+// Also one lapsed registration, because a licence that expired last month is
+// not a reminder: the access module has been refusing that person's licensed
+// work since the day it went.
+
+const HRBY = { byUserId: pharmacistId, byUserName: "Grace Kimani" };
+const HRBOSS = { byUserId: adminId, byUserName: "Facility Administrator" };
+
+for (const [given, id] of Object.entries(staffIds)) {
+  issueContract({
+    employeeId: id,
+    kind: given === "Daniel" ? "fixed_term" : "permanent",
+    startsOn: "2024-01-15",
+    endsOn: given === "Daniel" ? inDays(45) : undefined,
+    noticeDays: 30,
+    terms: given === "Daniel" ? "Twelve-month renewable contract" : "Permanent and pensionable",
+    signedOn: "2024-01-15",
+    ...HRBY, deviceCode: REC,
+  });
+}
+
+// The next Monday, so leave lands on clean working days.
+const mondayIn = (weeks: number) => {
+  const d = new Date(Date.now() + weeks * 7 * 86_400_000);
+  d.setUTCDate(d.getUTCDate() + ((8 - d.getUTCDay()) % 7 || 7));
+  return d.toISOString().slice(0, 10);
+};
+const plusDays = (date: string, n: number) =>
+  new Date(Date.parse(`${date}T00:00:00.000Z`) + n * 86_400_000).toISOString().slice(0, 10);
+
+// Ordinary leave, covered — there are two nurses.
+const nurseLeave = requestLeave({
+  employeeId: staffIds.Mary, leaveCode: "ANNUAL",
+  startsOn: mondayIn(2), endsOn: plusDays(mondayIn(2), 4),
+  reason: "Family visit upcountry", ...HRBY, deviceCode: REC,
+});
+decideLeave({
+  requestId: nurseLeave.id, approve: true,
+  coverEmployeeId: staffIds.Esther, coverNote: "Esther covering the outpatient list",
+  ...HRBOSS,
+});
+
+// The one that matters: the only laboratory technologist.
+const labLeave = requestLeave({
+  employeeId: staffIds.Samuel, leaveCode: "ANNUAL",
+  startsOn: mondayIn(4), endsOn: plusDays(mondayIn(4), 4),
+  reason: "Annual leave, booked in January", ...HRBY, deviceCode: REC,
+});
+decideLeave({
+  requestId: labLeave.id, approve: true,
+  uncoveredAck: "No second KMLTTB registration at this facility. Samples to Mbagathi for the week, agreed with their laboratory manager. Stat malaria and glucose by rapid test on site.",
+  ...HRBOSS,
+});
+
+// And one waiting for a decision, so the register is not all settled.
+requestLeave({
+  employeeId: staffIds.Joseph, leaveCode: "ANNUAL",
+  startsOn: mondayIn(6), endsOn: plusDays(mondayIn(6), 9),
+  reason: "Two weeks, wedding", ...HRBY, deviceCode: REC,
+});
+
+// A lapsed registration. The radiographer's KRB licence expired three weeks
+// ago, so the access module has been refusing his licensed work since then —
+// HR's job is that it never comes as news. Note that adding an OLDER licence
+// to somebody who already holds a current one lapses nothing, which is why
+// this is a person of his own rather than a second row against an existing
+// one: only the latest licence per regulator counts.
+const radiographerUser = createUser({
+  facilityId, username: "p.barasa", name: "Peter Barasa", password: "ChangeMe123",
+  roles: ["clinician"], byUserId: adminId, byUserName: "Facility Administrator",
+});
+recordLicence({
+  userId: radiographerUser, regulator: "KRB", licenceNumber: "KRB-DEMO-3312",
+  expiresOn: inDays(-21), byUserId: adminId, byUserName: "Facility Administrator",
+});
+run(`UPDATE employees SET user_id = ? WHERE id = ?`, radiographerUser, staffIds.Peter);
+
+// A disciplinary case taken through notice and hearing, which is what makes it
+// defensible at the tribunal.
+const hrCase = openCase({
+  employeeId: staffIds.Daniel, kind: "disciplinary",
+  summary: "Repeated late arrival — four occasions in September",
+  raisedOn: inDays(-14), ...HRBY, deviceCode: REC,
+});
+recordHearing({
+  caseId: hrCase, notifiedOn: inDays(-10), heardOn: inDays(-5),
+  accompaniedBy: "Fellow employee, as the Act allows", ...HRBOSS,
+});
+closeHrCase({
+  caseId: hrCase, outcome: "written_warning",
+  note: "Written warning, valid six months. Transport difficulty acknowledged; shift moved to the later start.",
+  ...HRBOSS,
+});
 
 // ------------------------------------------------------------------ the ledger
 //
@@ -1916,6 +2033,7 @@ console.log(`  lab orders        ${count(`SELECT COUNT(*) AS n FROM orders`)} ·
 console.log(`  admissions        ${count(`SELECT COUNT(*) AS n FROM admissions`)} · ${count(`SELECT COUNT(*) AS n FROM admissions WHERE discharged_at IS NULL`)} still in a bed`);
 console.log(`  appointments      ${count(`SELECT COUNT(*) AS n FROM appointments`)} booked`);
 console.log(`  programmes        ${count(`SELECT COUNT(*) AS n FROM enrolments WHERE status = 'active'`)} on the registers · HIV retention ${cohortReport("HIV")[0]?.retentionPercent ?? 0}%`);
+console.log(`  HR                ${hrSummary(facilityId).staff} staff · ${hrSummary(facilityId).leaveWaiting} leave waiting · ${hrSummary(facilityId).uncoveredLeave} approved uncovered · ${hrSummary(facilityId).lapsedLicences} lapsed registration`);
 console.log(`  payroll           ${payrollSummary(facilityId).employees} staff · gross ${Math.round(payrollSummary(facilityId).monthlyGrossCents / 100)} KES · statutory ${Math.round(statutoryReturn(payrollRun.runId).totalRemittableCents / 100)} KES to remit${payrollRun.cappedEmployees ? ` · ${payrollRun.cappedEmployees} capped` : ""}`);
 console.log(`  ledger            ${ledgerSummary(facilityId).journals} journals · trial balance ${ledgerSummary(facilityId).trialBalanceDifferenceCents === 0 ? "balanced" : "OUT"} · ${reconcileLedger(facilityId).agrees ? "agrees with the till" : "DISAGREES with the till"}`);
 console.log(`  procurement       ${procurementSummary(facilityId).openOrders} orders open · ${procurementSummary(facilityId).queriedInvoices} invoice queried · ${Math.round(procurementSummary(facilityId).varianceCents / 100)} KES overcharged, caught`);

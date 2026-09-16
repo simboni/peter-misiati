@@ -72,6 +72,9 @@ export type BadgeKey =
   | "unposted"
   | "payroll"
   | "payrollGaps"
+  | "leave"
+  | "expiries"
+  | "hrCases"
   | "alerts";
 
 export const NAV: NavSection[] = [
@@ -229,6 +232,9 @@ export const NAV: NavSection[] = [
     links: [
       { href: "/admin", label: "Facility & compliance", permission: ["facility.configure", "user.manage"] },
       { href: "/admin?view=staff", label: "Staff & licences", permission: ["user.manage"] },
+      { href: "/hr", label: "Leave register", permission: ["user.manage"], badge: "leave" },
+      { href: "/hr?view=expiries", label: "Licences & contracts", permission: ["user.manage"], badge: "expiries" },
+      { href: "/hr?view=cases", label: "Disciplinary & grievance", permission: ["user.manage"], badge: "hrCases" },
       { href: "/payroll", label: "Payroll runs", permission: ["user.manage"], badge: "payroll" },
       { href: "/payroll?view=staff", label: "Payroll staff", permission: ["user.manage"], badge: "payrollGaps" },
       { href: "/payroll?view=rates", label: "Statutory rates", permission: ["user.manage"] },

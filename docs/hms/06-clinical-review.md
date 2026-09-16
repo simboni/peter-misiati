@@ -480,26 +480,76 @@ the housing levy have each changed within the last three years.
 
 Nothing in this module is tax advice.
 
-## 15. Public health
+## 15. Human resources
+
+Mostly employment law rather than clinical judgement, but one rule here is a
+patient-safety rule wearing an HR coat.
 
 | # | Rule | Where | Source | Status |
 |---|---|---|---|---|
-| 15.1 | Notifiable conditions are detected from coded diagnoses as they are made, because the Act's clock runs from diagnosis | `reporting.ts` | Public Health Act | ✅ |
-| 15.2 | **The notifiable list is four conditions** — malaria, tuberculosis, cholera, measles. The full schedule must be loaded | `reporting.ts` `NOTIFIABLE_PREFIXES` | — | 🔴 |
-| 15.3 | Reporting one requires the county's reference — it is the proof it was made | `reporting.ts` | Design rule | ✅ |
-| 15.4 | MOH 705A is under five, 705B is five and over, split by age **on the day of the visit** | `reporting.ts` | MOH forms | ✅ |
-| 15.5 | A condition is counted whichever code in its ICD-11 family the clinician used | `reporting.ts` `MOH705_CONDITIONS` | Design rule | ⚠️ |
-| 15.6 | **The 705 condition list is six conditions.** The real form has many more rows | `reporting.ts` | — | 🔴 |
+| 15.1 | **Cover is matched on the regulator's registration, not the job title.** A title is what a facility calls somebody; a registration is what the law lets them do. Two people both called "Laboratory Technologist" where only one holds a KMLTTB registration is the case this exists to get right | `hr.ts` `coverFor` | Design rule | ✅ |
+| 15.2 | **Leave is not blocked for want of cover — it is acknowledged in writing.** People are entitled to leave, and software that refuses it teaches a facility to keep its leave register in a notebook where nobody can see the gap at all | `hr.ts` `decideLeave` | Design rule | ⚠️ |
+| 15.3 | Approving uncovered leave raises an alert to the facility, because a laboratory closed for a week is not an HR matter | `hr.ts` | Design rule | ✅ |
+| 15.4 | A licence that lapses **during** the absence is not cover | `hr.ts` `coverFor` | Design rule | ✅ |
+| 15.5 | Somebody who holds no registration needs no licensed cover, and saying so is not a failure | `hr.ts` | Design rule | ✅ |
+| 15.6 | **A lapsed registration is not a reminder** — the access module has been refusing that person's licensed actions since the day it expired. HR's job is that it never comes as news | `hr.ts` `expiries`, `access.ts` | Design rule | ✅ |
+| 15.7 | **Only the latest licence per regulator counts.** A renewed one is not expiring, and adding an older row to somebody who holds a current one lapses nothing | `hr.ts` `expiries` | Design rule | ✅ |
+| 15.8 | **The expiry horizon is 90 days** — enough for a KMPDC or NCK renewal to be possible. A facility with slower internal approvals wants longer | `hr.ts` `EXPIRY_HORIZON_DAYS` | Judgement | 🔴 |
+| 15.9 | **A fixed-term contract with no end date is refused.** A tribunal reads it as permanent | `hr.ts` `issueContract` | Employment Act 2007 | ⚠️ |
+| 15.10 | A renewal **supersedes** rather than replaces: the old terms are what applied while they applied, and an employment dispute is fought over exactly that | `hr.ts` | Practice | ✅ |
+| 15.11 | **Annual leave 21 working days** after twelve months' service | `hr.ts` `seedLeaveTypes` | Employment Act 2007 | 🔴 |
+| 15.12 | **Sick leave 14 days.** The Act gives 7 at full pay and 7 at half pay — THE HALF-PAY HALF IS NOT MODELLED, so payroll will overpay a long sickness | `hr.ts` | Employment Act 2007 | 🔴 |
+| 15.13 | **Maternity 90 days, paternity 14 days**, per event | `hr.ts` | Employment Act 2007 | 🔴 |
+| 15.14 | **A leave balance is the sum of rows, never a number somebody edited.** Accrual, leave taken and explicit adjustments each leave a row, so a balance can always be explained to the person whose it is | `hr.ts` `leaveBalance` | Design rule | ✅ |
+| 15.15 | Approved leave comes off the balance **before** it is taken, so two bookings cannot both fit in the same remaining days | `hr.ts` | Design rule | ✅ |
+| 15.16 | Leave beyond the balance is refused, and the refusal says what is left. Adjusting past it needs a recorded reason | `hr.ts` | Design rule | ✅ |
+| 15.17 | Somebody other than the requester approves leave | `hr.ts` | Standard control | ✅ |
+| 15.18 | **Leave is counted in working days, excluding weekends. PUBLIC HOLIDAYS ARE NOT EXCLUDED** — Kenya's are partly gazetted each year and partly moveable, and no holiday calendar is loaded | `hr.ts` `workingDays` | — | 🔴 |
+| 15.19 | **An employee cannot be heard before being notified.** A hearing held before the notice is not a hearing, however well minuted | `hr.ts` `recordHearing` | Employment Act 2007 | ✅ |
+| 15.20 | **A dismissal without a recorded hearing is refused** — it is unfair whatever the employee did, and it is the single most expensive mistake a Kenyan employer can make at the tribunal | `hr.ts` `closeCase` | Employment Act 2007 | ✅ |
+| 15.21 | Whether the employee was accompanied is recorded, because the Act gives that right and a tribunal asks | `schema.sql` `hr_cases` | Employment Act 2007 | ✅ |
+| 15.22 | **No roster, no shift pattern, no overtime, no probation-period rules, no notice-period enforcement, no terminal dues calculation** | — | — | 🔴 |
 
-## 16. Revenue (for the claims specialist, not the clinician)
+### What to ask an HR adviser, in order
+
+1. **Sick leave at half pay.** Marked red and it costs money: the Act gives
+   seven days at full pay and seven at half, and only the fourteen days are
+   modelled. Payroll will overpay anybody off sick for more than a week. It
+   needs either a half-pay leave type or a rule in the payroll.
+2. **Public holidays.** Marked red. Leave is counted in working days excluding
+   weekends only, so any leave spanning a holiday charges the employee a day
+   they were entitled to anyway. Kenya's holidays are partly gazetted each year,
+   so this is a calendar to load rather than a rule to write.
+3. **Check every entitlement against any collective agreement.** The seeded
+   figures are the Employment Act minimums. A facility with unionised staff is
+   almost certainly bound by better terms, and those belong in the data.
+
+Also worth a decision: **rule 15.2 lets leave be approved with nobody
+registered to cover**, on a written acknowledgement. That is deliberate — a
+system that refuses is a system nobody uses — but a facility may prefer that
+certain registrations (a sole pharmacist, a sole anaesthetist) block outright.
+That would be a short list in configuration, and it does not exist yet.
+
+## 16. Public health
 
 | # | Rule | Where | Source | Status |
 |---|---|---|---|---|
-| 16.1 | Nine scrubber gates, each mapped to a documented SHA rejection cause | `claims.ts` `scrub` | SHA published causes | ⚠️ |
-| 16.2 | **The gates are inferred from documented causes, not from 50 real rejected claims.** The roadmap says to build them from a real corpus and that is still the right next step | — | — | 🔴 |
-| 16.3 | A claim beyond the payer's submission window (SHA: 7 days) escalates rather than blocking, because a late claim still has an appeal path | `claims.ts` | SHA | ⚠️ |
-| 16.4 | Tariffs and benefit rules are **illustrative**. The SHA schedule for the contracting cycle must be loaded | `seed.ts` | — | 🔴 |
-| 16.5 | Money is integer cents throughout, and a price is fixed as of the date of service | `billing.ts` | Design rule | ✅ |
+| 16.1 | Notifiable conditions are detected from coded diagnoses as they are made, because the Act's clock runs from diagnosis | `reporting.ts` | Public Health Act | ✅ |
+| 16.2 | **The notifiable list is four conditions** — malaria, tuberculosis, cholera, measles. The full schedule must be loaded | `reporting.ts` `NOTIFIABLE_PREFIXES` | — | 🔴 |
+| 16.3 | Reporting one requires the county's reference — it is the proof it was made | `reporting.ts` | Design rule | ✅ |
+| 16.4 | MOH 705A is under five, 705B is five and over, split by age **on the day of the visit** | `reporting.ts` | MOH forms | ✅ |
+| 16.5 | A condition is counted whichever code in its ICD-11 family the clinician used | `reporting.ts` `MOH705_CONDITIONS` | Design rule | ⚠️ |
+| 16.6 | **The 705 condition list is six conditions.** The real form has many more rows | `reporting.ts` | — | 🔴 |
+
+## 17. Revenue (for the claims specialist, not the clinician)
+
+| # | Rule | Where | Source | Status |
+|---|---|---|---|---|
+| 17.1 | Nine scrubber gates, each mapped to a documented SHA rejection cause | `claims.ts` `scrub` | SHA published causes | ⚠️ |
+| 17.2 | **The gates are inferred from documented causes, not from 50 real rejected claims.** The roadmap says to build them from a real corpus and that is still the right next step | — | — | 🔴 |
+| 17.3 | A claim beyond the payer's submission window (SHA: 7 days) escalates rather than blocking, because a late claim still has an appeal path | `claims.ts` | SHA | ⚠️ |
+| 17.4 | Tariffs and benefit rules are **illustrative**. The SHA schedule for the contracting cycle must be loaded | `seed.ts` | — | 🔴 |
+| 17.5 | Money is integer cents throughout, and a price is fixed as of the date of service | `billing.ts` | Design rule | ✅ |
 
 ---
 
@@ -552,3 +602,9 @@ Everything marked 🔴, in one list:
     levy as well as from PAYE
 30. NITA levy, leave accrual, gratuity, overtime and casual-worker treatment,
     none of which the payroll handles
+31. Sick leave at half pay — the Act's second seven days are not modelled, so
+    payroll overpays a long sickness
+32. A Kenyan public-holiday calendar, so leave spanning one does not charge the
+    employee a day they were entitled to anyway
+33. Whether certain sole registrations should block leave outright rather than
+    being approved on an acknowledgement

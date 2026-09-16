@@ -22,6 +22,7 @@ import { imagingWorklist, uncommunicatedCritical } from "@/lib/radiology.ts";
 import { procurementSummary } from "@/lib/procurement.ts";
 import { ledgerSummary } from "@/lib/accounting.ts";
 import { payrollSummary } from "@/lib/payroll.ts";
+import { hrSummary } from "@/lib/hr.ts";
 import { signOutAction } from "@/app/actions/session.ts";
 import { navFor, sectionFor, type BadgeKey } from "./nav.ts";
 import type { CurrentUser } from "@/lib/auth.ts";
@@ -67,6 +68,7 @@ function counts(facilityId: number): Record<BadgeKey, { text: string; tone: "blo
   const buying = procurementSummary(facilityId);
   const ledger = ledgerSummary(facilityId);
   const pay = payrollSummary(facilityId);
+  const people = hrSummary(facilityId);
   const waiting = queue(facilityId);
 
   const n = (
@@ -120,6 +122,13 @@ function counts(facilityId: number): Record<BadgeKey, { text: string; tone: "blo
     // A draft run waiting for approval is the thing somebody has to act on.
     payroll: pay.lastRunStatus === "draft" ? { text: "1", tone: "clock" as const } : null,
     payrollGaps: n(pay.missingKraPin + pay.missingBank, "block"),
+    leave: n(people.leaveWaiting, "clock"),
+    // A lapsed registration is red because the system is already refusing
+    // that person's licensed work; something merely expiring is amber.
+    expiries: people.lapsedLicences > 0
+      ? { text: String(people.lapsedLicences + people.expiringSoon), tone: "block" as const }
+      : n(people.expiringSoon, "clock"),
+    hrCases: n(people.openCases, "clock"),
     alerts: n(alerts.total, alerts.critical > 0 ? "block" : "clock"),
   };
 }
