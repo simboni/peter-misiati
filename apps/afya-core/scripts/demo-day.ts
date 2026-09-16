@@ -93,6 +93,7 @@ import {
   enrol as enrolPortal, revoke as revokePortal, sendCode as sendPortalCode,
   sendSummary as sendPortalSummary, grantProxy, viewFor as portalViewFor, portalSummary,
 } from "../src/lib/portal.ts";
+import { startSession, endSession, teleSummary } from "../src/lib/telemedicine.ts";
 import { closeDb, run, get, all as dbAll, verifyAuditChain, today } from "../src/lib/db.ts";
 
 const { facilityId, adminId, clinicianId, receptionistId, pharmacistId, labTechId } = seedDemo();
@@ -2036,6 +2037,57 @@ const postedFromOps = postFromOperations({ facilityId, ...GL });
 
 
 
+
+// ================================================================ telemedicine
+//
+// Two remote consultations. One is a routine blood-pressure review that goes
+// fine. The other starts on chest pain, which is the case the module exists
+// for: it is flagged at the start, it cannot be closed quietly, and it ends
+// with the patient on their way to the clinic.
+
+const TELE_DOC = { clinicianId, clinicianName: DOC.byUserName };
+
+const routineTele = registerPatient({
+  facilityId, deviceCode: REC, givenName: "Lydia", familyName: "Wanjala",
+  sex: "female", dateOfBirth: "1971-08-19", nationalId: "19887744",
+  phone: "0718445566", county: "Nairobi", village: "Ruai", ...DESK,
+});
+const routineEncounter = openEncounter({
+  facilityId, patientMrn: routineTele, kind: "outpatient",
+  clinicianId, clinicianName: DOC.byUserName, deviceCode: CONS,
+});
+const routineSession = startSession({
+  encounterId: routineEncounter, channel: "voice", identityMethod: "portal_code",
+  platform: "Voice call on the clinic line", consentBy: "patient",
+  reason: "Review of blood pressure, feels well", deviceCode: CONS, ...TELE_DOC,
+});
+endSession({
+  sessionId: routineSession.sessionId, outcome: "completed", quality: "good",
+  byUserId: clinicianId, byUserName: DOC.byUserName,
+});
+
+const flaggedTele = registerPatient({
+  facilityId, deviceCode: REC, givenName: "Charles", familyName: "Mutua",
+  sex: "male", dateOfBirth: "1966-04-03", nationalId: "8877665",
+  phone: "0720778899", county: "Nairobi", village: "Kayole", ...DESK,
+});
+const flaggedEncounter = openEncounter({
+  facilityId, patientMrn: flaggedTele, kind: "outpatient",
+  clinicianId, clinicianName: DOC.byUserName, deviceCode: CONS,
+});
+const flaggedSession = startSession({
+  encounterId: flaggedEncounter, channel: "video", identityMethod: "known_to_clinician",
+  platform: "A third-party video service", consentBy: "patient",
+  reason: "Crushing chest pain since this morning, sweating",
+  deviceCode: CONS, ...TELE_DOC,
+});
+endSession({
+  sessionId: flaggedSession.sessionId, outcome: "converted_to_visit", quality: "poor",
+  note: "Talked through it on a poor line; not something to assess this way",
+  redFlagAction: "Told to come in now; a neighbour is bringing him and casualty has been told",
+  byUserId: clinicianId, byUserName: DOC.byUserName,
+});
+
 // ===================================================================== portal
 //
 // Three patients on the portal: one who reads her own results, one whose
@@ -2499,6 +2551,7 @@ console.log(`  programmes        ${count(`SELECT COUNT(*) AS n FROM enrolments W
 console.log(`  HR                ${hrSummary(facilityId).staff} staff · ${hrSummary(facilityId).leaveWaiting} leave waiting · ${hrSummary(facilityId).uncoveredLeave} approved uncovered · ${hrSummary(facilityId).lapsedLicences} lapsed registration`);
 console.log(`  payroll           ${payrollSummary(facilityId).employees} staff · gross ${Math.round(payrollSummary(facilityId).monthlyGrossCents / 100)} KES · statutory ${Math.round(statutoryReturn(payrollRun.runId).totalRemittableCents / 100)} KES to remit${payrollRun.cappedEmployees ? ` · ${payrollRun.cappedEmployees} capped` : ""}`);
 console.log(`  estate            ${assetSummary(facilityId).assets} assets · ${assetSummary(facilityId).blockingOverdue} blocked by an overdue check · ${assetSummary(facilityId).criticalDown} critical down · fridge excursion quarantined ${excursion.quarantined} batches · depreciation ${Math.round(depreciation.amountCents / 100)} KES`);
+console.log(`  telemedicine      ${teleSummary(facilityId).sessions} remote consultations · ${teleSummary(facilityId).redFlagged} started on something that should be seen · ${teleSummary(facilityId).convertedToVisit} sent in`);
 console.log(`  portal            ${portalSummary(facilityId).enrolled} enrolled · ${portalSummary(facilityId).revoked} revoked on request · ${portalSummary(facilityId).proxies} proxy · ${portalSummary(facilityId).withheldThisMonth} findings held back for a person · gateway ${portalSummary(facilityId).gatewayLive ? "live" : "demo, so nothing was sent"}`);
 console.log(`  history           ${historyEncounters} backdated attendances over six months, ${historyCoded} of them coded — so the dashboard has a trend`);
 console.log(`  analysers         ${analyserSummary(facilityId).filed} readings filed · ${analyserSummary(facilityId).held} held for a person · ${analyserSummary(facilityId).qcRuns} control readings, none of them in a patient record`);

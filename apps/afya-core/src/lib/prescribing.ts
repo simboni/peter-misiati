@@ -26,6 +26,7 @@ import { recordOp } from "./sync.ts";
 import { check, explain, licenceStatus } from "./access.ts";
 import { resolvePatient } from "./patients.ts";
 import { getEncounter } from "./encounters.ts";
+import { prescribingCheck } from "./telemedicine.ts";
 
 export class PrescribingError extends Error {}
 
@@ -321,6 +322,11 @@ export function prescribe(input: {
 
   const product = getProduct(input.productCode);
   if (!product) throw new PrescribingError(`${input.productCode} is not in the product catalogue`);
+
+  // A controlled drug is not prescribed down a telephone. Not overridable: the
+  // patient has not been examined and cannot be seen.
+  const remote = prescribingCheck(encounter.id, Boolean(product.controlled));
+  if (!remote.allowed) throw new PrescribingError(remote.why);
 
   if (!input.dose.trim()) throw new PrescribingError("a prescription needs a dose");
   if (!input.frequency.trim()) throw new PrescribingError("a prescription needs a frequency");

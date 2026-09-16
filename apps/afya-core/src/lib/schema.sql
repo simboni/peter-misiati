@@ -3185,3 +3185,53 @@ CREATE TABLE IF NOT EXISTS portal_views (
   created_at    TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_portal_view ON portal_views(patient_mrn, viewed_at);
+
+-- ===================================================== M74 Telemedicine
+--
+-- A remote consultation is a consultation. It hangs off the same encounter, is
+-- written in the same notes, needs the same coded diagnosis and goes on the
+-- same claim — because a parallel record is how one patient ends up with two
+-- histories and a clinician reads the wrong one.
+--
+-- What this table adds is the part that is different: how the person at the
+-- other end was identified, whether they agreed to be seen this way, whether
+-- the call held up, and whether what was found should have been seen in person.
+
+CREATE TABLE IF NOT EXISTS tele_sessions (
+  id            TEXT PRIMARY KEY,
+  encounter_id  TEXT NOT NULL REFERENCES encounters(id),
+  patient_mrn   TEXT NOT NULL REFERENCES patients(mrn),
+  appointment_id TEXT REFERENCES appointments(id),
+  clinician_id  INTEGER REFERENCES users(id),
+  clinician_name TEXT NOT NULL,
+  -- The registration the clinician held on the day, copied here the same way an
+  -- encounter copies it: a claim cites it, and a council asks about it.
+  clinician_licence TEXT NOT NULL DEFAULT '',
+  channel       TEXT NOT NULL CHECK (channel IN ('video','voice','chat')),
+  -- Which third-party service carried it. No video is carried by this system.
+  platform      TEXT NOT NULL DEFAULT '',
+  -- How the person at the other end was shown to be who they said they were.
+  identity_method TEXT NOT NULL,
+  identity_note TEXT NOT NULL DEFAULT '',
+  -- Consent to being seen remotely is its own consent, recorded per session
+  -- because the answer can be no today and yes next week.
+  consent_at    TEXT,
+  consent_by    TEXT NOT NULL DEFAULT '',
+  scheduled_at  TEXT,
+  started_at    TEXT,
+  ended_at      TEXT,
+  -- What the clinician says of the line. A consultation conducted through a
+  -- call that kept breaking is a consultation with gaps in it.
+  quality       TEXT CHECK (quality IN ('good','poor','failed')),
+  outcome       TEXT CHECK (outcome IN ('completed','patient_absent','failed_connection','converted_to_visit','cancelled')),
+  outcome_note  TEXT NOT NULL DEFAULT '',
+  -- A presenting complaint this system says should be seen in person, and what
+  -- the clinician did about it.
+  red_flag      TEXT NOT NULL DEFAULT '',
+  red_flag_action TEXT NOT NULL DEFAULT '',
+  device_code   TEXT,
+  created_at    TEXT NOT NULL,
+  updated_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_tele_patient ON tele_sessions(patient_mrn, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tele_encounter ON tele_sessions(encounter_id);

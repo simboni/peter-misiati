@@ -83,6 +83,7 @@ export type BadgeKey =
   | "biometrics"
   | "analysers"
   | "portal"
+  | "tele"
   | "alerts";
 
 export const NAV: NavSection[] = [
@@ -111,6 +112,7 @@ export const NAV: NavSection[] = [
     links: [
       { href: "/queue", label: "Waiting list", permission: ["queue.manage"], badge: "waiting" },
       { href: "/appointments", label: "Appointments", permission: ["queue.manage"] },
+      { href: "/telemedicine", label: "Remote consultations", permission: ["patient.read"], badge: "tele" },
     ],
   },
   {

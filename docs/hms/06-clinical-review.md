@@ -789,26 +789,68 @@ are almost all about what does *not* reach a phone.
 4. **An aggregator** (21.17). A licensed Kenyan SMS provider, a sender ID, and
    what a message costs — because the cost is what decides how often one is sent.
 
-## 22. Public health
+## 22. Telemedicine
+
+A remote consultation is a consultation. The temptation is to build it as its
+own thing, with its own record and its own workflow, and that is how one patient
+ends up with two histories and a clinician reads the wrong one. So a session
+here hangs off an ordinary encounter and only the genuinely different parts are
+modelled.
 
 | # | Rule | Where | Source | Status |
 |---|---|---|---|---|
-| 22.1 | Notifiable conditions are detected from coded diagnoses as they are made, because the Act's clock runs from diagnosis | `reporting.ts` | Public Health Act | ✅ |
-| 22.2 | **The notifiable list is four conditions** — malaria, tuberculosis, cholera, measles. The full schedule must be loaded | `reporting.ts` `NOTIFIABLE_PREFIXES` | — | 🔴 |
-| 22.3 | Reporting one requires the county's reference — it is the proof it was made | `reporting.ts` | Design rule | ✅ |
-| 22.4 | MOH 705A is under five, 705B is five and over, split by age **on the day of the visit** | `reporting.ts` | MOH forms | ✅ |
-| 22.5 | A condition is counted whichever code in its ICD-11 family the clinician used | `reporting.ts` `MOH705_CONDITIONS` | Design rule | ⚠️ |
-| 22.6 | **The 705 condition list is six conditions.** The real form has many more rows | `reporting.ts` | — | 🔴 |
+| 22.1 | **A remote consultation is an ordinary encounter**: same notes, same coded diagnosis before closing, same claim. There is no parallel clinical record | `telemedicine.ts`, `encounters.ts` | Design rule | ✅ |
+| 22.2 | The licence gates it exactly as in person, because the encounter it hangs off already refuses an expired registration, and the registration is pinned on the session too | `telemedicine.ts` `startSession` | KMPDC | ✅ |
+| 22.3 | **Consent to being seen remotely is its own consent, recorded per session.** A patient who agreed to a video call in March has not agreed to one in September | `telemedicine.ts` `startSession` | Judgement | ⚠️ |
+| 22.4 | **How identity was established is written down, and a fingerprint is not among the options** — the patient is not in the building. "I recognised her voice" is an answer, and it should be a visible one rather than an assumed one | `telemedicine.ts` `IDENTITY_METHODS` | Design rule | ✅ |
+| 22.5 | Identity that could not be established is allowed, and never silent: it takes a note saying what was tried, and it is counted on the summary | `telemedicine.ts` | Design rule | ✅ |
+| 22.6 | **Some things are not assessed down a telephone.** Chest pain, bleeding in pregnancy, a thunderclap headache, breathlessness, a febrile baby under two months, convulsions, altered consciousness, risk of self-harm, an acute abdomen, poisoning | `telemedicine.ts` `RED_FLAGS` | Judgement | 🔴 |
+| 22.7 | **That list is this system's own and needs a clinician's sign-off.** What belongs on it is a judgement about what cannot be assessed remotely, and a facility may want more on it or fewer | `telemedicine.ts` `RED_FLAGS` | Judgement | 🔴 |
+| 22.8 | **The matching is on words in the reason for the call**, which is crude and will both miss things and over-fire. It is a prompt for a clinician, never a diagnosis | `telemedicine.ts` `redFlags` | — | 🔴 |
+| 22.9 | **A red-flagged session cannot be closed quietly.** It does not refuse the consultation — a patient two hours from the clinic being talked to is better than one who is not — it refuses to let it be closed without saying what was done | `telemedicine.ts` `endSession` | Design rule | ✅ |
+| 22.10 | **A controlled drug is not prescribed on a remote consultation.** Not overridable from the screen: the patient has not been examined and cannot be seen. Enforced at the point of prescribing rather than displayed | `prescribing.ts` `prescribe`, `telemedicine.ts` `prescribingCheck` | Judgement | ⚠️ |
+| 22.11 | **A call that failed did not complete.** Recording a completed consultation over a line the clinician called failed is refused — it is how a consultation with gaps in it gets recorded as a consultation | `telemedicine.ts` `endSession` | Design rule | ✅ |
+| 22.12 | A session that did not complete records what happened, and a session nobody ended is surfaced as a consultation nobody closed | `telemedicine.ts` `endSession`, `runningSessions` | Design rule | ✅ |
+| 22.13 | Converting to a visit raises an alert, because the point of the conversion is that somebody now expects them | `telemedicine.ts` `endSession` | Design rule | ✅ |
+| 22.14 | **No video is carried, no call is placed and nothing is recorded.** The platform is a third party and the joining reference is not part of the medical record | — | — | 🔴 |
+| 22.15 | **KMPDC's current telemedicine guidance is not encoded.** What it requires of a practitioner consulting remotely — identification, record-keeping, prescribing limits, cross-border practice — is a document a facility must work from, and this module is not a substitute for it | — | — | 🔴 |
+| 22.16 | **No data processing agreement, no platform assessment and no recording policy.** A facility doing this at scale needs all three under the Data Protection Act | — | — | 🔴 |
+| 22.17 | **No vital signs from the patient's end.** A remote consultation has no blood pressure, no temperature and no oxygen saturation unless the patient has their own device and reads it out, and nothing here captures that as a measurement rather than as a sentence in the notes | — | — | 🔴 |
+| 22.18 | **No tariff for a remote consultation**, and whether SHA pays for one at all is a question for the contracting cycle | — | — | 🔴 |
 
-## 23. Revenue (for the claims specialist, not the clinician)
+### What to ask a clinician and the facility, in order
+
+1. **KMPDC's guidance** (22.15). What the council requires of a practitioner
+   consulting remotely. Everything else here is detail next to it.
+2. **The red flag list** (22.6, 22.7, 22.8). Which presenting complaints must be
+   seen, and whether matching on the reason text is worth having at all or
+   should be a question the clinician answers explicitly.
+3. **The controlled-drug rule** (22.10). The module refuses outright. A facility
+   that wants an override needs to say who may give one and on what record.
+4. **Whether anybody pays for it** (22.18). A remote consultation with no tariff
+   is a service the facility gives away, and that is a decision rather than an
+   accident.
+
+## 23. Public health
 
 | # | Rule | Where | Source | Status |
 |---|---|---|---|---|
-| 23.1 | Nine scrubber gates, each mapped to a documented SHA rejection cause | `claims.ts` `scrub` | SHA published causes | ⚠️ |
-| 23.2 | **The gates are inferred from documented causes, not from 50 real rejected claims.** The roadmap says to build them from a real corpus and that is still the right next step | — | — | 🔴 |
-| 23.3 | A claim beyond the payer's submission window (SHA: 7 days) escalates rather than blocking, because a late claim still has an appeal path | `claims.ts` | SHA | ⚠️ |
-| 23.4 | Tariffs and benefit rules are **illustrative**. The SHA schedule for the contracting cycle must be loaded | `seed.ts` | — | 🔴 |
-| 23.5 | Money is integer cents throughout, and a price is fixed as of the date of service | `billing.ts` | Design rule | ✅ |
+| 23.1 | Notifiable conditions are detected from coded diagnoses as they are made, because the Act's clock runs from diagnosis | `reporting.ts` | Public Health Act | ✅ |
+| 23.2 | **The notifiable list is four conditions** — malaria, tuberculosis, cholera, measles. The full schedule must be loaded | `reporting.ts` `NOTIFIABLE_PREFIXES` | — | 🔴 |
+| 23.3 | Reporting one requires the county's reference — it is the proof it was made | `reporting.ts` | Design rule | ✅ |
+| 23.4 | MOH 705A is under five, 705B is five and over, split by age **on the day of the visit** | `reporting.ts` | MOH forms | ✅ |
+| 23.5 | A condition is counted whichever code in its ICD-11 family the clinician used | `reporting.ts` `MOH705_CONDITIONS` | Design rule | ⚠️ |
+| 23.6 | **The 705 condition list is six conditions.** The real form has many more rows | `reporting.ts` | — | 🔴 |
+
+## 24. Revenue (for the claims specialist, not the clinician)
+
+| # | Rule | Where | Source | Status |
+|---|---|---|---|---|
+| 24.1 | Nine scrubber gates, each mapped to a documented SHA rejection cause | `claims.ts` `scrub` | SHA published causes | ⚠️ |
+| 24.2 | **The gates are inferred from documented causes, not from 50 real rejected claims.** The roadmap says to build them from a real corpus and that is still the right next step | — | — | 🔴 |
+| 24.3 | A claim beyond the payer's submission window (SHA: 7 days) escalates rather than blocking, because a late claim still has an appeal path | `claims.ts` | SHA | ⚠️ |
+| 24.4 | Tariffs and benefit rules are **illustrative**. The SHA schedule for the contracting cycle must be loaded | `seed.ts` | — | 🔴 |
+| 24.5 | Money is integer cents throughout, and a price is fixed as of the date of service | `billing.ts` | Design rule | ✅ |
 
 ---
 
@@ -914,3 +956,11 @@ Everything marked 🔴, in one list:
 56. A licensed Kenyan SMS aggregator and a sender ID, without which nothing the
     portal produces ever leaves the building
 57. The Kiswahili patient messages, read by a native speaker
+58. KMPDC's current telemedicine guidance, and what it requires of a
+    practitioner consulting remotely
+59. The list of presenting complaints that must be seen in person, confirmed by
+    a clinician
+60. A telemedicine platform decision, a data processing agreement and a
+    recording policy
+61. A tariff for a remote consultation, or a decision that the facility gives
+    them away
