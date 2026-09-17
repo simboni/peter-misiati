@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { currentUser, requireOwner } from "@/lib/auth";
+import { currentUser, requirePermission } from "@/lib/auth";
 import {
   salesUsingVersion,
   formulaById,
@@ -58,7 +58,7 @@ async function saveFormula(_prev: SaveState, formData: FormData): Promise<SaveSt
   let outcome: { version: number; corrected: boolean; unchanged: boolean };
 
   try {
-    const owner = await requireOwner();
+    const owner = await requirePermission("recipes");
 
     renameFormula(formulaId, String(formData.get("name") ?? ""), owner.id);
 
@@ -122,7 +122,7 @@ export default async function FormulaDetailPage(props: {
 
   // Gate before a single ingredient is read.
   try {
-    await requireOwner();
+    await requirePermission("recipes");
   } catch {
     if (!(await currentUser())) redirect("/login");
     return (

@@ -13,7 +13,7 @@
  */
 
 import { revalidatePath } from "next/cache";
-import { requireOwner } from "@/lib/auth";
+import { requirePermission } from "@/lib/auth";
 import { saveBundles, BundleError } from "@/lib/bundles";
 import { parseBundleRows } from "@/lib/bundle-input";
 
@@ -26,7 +26,7 @@ export async function saveFormulaBundles(
   _prev: BundleFormState,
   formData: FormData,
 ): Promise<BundleFormState> {
-  await requireOwner();
+  await requirePermission("recipes");
 
   const formulaId = Number(formData.get("formulaId"));
   if (!Number.isFinite(formulaId) || formulaId <= 0) {

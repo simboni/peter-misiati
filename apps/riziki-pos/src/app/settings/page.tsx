@@ -1,11 +1,12 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { currentUser, requireOwner } from "@/lib/auth";
+import { currentUser, requireOwner, grantedTo, PERMISSIONS } from "@/lib/auth";
 import {
   listUsers,
   usersOnDemoPin,
   createUser,
+  setPermissions,
   changePin,
   setActive,
   setRole,
@@ -107,6 +108,32 @@ async function updateRole(formData: FormData): Promise<void> {
  * somewhere, and walking to Products & prices to raise a limit first is not a
  * thing that happens.
  */
+/**
+ * What one person may see and do, beyond selling.
+ *
+ * The form posts every box that is ticked and nothing for the ones that are
+ * not, so what arrives IS the answer — a permission the owner has just
+ * un-ticked has to disappear, not linger because nothing was sent to remove it.
+ */
+async function savePermissions(formData: FormData) {
+  "use server";
+
+  const owner = await requireOwner();
+  try {
+    setPermissions({
+      userId: Number(formData.get("userId")),
+      permissions: formData.getAll("permission").map(String),
+      byUserId: owner.id,
+    });
+  } catch (e) {
+    redirectWith(e);
+  }
+  revalidatePath("/settings");
+  // Their menu is drawn from this, and the shop runs on one phone that may
+  // already be open on the till.
+  revalidatePath("/", "layout");
+}
+
 async function saveOversell(formData: FormData): Promise<void> {
   "use server";
   const by = await guard();
@@ -179,6 +206,7 @@ export default async function SettingsPage(props: {
   }
 
   const users = listUsers();
+  const granted = new Map(users.map((u) => [u.id, grantedTo(u)] as const));
   const oversell = oversellPolicy();
   const books = booksStart();
   const firstSaleDate =
@@ -323,6 +351,60 @@ export default async function SettingsPage(props: {
                 </p>
               )}
             </div>
+
+            {/*
+              WHAT THIS ONE PERSON MAY SEE.
+
+              Two roles fit a shop of two people and stop fitting it at three:
+              a manager records the deliveries and counts the stock, and has no
+              business knowing what a drum of Ungerol cost. So the attendant's
+              role is the floor and these boxes are what is added to it, by
+              name, for this person only.
+
+              Not shown for an owner, because there is nothing to show: an owner
+              passes every check by being an owner, and boxes that could not be
+              un-ticked would be a lie about what this screen does.
+            */}
+            {u.role === "owner" ? (
+              <p className="mt-2.5 border-t border-line pt-2.5 text-[11px] text-muted">
+                An owner sees and does everything. To limit what somebody sees, make them an
+                attendant first, then tick only what they need.
+              </p>
+            ) : (
+              <form action={savePermissions} className="mt-2.5 border-t border-line pt-2.5">
+                <input type="hidden" name="userId" value={u.id} />
+                <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted">
+                  What they may see and do
+                </div>
+                <div className="mt-1.5 space-y-1.5">
+                  {PERMISSIONS.map((p) => {
+                    const held = granted.get(u.id)?.includes(p.key) ?? false;
+                    return (
+                      <label key={p.key} className="flex items-start gap-2.5">
+                        <input
+                          type="checkbox"
+                          name="permission"
+                          value={p.key}
+                          defaultChecked={held}
+                          className="mt-0.5 h-5 w-5 shrink-0"
+                        />
+                        <span className="min-w-0">
+                          <span className="block text-[13px] font-semibold">{p.label}</span>
+                          <span className="block text-[11px] text-muted">{p.detail}</span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+                <Button type="submit" variant="ghost" className="mt-2">
+                  Save what they may see
+                </Button>
+                <p className="mt-1.5 text-[11px] text-muted">
+                  Accounts, the activity log, the exports and the backup stay the owner&apos;s alone
+                  and cannot be granted.
+                </p>
+              </form>
+            )}
           </Card>
         ))}
       </div>

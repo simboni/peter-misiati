@@ -14,7 +14,7 @@
  */
 
 import { revalidatePath } from "next/cache";
-import { requireOwner } from "@/lib/auth";
+import { requirePermission } from "@/lib/auth";
 import { setFormulaOutput, MixError } from "@/lib/mixing";
 
 export interface OutputFormState {
@@ -26,7 +26,7 @@ export async function saveFormulaOutput(
   _prev: OutputFormState,
   formData: FormData,
 ): Promise<OutputFormState> {
-  const owner = await requireOwner();
+  const owner = await requirePermission("recipes");
 
   const formulaId = Number(formData.get("formulaId"));
   if (!Number.isFinite(formulaId) || formulaId <= 0) {

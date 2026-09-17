@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { currentUser, requireOwner } from "@/lib/auth";
+import { currentUser, requirePermission } from "@/lib/auth";
 import { createFormula, listChemicals } from "@/lib/production";
 import { toMilli } from "@/lib/units";
 import { saveBundles, BundleError } from "@/lib/bundles";
@@ -30,7 +30,7 @@ async function saveNewFormula(_prev: SaveState, formData: FormData): Promise<Sav
 
   let formulaId: number;
   try {
-    const owner = await requireOwner();
+    const owner = await requirePermission("recipes");
 
     const refLitres = Number(formData.get("refLitres"));
     if (!Number.isFinite(refLitres) || refLitres <= 0) {
@@ -78,7 +78,7 @@ async function saveNewFormula(_prev: SaveState, formData: FormData): Promise<Sav
 
 export default async function NewFormulaPage() {
   try {
-    await requireOwner();
+    await requirePermission("recipes");
   } catch {
     if (!(await currentUser())) redirect("/login");
     return (

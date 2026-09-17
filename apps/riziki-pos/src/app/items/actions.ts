@@ -17,7 +17,7 @@
  */
 
 import { revalidatePath } from "next/cache";
-import { requireOwner } from "@/lib/auth";
+import { requirePermission } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { updateProduct, deleteProduct, CatalogError, type Unit } from "@/lib/catalog";
 import { saveBundles, BundleError } from "@/lib/bundles";
@@ -33,7 +33,7 @@ export async function savePricingAction(
   _prev: PricingState,
   formData: FormData,
 ): Promise<PricingState> {
-  const owner = await requireOwner();
+  const owner = await requirePermission("products");
 
   const itemId = Number(formData.get("itemId"));
 
@@ -91,7 +91,7 @@ export async function savePricingAction(
  * and the message says to hide it instead.
  */
 export async function deleteProductAction(formData: FormData): Promise<void> {
-  const owner = await requireOwner();
+  const owner = await requirePermission("products");
   try {
     deleteProduct(Number(formData.get("itemId")), owner.id);
   } catch (e) {

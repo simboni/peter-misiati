@@ -9,7 +9,7 @@
  */
 
 import { revalidatePath } from "next/cache";
-import { requireOwner } from "@/lib/auth";
+import { requirePermission, can } from "@/lib/auth";
 import { performStocktake } from "@/lib/stock-service";
 import { formatKes } from "@/lib/units";
 import type { StocktakeState } from "@/app/stocktake/stocktake-client";
@@ -18,7 +18,7 @@ export async function submitStocktake(
   _prev: StocktakeState,
   formData: FormData,
 ): Promise<StocktakeState> {
-  const user = await requireOwner();
+  const user = await requirePermission("stocktake");
 
   const counts: Array<{ itemId: number; countedUnits: number }> = [];
   for (const [key, value] of formData.entries()) {
@@ -41,7 +41,7 @@ export async function submitStocktake(
     revalidatePath("/");
 
     // Only the owner is told what the shrinkage was worth.
-    const value = user.role === "owner" ? ` (${formatKes(result.varianceCents)} at cost)` : "";
+    const value = can(user, "cost") ? ` (${formatKes(result.varianceCents)} at cost)` : "";
     return {
       ok: `Posted ${result.posted} adjustment${result.posted === 1 ? "" : "s"} from ${result.countedItems} counted items${value}.`,
     };

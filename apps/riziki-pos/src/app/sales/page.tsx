@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { refresh } from "next/cache";
-import { currentUser, requireOwner } from "@/lib/auth";
+import { currentUser, requirePermission, can } from "@/lib/auth";
 import { listSales, saleLinesFor, voidSale, SaleError, SALES_PAGE_SIZE } from "@/lib/sales";
 import { formatKes, formatDateTime } from "@/lib/units";
 import { Alert, Chip, Empty, PageTitle, TableWrap, Th, Td, inputClass } from "@/components/ui";
@@ -24,7 +24,7 @@ const METHOD_LABEL: Record<string, string> = {
 async function voidAction(formData: FormData) {
   "use server";
 
-  const owner = await requireOwner();
+  const owner = await requirePermission("void");
   const saleId = Number(formData.get("saleId"));
   const reason = String(formData.get("reason") ?? "");
   const page = String(formData.get("page") ?? "1");
@@ -49,7 +49,10 @@ export default async function SalesPage(props: {
 
   const user = await currentUser();
   if (!user) redirect("/login");
-  const isOwner = user.role === "owner";
+  // Two different questions on this screen: who may void a sale, and who may
+  // see what a mixed product was made of — which is the recipe.
+  const mayVoid = can(user, "void");
+  const seesRecipe = can(user, "recipes");
 
   const { rows, total, page: current, pages } = listSales(Number(page) || 1, SALES_PAGE_SIZE);
   const lines = saleLinesFor(rows.map((r) => r.id));
@@ -117,7 +120,7 @@ export default async function SalesPage(props: {
             on the receipt.
           */
           const mine = lines.filter(
-            (l) => l.sale_id === s.id && (isOwner || !l.is_component),
+            (l) => l.sale_id === s.id && (seesRecipe || !l.is_component),
           );
 
           return (
@@ -190,7 +193,7 @@ export default async function SalesPage(props: {
                   >
                     Invoice
                   </Link>
-                  {isOwner && !voided ? (
+                  {mayVoid && !voided ? (
                     <details className="relative">
                       <summary className="cursor-pointer rounded-lg px-2.5 py-1.5 text-[11px] font-bold text-muted hover:bg-bad-soft hover:text-bad">
                         Void

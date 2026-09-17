@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { currentUser, requireOwner } from "@/lib/auth";
+import { currentUser, requirePermission } from "@/lib/auth";
 import { mixableFormulas, recentBatches, voidBatch, MixError } from "@/lib/mixing";
 import { revalidatePath } from "next/cache";
 import { formatQty, formatKes, formatDateTime } from "@/lib/units";
@@ -35,7 +35,7 @@ export const dynamic = "force-dynamic";
  */
 async function undoBatch(formData: FormData): Promise<void> {
   "use server";
-  const owner = await requireOwner();
+  const owner = await requirePermission("recipes");
   const batchId = Number(formData.get("batchId"));
   const reason = String(formData.get("reason") ?? "").trim();
   if (!Number.isFinite(batchId) || batchId <= 0) redirect("/mix?undo=missing");
@@ -63,7 +63,7 @@ export default async function MixPage(props: {
   // `searchParams` is a Promise in Next.js 16 — synchronous access was removed.
   const { open, undone, undo } = await props.searchParams;
   try {
-    await requireOwner();
+    await requirePermission("recipes");
   } catch {
     if (!(await currentUser())) redirect("/login");
     return (
@@ -89,7 +89,7 @@ export default async function MixPage(props: {
         </div>
       ) : null}
         <Alert tone="bad">
-          Mixing is the owner’s. Ask the owner to sign in on this phone.
+          Mixing is not yours to do. The owner can grant this under Users and settings.
         </Alert>
         <p className="mt-3 text-sm text-muted">
           Selling what has already been mixed does not need this screen — it is on the counter

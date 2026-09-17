@@ -10,7 +10,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { requireUser, requireOwner, isOwner } from "@/lib/auth";
+import { requireUser, requirePermission, currentCan } from "@/lib/auth";
 import {
   createSupplier,
   updateSupplier,
@@ -78,7 +78,7 @@ export async function saveSupplierAction(_prev: FormState, formData: FormData): 
  * around it would swallow the redirect and report it as a failure instead.
  */
 export async function deleteSupplierAction(formData: FormData): Promise<void> {
-  const owner = await requireOwner();
+  const owner = await requirePermission("purchases");
   let failed: string | null = null;
   try {
     deleteSupplier(Number(formData.get("supplierId")), owner.id);
@@ -92,7 +92,7 @@ export async function deleteSupplierAction(formData: FormData): Promise<void> {
 
 /** Hide a supplier the shop has stopped using, or bring one back. */
 export async function setSupplierHiddenAction(formData: FormData): Promise<void> {
-  const owner = await requireOwner();
+  const owner = await requirePermission("purchases");
   let failed: string | null = null;
   try {
     setSupplierHidden(
@@ -110,7 +110,7 @@ export async function setSupplierHiddenAction(formData: FormData): Promise<void>
 
 export async function recordPurchaseAction(_prev: FormState, formData: FormData): Promise<FormState> {
   await requireUser();
-  if (!(await isOwner())) {
+  if (!(await currentCan("purchases"))) {
     return { error: "Only the owner can record purchase prices." };
   }
 

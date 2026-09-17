@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import Link from "next/link";
 import "./globals.css";
-import { currentUser } from "@/lib/auth";
+import { currentUser, grantedTo } from "@/lib/auth";
 import { BottomNav, MenuDrawer } from "@/components/nav";
 import OfflineStatus from "@/components/offline-status";
 import AppHeader from "@/components/app-header";
@@ -53,7 +53,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <div className="min-h-dvh">
           {user ? (
             <AppHeader
-              menu={<MenuDrawer isOwner={user.role === "owner"} />}
+              menu={<MenuDrawer isOwner={user.role === "owner"} granted={grantedTo(user)} />}
               status={<OfflineStatus />}
             >
               <Link href="/" className="flex shrink-0 items-center" aria-label="Home">
@@ -101,7 +101,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             {children}
           </main>
 
-          {user ? <BottomNav isOwner={user.role === "owner"} /> : null}
+          {user ? <BottomNav isOwner={user.role === "owner"} granted={grantedTo(user)} /> : null}
         </div>
       </body>
     </html>

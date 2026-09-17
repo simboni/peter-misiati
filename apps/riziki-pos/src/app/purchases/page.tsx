@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { currentUser } from "@/lib/auth";
+import { currentUser, can } from "@/lib/auth";
 import {
   listSuppliers,
   getSupplier,
@@ -70,7 +70,9 @@ export default async function PurchasesPage(props: {
 }) {
   const user = await currentUser();
   if (!user) redirect("/login");
-  const owner = user.role === "owner";
+  // "Owner" on this screen now means "may record deliveries" — the owner, or
+  // anybody the owner has granted it to by name.
+  const owner = can(user, "purchases");
 
   // `searchParams` is a Promise in Next.js 16 — synchronous access was removed.
   // `dp` pages the deliveries and `sp` the suppliers: two lists on one screen

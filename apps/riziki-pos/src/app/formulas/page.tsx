@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { refresh } from "next/cache";
-import { currentUser, requireOwner } from "@/lib/auth";
+import { currentUser, requirePermission } from "@/lib/auth";
 import { listFormulas, setFormulaHidden } from "@/lib/production";
 import { formatQty } from "@/lib/units";
 import { PageTitle, Chip, Empty, inputClass, Button, Alert, TableWrap, Th, Td } from "@/components/ui";
@@ -21,7 +21,7 @@ const PER_PAGE = 20;
 async function toggleHidden(formData: FormData) {
   "use server";
 
-  const owner = await requireOwner();
+  const owner = await requirePermission("recipes");
   setFormulaHidden(Number(formData.get("formulaId")), formData.get("hide") === "1", owner.id);
   refresh();
 }
@@ -36,14 +36,14 @@ export default async function FormulasPage(props: {
   // if a staff session ever reached the query, the recipe would already be in
   // the response no matter what the markup below decided to show.
   try {
-    await requireOwner();
+    await requirePermission("recipes");
   } catch {
     if (!(await currentUser())) redirect("/login");
     return (
       <div>
         <PageTitle title="Recipes" />
         <Alert tone="bad">
-          The recipes are the owner’s. Ask the owner to sign in on this phone.
+          The recipes are not yours to open. The owner can grant this under Users and settings.
         </Alert>
         <p className="mt-3 text-sm text-muted">
           Selling a recipe at the counter does not need this screen — and does not show it.

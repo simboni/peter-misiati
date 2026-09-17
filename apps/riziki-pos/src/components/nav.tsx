@@ -30,7 +30,11 @@ type Tab = {
   href: string;
   label: string;
   icon: React.ReactNode;
-  ownerOnly?: boolean;
+  /**
+   * What this destination needs: a permission key, or "owner" for the few
+   * things only an owner may ever reach. Absent means everybody signed in.
+   */
+  need?: string;
 };
 
 const I = (d: string) => (
@@ -59,7 +63,7 @@ const TABS: Tab[] = [
   { href: "/customers", label: "Customers", icon: I("M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M22 21v-2a4 4 0 0 0-3-3.87") },
   // Reports is owner-only; previously it rendered for staff then bounced them
   // home — a dead tab. Now it simply isn't shown to them.
-  { href: "/reports", label: "Reports", icon: I("M4 20V10 M10 20V4 M16 20v-8 M22 20H2"), ownerOnly: true },
+  { href: "/reports", label: "Reports", icon: I("M4 20V10 M10 20V4 M16 20v-8 M22 20H2"), need: "cost" },
   // "More" opens the everything-else grid — the only path to day close, sales
   // history and the rest on a phone. The desktop rail lists them directly.
   { href: "/more", label: "More", icon: I("M4 6h16 M4 12h16 M4 18h16") },
@@ -86,21 +90,21 @@ const MORE_GROUPS: Array<{
    * pixel and wraps to two lines, which makes the whole column look ragged. The
    * More grid has the room, so it keeps the full name; only the rail shortens.
    */
-  links: Array<{ href: string; label: string; short?: string; owner: boolean }>;
+  links: Array<{ href: string; label: string; short?: string; need?: string }>;
 }> = [
   {
     // Named for what these are rather than where they sit: an attendant looking
     // for the day close is looking for a job, not for a category.
     label: "Every day",
     links: [
-      { href: "/day-close", label: "Day close", owner: false },
-      { href: "/expenses", label: "Expenses", owner: false },
+      { href: "/day-close", label: "Day close" },
+      { href: "/expenses", label: "Expenses" },
       // Open to attendants on purpose: the person who opens the shop is the
       // person who gets asked the price, and the band is what makes letting
       // them change it safe.
-      { href: "/prices/history", label: "Price history", short: "Prices", owner: false },
-      { href: "/sales", label: "Sales history", owner: false },
-      { href: "/purchases", label: "Suppliers & purchases", short: "Purchases", owner: false },
+      { href: "/prices/history", label: "Price history", short: "Prices" },
+      { href: "/sales", label: "Sales history" },
+      { href: "/purchases", label: "Suppliers & purchases", short: "Purchases" },
     ],
   },
   {
@@ -109,25 +113,46 @@ const MORE_GROUPS: Array<{
     // rather than inside it.
     label: "Products & recipes",
     links: [
-      { href: "/items", label: "Products & prices", short: "Products", owner: true },
-      { href: "/formulas", label: "Recipes", owner: true },
-      { href: "/mix", label: "Mixing board", short: "Mixing", owner: true },
+      { href: "/items", label: "Products & prices", short: "Products", need: "products" },
+      { href: "/formulas", label: "Recipes", need: "recipes" },
+      { href: "/mix", label: "Mixing board", short: "Mixing", need: "recipes" },
     ],
   },
   {
     label: "Setup & records",
     links: [
-      { href: "/activity", label: "Activity log", owner: true },
-      { href: "/settings", label: "Users & settings", owner: true },
-      { href: "/settings/printer", label: "Receipt printer", owner: true },
-      { href: "/pin", label: "Change my PIN", owner: false },
+      { href: "/activity", label: "Activity log", need: "owner" },
+      { href: "/settings", label: "Users & settings", need: "owner" },
+      { href: "/settings/printer", label: "Receipt printer", need: "owner" },
+      { href: "/pin", label: "Change my PIN" },
     ],
   },
 ];
 
-export function BottomNav({ isOwner }: { isOwner: boolean }) {
+/**
+ * May this person see this link?
+ *
+ * The menu is not a security boundary — every screen checks again on the
+ * server, before it reads anything — but a menu full of doors that refuse to
+ * open is its own kind of lie, so it shows what this person can actually use.
+ */
+function allowed(need: string | undefined, isOwner: boolean, granted: readonly string[]): boolean {
+  if (!need) return true;
+  if (isOwner) return true;
+  if (need === "owner") return false;
+  return granted.includes(need);
+}
+
+/** What the signed-in person holds, as every menu needs it. */
+export interface NavAccess {
+  isOwner: boolean;
+  /** Permission keys granted to them by name. Empty for most attendants. */
+  granted?: string[];
+}
+
+export function BottomNav({ isOwner, granted = [] }: NavAccess) {
   const path = usePathname();
-  const tabs = TABS.filter((t) => !t.ownerOnly || isOwner);
+  const tabs = TABS.filter((t) => allowed(t.need, isOwner, granted));
 
   return (
     <>
@@ -184,9 +209,9 @@ export function BottomNav({ isOwner }: { isOwner: boolean }) {
  * over the till after the attendant has arrived somewhere is worse than no
  * drawer, because it hides the screen they asked for.
  */
-export function MenuDrawer({ isOwner }: { isOwner: boolean }) {
+export function MenuDrawer({ isOwner, granted = [] }: NavAccess) {
   const path = usePathname();
-  const tabs = TABS.filter((t) => !t.ownerOnly || isOwner);
+  const tabs = TABS.filter((t) => allowed(t.need, isOwner, granted));
 
   /*
     Open, remembered as WHERE it was opened.
@@ -280,7 +305,7 @@ export function MenuDrawer({ isOwner }: { isOwner: boolean }) {
         </div>
 
         {MORE_GROUPS.map((g) => {
-          const links = g.links.filter((l) => !l.owner || isOwner);
+          const links = g.links.filter((l) => allowed(l.need, isOwner, granted));
           if (!links.length) return null;
           return (
             <div key={g.label} className="px-3">
@@ -311,11 +336,11 @@ export function MenuDrawer({ isOwner }: { isOwner: boolean }) {
 }
 
 /** Secondary links that don't earn a tab, grouped by how often they're used. */
-export function MoreMenu({ isOwner }: { isOwner: boolean }) {
+export function MoreMenu({ isOwner, granted = [] }: NavAccess) {
   return (
     <div className="space-y-1 lg:max-w-4xl">
       {MORE_GROUPS.map((g) => {
-        const links = g.links.filter((l) => !l.owner || isOwner);
+        const links = g.links.filter((l) => allowed(l.need, isOwner, granted));
         if (!links.length) return null;
         return (
           <div key={g.label}>

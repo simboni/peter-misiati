@@ -15,7 +15,7 @@
  */
 
 import { redirect } from "next/navigation";
-import { currentUser, requireOwner } from "@/lib/auth";
+import { currentUser, requirePermission, can } from "@/lib/auth";
 import Link from "next/link";
 import { formatKes, formatQty, formatDate, businessDate, pct } from "@/lib/units";
 import {
@@ -62,9 +62,10 @@ export default async function ReportsPage(props: {
   const { period: periodParam, from = "", to = "" } = await props.searchParams;
   const user = await currentUser();
   if (!user) redirect("/login");
-  // Bounce staff before any cost or profit query runs.
-  if (user.role !== "owner") redirect("/");
-  await requireOwner();
+  // Bounce anybody without it before a single cost or profit query runs. The
+  // owner has it by being the owner; anybody else has it only by name.
+  if (!can(user, "cost")) redirect("/");
+  await requirePermission("cost");
 
   const today = businessDate();
 

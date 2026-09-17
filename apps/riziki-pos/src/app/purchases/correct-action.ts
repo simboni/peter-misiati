@@ -9,7 +9,7 @@
  */
 
 import { revalidatePath } from "next/cache";
-import { requireOwner } from "@/lib/auth";
+import { requirePermission } from "@/lib/auth";
 import { correctPurchasePrices } from "@/lib/purchasing";
 import { formatKes } from "@/lib/units";
 
@@ -22,7 +22,7 @@ export async function correctPricesAction(
   _prev: CorrectState,
   formData: FormData,
 ): Promise<CorrectState> {
-  const owner = await requireOwner();
+  const owner = await requirePermission("purchases");
   const purchaseId = Number(formData.get("purchaseId"));
   if (!Number.isFinite(purchaseId) || purchaseId <= 0) {
     return { error: "That delivery could not be found." };

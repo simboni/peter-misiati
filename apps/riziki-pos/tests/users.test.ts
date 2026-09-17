@@ -10,6 +10,8 @@ const { seed } = await import("../src/lib/seed.ts");
 const { all, get, run } = await import("../src/lib/db.ts");
 const { verifyPin, hashPin } = await import("../src/lib/pin.ts");
 const U = await import("../src/lib/users.ts");
+const { listUsers, setPermissions, createUser, UserError } = U;
+const { can, grantedTo, PERMISSIONS } = await import("../src/lib/permissions.ts");
 
 seed();
 const OWNER = 1;
@@ -127,4 +129,56 @@ test("shop settings round-trip, including the cash float", () => {
   U.setSetting("shop_kra_pin", "P051234567X", OWNER);
   assert.equal(U.getSetting("shop_kra_pin"), "P051234567X");
   assert.equal(U.getSetting("nothing_here", "fallback"), "fallback");
+});
+
+// ---------------------------------------------- what one person may see
+
+test("an attendant sees nothing extra until an owner says so, by name", () => {
+  const id = createUser({ name: "Grace Manager", pin: "8264", role: "staff", byUserId: OWNER });
+  const her = () => listUsers().find((u) => u.id === id)!;
+
+  assert.equal(her().permissions, "", "nothing is granted to start with");
+  assert.equal(can({ role: "staff", permissions: "" }, "purchases"), false);
+
+  setPermissions({ userId: id, permissions: ["purchases", "stocktake"], byUserId: OWNER });
+
+  const after = her();
+  assert.deepEqual(grantedTo(after).sort(), ["purchases", "stocktake"]);
+  assert.equal(can(after, "purchases"), true, "what was granted");
+  assert.equal(can(after, "cost"), false, "and nothing else — cost is not on the list");
+
+  // The form posts what is ticked, so what arrives IS the answer: a permission
+  // un-ticked has to disappear rather than linger.
+  setPermissions({ userId: id, permissions: ["stocktake"], byUserId: OWNER });
+  assert.deepEqual(grantedTo(her()), ["stocktake"], "the one taken away is gone");
+
+  // Rubbish a form could send is ignored rather than stored.
+  setPermissions({ userId: id, permissions: ["stocktake", "everything", ""], byUserId: OWNER });
+  assert.deepEqual(grantedTo(her()), ["stocktake"], "only the six keys mean anything");
+});
+
+test("an owner already sees everything, and cannot be limited", () => {
+  const owner = { role: "owner" as const, permissions: "" };
+  for (const p of PERMISSIONS) {
+    assert.equal(can(owner, p.key), true, `${p.key} comes with being the owner`);
+  }
+
+  const id = createUser({ name: "Second Owner", pin: "9173", role: "owner", byUserId: OWNER });
+  assert.throws(
+    () => setPermissions({ userId: id, permissions: ["cost"], byUserId: OWNER }),
+    (e: Error) => e instanceof UserError && /already sees everything/.test(e.message),
+    "ticking boxes on an owner would suggest they could be un-ticked",
+  );
+});
+
+test("the permission change is written to the log with a name against it", () => {
+  const id = createUser({ name: "Logged Person", pin: "6482", role: "staff", byUserId: OWNER });
+  setPermissions({ userId: id, permissions: ["void"], byUserId: OWNER });
+
+  const row = get<{ action: string; detail: string }>(
+    `SELECT action, detail FROM audit_log WHERE entity = 'user' AND entity_id = ? ORDER BY id DESC LIMIT 1`,
+    id,
+  );
+  assert.equal(row?.action, "permissions_set");
+  assert.match(row!.detail, /Logged Person: void/);
 });

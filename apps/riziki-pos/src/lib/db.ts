@@ -19,6 +19,8 @@ export interface User {
   name: string;
   role: Role;
   active: number;
+  /** Extra permissions granted to this person by name. See `can()` in auth.ts. */
+  permissions?: string;
 }
 
 /**
@@ -181,6 +183,19 @@ const ADDED_COLUMNS: Array<{ table: string; column: string; definition: string }
     made to order for one customer, or one the owner would rather nobody tapped
     by accident, is not a thing an attendant can reach.
   */
+  /*
+    What ONE person may see and do, beyond what their role gives them.
+
+    Empty for everybody, which is exactly the two-role system the shop has
+    always had: an owner sees everything, an attendant sells. A shop that wants
+    a manager — somebody who records deliveries and counts stock but never sees
+    a cost price — names the handful of things that person may do, here, one
+    comma-separated key per permission. Owners are not affected: an owner passes
+    every check by being an owner, and there is no way to take anything away
+    from one. That is deliberate: the account that can grant permissions must
+    not be the account somebody can quietly cripple.
+  */
+  { table: "users", column: "permissions", definition: "TEXT NOT NULL DEFAULT ''" },
   { table: "formulas", column: "hidden", definition: "INTEGER NOT NULL DEFAULT 0 CHECK (hidden IN (0, 1))" },
   { table: "batches", column: "voided_at", definition: "TEXT" },
   { table: "sale_lines", column: "rate_cents", definition: "INTEGER NOT NULL DEFAULT 0 CHECK (rate_cents >= 0)" },

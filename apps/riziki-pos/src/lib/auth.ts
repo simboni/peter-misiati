@@ -38,7 +38,7 @@ export async function currentUser(): Promise<User | null> {
   if (!token) return null;
 
   const row = get<User & { expires_at: string }>(
-    `SELECT u.id, u.name, u.role, u.active, s.expires_at
+    `SELECT u.id, u.name, u.role, u.active, u.permissions, s.expires_at
        FROM sessions s JOIN users u ON u.id = s.user_id
       WHERE s.token = ?`,
     token,
@@ -49,7 +49,13 @@ export async function currentUser(): Promise<User | null> {
     return null;
   }
   if (!row.active) return null;
-  return { id: row.id, name: row.name, role: row.role, active: row.active };
+  return {
+    id: row.id,
+    name: row.name,
+    role: row.role,
+    active: row.active,
+    permissions: row.permissions ?? "",
+  };
 }
 
 export async function setSessionCookie(token: string): Promise<void> {
@@ -76,6 +82,37 @@ export async function clearSessionCookie(): Promise<void> {
 export async function requireUser(): Promise<User> {
   const user = await currentUser();
   if (!user) throw new Error("Please sign in to continue.");
+  return user;
+}
+
+// ------------------------------------------------------------- permissions
+
+/*
+  The rules themselves live in `permissions.ts`, which imports nothing from
+  Next, so they can be unit-tested and read by a script. Re-exported here
+  because a screen asking "may this person" is already importing from auth.
+*/
+import { PERMISSIONS, can, type Permission } from "./permissions.ts";
+
+export { PERMISSIONS, isPermission, grantedTo, can, type Permission } from "./permissions.ts";
+
+/** The signed-in user, and whether they may. For a page that needs both. */
+export async function currentCan(permission: Permission): Promise<boolean> {
+  return can(await currentUser(), permission);
+}
+
+/**
+ * Throws unless the signed-in user may do this.
+ *
+ * The counterpart of `requireOwner`, and used the same way: at the top of a
+ * server action, before anything is read or written.
+ */
+export async function requirePermission(permission: Permission): Promise<User> {
+  const user = await requireUser();
+  if (!can(user, permission)) {
+    const what = PERMISSIONS.find((p) => p.key === permission)?.label ?? permission;
+    throw new Error(`Your account is not allowed to: ${what.toLowerCase()}. Ask the owner.`);
+  }
   return user;
 }
 

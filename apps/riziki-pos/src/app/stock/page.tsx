@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { currentUser } from "@/lib/auth";
+import { currentUser, can } from "@/lib/auth";
 import { stockView, stockLines } from "@/lib/stock-service";
 import { StockWindow } from "./stock-window";
 import { submitStocktake } from "./actions";
@@ -24,7 +24,9 @@ export default async function StockPage(props: {
   const { q = "", panel } = await props.searchParams;
   const user = await currentUser();
   if (!user) redirect("/login");
-  const owner = user.role === "owner";
+  // Counting the stock, and seeing the chemicals at all. Granted by name, or
+  // held by being the owner.
+  const owner = can(user, "stocktake");
 
   const view = stockView();
 

@@ -8,7 +8,7 @@
  */
 
 import { revalidatePath } from "next/cache";
-import { requireOwner } from "@/lib/auth";
+import { requirePermission } from "@/lib/auth";
 import { fill, divide, setPacked, packState, PackError } from "@/lib/packing";
 
 export interface FillState {
@@ -25,7 +25,7 @@ export interface FillState {
  * tally already held is computed here.
  */
 export async function saveFillAction(_prev: FillState, formData: FormData): Promise<FillState> {
-  const owner = await requireOwner();
+  const owner = await requirePermission("products");
   const itemId = Number(formData.get("itemId"));
   if (!Number.isFinite(itemId) || itemId <= 0) return { error: "That product could not be found." };
 
@@ -65,7 +65,7 @@ export async function saveFillAction(_prev: FillState, formData: FormData): Prom
 
 /** Turn container-counting on or off for one product. */
 export async function setPackedAction(formData: FormData): Promise<void> {
-  const owner = await requireOwner();
+  const owner = await requirePermission("products");
   const itemId = Number(formData.get("itemId"));
   const on = String(formData.get("packed")) === "1";
   if (!Number.isFinite(itemId) || itemId <= 0) return;
@@ -94,7 +94,7 @@ export interface DivideState {
  * the ledger's negatives are worked out on this side of the wire.
  */
 export async function divideAction(_prev: DivideState, formData: FormData): Promise<DivideState> {
-  const owner = await requireOwner();
+  const owner = await requirePermission("products");
   const itemId = Number(formData.get("itemId"));
   const fromBundleId = Number(formData.get("from"));
   const fromUnits = Math.floor(Number(formData.get("fromUnits") ?? 0));

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { currentUser } from "@/lib/auth";
+import { currentUser, can } from "@/lib/auth";
 import { get } from "@/lib/db";
 import { movementHistory, dailyStock } from "@/lib/stock-service";
 import { formatQty, formatDateTime } from "@/lib/units";
@@ -30,12 +30,12 @@ export default async function StockHistoryPage(props: {
 
   const user = await currentUser();
   if (!user) redirect("/login");
-  if (user.role !== "owner") {
+  if (!can(user, "stocktake")) {
     return (
       <div>
         <PageTitle title="Stock history" />
         <Alert tone="bad">
-          The stock ledger is the owner’s. Ask the owner to sign in on this phone.
+          The stock ledger is not yours to open. The owner can grant this under Users and settings.
         </Alert>
       </div>
     );

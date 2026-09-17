@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { currentUser, requireOwner } from "@/lib/auth";
+import { currentUser, requirePermission, can } from "@/lib/auth";
 import {
   listProducts,
   setItemActive,
@@ -41,7 +41,7 @@ const PER_PAGE = 20;
 type ItemFilter = "all" | "unpriced" | "hidden";
 
 async function guard(): Promise<number> {
-  const owner = await requireOwner();
+  const owner = await requirePermission("products");
   return owner.id;
 }
 
@@ -319,7 +319,7 @@ export default async function ItemsPage(props: {
   const me = await currentUser();
   if (!me) redirect("/login");
   // Prices, floors and the raw-chemical list all sit here; staff never see it.
-  if (me.role !== "owner") redirect("/");
+  if (!can(me, "products")) redirect("/");
 
   const products = listProducts();
   const pending = pendingUnitPricing();

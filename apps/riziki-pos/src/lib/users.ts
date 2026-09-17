@@ -23,6 +23,8 @@ export interface UserRow {
   last_login: string | null;
   /** True while this account still opens with the PIN it shipped with. */
   demo_pin: boolean;
+  /** Extra permissions granted by name, comma-separated. Empty for most. */
+  permissions: string;
 }
 
 /** PINs anyone would try first. These accounts gate trade secrets and profit. */
@@ -75,6 +77,7 @@ export const SHOP_KEYS = ["shop_name", "shop_phone", "shop_kra_pin", "cash_float
 export function listUsers(): UserRow[] {
   const rows = all<Omit<UserRow, "demo_pin"> & { pin_hash: string }>(
     `SELECT u.id, u.name, u.role, u.active, u.created_at, u.pin_hash,
+            COALESCE(u.permissions, '') AS permissions,
             (SELECT MAX(a.at) FROM audit_log a
               WHERE a.user_id = u.id AND a.action = 'login') AS last_login
        FROM users u
@@ -222,6 +225,48 @@ export function setActive(input: { userId: number; active: boolean; byUserId: nu
       "user",
       input.userId,
       target.name,
+    );
+  });
+}
+
+/**
+ * Say what one person may see and do, beyond selling.
+ *
+ * The whole list is written every time rather than added to one key at a time:
+ * the screen shows six boxes and posts back the ones that are ticked, so what
+ * arrives here IS the answer, and a permission that was un-ticked has to
+ * disappear rather than linger because nobody sent a removal.
+ *
+ * Owners are left alone. Ticking boxes on an owner would suggest they could be
+ * un-ticked, and they cannot: an owner passes every check by being one.
+ */
+export function setPermissions(input: {
+  userId: number;
+  permissions: readonly string[];
+  byUserId: number;
+}): void {
+  const target = get<{ id: number; name: string; role: string }>(
+    `SELECT id, name, role FROM users WHERE id = ?`,
+    input.userId,
+  );
+  if (!target) throw new UserError("That account no longer exists.");
+  if (target.role === "owner") {
+    throw new UserError(
+      `${target.name} is an owner, and an owner already sees everything. Make them an attendant first if you want to limit what they see.`,
+    );
+  }
+
+  const clean = [...new Set(input.permissions.map((p) => p.trim()).filter(Boolean))].sort();
+  const value = clean.join(",");
+
+  tx(() => {
+    run(`UPDATE users SET permissions = ? WHERE id = ?`, value, input.userId);
+    audit(
+      input.byUserId,
+      "permissions_set",
+      "user",
+      input.userId,
+      `${target.name}: ${value || "nothing beyond selling"}`,
     );
   });
 }

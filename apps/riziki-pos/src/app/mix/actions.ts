@@ -9,7 +9,7 @@
  */
 
 import { revalidatePath } from "next/cache";
-import { requireOwner } from "@/lib/auth";
+import { requirePermission } from "@/lib/auth";
 import { planMix, recordMix, MixError, type MixPlan } from "@/lib/mixing";
 import { formatQty, formatKes } from "@/lib/units";
 
@@ -20,7 +20,7 @@ export interface PlanState {
 
 /** What a batch of this size would take. Read-only; moves nothing. */
 export async function planMixAction(versionId: number, targetMilli: number): Promise<PlanState> {
-  await requireOwner();
+  await requirePermission("recipes");
   try {
     return { plan: planMix(versionId, Math.max(1, Math.round(targetMilli))) };
   } catch (e) {
@@ -45,7 +45,7 @@ export async function recordMixAction(
   _prev: MixState,
   formData: FormData,
 ): Promise<MixState> {
-  const owner = await requireOwner();
+  const owner = await requirePermission("recipes");
 
   const versionId = Number(formData.get("versionId"));
   const target = Number(formData.get("targetMilli"));
