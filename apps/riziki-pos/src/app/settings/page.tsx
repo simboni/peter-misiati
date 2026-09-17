@@ -279,24 +279,50 @@ export default async function SettingsPage(props: {
               </form>
             </details>
 
-            {u.id === me.id ? null : (
-              <div className="mt-2.5 flex flex-wrap gap-2">
-                <form action={toggleActive}>
-                  <input type="hidden" name="userId" value={u.id} />
-                  <input type="hidden" name="active" value={u.active ? "0" : "1"} />
-                  <Button type="submit" variant={u.active ? "danger" : "ghost"}>
-                    {u.active ? "Switch off" : "Switch back on"}
-                  </Button>
-                </form>
-                <form action={updateRole}>
-                  <input type="hidden" name="userId" value={u.id} />
-                  <input type="hidden" name="role" value={u.role === "owner" ? "staff" : "owner"} />
-                  <Button type="submit" variant="ghost">
-                    Make {u.role === "owner" ? "an attendant" : "an owner"}
-                  </Button>
-                </form>
+            {/*
+              THE WORD "ROLE", ON THE SCREEN.
+
+              The control was here all along — two buttons under the PIN fold —
+              but nothing on the page said the word anybody goes looking for,
+              and on your own card the buttons are hidden altogether, which
+              reads as "this system cannot do it" rather than "not on yourself".
+              An owner hunted for this twice. A label and one sentence fix it.
+            */}
+            <div className="mt-2.5 border-t border-line pt-2.5">
+              <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted">
+                Role
               </div>
-            )}
+              {u.id === me.id ? (
+                <p className="mt-1 text-xs text-muted">
+                  {u.role === "owner" ? "Owner" : "Attendant"} — your own. You cannot change your
+                  own role or switch off your own account; another owner can.
+                </p>
+              ) : (
+                <div className="mt-1.5 flex flex-wrap gap-2">
+                  <form action={updateRole}>
+                    <input type="hidden" name="userId" value={u.id} />
+                    <input type="hidden" name="role" value={u.role === "owner" ? "staff" : "owner"} />
+                    <Button type="submit" variant="ghost">
+                      Make {u.role === "owner" ? "an attendant" : "an owner"}
+                    </Button>
+                  </form>
+                  <form action={toggleActive}>
+                    <input type="hidden" name="userId" value={u.id} />
+                    <input type="hidden" name="active" value={u.active ? "0" : "1"} />
+                    <Button type="submit" variant={u.active ? "danger" : "ghost"}>
+                      {u.active ? "Switch off" : "Switch back on"}
+                    </Button>
+                  </form>
+                </div>
+              )}
+              {u.id === me.id ? null : (
+                <p className="mt-1.5 text-[11px] text-muted">
+                  {u.role === "owner"
+                    ? "An owner sees cost prices, profit and every recipe, and can void a sale."
+                    : "An attendant sells, stocks and closes the day. No cost, no profit, no recipes."}
+                </p>
+              )}
+            </div>
           </Card>
         ))}
       </div>
@@ -321,7 +347,7 @@ export default async function SettingsPage(props: {
               required
             />
           </Field>
-          <Field label="What can they do?">
+          <Field label="Role — what can they do?">
             <select className={inputClass} name="role" defaultValue="staff">
               <option value="staff">Attendant — sell, stock and mix</option>
               <option value="owner">Owner — everything, including formulas and profit</option>
