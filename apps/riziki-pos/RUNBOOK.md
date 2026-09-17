@@ -62,6 +62,12 @@ prints a screen of lines, each marked `OK` or `!!`:
 
 If you cannot even reach the server, go to §7.
 
+**Make it one word.** `deploy/mac-shortcuts.zsh` is a block to paste into
+`~/.zshrc` on the Mac, once. After that `riziki` puts you on the server in the
+right directory, and `riziki-health`, `riziki-update` and `riziki-backup` each
+do their whole job in one word from a fresh Terminal. Nothing named `riziki`
+exists on the Mac until you do that — the Mac is not the server.
+
 ---
 
 ## 2. The shop cannot sell — keep trading first
