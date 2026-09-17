@@ -345,12 +345,36 @@ involved, so it is never the cause of a printing problem.
 
 ---
 
-## 11. What to hand a new developer
+## 11. Using another AI, or another developer
+
+**Yes, use whichever you like** — ChatGPT, DeepSeek, Gemini, Copilot, or a human
+being. Nothing here is tied to one assistant: it is ordinary TypeScript in a Git
+repository, with no proprietary format, no hosted service and no key belonging
+to anybody but you.
+
+One thing makes the difference between a useful answer and a confident wrong
+one. **Paste `AI-BRIEFING.md` into the chat first**, then the error and the file
+you are asking about. It is one page, written for exactly that: what this is,
+the five rules, the three traps, where things live, and what not to paste.
+
+The reason it matters: this is **Next.js 16 and React 19**, newer than most
+models' training data. Asked about a page, they answer with the Next.js 13
+shape — synchronous `cookies()` and `params`, a `pages/` directory,
+`getServerSideProps` — and that code *compiles*. It fails at runtime, on the
+counter phone, in front of a customer.
+
+**Whatever is advising you, the same rule holds: `npm test` before and after.**
+353 tests is why another assistant is safe to use here. A change that breaks the
+money arithmetic breaks a test, on any machine, with no AI involved in the
+verdict. If the tests pass, the types check and the build succeeds, the change
+is probably sound; if a test fails, read the test — it is usually describing a
+rule of the shop the assistant did not know.
 
 Everything needed is in the repository, which is the point:
 
 | File | What it is |
 |---|---|
+| `AI-BRIEFING.md` | One page to paste into any AI chat before asking it anything. |
 | `AGENTS.md` | The three traps this toolchain has already sprung. Read first. |
 | `DEPLOY.md` | First deployment, DNS, backups, updating. |
 | `RUNBOOK.md` | This file. |
