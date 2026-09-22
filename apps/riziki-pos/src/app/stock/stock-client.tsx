@@ -199,8 +199,18 @@ export function StockClient({
                   {l.chemicalName && l.chemicalName !== l.name ? (
                     <span className="ml-1.5 text-[11px] text-muted">{l.chemicalName}</span>
                   ) : null}
-                  <div className="mt-0.5">
+                  <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
                     <StatusChip status={l.status} />
+                    {/*
+                      On the shelf, and not on the till.
+
+                      A real state — a concentrate the shop only mixes with is
+                      exactly this — and also the one way a product could be
+                      stocked, counted and quietly unsellable with nothing
+                      anywhere saying why. The shelf is where anybody notices,
+                      so the shelf is where it is said.
+                    */}
+                    {l.sellable ? null : <Chip tone="warn">Not sold at the counter</Chip>}
                   </div>
                 </Td>
                 <Td className="text-[11px] uppercase tracking-wide text-muted">{KIND_LABEL[l.kind]}</Td>

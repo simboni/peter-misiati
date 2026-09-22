@@ -745,3 +745,70 @@ test("a table from a retired feature is dropped, not left to block deletes", () 
   cat.deleteProduct(to, OWNER);
   assert.equal(cat.getItem(to), undefined);
 });
+
+// ------------------------------------- on the shelf, and not on the till
+
+test("a product can be taken off the counter without being retired, and put back", () => {
+  const id = cat.createProduct({
+    name: "Test Ocean Blue",
+    unit: "kg",
+    aliases: "",
+    containerValue: 25,
+    containerLabel: "drum",
+    price: 400,
+    floor: 0,
+    ceiling: 0,
+    byUserId: OWNER,
+  });
+
+  const row = () =>
+    get<{ active: number; sellable: number }>(`SELECT active, sellable FROM items WHERE id = ?`, id)!;
+  assert.equal(row().sellable, 1, "anything the owner types in is sold, to start with");
+
+  /*
+    The counter's own question, asked the way the sell screen asks it. A
+    product that answers "no" here is stocked, counted and invisible at the
+    till — which is a real state, and was also the one with no switch anywhere
+    and nothing on any screen saying why.
+  */
+  const onTheCounter = () =>
+    all<{ id: number }>(`SELECT id FROM items WHERE active = 1 AND sellable = 1`).some(
+      (r) => r.id === id,
+    );
+  assert.equal(onTheCounter(), true);
+
+  cat.setItemSellable(id, false, OWNER);
+  assert.equal(row().sellable, 0);
+  assert.equal(row().active, 1, "still on the shelf, still counted — not retired");
+  assert.equal(onTheCounter(), false, "and the till stops offering it");
+
+  const logged = all<{ action: string; detail: string }>(
+    `SELECT action, detail FROM audit_log WHERE entity = 'item' AND entity_id = ? ORDER BY id DESC`,
+    id,
+  );
+  assert.equal(logged[0].action, "item_not_sellable");
+  assert.equal(logged[0].detail, "Test Ocean Blue");
+
+  cat.setItemSellable(id, true, OWNER);
+  assert.equal(onTheCounter(), true, "and back on it");
+});
+
+test("the stock shelf says which of its rows the counter will not offer", async () => {
+  const { stockLines } = await import("../src/lib/stock-service.ts");
+  const id = cat.createProduct({
+    name: "Test Mixing Only Concentrate",
+    unit: "L",
+    aliases: "",
+    containerValue: 20,
+    containerLabel: "drum",
+    price: 900,
+    floor: 0,
+    ceiling: 0,
+    byUserId: OWNER,
+  });
+  cat.setItemSellable(id, false, OWNER);
+
+  const line = stockLines().find((l) => l.id === id);
+  assert.ok(line, "it is still on the shelf — that is the point");
+  assert.equal(line!.sellable, false, "and the shelf knows the till will not offer it");
+});

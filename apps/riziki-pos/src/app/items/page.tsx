@@ -5,6 +5,7 @@ import { currentUser, requirePermission, can } from "@/lib/auth";
 import {
   listProducts,
   setItemActive,
+  setItemSellable,
   deletableReason,
   createProduct,
   adoptUnitPricing,
@@ -38,7 +39,7 @@ export const dynamic = "force-dynamic";
  */
 const PER_PAGE = 20;
 
-type ItemFilter = "all" | "unpriced" | "hidden";
+type ItemFilter = "all" | "unpriced" | "hidden" | "unsold";
 
 async function guard(): Promise<number> {
   const owner = await requirePermission("products");
@@ -59,6 +60,27 @@ function redirectWith(e: unknown): never {
 
 /* Saving prices lives in ./actions, called from ./price-form — a refused price
    has to come back to the row it was typed in. See the note in that file. */
+
+/**
+ * Offer this at the counter, or keep it off the till.
+ *
+ * Distinct from hiding: a product that is not sold is still on the shelf, still
+ * counted, still mixed with. Until now there was no switch for it anywhere, so
+ * anything that arrived with it off — a row retired by the old pack conversion,
+ * something imported — was stocked and unsellable with no way back.
+ */
+async function toggleSellable(formData: FormData): Promise<void> {
+  "use server";
+  const by = await guard();
+  try {
+    setItemSellable(Number(formData.get("itemId")), formData.get("sellable") === "1", by);
+  } catch (e) {
+    redirectWith(e);
+  }
+  revalidatePath("/items");
+  revalidatePath("/stock");
+  revalidatePath("/sell");
+}
 
 async function toggleActive(formData: FormData): Promise<void> {
   "use server";
@@ -181,6 +203,9 @@ function ProductRow({ item }: { item: AdminItem }) {
         <span className="min-w-0 flex-1 basis-full truncate text-sm font-bold sm:basis-0">
           {item.name}
           {item.active ? null : <span className="ml-2 text-[11px] font-semibold text-bad">hidden</span>}
+          {item.active && !item.sellable ? (
+            <span className="ml-2 text-[11px] font-semibold text-warn">not sold at the counter</span>
+          ) : null}
         </span>
 
         <span className="shrink-0 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">
@@ -287,6 +312,14 @@ function ProductRow({ item }: { item: AdminItem }) {
             </Button>
           </form>
 
+          <form action={toggleSellable}>
+            <input type="hidden" name="itemId" value={item.id} />
+            <input type="hidden" name="sellable" value={item.sellable ? "0" : "1"} />
+            <Button type="submit" variant="ghost">
+              {item.sellable ? "Stop selling it" : "Start selling it"}
+            </Button>
+          </form>
+
           {/* Offered only where it is actually possible. A Delete that is going
               to be refused is worse than no Delete: it invites the owner to
               press it, then explains why they should not have. `deletableReason`
@@ -337,7 +370,7 @@ export default async function ItemsPage(props: {
     price re-renders the page from the server, and a page number held in React
     state would be lost every time a price was saved.
   */
-  const filter: ItemFilter = (["unpriced", "hidden"] as const).includes(state as never)
+  const filter: ItemFilter = (["unpriced", "hidden", "unsold"] as const).includes(state as never)
     ? (state as ItemFilter)
     : "all";
   const needle = q.trim().toLowerCase();
@@ -348,7 +381,11 @@ export default async function ItemsPage(props: {
         ? p.active && p.price_cents === 0
         : filter === "hidden"
           ? !p.active
-          : true,
+          : filter === "unsold"
+            ? // On the shelf and not on the till. The list to check when
+              // somebody says "it is stocked, why can it not be sold".
+              p.active && !p.sellable
+            : true,
     );
 
   const pages = Math.max(1, Math.ceil(matching.length / PER_PAGE));
@@ -465,6 +502,11 @@ export default async function ItemsPage(props: {
             { key: "all", label: "Everything", count: products.length },
             { key: "unpriced", label: "No price yet", count: unpricedCount },
             { key: "hidden", label: "Hidden", count: products.filter((p) => !p.active).length },
+            {
+              key: "unsold",
+              label: "Not at the counter",
+              count: products.filter((p) => p.active && !p.sellable).length,
+            },
           ]}
         />
       </div>

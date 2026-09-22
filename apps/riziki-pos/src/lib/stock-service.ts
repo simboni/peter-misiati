@@ -45,6 +45,15 @@ export interface StockLine {
   /** lowercased name + aliases, so the client can filter without a round trip */
   search: string;
   /**
+   * Whether the counter offers this at all.
+   *
+   * On the shelf and not on the till is a real and deliberate state — a
+   * concentrate the shop only ever mixes with — and it was also the one way a
+   * product could be stocked, counted, and quietly unsellable with no screen
+   * saying so. The shelf is where somebody notices, so the shelf says it.
+   */
+  sellable: boolean;
+  /**
    * How the quantity above is poured, for the few things poured in advance.
    *
    * Null for everything else. This is a BREAKDOWN of `qtyMilli`, never an
@@ -88,6 +97,7 @@ interface StockRowRaw {
   price_basis: "pack" | "unit";
   cost_cents: number;
   reorder_level_milli: number;
+  sellable: number;
   qty_milli: number;
 }
 
@@ -143,6 +153,7 @@ function toLine(r: StockRowRaw): StockLine {
     status: stockStatus(r.qty_milli, r.reorder_level_milli),
     valueCents: valueAtCost(r.qty_milli, r.size_milli, r.cost_cents),
     search: [r.name, r.chemical_name ?? "", r.chemical_aliases ?? ""].join(" ").toLowerCase(),
+    sellable: r.sellable === 1,
     poured: pouredOf(r.id),
   };
 }
@@ -170,7 +181,7 @@ export function stockLines(): StockLine[] {
   // Bulk before packs, then biggest pack first — the order the shelf is stacked.
   const rows = all<StockRowRaw>(
     `SELECT i.id, i.chemical_id, i.name, i.kind, i.canonical_unit, i.size_milli,
-            i.unit_label, i.price_basis, i.cost_cents, i.reorder_level_milli,
+            i.unit_label, i.price_basis, i.cost_cents, i.reorder_level_milli, i.sellable,
             c.name AS chemical_name, c.aliases AS chemical_aliases,
             COALESCE(SUM(m.delta_milli), 0) AS qty_milli
        FROM items i

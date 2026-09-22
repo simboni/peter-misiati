@@ -299,6 +299,32 @@ export function updateProduct(input: ProductEditInput): void {
   });
 }
 
+/**
+ * Whether this thing is offered at the counter at all.
+ *
+ * Separate from `active` on purpose, and the difference is the whole reason
+ * this exists: a RETIRED product is gone from every screen, while one that is
+ * merely not sold is still stocked, still counted, still mixed with — it just
+ * never appears on the till. A perfume concentrate the shop buys in drums and
+ * only ever mixes is exactly that.
+ *
+ * It had no switch anywhere until now, which made it the one way a product
+ * could sit on the shelf, in full view on the stock screen, and be unsellable
+ * with no screen in the system saying why.
+ */
+export function setItemSellable(itemId: number, sellable: boolean, byUserId: number): void {
+  const item = getItem(itemId);
+  if (!item) throw new CatalogError("That item no longer exists.");
+  run(`UPDATE items SET sellable = ? WHERE id = ?`, sellable ? 1 : 0, itemId);
+  audit(
+    byUserId,
+    sellable ? "item_sellable" : "item_not_sellable",
+    "item",
+    itemId,
+    item.name,
+  );
+}
+
 export function setItemActive(itemId: number, active: boolean, byUserId: number): void {
   const item = getItem(itemId);
   if (!item) throw new CatalogError("That item no longer exists.");
