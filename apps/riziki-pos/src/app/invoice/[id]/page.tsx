@@ -68,14 +68,22 @@ export default async function InvoicePage(props: {
 
   const { sale, lines, tenders, balanceCents, subtotalCents, discountCents } = invoice;
 
-  // Named once here rather than called four times inline: the same line feeds
-  // the price column, the amount column and the totals, and they must agree.
-  const discountOf = (l: (typeof lines)[number]) => lineDiscountCents(l);
-  const business = getBusiness();
-
   // The thermal copy is built from the same snapshotted figures as the sheet
   // below, so the two can never disagree about what was charged.
   const printer = getPrintSettings();
+
+  /*
+    Named once here rather than called four times inline: the same line feeds
+    the price column, the amount column and the totals, and they must agree.
+
+    Zero when the shop has said its paper does not show discounts — this sheet
+    is the other document the customer walks out with, and a saving printed on
+    one of the two is a saving printed. The discount is still snapshotted on the
+    sale and reported under Discounts given, which is the owner's screen.
+  */
+  const discountOf = (l: (typeof lines)[number]) =>
+    printer.showDiscounts ? lineDiscountCents(l) : 0;
+  const business = getBusiness();
   const receipt = receiptFromInvoice(invoice, printer);
 
   // Somebody reaching an unpaid bill from the Owing list has come to take money
@@ -282,7 +290,7 @@ export default async function InvoicePage(props: {
               the document shows a single Total and no arithmetic nobody asked
               for; when there was haggling, the three rows reconcile, so the
               customer can add the Amount column up and land on the Total. */}
-          {discountCents > 0 ? (
+          {printer.showDiscounts && discountCents > 0 ? (
             <>
               <div className="flex justify-between text-muted">
                 <span>Subtotal</span>

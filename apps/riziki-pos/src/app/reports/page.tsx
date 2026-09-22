@@ -23,6 +23,8 @@ import {
   periodRange,
   describeRange,
   booksStart,
+  dailyProfit,
+  type ProductProfit,
   isPeriod,
   type Period,
   profitSummary,
@@ -55,6 +57,33 @@ import { PeriodPicker } from "./period-picker";
 import { ExportBar } from "./export-bar";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * The line under a product's name on the profit list.
+ *
+ * A losing row used to say "-4% margin" and stop there, which is an accusation
+ * with no evidence: the owner cannot tell whether the product really is sold
+ * below cost or whether the cost price on file is wrong. So a row that loses
+ * money — or one whose cost is an estimate — shows the two figures the
+ * judgement actually rests on, in the unit the shop buys and sells in: what it
+ * went out at, and what it is costed at.
+ */
+function productMeta(p: ProductProfit): string {
+  const sold = `${p.units} sold · ${formatKes(p.revenue_cents)} sales`;
+
+  if (p.uncosted) return `${sold} · no cost price recorded`;
+
+  const margin = `${p.margin_pct.toFixed(0)}% margin${p.estimated ? " (cost estimated)" : ""}`;
+
+  // Per kilogramme, litre or piece — the only comparison that means anything
+  // across a 5 kg bundle and a 20 kg one.
+  if ((p.profit_cents < 0 || p.estimated) && p.qty_milli > 0 && p.unit) {
+    const per = (cents: number) => formatKes(Math.round((cents * 1000) / p.qty_milli));
+    return `${sold} · ${margin} · sold at ${per(p.revenue_cents)}/${p.unit}, costed at ${per(p.cost_cents)}/${p.unit}`;
+  }
+
+  return `${sold} · ${margin}`;
+}
 
 export default async function ReportsPage(props: {
   searchParams: Promise<{ period?: string; from?: string; to?: string }>;
@@ -99,6 +128,7 @@ export default async function ReportsPage(props: {
 
   const deadValue = dead.reduce((sum, d) => sum + d.value_cents, 0);
   const books = booksStart();
+  const days = dailyProfit(range);
 
   return (
     <div>
@@ -200,6 +230,60 @@ export default async function ReportsPage(props: {
         </p>
       ) : null}
 
+      {/*
+        DAY BY DAY, NOT ONE LUMP.
+
+        A month's total answers "did we make money" and nothing else. The
+        question actually asked of this screen is "which days" — because that is
+        the one that can be acted on. A Tuesday that lost money has an
+        explanation somewhere; a month that made money has none, and hides every
+        Tuesday inside it.
+      */}
+      <SectionLabel>Day by day · {periodName}</SectionLabel>
+      {days.length ? (
+        <div className="overflow-x-auto">
+          <TableWrap>
+            <thead>
+              <tr>
+                <Th>Day</Th>
+                <Th align="right">Sales</Th>
+                <Th align="right">Cost</Th>
+                <Th align="right">Expenses</Th>
+                <Th align="right">Net profit</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {days.map((d) => (
+                <tr key={d.date} className="hover:bg-wash/50">
+                  <Td className="whitespace-nowrap">
+                    <span className="font-semibold">{formatDate(d.date)}</span>
+                    <span className="ml-1.5 text-[11px] text-muted">
+                      {d.saleCount} {d.saleCount === 1 ? "sale" : "sales"}
+                    </span>
+                  </Td>
+                  <Td align="right" className="tnum">{formatKes(d.salesCents)}</Td>
+                  <Td align="right" className="tnum text-muted">
+                    {d.cogsCents ? `− ${formatKes(d.cogsCents)}` : "—"}
+                  </Td>
+                  <Td align="right" className="tnum text-muted">
+                    {d.expensesCents ? `− ${formatKes(d.expensesCents)}` : "—"}
+                  </Td>
+                  <Td align="right" className="tnum font-bold">
+                    <span className={d.netProfitCents < 0 ? "text-bad" : "text-good"}>
+                      {formatKes(d.netProfitCents)}
+                    </span>
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </TableWrap>
+        </div>
+      ) : (
+        <Card>
+          <Empty>Nothing traded in this period.</Empty>
+        </Card>
+      )}
+
       </div>
       <div className="lg:col-span-7">
       <SectionLabel>Last 6 months</SectionLabel>
@@ -217,8 +301,10 @@ export default async function ReportsPage(props: {
         <div className="mb-2">
           <Alert tone="bad">
             <strong>Losing money:</strong>{" "}
-            {losers.map((p) => `${p.name} (${formatKes(p.profit_cents)})`).join(", ")}. Check the
-            price or the cost.
+            {losers.map((p) => `${p.name} (${formatKes(p.profit_cents)})`).join(", ")}.{" "}
+            {losers.some((p) => p.estimated)
+              ? "Each row below says what it sold at and what it is costed at, per kg or litre. Where the cost is an estimate, the loss may be the cost price rather than the selling price — check it on the delivery, or under Products & prices."
+              : "Check the price or the cost."}
           </Alert>
         </div>
       ) : null}
@@ -230,13 +316,7 @@ export default async function ReportsPage(props: {
               title={p.name}
               value={`${formatKes(p.profit_cents)} profit`}
               valueTone={p.profit_cents < 0 ? "bad" : "plain"}
-              meta={
-                p.uncosted
-                  ? `${p.units} sold · ${formatKes(p.revenue_cents)} sales · no cost price recorded`
-                  : `${p.units} sold · ${formatKes(p.revenue_cents)} sales · ${p.margin_pct.toFixed(0)}% margin${
-                      p.estimated ? " (cost estimated)" : ""
-                    }`
-              }
+              meta={productMeta(p)}
             />
           ))}
           {products.length > 8 ? (
@@ -251,13 +331,7 @@ export default async function ReportsPage(props: {
                     title={p.name}
                     value={`${formatKes(p.profit_cents)} profit`}
                     valueTone={p.profit_cents < 0 ? "bad" : "plain"}
-                    meta={
-                p.uncosted
-                  ? `${p.units} sold · ${formatKes(p.revenue_cents)} sales · no cost price recorded`
-                  : `${p.units} sold · ${formatKes(p.revenue_cents)} sales · ${p.margin_pct.toFixed(0)}% margin${
-                      p.estimated ? " (cost estimated)" : ""
-                    }`
-              }
+                    meta={productMeta(p)}
                   />
                 ))}
               </div>

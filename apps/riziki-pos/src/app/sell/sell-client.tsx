@@ -430,6 +430,8 @@ export interface PrinterPrefs {
   header: string[];
   footer: string;
   autoPrint: boolean;
+  /** Whether the paper shows what came off a haggled price. */
+  showDiscounts?: boolean;
   /** When the database last wrote these. Empty means never set by hand. */
   savedAt: string;
 }
@@ -484,7 +486,7 @@ function useFreshestPrinter(fromServer: PrinterPrefs): PrinterPrefs {
 function receiptFromQueued(
   q: Extract<SellState, { status: "queued" }>,
   byId: Map<number, SellItem>,
-  printer: { header: string[]; footer: string },
+  printer: { header: string[]; footer: string; showDiscounts?: boolean },
 ): Receipt {
   const lines: ReceiptLine[] = q.lines
     .map<ReceiptLine | null>((l) => {
@@ -502,8 +504,11 @@ function receiptFromQueued(
       // before the till has ever seen the sale, so there is nothing else to
       // compare against. The till snapshots its own copy when the queue drains,
       // and that one is the record; this is the customer's slip in the meantime.
-      const listCents = listPrice(item);
-      const discountCents = Math.max(0, at(listCents) - amount);
+      // Only when the shop prints discounts at all. Off, the slip a queued sale
+      // hands the customer says what they paid and nothing to compare it with —
+      // the same paper the till prints once the sale has gone through.
+      const listCents = printer.showDiscounts ? listPrice(item) : 0;
+      const discountCents = listCents > 0 ? Math.max(0, at(listCents) - amount) : 0;
       return {
         name: item.name,
         units: l.units,

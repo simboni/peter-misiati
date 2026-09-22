@@ -402,6 +402,8 @@ export interface PrinterFields {
   header: string[];
   footer: string;
   autoPrint: boolean;
+  /** Whether the paper shows what came off a haggled price. */
+  showDiscounts?: boolean;
   /** When these were last written. Empty means nobody has ever saved them. */
   savedAt?: string;
 }
@@ -433,6 +435,7 @@ export function PrinterSettingsForm({
   const [header, setHeader] = useState(settings.header.join("\n"));
   const [footer, setFooter] = useState(settings.footer);
   const [autoPrint, setAutoPrint] = useState(settings.autoPrint);
+  const [showDiscounts, setShowDiscounts] = useState(settings.showDiscounts ?? false);
 
   const headerLines = header
     .split("\n")
@@ -501,6 +504,29 @@ export function PrinterSettingsForm({
             Print automatically after a sale
             <span className="block text-xs font-normal text-muted">
               Only once a printer has been paired on this phone.
+            </span>
+          </span>
+        </label>
+
+        {/*
+          Off for this shop, by their own decision. "Was KES 280, discount KES
+          130" on a slip of paper hands the next customer an argument: everyone
+          who sees it knows the shop came down by 130 and asks for the same. A
+          price agreed with one customer is between the shop and that customer.
+        */}
+        <label className="flex items-center gap-3 rounded-xl border border-line bg-white px-3.5 py-3">
+          <input
+            type="checkbox"
+            name="show_discounts"
+            checked={showDiscounts}
+            onChange={(e) => setShowDiscounts(e.target.checked)}
+            className="h-5 w-5"
+          />
+          <span className="text-sm font-semibold">
+            Show discounts on the paper
+            <span className="block text-xs font-normal text-muted">
+              Off: the receipt shows only what was paid. What came off is still recorded, and still
+              on your Discounts given report.
             </span>
           </span>
         </label>

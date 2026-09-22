@@ -72,6 +72,7 @@ const KEY = {
   header: "printer.header",
   footer: "printer.footer",
   auto: "printer.auto",
+  discounts: "printer.discounts",
 } as const;
 
 export interface PrintSettings {
@@ -81,6 +82,21 @@ export interface PrintSettings {
   footer: string;
   /** Print without being asked once a sale is recorded, if a printer is paired. */
   autoPrint: boolean;
+  /**
+   * Whether the paper shows what came off a haggled price.
+   *
+   * OFF for this shop, by their own decision. Printing "was KES 280, discount
+   * KES 130" hands the next customer an argument: everyone who sees that slip
+   * knows the shop came down by 130 and will ask for the same. A price agreed
+   * with one customer is between the shop and that customer, so the paper says
+   * what was actually paid and nothing else.
+   *
+   * It is a setting rather than a deletion because the shop that wants to show
+   * a saving — a promotion, a wholesale round — should be able to, and because
+   * the discount itself is never lost: it is snapshotted on the sale line and
+   * reported under Discounts given, which is the owner's screen.
+   */
+  showDiscounts: boolean;
   /**
    * When these were last saved, as the database wrote it. Empty if never.
    *
@@ -100,6 +116,7 @@ export interface PrintSettingsInput {
   header?: string;
   footer?: string;
   autoPrint?: boolean;
+  showDiscounts?: boolean;
 }
 
 /** At most six header lines — more than that and the receipt is mostly letterhead. */
@@ -136,6 +153,8 @@ export function defaultPrintSettings(): PrintSettings {
       paired simply never fires one.
     */
     autoPrint: true,
+    // The shop asked for this off: see the field's own note above.
+    showDiscounts: false,
     savedAt: "",
   };
 }
@@ -163,6 +182,10 @@ export function getPrintSettings(): PrintSettings {
     // Unset means "never chosen", which takes the default above rather than
     // reading as a deliberate no.
     autoPrint: getSetting(KEY.auto) === undefined ? fallback.autoPrint : getSetting(KEY.auto) === "1",
+    showDiscounts:
+      getSetting(KEY.discounts) === undefined
+        ? fallback.showDiscounts
+        : getSetting(KEY.discounts) === "1",
     savedAt: savedAtStamp(),
   };
 }
@@ -192,6 +215,7 @@ export function savePrintSettings(input: PrintSettingsInput, userId?: number | n
   setSetting(KEY.header, header.join("\n"));
   setSetting(KEY.footer, String(input.footer ?? "").trim());
   setSetting(KEY.auto, input.autoPrint ? "1" : "0");
+  setSetting(KEY.discounts, input.showDiscounts ? "1" : "0");
 
   audit(userId ?? null, "printer_settings_save", "settings", null, `${paper} mm, ${header.length} header line(s)`);
 
@@ -242,8 +266,16 @@ export function receiptFromInvoice(invoice: Invoice, settings: PrintSettings): R
       qty: l.canonical_unit ? formatQty(l.qty_milli, l.canonical_unit) : null,
       rateCents: l.rate_cents ?? 0,
       rateUnit: l.canonical_unit ?? null,
-      listPriceCents: l.list_price_cents ?? 0,
-      discountCents: lineDiscountCents(l),
+      /*
+        What the shop was asking, and what came off it — or neither.
+
+        Zeroed rather than filtered downstream, because these two fields ARE
+        what makes the printer draw the "was KES 280 / Discount -130" pair. A
+        receipt with nothing to compare against prints one price: the one the
+        customer paid. See `showDiscounts`.
+      */
+      listPriceCents: settings.showDiscounts ? (l.list_price_cents ?? 0) : 0,
+      discountCents: settings.showDiscounts ? lineDiscountCents(l) : 0,
     }));
 
   return {
@@ -256,8 +288,10 @@ export function receiptFromInvoice(invoice: Invoice, settings: PrintSettings): R
     customer: sale.customer_name,
     servedBy: sale.user_name,
     lines: items,
-    subtotalCents,
-    discountCents,
+    // And the same at the foot: a Subtotal and a Discount line under a total
+    // that already says what is owed are the same disclosure, said once more.
+    subtotalCents: settings.showDiscounts ? subtotalCents : sale.total_cents,
+    discountCents: settings.showDiscounts ? discountCents : 0,
     totalCents: sale.total_cents,
     paidCents: sale.paid_cents,
     balanceCents,

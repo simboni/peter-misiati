@@ -553,6 +553,100 @@ export function profitSummary(asked: DateRange): ProfitSummary {
   };
 }
 
+// ------------------------------------------------------------ day by day
+
+export interface DayProfit {
+  date: string;
+  salesCents: number;
+  cogsCents: number;
+  grossProfitCents: number;
+  expensesCents: number;
+  netProfitCents: number;
+  saleCount: number;
+}
+
+/**
+ * The period's profit, one line per trading day.
+ *
+ * A month's total answers "did we make money" and nothing else. The owner's
+ * actual question is "which days", because that is the one that can be acted
+ * on: a Tuesday that lost money is a Tuesday with an explanation — a delivery
+ * paid for in cash, a batch mixed, a day of haggling — and a month lumped into
+ * one figure hides every one of them.
+ *
+ * Days with nothing on them are left out rather than printed as zeros: a shop
+ * that did not open has no line to read.
+ *
+ * Same arithmetic as `profitSummary`, day by day, including the cost fallback —
+ * so the column adds up to the total above it instead of quietly disagreeing.
+ */
+export function dailyProfit(asked: DateRange): DayProfit[] {
+  const range = clampRange(asked);
+
+  const sales = all<{ d: string; total: number; n: number }>(
+    `SELECT date(at, '+3 hours') AS d,
+            COALESCE(SUM(total_cents), 0) AS total,
+            COUNT(*) AS n
+       FROM sales
+      WHERE status = 'completed'
+        AND date(at, '+3 hours') BETWEEN ? AND ?
+      GROUP BY d`,
+    range.from,
+    range.to,
+  );
+
+  const cogs = all<{ d: string; total: number }>(
+    `SELECT date(s.at, '+3 hours') AS d,
+            COALESCE(SUM(
+              CASE
+                WHEN sl.cost_cents > 0 THEN sl.cost_cents
+                WHEN sl.item_id IS NOT NULL AND COALESCE(i.cost_cents, 0) > 0
+                  THEN CAST(ROUND(1.0 * i.cost_cents * sl.qty_milli / 1000) AS INTEGER)
+                ELSE 0
+              END), 0) AS total
+       FROM sale_lines sl
+       JOIN sales s ON s.id = sl.sale_id
+       LEFT JOIN items i ON i.id = sl.item_id
+      WHERE s.status = 'completed'
+        AND date(s.at, '+3 hours') BETWEEN ? AND ?
+      GROUP BY d`,
+    range.from,
+    range.to,
+  );
+
+  const expenses = all<{ d: string; total: number }>(
+    `SELECT date(at, '+3 hours') AS d, COALESCE(SUM(amount_cents), 0) AS total
+       FROM expenses
+      WHERE date(at, '+3 hours') BETWEEN ? AND ?
+      GROUP BY d`,
+    range.from,
+    range.to,
+  );
+
+  const cogsBy = new Map(cogs.map((r) => [r.d, r.total]));
+  const expBy = new Map(expenses.map((r) => [r.d, r.total]));
+  const salesBy = new Map(sales.map((r) => [r.d, r]));
+
+  // A day with an expense and no sale is still a day that lost money.
+  const days = [...new Set([...salesBy.keys(), ...expBy.keys()])].sort().reverse();
+
+  return days.map((d) => {
+    const salesCents = salesBy.get(d)?.total ?? 0;
+    const cogsCents = cogsBy.get(d) ?? 0;
+    const expensesCents = expBy.get(d) ?? 0;
+    const grossProfitCents = salesCents - cogsCents;
+    return {
+      date: d,
+      salesCents,
+      cogsCents,
+      grossProfitCents,
+      expensesCents,
+      netProfitCents: grossProfitCents - expensesCents,
+      saleCount: salesBy.get(d)?.n ?? 0,
+    };
+  });
+}
+
 // ------------------------------------------------------------- monthly sales
 
 export interface MonthSales {
@@ -595,6 +689,16 @@ export interface ProductProfit {
   estimated: boolean;
   /** True when nothing at all is known about what this cost the shop. */
   uncosted: boolean;
+  /**
+   * How much of it went out, and in what. Null for the priced line of a recipe
+   * sale, which has no item and therefore no unit of its own.
+   *
+   * These two are what turn "this product lost KES 668" into something anybody
+   * can check: sold at so much a kilogramme, bought at so much a kilogramme.
+   * Without them a negative row is an accusation with no evidence.
+   */
+  qty_milli: number;
+  unit: "kg" | "L" | "pcs" | null;
 }
 
 /**
@@ -617,6 +721,8 @@ export function profitPerProduct(asked: DateRange, limit = 20): ProductProfit[] 
     cost_cents: number;
     estimated: number;
     uncosted: number;
+    qty_milli: number;
+    unit: "kg" | "L" | "pcs" | null;
   }>(
     /*
       Grouped by the PRODUCT where there is one, and only by name where there is
@@ -637,6 +743,8 @@ export function profitPerProduct(asked: DateRange, limit = 20): ProductProfit[] 
             COALESCE(SUM(sl.units), 0)                 AS units,
             COALESCE(MAX(sl.unit_price_cents), 0)      AS unit_price_cents,
             COALESCE(SUM(sl.line_total_cents), 0)      AS revenue_cents,
+            COALESCE(SUM(sl.qty_milli), 0)             AS qty_milli,
+            MAX(i.canonical_unit)                      AS unit,
             COALESCE(SUM(
               CASE
                 WHEN sl.cost_cents > 0 THEN sl.cost_cents

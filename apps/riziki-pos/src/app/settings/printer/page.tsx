@@ -42,6 +42,7 @@ export default async function PrinterSettingsPage() {
           header: String(formData.get("header") ?? ""),
           footer: String(formData.get("footer") ?? ""),
           autoPrint: formData.get("auto_print") != null,
+          showDiscounts: formData.get("show_discounts") != null,
         },
         actor.id,
       );

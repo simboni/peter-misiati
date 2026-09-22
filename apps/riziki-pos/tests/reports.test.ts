@@ -22,6 +22,7 @@ const { run, db } = await import("../src/lib/db.ts");
 const {
   dayTotals,
   profitSummary,
+  dailyProfit,
   profitPerProduct,
   monthlySales,
   businessLineSplit,
@@ -800,5 +801,104 @@ describe("where the books start", () => {
     run(`DELETE FROM settings WHERE key = 'books_start'`);
     run(`UPDATE items SET cost_cents = 6000 WHERE id = 2`);
     assert.ok(true);
+  });
+});
+
+// ------------------------------------------------------------ day by day
+
+describe("profit, one line per day", () => {
+  /*
+    A month's total answers "did we make money" and nothing else. The question
+    actually asked of the screen is "which days" — a Tuesday that lost money is
+    a Tuesday with an explanation, and a month lumped into one figure hides
+    every one of them.
+  */
+  before(() => {
+    run(`DELETE FROM settings WHERE key = 'books_start'`);
+    sale({
+      uuid: "dbd-1",
+      atUtc: "2026-05-04 09:00:00",
+      itemId: 1,
+      name: "Ungerol — 20 kg",
+      units: 2,
+      unitPriceCents: 100000,
+      lineCostCents: 76000,
+      cash: 200000,
+    });
+    sale({
+      uuid: "dbd-2",
+      atUtc: "2026-05-04 15:00:00",
+      itemId: 1,
+      name: "Ungerol — 20 kg",
+      units: 1,
+      unitPriceCents: 100000,
+      lineCostCents: 38000,
+      cash: 100000,
+    });
+    sale({
+      uuid: "dbd-3",
+      atUtc: "2026-05-06 11:00:00",
+      itemId: 1,
+      name: "Ungerol — 20 kg",
+      units: 1,
+      unitPriceCents: 90000,
+      lineCostCents: 76000,
+      cash: 90000,
+    });
+    run(
+      `INSERT INTO expenses (at, category, amount_cents, method, note, user_id)
+       VALUES ('2026-05-06 12:00:00', 'Transport', 40000, 'cash', 'matatu', 1)`,
+    );
+  });
+
+  test("each trading day stands on its own, newest first", () => {
+    const days = dailyProfit({ from: "2026-05-01", to: "2026-05-31" });
+    const byDate = new Map(days.map((d) => [d.date, d]));
+
+    const four = byDate.get("2026-05-04")!;
+    assert.equal(four.saleCount, 2, "two sales that day");
+    assert.equal(four.salesCents, 300000);
+    assert.equal(four.cogsCents, 114000);
+    assert.equal(four.grossProfitCents, 186000);
+    assert.equal(four.expensesCents, 0);
+    assert.equal(four.netProfitCents, 186000);
+
+    // The 6th: one thin sale and a matatu fare, which is the day that is worth
+    // being able to see on its own.
+    const six = byDate.get("2026-05-06")!;
+    assert.equal(six.salesCents, 90000);
+    assert.equal(six.cogsCents, 76000);
+    assert.equal(six.expensesCents, 40000);
+    assert.equal(six.netProfitCents, -26000, "a day can lose money, and must say so");
+
+    assert.deepEqual(
+      days.map((d) => d.date),
+      ["2026-05-06", "2026-05-04"],
+      "newest first, and a day with nothing on it has no line at all",
+    );
+  });
+
+  test("the days add up to the period, or one of the two is lying", () => {
+    const range = { from: "2026-05-01", to: "2026-05-31" };
+    const days = dailyProfit(range);
+    const month = profitSummary(range);
+
+    const sum = (pick: (d: (typeof days)[number]) => number) =>
+      days.reduce((n, d) => n + pick(d), 0);
+
+    assert.equal(sum((d) => d.salesCents), month.salesCents);
+    assert.equal(sum((d) => d.cogsCents), month.cogsCents);
+    assert.equal(sum((d) => d.expensesCents), month.expensesCents);
+    assert.equal(sum((d) => d.netProfitCents), month.netProfitCents);
+  });
+
+  test("the books-start date holds here too", () => {
+    run(
+      `INSERT INTO settings (key, value) VALUES ('books_start', '2026-05-05')
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    );
+    const days = dailyProfit({ from: "2026-05-01", to: "2026-05-31" });
+    assert.deepEqual(days.map((d) => d.date), ["2026-05-06"], "before the books, nothing is counted");
+    run(`DELETE FROM settings WHERE key = 'books_start'`);
   });
 });

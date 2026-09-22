@@ -485,39 +485,55 @@ test("a receipt built from a sale uses the snapshotted line values only", () => 
   /*
     And the same line haggled: asked 133 a kilo, agreed 100.
 
-    The customer negotiated that, so both figures belong on the paper — the
-    price they were quoted and the amount they talked off it. Printing only
-    "40.00" would be true and would give them no way to see they got anything,
-    which is the whole reason they asked.
+    WHETHER THAT SHOWS ON THE PAPER IS THE SHOP'S DECISION, and this shop says
+    no: "was 53.20, discount 13.20" in a customer's hand is an argument the next
+    customer brings back, because everyone who sees the slip knows the shop came
+    down. So the default prints what was paid and nothing to compare it with.
 
-    The amounts must still add up: 53.20 asked, 13.20 off, 40.00 charged, and
-    the Subtotal / Discount / TOTAL block carries the same three numbers so the
-    column reconciles with the bottom line.
+    Switched on — a promotion, a wholesale round — the figures must still add
+    up: 53.20 asked, 13.20 off, 40.00 charged, with the Subtotal / Discount /
+    TOTAL block carrying the same three numbers so the column reconciles with
+    the bottom line.
   */
-  const haggled = settings.receiptFromInvoice(
-    {
-      ...invoice,
-      sale: { ...invoice.sale, total_cents: 4000, paid_cents: 4000 },
-      lines: [
-        {
-          id: 3,
-          name_snapshot: "Caustic Soda",
-          units: 1,
-          qty_milli: 400,
-          unit_price_cents: 4000,
-          line_total_cents: 4000,
-          rate_cents: 10000,
-          list_price_cents: 13300,
-          is_component: 0,
-        canonical_unit: "kg",
-        },
-      ],
-      balanceCents: 0,
-      subtotalCents: 5320,
-      discountCents: 1320,
-    },
-    settings.getPrintSettings(),
+  const haggledInvoice = {
+    ...invoice,
+    sale: { ...invoice.sale, total_cents: 4000, paid_cents: 4000 },
+    lines: [
+      {
+        id: 3,
+        name_snapshot: "Caustic Soda",
+        units: 1,
+        qty_milli: 400,
+        unit_price_cents: 4000,
+        line_total_cents: 4000,
+        rate_cents: 10000,
+        list_price_cents: 13300,
+        is_component: 0,
+        canonical_unit: "kg" as const,
+      },
+    ],
+    balanceCents: 0,
+    subtotalCents: 5320,
+    discountCents: 1320,
+  };
+
+
+  const quiet = receiptText(
+    settings.receiptFromInvoice(haggledInvoice, {
+      ...settings.getPrintSettings(),
+      showDiscounts: false,
+    }),
+    { paper: 58 },
   );
+  assert.match(quiet, /400 g x 100\/kg\s+40/, "the rate agreed, and what it came to");
+  assert.ok(!/Discount/.test(quiet), "nothing about what came off");
+  assert.ok(!/53\.20/.test(quiet), "and no trace of the asking price");
+  assert.match(quiet, /TOTAL\s+40$/m);
+
+  const haggled = settings.receiptFromInvoice(haggledInvoice, {
+    ...settings.getPrintSettings(),
+    showDiscounts: true,
+  });
   const haggledText = receiptText(haggled, { paper: 58 });
   assert.match(haggledText, /400 g x 133\/kg\s+53\.20/, "the price the customer was quoted");
   assert.match(haggledText, /Discount\s+-13\.20/, "and what came off it");
