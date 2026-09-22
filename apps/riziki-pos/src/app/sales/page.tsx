@@ -193,6 +193,13 @@ export default async function SalesPage(props: {
                   >
                     Invoice
                   </Link>
+                  {/* The paper that travels with the goods, and comes back signed. */}
+                  <Link
+                    href={`/delivery/${s.id}`}
+                    className="rounded-lg border border-line px-2.5 py-1.5 text-[11px] font-bold hover:bg-wash"
+                  >
+                    Note
+                  </Link>
                   {mayVoid && !voided ? (
                     <details className="relative">
                       <summary className="cursor-pointer rounded-lg px-2.5 py-1.5 text-[11px] font-bold text-muted hover:bg-bad-soft hover:text-bad">

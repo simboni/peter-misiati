@@ -181,7 +181,7 @@ async function adoptPricing(): Promise<void> {
  * so the row states name, unit, price and band on one line, and the editor only
  * exists once you open it.
  */
-function ProductRow({ item }: { item: AdminItem }) {
+function ProductRow({ item, seesCost }: { item: AdminItem; seesCost: boolean }) {
   // Read once: the row asks about the containers four times over.
   const pack = packState(item.id);
   const weighed = item.price_basis === "unit";
@@ -244,6 +244,14 @@ function ProductRow({ item }: { item: AdminItem }) {
           reorder={reorderUnits}
           oversell={(item.oversell_milli ?? 0) / 1000}
           onHandMilli={stockOf(item.id)}
+          /*
+            Null rather than zero for somebody who may not see cost: this is a
+            client component, so whatever is passed here reaches their browser.
+            Products and prices can be granted without cost and profit — see
+            the permissions in Users & settings — and the margin line simply is
+            not drawn for them.
+          */
+          costCents={seesCost ? item.cost_cents : null}
           bundles={itemBundles(item.id).map((b) => ({
             size: String(b.sizeMilli / 1000),
             price: String(b.priceCents / 100),
@@ -354,6 +362,9 @@ export default async function ItemsPage(props: {
   // Prices, floors and the raw-chemical list all sit here; staff never see it.
   if (!can(me, "products")) redirect("/");
 
+  // Cost is a permission of its own: Products and prices can be granted to
+  // somebody who may not see what the shop paid.
+  const seesCost = can(me, "cost");
   const products = listProducts();
   const pending = pendingUnitPricing();
   const unpricedCount = products.filter((p) => p.active && p.price_cents === 0).length;
@@ -514,7 +525,7 @@ export default async function ItemsPage(props: {
       {/* One list. See `ProductRow` for why this is not a grid of cards. */}
       <div className="max-w-4xl overflow-hidden rounded-2xl bg-white shadow-card ring-1 ring-ink/5">
         {shown.length ? (
-          shown.map((i) => <ProductRow key={i.id} item={i} />)
+          shown.map((i) => <ProductRow key={i.id} item={i} seesCost={seesCost} />)
         ) : (
           <p className="px-3 py-6 text-center text-sm text-muted">
             {needle || filter !== "all"

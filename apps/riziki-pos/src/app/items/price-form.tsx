@@ -52,6 +52,7 @@ export default function PriceForm({
   reorder,
   oversell,
   onHandMilli,
+  costCents,
   bundles,
 }: {
   itemId: number;
@@ -74,6 +75,12 @@ export default function PriceForm({
   oversell: number;
   /** What the ledger says is on the shelf, for the warning about relabelling. */
   onHandMilli: number;
+  /**
+   * The weighted-average cost of one unit, or null for somebody who may not
+   * see cost. Null is not zero: zero means "it cost nothing", null means "not
+   * yours to know", and the margin line is simply absent for the second.
+   */
+  costCents: number | null;
   /** The sizes this is also sold in, as they stand. */
   bundles: BundleRow[];
 }) {
@@ -162,6 +169,19 @@ export default function PriceForm({
           <Money name="price" label={`Price ${perNow}`} value={priceText} onValue={setPriceText} />
         </Field>
       </div>
+
+      {/*
+        THE MARGIN, WHILE THE PRICE IS BEING TYPED.
+
+        Pricing happened on one screen and the margin appeared on another, a
+        day later, in a report — so the shop found out it was selling flakes
+        under cost by reading a red figure in Reports, long after the sale. The
+        arithmetic is trivial and the moment it matters is the moment somebody
+        is typing a new price, so it belongs here, live.
+
+        Absent, not zero, for anybody without permission to see cost.
+      */}
+      {costCents === null ? null : <MarginLine costCents={costCents} priceText={priceText} unit={unitKey} onPrice={setPriceText} />}
 
       {relabelling ? (
         <Alert tone="warn">
@@ -259,6 +279,89 @@ function weighedUnit(unit: string): boolean {
 }
 
 /** A plain text box, controlled for the same reason the money boxes are. */
+/**
+ * What this price earns, and what it would take to earn a given margin.
+ *
+ * Margin on the SELLING price — (price − cost) / price — because that is the
+ * number the trade quotes and the one the reports show. Marking up the cost by
+ * 30% is a 23% margin, and a shop that mixes the two prices its whole
+ * catalogue wrong.
+ *
+ * The three buttons are the working part. "Work some margins" is not a
+ * calculation anybody wants to do forty times with a phone calculator: tap 20%
+ * and the price box fills with the price that earns 20% on this cost, rounded
+ * up to the nearest shilling — then it is still a price the owner can type over
+ * before saving. Nothing here saves anything.
+ */
+function MarginLine({
+  costCents,
+  priceText,
+  unit,
+  onPrice,
+}: {
+  costCents: number;
+  priceText: string;
+  unit: string;
+  onPrice: (v: string) => void;
+}) {
+  const priceCents = Math.round((Number(priceText.replace(/[^\d.]/g, "")) || 0) * 100);
+  const marginPct = priceCents > 0 ? ((priceCents - costCents) / priceCents) * 100 : 0;
+  const earns = priceCents - costCents;
+
+  /** The price that earns this margin on this cost, to the shilling above. */
+  const priceFor = (pct: number) => {
+    if (costCents <= 0 || pct >= 100) return 0;
+    return Math.ceil(costCents / (1 - pct / 100) / 100) * 100;
+  };
+
+  const tone =
+    costCents <= 0 || priceCents <= 0
+      ? "text-muted"
+      : earns < 0
+        ? "text-bad"
+        : marginPct < 10
+          ? "text-warn"
+          : "text-good";
+
+  return (
+    <div className="rounded-xl bg-wash px-3 py-2.5">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-sm">
+        <span className="text-muted">
+          Costs <span className="font-semibold text-ink tnum">{money(costCents)}</span>/{unit}
+          {costCents <= 0 ? " — no cost recorded yet" : ""}
+        </span>
+        {costCents > 0 && priceCents > 0 ? (
+          <span className={`font-bold tnum ${tone}`}>
+            {earns < 0 ? "Loses" : "Earns"} {money(Math.abs(earns))}/{unit} · {marginPct.toFixed(0)}%
+            margin
+          </span>
+        ) : null}
+      </div>
+
+      {costCents > 0 ? (
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          <span className="text-[11px] text-muted">Price it at</span>
+          {[15, 20, 25, 30, 40].map((pct) => (
+            <button
+              key={pct}
+              type="button"
+              onClick={() => onPrice(String(priceFor(pct) / 100))}
+              className="rounded-lg border border-line bg-white px-2 py-1 text-[11px] font-bold text-ink hover:bg-brand-soft hover:text-brand"
+            >
+              {pct}% = {money(priceFor(pct))}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** Shillings, no decimals — the way a price is said out loud here. */
+function money(cents: number): string {
+  return `KES ${Math.round(cents / 100).toLocaleString("en-KE")}`;
+}
+
 function Text({
   name,
   label,

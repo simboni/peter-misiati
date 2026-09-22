@@ -371,6 +371,21 @@ export default async function InvoicePage(props: {
           </div>
         ) : null}
 
+        {/*
+          The other paper this sale can produce.
+
+          A delivery note is not an invoice with the prices rubbed out: it says
+          what was handed over and carries the line the customer signs. It
+          belongs here because here is where somebody stands with the goods
+          about to leave.
+        */}
+        <Link
+          href={`/delivery/${sale.id}`}
+          className="flex min-h-11 items-center justify-center rounded-xl border border-line px-3 text-[12px] font-bold hover:bg-wash xl:min-h-9"
+        >
+          Delivery note
+        </Link>
+
         <div className="flex gap-2">
           <PrintButton />
           <PdfShareButton

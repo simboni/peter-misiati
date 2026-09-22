@@ -294,3 +294,54 @@ test("with no item the history covers the whole shop", () => {
   const all = priceHistoryPage(1, 5).total;
   assert.ok(all >= one, "the shop-wide count includes this item's changes");
 });
+
+// ------------------------------------------------------- working a margin
+
+/*
+  The arithmetic behind the buttons on the pricing form. Margin is on the
+  SELLING price — (price − cost) / price — because that is what the trade
+  quotes and what every report here shows. Marking a cost up by 30% is a 23%
+  margin, and a shop that mixes the two prices its whole catalogue wrong.
+*/
+function priceForMargin(costCents: number, pct: number): number {
+  if (costCents <= 0 || pct >= 100) return 0;
+  return Math.ceil(costCents / (1 - pct / 100) / 100) * 100;
+}
+
+function marginPct(costCents: number, priceCents: number): number {
+  return priceCents > 0 ? ((priceCents - costCents) / priceCents) * 100 : 0;
+}
+
+test("a price worked from a margin earns that margin", () => {
+  // Ungerol at KES 340 a kilo, priced for a fifth.
+  const cost = 34_000;
+  const price = priceForMargin(cost, 20);
+  assert.equal(price, 42_500, "340 / 0.8 = 425, to the shilling above");
+  assert.ok(marginPct(cost, price) >= 20, "rounding up never lands under the target");
+  assert.ok(marginPct(cost, price) < 21, "and never far over it");
+});
+
+test("a markup is not a margin, and the difference is what this exists to stop", () => {
+  const cost = 10_000;
+  const markedUp = cost * 1.3; // what "add 30%" gives
+  assert.equal(Math.round(marginPct(cost, markedUp)), 23, "a 30% markup is a 23% margin");
+  assert.equal(priceForMargin(cost, 30), 14_300, "a 30% MARGIN needs KES 143, not KES 130");
+});
+
+test("selling under cost reads as a loss, not as a small margin", () => {
+  // The shape of the FLAKES row: bought at 340, sold at 327.
+  assert.ok(marginPct(34_000, 32_700) < 0);
+  assert.equal(Math.round(marginPct(34_000, 32_700)), -4);
+});
+
+test("with no cost recorded there is nothing to work a margin from", () => {
+  assert.equal(priceForMargin(0, 20), 0, "no cost, no price to aim at");
+
+  /*
+    And the reason the screen hides the margin line entirely when the cost is
+    zero rather than showing this: the arithmetic answers 100%, which is a
+    number that reads as a triumph and means "nobody has recorded what this
+    cost". Reports says the same thing in words, for the same reason.
+  */
+  assert.equal(marginPct(0, 42_500), 100);
+});
