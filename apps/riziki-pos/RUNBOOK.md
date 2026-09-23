@@ -145,6 +145,46 @@ docker compose up -d --build
 Nothing about that touches the database. To return to the latest again, run
 `update.sh`.
 
+### Deploying from an Android phone
+
+The server does not care what typed the command. Any SSH app will do —
+**Termius** or **JuiceSSH**, both free on the Play Store:
+
+1. Add a host: `169.58.127.122`, username `root`, port 22, and the server
+   password.
+2. Save the command as a snippet: `sh apps/riziki-pos/deploy/update.sh`
+3. Connect, tap the snippet. That is the whole deploy, from the phone.
+
+To check what is live without any app at all, open this in Chrome:
+
+```
+https://pos.rizikichemicals.co.ke/build.txt
+```
+
+It prints the commit, the branch and when it was built.
+
+### Or let it deploy itself, overnight
+
+```
+crontab -e
+0 3 * * * cd /root/peter-misiati/apps/riziki-pos && sh deploy/auto-update.sh >> /var/log/riziki-deploy.log 2>&1
+```
+
+`auto-update.sh` fetches, and if the branch has not moved it does nothing and
+says so. If it has, it takes a database snapshot, deploys, waits for the public
+address to answer, and writes the result to the log. Nobody is selling at 3am,
+which is the point of the hour.
+
+It never rolls back on its own — an automatic rollback with nobody watching can
+undo a database change it does not understand. A failed deploy leaves a line in
+the log naming the commit that was running, and the two commands to go back to
+it. Read the log any time:
+
+```
+tail -40 /var/log/riziki-deploy.log
+sh deploy/auto-update.sh --check     # what WOULD it deploy? changes nothing
+```
+
 ---
 
 ## 5. Nobody can sign in
