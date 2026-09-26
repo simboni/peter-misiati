@@ -91,6 +91,7 @@ import { SalesChart } from "./sales-chart";
 import { PeriodPicker } from "./period-picker";
 import { ExportBar } from "./export-bar";
 import { Tile, TrendChart, SplitBar, RankRow } from "./dash-parts";
+import { Fold } from "./fold";
 
 export const dynamic = "force-dynamic";
 
@@ -129,13 +130,20 @@ function productMeta(p: ProductProfit): string {
 }
 
 export default async function ReportsPage(props: {
-  searchParams: Promise<{ period?: string; from?: string; to?: string; grain?: string }>;
+  searchParams: Promise<{
+    period?: string;
+    from?: string;
+    to?: string;
+    grain?: string;
+    open?: string;
+  }>;
 }) {
   const {
     period: periodParam,
     from = "",
     to = "",
     grain: grainParam,
+    open: openParam,
   } = await props.searchParams;
   const user = await currentUser();
   if (!user) redirect("/login");
@@ -166,6 +174,17 @@ export default async function ReportsPage(props: {
   const range = clampRange(asked);
   const periodName = describeRange(range);
   const grainChoice = isGrain(grainParam) ? grainParam : undefined;
+  /*
+    One link that unfolds the whole report.
+
+    The folds remember themselves in the browser, which is right for daily use
+    and wrong for two cases: printing, where a browser will not print what a
+    fold is hiding, and the morning somebody wants the old everything-at-once
+    report. Both are answered by a link rather than by a setting: ?open=all
+    renders every section open, server-side, and does not touch what this
+    browser remembers.
+  */
+  const openAll = openParam === "all";
   const books = booksStart();
 
   /*
@@ -220,6 +239,22 @@ export default async function ReportsPage(props: {
   const grossSpark = d.trend.points.map((p) => p.grossProfitCents);
   const netSpark = d.trend.points.map((p) => p.netProfitCents);
 
+  const hrefWith = (extra: Record<string, string | undefined>) => {
+    const q = new URLSearchParams({ period });
+    if (period === "custom") {
+      q.set("from", range.from);
+      q.set("to", range.to);
+    }
+    if (grainChoice) q.set("grain", grainChoice);
+    if (openAll) q.set("open", "all");
+    for (const [k, v] of Object.entries(extra)) {
+      if (v === undefined) q.delete(k);
+      else q.set(k, v);
+    }
+    return `/reports?${q.toString()}`;
+  };
+  const grainHref = (g: Grain) => hrefWith({ grain: g });
+
   /*
     WHAT NEEDS ATTENTION, worked out rather than written.
 
@@ -246,7 +281,7 @@ export default async function ReportsPage(props: {
   if (losers.length) {
     watch.push({
       tone: "bad",
-      href: "#earns",
+      href: `${hrefWith({ open: "all" })}#earns`,
       body: (
         <>
           <strong>
@@ -321,7 +356,7 @@ export default async function ReportsPage(props: {
   if (discounts.belowFloorLines > 0) {
     watch.push({
       tone: "warn",
-      href: "#discounts",
+      href: `${hrefWith({ open: "all" })}#discounts`,
       body: (
         <>
           <strong>
@@ -336,7 +371,7 @@ export default async function ReportsPage(props: {
   if (deadValue > 0) {
     watch.push({
       tone: "neutral",
-      href: "#dead",
+      href: `${hrefWith({ open: "all" })}#leaks`,
       body: (
         <>
           <strong>{formatKes(deadValue)} has not moved in 60 days</strong> — cash sitting on the
@@ -349,7 +384,7 @@ export default async function ReportsPage(props: {
   if (lastShrink) {
     watch.push({
       tone: "neutral",
-      href: "#shrinkage",
+      href: `${hrefWith({ open: "all" })}#leaks`,
       body: (
         <>
           <strong>{formatKes(Math.abs(lastShrink.value_cents))} short at the last count</strong> —{" "}
@@ -360,14 +395,59 @@ export default async function ReportsPage(props: {
     });
   }
 
-  const grainHref = (g: Grain) => {
-    const q = new URLSearchParams({ period });
-    if (period === "custom") {
-      q.set("from", range.from);
-      q.set("to", range.to);
-    }
-    q.set("grain", g);
-    return `/reports?${q.toString()}`;
+
+  /*
+    A line of what is inside each fold, shown while it is shut.
+
+    The whole point of folding is that the owner should not have to open a
+    section to find out whether it is worth opening. "26 trading days · best
+    7 Sept 2026" is frequently the entire answer, and the fold never gets
+    opened at all — which is the screen doing its job.
+  */
+  const move = (now: number, before: number) => {
+    const c = change(now, before);
+    return c === null ? "nothing to compare" : `${c > 0 ? "+" : ""}${c.toFixed(0)}%`;
+  };
+  const shrinkTotal = shrink.reduce((n, x) => n + Math.min(0, x.value_cents), 0);
+  const hints = {
+    compare: `sales ${move(d.now.salesCents, d.before.salesCents)} · net profit ${move(
+      d.now.netProfitCents,
+      d.before.netProfitCents,
+    )}`,
+    people:
+      (d.debtors.totalCents > 0
+        ? `${formatKesRounded(d.debtors.totalCents)} owed by ${d.debtors.customerCount}`
+        : "nobody owes anything") +
+      (customers.length ? ` · best customer ${customers[0].name}` : ""),
+    earns: products.length
+      ? `${products[0].name} leads at ${formatKesRounded(products[0].profit_cents)}` +
+        (losers.length ? ` · ${losers.length} below cost` : "")
+      : "nothing sold in this period",
+    days: days.length
+      ? `${periodName} · ${days.length} ${days.length === 1 ? "day" : "days"}` +
+        (d.bestDay ? ` · best ${formatDate(d.bestDay.date)}` : "")
+      : `${periodName} · nothing traded`,
+    book:
+      (books ? `since ${formatDate(books)} · ` : "") +
+      `${formatKesRounded(allTime.salesCents)} sold · ${formatKesRounded(
+        allTime.netProfitCents,
+      )} kept`,
+    discounts:
+      discounts.discountCents > 0
+        ? `${formatKesRounded(discounts.discountCents)} given away · ${discounts.pct.toFixed(
+            1,
+          )}% of what was asked`
+        : "nothing went under its asking price",
+    leaks:
+      dead.length || shrinkTotal < 0
+        ? [
+            dead.length ? `${formatKesRounded(deadValue)} not moving` : "",
+            shrinkTotal < 0 ? `${formatKesRounded(Math.abs(shrinkTotal))} short at the counts` : "",
+          ]
+            .filter(Boolean)
+            .join(" · ")
+        : "nothing dead, nothing short",
+    export: "PDF, spreadsheets and a full backup",
   };
 
   return (
@@ -385,23 +465,34 @@ export default async function ReportsPage(props: {
         trialled, emptied and started again, and a month that quietly includes
         the practice trading is a month the owner is right to distrust.
       */}
-      {books ? (
-        <p className="mb-4 text-xs text-muted">
-          These books start on <span className="font-bold text-ink">{formatDate(books)}</span> — the
-          day the shop was cleared and this system took over. Nothing before it is counted.{" "}
-          <Link href="/settings" className="font-bold text-brand">
-            Change
-          </Link>
-        </p>
-      ) : (
-        <p className="mb-4 text-xs text-muted">
-          Counting everything ever recorded, including any trial run.{" "}
-          <Link href="/settings" className="font-bold text-brand">
-            Set the day the books start
-          </Link>{" "}
-          to leave the practice figures out.
-        </p>
-      )}
+      <div className="mb-4 flex flex-wrap items-baseline justify-between gap-x-5 gap-y-1">
+        {books ? (
+          <p className="text-xs text-muted">
+            These books start on <span className="font-bold text-ink">{formatDate(books)}</span> —
+            the day the shop was cleared and this system took over. Nothing before it is counted.{" "}
+            <Link href="/settings" className="font-bold text-brand">
+              Change
+            </Link>
+          </p>
+        ) : (
+          <p className="text-xs text-muted">
+            Counting everything ever recorded, including any trial run.{" "}
+            <Link href="/settings" className="font-bold text-brand">
+              Set the day the books start
+            </Link>{" "}
+            to leave the practice figures out.
+          </p>
+        )}
+
+        {/* The one control for the folds below. It is also how the report is
+            printed: a browser will not print what a fold is hiding. */}
+        <Link
+          href={hrefWith({ open: openAll ? undefined : "all" })}
+          className="no-print shrink-0 text-xs font-bold text-brand"
+        >
+          {openAll ? "Back to the short view" : "Open every section"}
+        </Link>
+      </div>
 
       {/* ------------------------------------------------------- right now */}
 
@@ -568,16 +659,65 @@ export default async function ReportsPage(props: {
             </div>
             <TrendChart points={d.trend.points} grain={d.trend.grain} />
           </Card>
+        </div>
 
-          {/*
-            The same period, side by side with the one before it.
+        <div className="lg:col-span-5 2xl:col-span-4">
+          <SectionLabel>Money in</SectionLabel>
+          <Card>
+            <div className="flex items-baseline justify-between gap-3">
+              <h3 className="text-sm font-bold text-brand-deep">
+                {formatKes(d.money.totalCollectedCents)} collected
+              </h3>
+              <span className="text-[11px] font-semibold text-muted">by the day it arrived</span>
+            </div>
+            <div className="mt-3">
+              <SplitBar
+                parts={[
+                  { label: "Cash", cents: d.money.cashCents, className: "bg-brand" },
+                  { label: "M-Pesa", cents: d.money.mpesaCents, className: "bg-leaf" },
+                ]}
+              />
+            </div>
+            <dl className="mt-3 space-y-1.5 border-t border-line pt-2.5 text-[13px]">
+              <MoneyRow
+                label="Of it, old bills settled"
+                value={formatKes(d.money.settledOldCents)}
+              />
+              <MoneyRow
+                label="Credit given on the day"
+                value={formatKes(d.money.creditGivenCents)}
+              />
+              <MoneyRow
+                label="Of this period's sales, still unpaid"
+                value={formatKes(d.money.stillOwedCents)}
+                tone={d.money.stillOwedCents > 0 ? "bad" : undefined}
+              />
+            </dl>
+            <p className="mt-2.5 text-[11px] leading-snug text-muted">
+              Sales are counted on the day the goods left; money on the day it arrived. The two
+              differ by the credit given and the old debts paid off — which is why both are here
+              rather than one figure pretending to be both.
+            </p>
+          </Card>
+        </div>
+      </div>
 
-            The tiles carry the movement as an arrow; this is the arithmetic
-            under the arrow, for the owner who wants to see it and for the
-            printed copy that goes to the bank.
-          */}
-          <SectionLabel>This period against the one before</SectionLabel>
-          <TableWrap>
+      {/* ----------------------------------------------- everything else, folded */}
+
+      {/*
+        The same period, side by side with the one before it.
+
+        The tiles carry the movement as an arrow; this is the arithmetic under
+        the arrow, for the owner who wants to see it and for the printed copy
+        that goes to the bank.
+      */}
+      <Fold
+        id="compare"
+        title="This period against the one before"
+        hint={hints.compare}
+        force={openAll}
+      >
+        <TableWrap>
             <thead>
               <tr>
                 <Th>Figure</Th>
@@ -641,48 +781,12 @@ export default async function ReportsPage(props: {
               ) : null}
             </p>
           ) : null}
-        </div>
+      </Fold>
 
-        <div className="lg:col-span-5 2xl:col-span-4">
-          <SectionLabel>Money in</SectionLabel>
-          <Card>
-            <div className="flex items-baseline justify-between gap-3">
-              <h3 className="text-sm font-bold text-brand-deep">
-                {formatKes(d.money.totalCollectedCents)} collected
-              </h3>
-              <span className="text-[11px] font-semibold text-muted">by the day it arrived</span>
-            </div>
-            <div className="mt-3">
-              <SplitBar
-                parts={[
-                  { label: "Cash", cents: d.money.cashCents, className: "bg-brand" },
-                  { label: "M-Pesa", cents: d.money.mpesaCents, className: "bg-leaf" },
-                ]}
-              />
-            </div>
-            <dl className="mt-3 space-y-1.5 border-t border-line pt-2.5 text-[13px]">
-              <MoneyRow
-                label="Of it, old bills settled"
-                value={formatKes(d.money.settledOldCents)}
-              />
-              <MoneyRow
-                label="Credit given on the day"
-                value={formatKes(d.money.creditGivenCents)}
-              />
-              <MoneyRow
-                label="Of this period's sales, still unpaid"
-                value={formatKes(d.money.stillOwedCents)}
-                tone={d.money.stillOwedCents > 0 ? "bad" : undefined}
-              />
-            </dl>
-            <p className="mt-2.5 text-[11px] leading-snug text-muted">
-              Sales are counted on the day the goods left; money on the day it arrived. The two
-              differ by the credit given and the old debts paid off — which is why both are here
-              rather than one figure pretending to be both.
-            </p>
-          </Card>
-
-          <SectionLabel>Who owes</SectionLabel>
+      <Fold id="people" title="Who owes, and who buys" hint={hints.people} force={openAll}>
+        <div className="lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-4 xl:gap-x-5">
+          <div className="lg:col-span-6">
+            <h3 className="mb-2 text-sm font-bold text-brand-deep">Who owes</h3>
           {d.debtors.top.length ? (
             <Card className="!py-2.5">
               {d.debtors.top.map((c) => (
@@ -710,8 +814,9 @@ export default async function ReportsPage(props: {
               <Empty>Nobody owes the shop anything.</Empty>
             </Card>
           )}
-
-          <SectionLabel>Who buys most · {periodName}</SectionLabel>
+          </div>
+          <div className="mt-3 lg:col-span-6 lg:mt-0">
+            <h3 className="mb-2 text-sm font-bold text-brand-deep">Who buys most</h3>
           {customers.length ? (
             <Card className="!py-2.5">
               {customers.map((c) => (
@@ -733,16 +838,22 @@ export default async function ReportsPage(props: {
               <Empty>Nothing sold in this period.</Empty>
             </Card>
           )}
+          </div>
         </div>
-      </div>
+      </Fold>
 
       {/* --------------------------------------------------- what earns */}
 
-      <div className="lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-4 xl:gap-x-5">
+      <Fold
+        id="earns"
+        anchor="earns"
+        title="What earns"
+        hint={hints.earns}
+        defaultOpen
+        force={openAll}
+      >
+        <div className="lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-4 xl:gap-x-5">
         <div className="lg:col-span-7 2xl:col-span-8">
-          <SectionLabel>
-            <span id="earns">What earns · {periodName}</span>
-          </SectionLabel>
           {losers.length ? (
             <div className="mb-2">
               <Alert tone="bad">
@@ -803,8 +914,8 @@ export default async function ReportsPage(props: {
           </p>
         </div>
 
-        <div className="lg:col-span-5 2xl:col-span-4">
-          <SectionLabel>Which line earns</SectionLabel>
+        <div className="mt-3 lg:col-span-5 lg:mt-0 2xl:col-span-4">
+          <h3 className="mb-2 text-sm font-bold text-brand-deep">Which line earns</h3>
           {lines.length ? (
             <Card>
               <SplitBar
@@ -842,7 +953,8 @@ export default async function ReportsPage(props: {
             </Card>
           )}
         </div>
-      </div>
+        </div>
+      </Fold>
 
       {/* --------------------------------------------------- day by day */}
 
@@ -855,7 +967,7 @@ export default async function ReportsPage(props: {
         explanation somewhere; a month that made money has none, and hides every
         Tuesday inside it.
       */}
-      <SectionLabel>Day by day · {periodName}</SectionLabel>
+      <Fold id="days" title="Day by day" hint={hints.days} force={openAll}>
       {days.length ? (
         <div className="overflow-x-auto">
           <TableWrap>
@@ -901,12 +1013,16 @@ export default async function ReportsPage(props: {
           <Empty>Nothing traded in this period.</Empty>
         </Card>
       )}
+      </Fold>
 
       {/* --------------------------------------------------- the long view */}
 
-      <SectionLabel>
-        The whole book{books ? <> · since {formatDate(books)}</> : null}
-      </SectionLabel>
+      <Fold
+        id="book"
+        title="The whole book"
+        hint={hints.book}
+        force={openAll}
+      >
       <div className="grid grid-cols-2 gap-2.5 xl:grid-cols-4 xl:gap-3">
         <Tile label="Sales, all of them" value={formatKesRounded(allTime.salesCents)} />
         <Tile label="Gross profit" value={formatKesRounded(allTime.grossProfitCents)} />
@@ -974,6 +1090,7 @@ export default async function ReportsPage(props: {
           </Card>
         </div>
       </div>
+      </Fold>
 
       {/* --------------------------------------------------- leaks */}
 
@@ -991,9 +1108,13 @@ export default async function ReportsPage(props: {
         actually charged. Nothing re-reads today's shelf price, so last month's
         discount does not move when this week's price does.
       */}
-      <SectionLabel>
-        <span id="discounts">Discounts given · {periodName}</span>
-      </SectionLabel>
+      <Fold
+        id="discounts"
+        anchor="discounts"
+        title="Discounts given"
+        hint={hints.discounts}
+        force={openAll}
+      >
       {discounts.discountCents > 0 ? (
         <>
           <div className="grid grid-cols-2 gap-2.5 xl:grid-cols-4 xl:gap-3">
@@ -1110,12 +1231,14 @@ export default async function ReportsPage(props: {
           <Empty>Nothing was sold under its asking price in this period.</Empty>
         </Card>
       )}
+      </Fold>
 
+      <Fold id="leaks" anchor="leaks" title="Dead stock and shrinkage" hint={hints.leaks} force={openAll}>
       <div className="lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-4 xl:gap-x-5">
         <div className="lg:col-span-7 2xl:col-span-8">
-          <SectionLabel>
-            <span id="dead">Dead stock · nothing sold in 60 days</span>
-          </SectionLabel>
+          <h3 className="mb-2 text-sm font-bold text-brand-deep">
+            Dead stock · nothing sold in 60 days
+          </h3>
           {dead.length ? (
             <>
               <p className="mb-1.5 text-xs text-muted">
@@ -1156,10 +1279,10 @@ export default async function ReportsPage(props: {
           )}
         </div>
 
-        <div className="lg:col-span-5 2xl:col-span-4">
-          <SectionLabel>
-            <span id="shrinkage">Shrinkage · what the count says the book missed</span>
-          </SectionLabel>
+        <div className="mt-3 lg:col-span-5 lg:mt-0 2xl:col-span-4">
+          <h3 className="mb-2 text-sm font-bold text-brand-deep">
+            Shrinkage · what the count says the book missed
+          </h3>
           {shrink.some((s) => s.milli !== 0 || s.value_cents !== 0) ? (
             <>
               <Card className="!py-2.5">
@@ -1187,9 +1310,20 @@ export default async function ReportsPage(props: {
           )}
         </div>
       </div>
+      </Fold>
 
-      <SectionLabel>Take it out</SectionLabel>
-      <ExportBar range={range} />
+      <Fold id="export" title="Take it out" hint={hints.export} force={openAll}>
+        <ExportBar range={range} />
+        {/* A browser prints what is on the page, and a folded section is not
+            on the page. Said here rather than discovered on the printout. */}
+        <p className="no-print mt-2 text-xs text-muted">
+          Printing takes the report as it stands, so anything folded away is left out.{" "}
+          <Link href={hrefWith({ open: "all" })} className="font-bold text-brand">
+            Open every section
+          </Link>{" "}
+          first for the full report.
+        </p>
+      </Fold>
     </div>
   );
 }
