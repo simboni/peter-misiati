@@ -1,32 +1,65 @@
 /**
- * Reports — OWNER ONLY.
+ * Reports — the owner's dashboard. OWNER ONLY.
  *
- * Everything here is cost or profit, which staff must never see. The gate is
- * `requireOwner()` on the server, before a single figure is read, so a staff
+ * Everything here is cost or profit, which staff must never see. The gate is a
+ * server-side permission check before a single figure is read, so a staff
  * session never receives the bytes; hiding a tab would still ship the data.
  *
- * Ordered by what the owner actually opens the app to find out:
- *   1. did I make money today, and this month?
- *   2. is the trend up or down?
- *   3. which products earn?
- *   4. which of my two businesses earns?
- *   5. what is my money sleeping in?
- *   6. what is leaking?
+ * WHY IT IS SHAPED LIKE THIS. The old version was a correct report and a poor
+ * screen: eleven sections of equal weight, every figure a bare total with
+ * nothing to measure it against, and the answer to "how are we doing" buried
+ * four scrolls down. A shop owner does not read a report — he checks on his
+ * shop, in ninety seconds, usually standing up, usually on a phone.
+ *
+ * So the page is ordered as that check:
+ *
+ *   RIGHT NOW      today's takings, today's profit, what is owed, what is held.
+ *                  Four numbers that are true at this second, whatever period
+ *                  is selected. This is what the app gets opened for.
+ *   THE PERIOD     sales, gross, net, margin — each against the same span of
+ *                  days immediately before it, each with the shape of the
+ *                  period drawn under it. A number with nothing beside it says
+ *                  nothing; "up a fifth on the fortnight before" is a fact.
+ *   ATTENTION      the short list of things that are wrong and can be fixed,
+ *                  each one a link to the screen that fixes it. Computed, not
+ *                  written: if the list is empty the shop is told so plainly.
+ *   THE TREND      sales as bars, profit as a line, at day, week or month
+ *                  grain. One plot, because the question is one question: am I
+ *                  selling more, and am I keeping more of it?
+ *   THE MONEY      what came in and how, credit given, old debts settled, who
+ *                  owes, who buys. Takings are not sales and the screen says
+ *                  which is which.
+ *   WHAT EARNS     per product, per line of business, and the honest reasons a
+ *                  margin might be wrong rather than a bare accusation.
+ *   DAY BY DAY     the ledger, because eventually somebody asks "which day".
+ *   THE LONG VIEW  six months of sales, what the shelf is worth, and the
+ *                  whole book since the day the shop was cleared.
+ *   LEAKS          discounts, dead stock, shrinkage.
+ *
+ * The figures come from `lib/dashboard.ts` — one range, one pass, tested as a
+ * whole against raw SQL — and the drawing from `dash-parts.tsx`. No chart
+ * library: every chart here is SVG or divs, server-rendered, with the same
+ * figures in a table one tap away. This screen opens over Nairobi mobile data.
  */
 
 import { redirect } from "next/navigation";
-import { currentUser, requirePermission, can } from "@/lib/auth";
 import Link from "next/link";
-import { formatKes, formatQty, formatDate, businessDate, pct } from "@/lib/units";
+import type { ReactNode } from "react";
+import { currentUser, requirePermission, can } from "@/lib/auth";
 import {
-  dayRange,
+  formatKes,
+  formatKesRounded,
+  formatQty,
+  formatDate,
+  businessDate,
+  pct,
+} from "@/lib/units";
+import {
   periodRange,
   describeRange,
   booksStart,
+  clampRange,
   dailyProfit,
-  type ProductProfit,
-  isPeriod,
-  type Period,
   profitSummary,
   monthlySales,
   profitPerProduct,
@@ -37,12 +70,15 @@ import {
   discountedSales,
   deadStock,
   shrinkageByMonth,
+  isPeriod,
+  type Period,
+  type ProductProfit,
 } from "@/lib/reports";
+import { dashboard, change, topCustomers, type Grain } from "@/lib/dashboard";
 import {
   PageTitle,
   Card,
   SectionLabel,
-  Stat,
   TableWrap,
   Th,
   Td,
@@ -52,11 +88,18 @@ import {
   ListRow,
 } from "@/components/ui";
 import { SalesChart } from "./sales-chart";
-
 import { PeriodPicker } from "./period-picker";
 import { ExportBar } from "./export-bar";
+import { Tile, TrendChart, SplitBar, RankRow } from "./dash-parts";
 
 export const dynamic = "force-dynamic";
+
+const GRAINS: Grain[] = ["day", "week", "month"];
+const GRAIN_LABEL: Record<Grain, string> = { day: "Daily", week: "Weekly", month: "Monthly" };
+
+function isGrain(v: string | undefined): v is Grain {
+  return v === "day" || v === "week" || v === "month";
+}
 
 /**
  * The line under a product's name on the profit list.
@@ -86,9 +129,14 @@ function productMeta(p: ProductProfit): string {
 }
 
 export default async function ReportsPage(props: {
-  searchParams: Promise<{ period?: string; from?: string; to?: string }>;
+  searchParams: Promise<{ period?: string; from?: string; to?: string; grain?: string }>;
 }) {
-  const { period: periodParam, from = "", to = "" } = await props.searchParams;
+  const {
+    period: periodParam,
+    from = "",
+    to = "",
+    grain: grainParam,
+  } = await props.searchParams;
   const user = await currentUser();
   if (!user) redirect("/login");
   // Bounce anybody without it before a single cost or profit query runs. The
@@ -99,40 +147,235 @@ export default async function ReportsPage(props: {
   const today = businessDate();
 
   /*
-    One period, read by everything below it.
+    One period, read by everything below it, and stated on the screen.
 
-    Every figure on this screen was the current month, chosen here and stated
-    nowhere. The owner could not ask "how did last week go" without waiting for
-    a month to end, and could not tell, looking at a printed copy, what span of
-    days it covered.
+    Every figure here was once the current month, chosen in the code and said
+    nowhere — so "sales 214,000" answered a question the owner had not asked.
   */
   const period: Period = isPeriod(periodParam) ? periodParam : "month";
-  const range = periodRange(period, today, from, to);
-  const periodName = describeRange(range);
+  /*
+    Held inside the books here rather than only inside each query.
 
-  // Today keeps its own tile whatever the period is: it is the one number the
-  // owner opens the app for, and burying it inside "this year" would be a
-  // strange thing to do to it.
-  const todaySummary = profitSummary(dayRange(today));
-  const summary = profitSummary(range);
-  const months = monthlySales(6, today);
+    "This year" on a shop whose books start in July is not a year, and a screen
+    headed "1 Jan – 26 Sept" above a chart that begins in July invites exactly
+    the question the books-start line was written to answer. Clamping once, at
+    the top, means the picker, every heading, the chart and the export all name
+    the same span — the one the figures actually cover.
+  */
+  const asked = periodRange(period, today, from, to);
+  const range = clampRange(asked);
+  const periodName = describeRange(range);
+  const grainChoice = isGrain(grainParam) ? grainParam : undefined;
+  const books = booksStart();
+
+  /*
+    Dates that end before the books begin.
+
+    Clamping an already-impossible range leaves `from` after `to`, and the page
+    used to render that as a wall of honest zeroes headed "20 Jul – 30 Jun" —
+    an impossible span, a "0 days before it", and nothing anywhere saying why.
+    One sentence and the picker is the whole answer.
+  */
+  if (range.from > range.to) {
+    return (
+      <div>
+        <PageTitle
+          title="Reports"
+          subtitle="Owner only · costs and profit are never shown to staff"
+        />
+        <PeriodPicker current={period} range={asked} from={from} to={to} />
+        <Alert tone="warn">
+          These books start on {formatDate(books)}, the day the shop was cleared and this system
+          took over. {describeRange(asked)} ends before that, so there is nothing recorded to
+          report. Pick dates on or after {formatDate(books)}.
+        </Alert>
+      </div>
+    );
+  }
+
+  const d = dashboard(range, grainChoice);
+
   const products = profitPerProduct(range);
   const losers = products.filter((p) => p.profit_cents < 0);
   const lines = businessLineSplit(range);
+  const customers = topCustomers(range, 5);
   const discounts = discountSummary(range);
   const byPerson = discountsByPerson(range);
   const byItem = discountsByItem(range);
   const discountedBills = discountedSales(range, 12);
   const dead = deadStock(60);
+  const deadValue = dead.reduce((sum, x) => sum + x.value_cents, 0);
   const shrink = shrinkageByMonth(6, today);
-
-  const deadValue = dead.reduce((sum, d) => sum + d.value_cents, 0);
-  const books = booksStart();
+  const months = monthlySales(6, today);
   const days = dailyProfit(range);
+
+  // The whole book, for the one question a period can never answer: is this
+  // shop, taken altogether, ahead?
+  const everything = { from: books || "2000-01-01", to: today };
+  const allTime = profitSummary(everything);
+  const allDays = dailyProfit(everything);
+  const tradingDays = allDays.filter((x) => x.saleCount > 0).length;
+
+  const salesSpark = d.trend.points.map((p) => p.salesCents);
+  const grossSpark = d.trend.points.map((p) => p.grossProfitCents);
+  const netSpark = d.trend.points.map((p) => p.netProfitCents);
+
+  /*
+    WHAT NEEDS ATTENTION, worked out rather than written.
+
+    A dashboard that only totals things leaves the owner to notice what is
+    wrong, which is the one job a screen can do better than a person: it can
+    check all nine things every time. Each entry is a fact with an amount and a
+    link to the screen that fixes it — never "review your stock levels".
+  */
+  const watch: Array<{ tone: "bad" | "warn" | "neutral"; href?: string; body: ReactNode }> = [];
+
+  if (d.summary.uncostedSalesCents > 0) {
+    watch.push({
+      tone: "bad",
+      href: "/purchases",
+      body: (
+        <>
+          <strong>{formatKes(d.summary.uncostedSalesCents)} of these sales have no cost price</strong>{" "}
+          — they are counted as pure profit above, which they are not. Record what those goods cost
+          on the delivery, and every profit figure on this page comes right.
+        </>
+      ),
+    });
+  }
+  if (losers.length) {
+    watch.push({
+      tone: "bad",
+      href: "#earns",
+      body: (
+        <>
+          <strong>
+            {losers.length} {losers.length === 1 ? "product sold" : "products sold"} below cost
+          </strong>{" "}
+          — {losers.map((p) => `${p.name} (${formatKes(p.profit_cents)})`).join(", ")}. Either the
+          price is too low or the cost on file is wrong.
+        </>
+      ),
+    });
+  }
+  if (d.shelf.owedCount > 0) {
+    watch.push({
+      tone: "bad",
+      href: "/stock",
+      body: (
+        <>
+          <strong>
+            {d.shelf.owedCount} {d.shelf.owedCount === 1 ? "item shows" : "items show"} below zero
+          </strong>{" "}
+          — sold and not yet replaced. Until the delivery is entered, their cost is a guess.
+        </>
+      ),
+    });
+  }
+  if (d.debtors.totalCents > 0) {
+    watch.push({
+      tone: d.debtors.oldestDays >= 30 ? "bad" : "warn",
+      href: "/wholesale/debts",
+      body: (
+        <>
+          <strong>{formatKes(d.debtors.totalCents)} owed by {d.debtors.customerCount}</strong>{" "}
+          {d.debtors.customerCount === 1 ? "customer" : "customers"} — the oldest unpaid bill is{" "}
+          {d.debtors.oldestDays} {d.debtors.oldestDays === 1 ? "day" : "days"} old.
+        </>
+      ),
+    });
+  }
+  if (d.shelf.lowCount > 0) {
+    watch.push({
+      tone: "warn",
+      href: "/stock",
+      body: (
+        <>
+          <strong>
+            {d.shelf.lowCount} {d.shelf.lowCount === 1 ? "item is" : "items are"} at or under the
+            level you set
+          </strong>{" "}
+          — order before they run out, not after a customer asks.
+        </>
+      ),
+    });
+  }
+  if (d.shelf.uncostedCount > 0) {
+    watch.push({
+      tone: "warn",
+      href: "/items",
+      body: (
+        <>
+          <strong>
+            {d.shelf.uncostedCount === 1
+              ? "1 item on the shelf has"
+              : `${d.shelf.uncostedCount} items on the shelf have`}{" "}
+            no cost price
+          </strong>{" "}
+          — until there is one, nothing{" "}
+          {d.shelf.uncostedCount === 1 ? "it earns is" : "they earn is"} knowable.
+        </>
+      ),
+    });
+  }
+  if (discounts.belowFloorLines > 0) {
+    watch.push({
+      tone: "warn",
+      href: "#discounts",
+      body: (
+        <>
+          <strong>
+            {discounts.belowFloorLines}{" "}
+            {discounts.belowFloorLines === 1 ? "line went" : "lines went"} under your minimum price
+          </strong>{" "}
+          — each one needed your PIN, so each one is a moment you were asked and said yes.
+        </>
+      ),
+    });
+  }
+  if (deadValue > 0) {
+    watch.push({
+      tone: "neutral",
+      href: "#dead",
+      body: (
+        <>
+          <strong>{formatKes(deadValue)} has not moved in 60 days</strong> — cash sitting on the
+          shelf across {dead.length} {dead.length === 1 ? "item" : "items"}.
+        </>
+      ),
+    });
+  }
+  const lastShrink = shrink.find((s) => s.value_cents < 0);
+  if (lastShrink) {
+    watch.push({
+      tone: "neutral",
+      href: "#shrinkage",
+      body: (
+        <>
+          <strong>{formatKes(Math.abs(lastShrink.value_cents))} short at the last count</strong> —{" "}
+          {lastShrink.label} {lastShrink.ym.slice(0, 4)}. A small gap is ordinary; one that grows
+          month on month is not.
+        </>
+      ),
+    });
+  }
+
+  const grainHref = (g: Grain) => {
+    const q = new URLSearchParams({ period });
+    if (period === "custom") {
+      q.set("from", range.from);
+      q.set("to", range.to);
+    }
+    q.set("grain", g);
+    return `/reports?${q.toString()}`;
+  };
 
   return (
     <div>
-      <PageTitle title="Reports" subtitle="Owner only · costs and profit are never shown to staff" />
+      <PageTitle
+        title="Reports"
+        subtitle="Owner only · costs and profit are never shown to staff"
+      />
       <PeriodPicker current={period} range={range} from={from} to={to} />
 
       {/*
@@ -143,15 +386,15 @@ export default async function ReportsPage(props: {
         the practice trading is a month the owner is right to distrust.
       */}
       {books ? (
-        <p className="mb-3 text-xs text-muted">
-          These books start on <span className="font-bold text-ink">{formatDate(books)}</span> —
-          the day the shop was cleared and this system took over. Nothing before it is counted.{" "}
+        <p className="mb-4 text-xs text-muted">
+          These books start on <span className="font-bold text-ink">{formatDate(books)}</span> — the
+          day the shop was cleared and this system took over. Nothing before it is counted.{" "}
           <Link href="/settings" className="font-bold text-brand">
             Change
           </Link>
         </p>
       ) : (
-        <p className="mb-3 text-xs text-muted">
+        <p className="mb-4 text-xs text-muted">
           Counting everything ever recorded, including any trial run.{" "}
           <Link href="/settings" className="font-bold text-brand">
             Set the day the books start
@@ -160,75 +403,448 @@ export default async function ReportsPage(props: {
         </p>
       )}
 
-      <div className="lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-4 xl:gap-x-5 2xl:gap-x-6">
-      <div className="lg:col-span-5">
-      <SectionLabel>Today</SectionLabel>
-      <div className="grid grid-cols-2 gap-2 xl:gap-2.5">
-        <Stat
-          label="Sales"
-          value={formatKes(todaySummary.salesCents)}
-          detail={`${todaySummary.saleCount} ${todaySummary.saleCount === 1 ? "sale" : "sales"}`}
+      {/* ------------------------------------------------------- right now */}
+
+      <SectionLabel>Right now · {formatDate(today)}</SectionLabel>
+      <div className="grid grid-cols-2 gap-2.5 xl:grid-cols-4 xl:gap-3">
+        <Tile
+          label="Sales today"
+          value={formatKesRounded(d.today.salesCents)}
+          detail={`${d.today.saleCount} ${d.today.saleCount === 1 ? "sale" : "sales"}${
+            d.today.saleCount ? ` · ${formatKesRounded(d.today.averageSaleCents)} average` : ""
+          }`}
+          href="/sales"
         />
-        <Stat
-          label="Net profit"
-          value={formatKes(todaySummary.netProfitCents)}
-          detail="after cost and expenses"
+        <Tile
+          label="Profit today"
+          value={formatKesRounded(d.today.netProfitCents)}
+          tone={d.today.netProfitCents < 0 ? "bad" : "good"}
+          detail="after cost of goods and expenses"
+          href="/day-close"
+        />
+        <Tile
+          label="Owed to the shop"
+          value={formatKesRounded(d.debtors.totalCents)}
+          tone={d.debtors.totalCents > 0 ? "bad" : "plain"}
+          detail={
+            d.debtors.totalCents > 0
+              ? `${d.debtors.customerCount} ${
+                  d.debtors.customerCount === 1 ? "customer" : "customers"
+                } · oldest ${d.debtors.oldestDays} days`
+              : "nothing outstanding"
+          }
+          href="/wholesale/debts"
+        />
+        <Tile
+          label="On the shelf, at cost"
+          value={formatKesRounded(d.shelf.atCostCents)}
+          detail={`worth ${formatKesRounded(d.shelf.atRetailCents)} at today's prices`}
+          href="/stock"
         />
       </div>
 
-      <SectionLabel>{periodName}</SectionLabel>
-      <Card>
-        <dl className="space-y-1.5 text-sm">
-          <Line label="Sales" value={formatKes(summary.salesCents)} />
-          <Line label="Cost of goods sold" value={`− ${formatKes(summary.cogsCents)}`} />
-          <div className="flex items-baseline justify-between gap-3 border-t border-line pt-1.5">
-            <dt className="font-semibold">Gross profit</dt>
-            <dd className="font-bold tnum">{formatKes(summary.grossProfitCents)}</dd>
-          </div>
-          <Line label="Expenses" value={`− ${formatKes(summary.expensesCents)}`} />
-          <div className="mt-1 flex items-baseline justify-between gap-3 border-t border-line pt-2.5">
-            <dt className="text-sm font-bold">Net profit</dt>
-            <dd
-              className={`text-xl font-extrabold tracking-tight tnum xl:text-2xl ${
-                summary.netProfitCents < 0 ? "text-bad" : "text-good"
-              }`}
-            >
-              {formatKes(summary.netProfitCents)}
-            </dd>
-          </div>
-        </dl>
-        <p className="mt-2 text-xs text-muted">
-          Net profit = sales − cost of goods − expenses.{" "}
-          {summary.salesCents > 0
-            ? `That is ${pct(summary.netProfitCents, summary.salesCents).toFixed(1)}% of sales.`
-            : "No sales recorded this month yet."}
-        </p>
-      </Card>
+      {/* --------------------------------------------------- the period */}
 
-      {/*
-        The two things that make a profit figure a lie, named.
+      <SectionLabel>
+        {periodName} · {d.days === 1 ? "against yesterday" : `against the ${d.days} days before it`}
+      </SectionLabel>
+      <div className="grid grid-cols-2 gap-2.5 xl:grid-cols-4 xl:gap-3">
+        <Tile
+          label="Sales"
+          value={formatKesRounded(d.now.salesCents)}
+          delta={change(d.now.salesCents, d.before.salesCents)}
+          detail={`${d.now.saleCount} ${
+            d.now.saleCount === 1 ? "sale" : "sales"
+          } · ${formatKesRounded(d.now.averageSaleCents)} average`}
+          spark={salesSpark}
+        />
+        <Tile
+          label="Gross profit"
+          value={formatKesRounded(d.now.grossProfitCents)}
+          delta={change(d.now.grossProfitCents, d.before.grossProfitCents)}
+          detail={`after ${formatKesRounded(d.now.cogsCents)} of goods`}
+          spark={grossSpark}
+          sparkTone="good"
+        />
+        <Tile
+          label="Net profit"
+          value={formatKesRounded(d.now.netProfitCents)}
+          tone={d.now.netProfitCents < 0 ? "bad" : "good"}
+          delta={change(d.now.netProfitCents, d.before.netProfitCents)}
+          detail={`after ${formatKesRounded(d.now.expensesCents)} of expenses`}
+          spark={netSpark}
+          sparkTone={d.now.netProfitCents < 0 ? "bad" : "good"}
+        />
+        <Tile
+          label="Margin"
+          value={`${d.now.marginPct.toFixed(1)}%`}
+          delta={d.before.salesCents > 0 ? d.now.marginPct - d.before.marginPct : null}
+          deltaUnit="pts"
+          detail={
+            d.before.salesCents > 0
+              ? `was ${d.before.marginPct.toFixed(1)}% before`
+              : "gross profit as a share of sales"
+          }
+        />
+      </div>
 
-        A sale of goods whose cost nobody recorded shows as pure profit. It is
-        not profit, it is an unknown, and a total that hides it is the reason an
-        owner says the reports are wrong. Both lines below say the amount, so
-        the size of the doubt is visible rather than felt.
-      */}
-      {summary.uncostedSalesCents > 0 ? (
-        <div className="mt-2">
-          <Alert tone="bad">
-            <strong>{formatKes(summary.uncostedSalesCents)} of these sales have no cost price.</strong>{" "}
-            They are counted as pure profit above, which they are not. Record what those goods cost
-            — on the delivery under Suppliers &amp; purchases, or on the product under Products &amp;
-            prices — and this figure comes right.
-          </Alert>
+      <p className="mt-2.5 text-xs text-muted">
+        {d.now.saleCount === 0 ? (
+          <>Nothing was sold in this period.</>
+        ) : (
+          <>
+            {d.days === 1 ? (
+              <>
+                {d.now.saleCount} {d.now.saleCount === 1 ? "sale" : "sales"} today, averaging{" "}
+                <span className="font-bold text-ink">
+                  {formatKesRounded(d.now.averageSaleCents)}
+                </span>
+                .{" "}
+              </>
+            ) : (
+              <>
+                {formatKesRounded(d.now.salesCents)} over {d.days} days — about{" "}
+                <span className="font-bold text-ink">
+                  {formatKesRounded(Math.round(d.now.salesCents / d.days))}
+                </span>{" "}
+                a day.{" "}
+                {d.bestDay ? (
+                  <>
+                    The best day was {formatDate(d.bestDay.date)} at{" "}
+                    {formatKesRounded(d.bestDay.salesCents)}.{" "}
+                  </>
+                ) : null}
+              </>
+            )}
+            Net profit is {pct(d.now.netProfitCents, d.now.salesCents).toFixed(1)}% of sales.
+          </>
+        )}
+      </p>
+
+      {/* --------------------------------------------------- attention */}
+
+      <SectionLabel>Needs your attention</SectionLabel>
+      {watch.length ? (
+        <Card className="!py-2">
+          {watch.map((w, i) => (
+            <WatchRow key={i} tone={w.tone} href={w.href}>
+              {w.body}
+            </WatchRow>
+          ))}
+        </Card>
+      ) : (
+        <Alert tone="good">
+          Nothing needs your attention. Every product has a cost price, nothing is selling below
+          cost, no bill is unpaid and no shelf is short.
+        </Alert>
+      )}
+
+      {/* --------------------------------------------------- trend + money */}
+
+      <div className="lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-4 xl:gap-x-5">
+        <div className="lg:col-span-7 2xl:col-span-8">
+          <SectionLabel>How it is going</SectionLabel>
+          <Card>
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-bold text-brand-deep">Sales and profit · {periodName}</h3>
+              {/* Daily, weekly, monthly — the owner decides, not the code. The
+                  default follows the span so a year is never 365 bars. */}
+              <div className="no-print flex gap-1">
+                {GRAINS.map((g) => (
+                  <Link
+                    key={g}
+                    href={grainHref(g)}
+                    aria-current={d.trend.grain === g ? "true" : undefined}
+                    className={`flex min-h-8 items-center rounded-full px-2.5 text-[11px] font-bold ${
+                      d.trend.grain === g
+                        ? "bg-brand text-white"
+                        : "bg-wash text-muted ring-1 ring-inset ring-line hover:text-ink"
+                    }`}
+                  >
+                    {GRAIN_LABEL[g]}
+                  </Link>
+                ))}
+              </div>
+            </div>
+            <TrendChart points={d.trend.points} grain={d.trend.grain} />
+          </Card>
+
+          {/*
+            The same period, side by side with the one before it.
+
+            The tiles carry the movement as an arrow; this is the arithmetic
+            under the arrow, for the owner who wants to see it and for the
+            printed copy that goes to the bank.
+          */}
+          <SectionLabel>This period against the one before</SectionLabel>
+          <TableWrap>
+            <thead>
+              <tr>
+                <Th>Figure</Th>
+                <Th align="right">{periodName}</Th>
+                <Th align="right">{describeRange(d.previous)}</Th>
+                <Th align="right">Change</Th>
+              </tr>
+            </thead>
+            <tbody>
+              <CompareRow label="Sales" now={d.now.salesCents} before={d.before.salesCents} />
+              <CompareRow
+                label="Cost of goods sold"
+                now={d.now.cogsCents}
+                before={d.before.cogsCents}
+                invert
+              />
+              <CompareRow
+                label="Gross profit"
+                now={d.now.grossProfitCents}
+                before={d.before.grossProfitCents}
+                strong
+              />
+              <CompareRow
+                label="Expenses"
+                now={d.now.expensesCents}
+                before={d.before.expensesCents}
+                invert
+              />
+              <CompareRow
+                label="Net profit"
+                now={d.now.netProfitCents}
+                before={d.before.netProfitCents}
+                strong
+              />
+              <CompareRow
+                label="Sales rung up"
+                now={d.now.saleCount}
+                before={d.before.saleCount}
+                money={false}
+              />
+              <CompareRow
+                label="Average sale"
+                now={d.now.averageSaleCents}
+                before={d.before.averageSaleCents}
+              />
+            </tbody>
+          </TableWrap>
+          {d.summary.uncostedSalesCents > 0 || d.summary.estimatedCostCents > 0 ? (
+            <p className="mt-1.5 text-xs text-muted">
+              {d.summary.uncostedSalesCents > 0 ? (
+                <>
+                  {formatKes(d.summary.uncostedSalesCents)} of these sales have no cost price at all
+                  and are counted as pure profit above.{" "}
+                </>
+              ) : null}
+              {d.summary.estimatedCostCents > 0 ? (
+                <>
+                  {formatKes(d.summary.estimatedCostCents)} of the cost is valued at what those
+                  goods cost today, because no cost was recorded when they were sold.
+                </>
+              ) : null}
+            </p>
+          ) : null}
         </div>
-      ) : null}
-      {summary.estimatedCostCents > 0 ? (
-        <p className="mt-2 text-xs text-muted">
-          {formatKes(summary.estimatedCostCents)} of the cost above is valued at what those goods
-          cost today, because no cost was recorded when they were sold.
-        </p>
-      ) : null}
+
+        <div className="lg:col-span-5 2xl:col-span-4">
+          <SectionLabel>Money in</SectionLabel>
+          <Card>
+            <div className="flex items-baseline justify-between gap-3">
+              <h3 className="text-sm font-bold text-brand-deep">
+                {formatKes(d.money.totalCollectedCents)} collected
+              </h3>
+              <span className="text-[11px] font-semibold text-muted">by the day it arrived</span>
+            </div>
+            <div className="mt-3">
+              <SplitBar
+                parts={[
+                  { label: "Cash", cents: d.money.cashCents, className: "bg-brand" },
+                  { label: "M-Pesa", cents: d.money.mpesaCents, className: "bg-leaf" },
+                ]}
+              />
+            </div>
+            <dl className="mt-3 space-y-1.5 border-t border-line pt-2.5 text-[13px]">
+              <MoneyRow
+                label="Of it, old bills settled"
+                value={formatKes(d.money.settledOldCents)}
+              />
+              <MoneyRow
+                label="Credit given on the day"
+                value={formatKes(d.money.creditGivenCents)}
+              />
+              <MoneyRow
+                label="Of this period's sales, still unpaid"
+                value={formatKes(d.money.stillOwedCents)}
+                tone={d.money.stillOwedCents > 0 ? "bad" : undefined}
+              />
+            </dl>
+            <p className="mt-2.5 text-[11px] leading-snug text-muted">
+              Sales are counted on the day the goods left; money on the day it arrived. The two
+              differ by the credit given and the old debts paid off — which is why both are here
+              rather than one figure pretending to be both.
+            </p>
+          </Card>
+
+          <SectionLabel>Who owes</SectionLabel>
+          {d.debtors.top.length ? (
+            <Card className="!py-2.5">
+              {d.debtors.top.map((c) => (
+                <RankRow
+                  key={c.id}
+                  name={c.name}
+                  value={formatKes(c.owedCents)}
+                  share={c.owedCents / Math.max(1, d.debtors.top[0].owedCents)}
+                  meta={`oldest bill ${c.oldestDays} ${c.oldestDays === 1 ? "day" : "days"} old`}
+                  tone={c.oldestDays >= 30 ? "bad" : "brand"}
+                  href={`/customers/${c.id}`}
+                />
+              ))}
+              {d.debtors.customerCount > d.debtors.top.length ? (
+                <p className="px-2.5 pt-1.5 text-[11px] text-muted">
+                  and {d.debtors.customerCount - d.debtors.top.length} more ·{" "}
+                  <Link href="/wholesale/debts" className="font-bold text-brand">
+                    see all
+                  </Link>
+                </p>
+              ) : null}
+            </Card>
+          ) : (
+            <Card>
+              <Empty>Nobody owes the shop anything.</Empty>
+            </Card>
+          )}
+
+          <SectionLabel>Who buys most · {periodName}</SectionLabel>
+          {customers.length ? (
+            <Card className="!py-2.5">
+              {customers.map((c) => (
+                <RankRow
+                  key={c.id ?? "walk-in"}
+                  name={c.name}
+                  value={formatKes(c.salesCents)}
+                  share={c.salesCents / Math.max(1, customers[0].salesCents)}
+                  meta={`${c.saleCount} ${c.saleCount === 1 ? "sale" : "sales"} · ${pct(
+                    c.salesCents,
+                    d.now.salesCents,
+                  ).toFixed(0)}% of the period`}
+                  href={c.id ? `/customers/${c.id}` : undefined}
+                />
+              ))}
+            </Card>
+          ) : (
+            <Card>
+              <Empty>Nothing sold in this period.</Empty>
+            </Card>
+          )}
+        </div>
+      </div>
+
+      {/* --------------------------------------------------- what earns */}
+
+      <div className="lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-4 xl:gap-x-5">
+        <div className="lg:col-span-7 2xl:col-span-8">
+          <SectionLabel>
+            <span id="earns">What earns · {periodName}</span>
+          </SectionLabel>
+          {losers.length ? (
+            <div className="mb-2">
+              <Alert tone="bad">
+                <strong>Losing money:</strong>{" "}
+                {losers.map((p) => `${p.name} (${formatKes(p.profit_cents)})`).join(", ")}.{" "}
+                {losers.some((p) => p.estimated)
+                  ? "Each row below says what it sold at and what it is costed at, per kg or litre. Where the cost is an estimate, the loss may be the cost price rather than the selling price — check it on the delivery, or under Products and prices."
+                  : "Check the price or the cost."}
+              </Alert>
+            </div>
+          ) : null}
+          {products.length ? (
+            <Card className="!py-2.5">
+              {products.slice(0, 10).map((p) => (
+                <RankRow
+                  key={`${p.item_id}-${p.name}`}
+                  name={p.name}
+                  value={`${formatKes(p.profit_cents)} profit`}
+                  share={
+                    Math.abs(p.profit_cents) /
+                    Math.max(1, ...products.map((x) => Math.abs(x.profit_cents)))
+                  }
+                  meta={productMeta(p)}
+                  tone={p.profit_cents < 0 ? "bad" : "good"}
+                />
+              ))}
+              {products.length > 10 ? (
+                <details className="pt-2">
+                  <summary className="cursor-pointer px-2.5 text-sm font-bold text-brand-dark">
+                    All {products.length} products
+                  </summary>
+                  <div className="mt-1">
+                    {products.slice(10).map((p) => (
+                      <RankRow
+                        key={`${p.item_id}-${p.name}`}
+                        name={p.name}
+                        value={`${formatKes(p.profit_cents)} profit`}
+                        share={
+                          Math.abs(p.profit_cents) /
+                          Math.max(1, ...products.map((x) => Math.abs(x.profit_cents)))
+                        }
+                        meta={productMeta(p)}
+                        tone={p.profit_cents < 0 ? "bad" : "good"}
+                      />
+                    ))}
+                  </div>
+                </details>
+              ) : null}
+            </Card>
+          ) : (
+            <Card>
+              <Empty>Nothing sold in this period, so there is nothing to rank.</Empty>
+            </Card>
+          )}
+          <p className="mt-1.5 text-xs text-muted">
+            Prices and costs are the ones recorded on each sale. Changing a price today never
+            changes what a past month earned.
+          </p>
+        </div>
+
+        <div className="lg:col-span-5 2xl:col-span-4">
+          <SectionLabel>Which line earns</SectionLabel>
+          {lines.length ? (
+            <Card>
+              <SplitBar
+                parts={lines.map((l, i) => ({
+                  label: l.line,
+                  cents: l.revenue_cents,
+                  className: ["bg-brand", "bg-leaf", "bg-warn"][i % 3],
+                }))}
+              />
+              <div className="mt-3 space-y-2 border-t border-line pt-2.5">
+                {lines.map((l) => (
+                  <div key={l.line} className="flex items-baseline justify-between gap-3">
+                    <span className="text-[13px] font-semibold">{l.line}</span>
+                    <span className="flex items-baseline gap-2">
+                      <span className="text-[13px] font-bold tnum">
+                        {formatKes(l.profit_cents)}
+                      </span>
+                      <Chip
+                        tone={l.margin_pct >= 25 ? "good" : l.margin_pct >= 10 ? "warn" : "bad"}
+                      >
+                        {l.margin_pct.toFixed(1)}%
+                      </Chip>
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-2.5 text-[11px] text-muted">
+                The bar is the share of sales; the figure beside each name is the profit it kept,
+                and the chip its margin.
+              </p>
+            </Card>
+          ) : (
+            <Card>
+              <Empty>Nothing sold in this period, so there is no split to show.</Empty>
+            </Card>
+          )}
+        </div>
+      </div>
+
+      {/* --------------------------------------------------- day by day */}
 
       {/*
         DAY BY DAY, NOT ONE LUMP.
@@ -253,24 +869,26 @@ export default async function ReportsPage(props: {
               </tr>
             </thead>
             <tbody>
-              {days.map((d) => (
-                <tr key={d.date} className="hover:bg-wash/50">
+              {days.map((x) => (
+                <tr key={x.date} className="hover:bg-wash/50">
                   <Td className="whitespace-nowrap">
-                    <span className="font-semibold">{formatDate(d.date)}</span>
+                    <span className="font-semibold">{formatDate(x.date)}</span>
                     <span className="ml-1.5 text-[11px] text-muted">
-                      {d.saleCount} {d.saleCount === 1 ? "sale" : "sales"}
+                      {x.saleCount} {x.saleCount === 1 ? "sale" : "sales"}
                     </span>
                   </Td>
-                  <Td align="right" className="tnum">{formatKes(d.salesCents)}</Td>
-                  <Td align="right" className="tnum text-muted">
-                    {d.cogsCents ? `− ${formatKes(d.cogsCents)}` : "—"}
+                  <Td align="right" className="whitespace-nowrap tnum">
+                    {formatKes(x.salesCents)}
                   </Td>
-                  <Td align="right" className="tnum text-muted">
-                    {d.expensesCents ? `− ${formatKes(d.expensesCents)}` : "—"}
+                  <Td align="right" className="whitespace-nowrap tnum text-muted">
+                    {x.cogsCents ? `− ${formatKes(x.cogsCents)}` : "—"}
                   </Td>
-                  <Td align="right" className="tnum font-bold">
-                    <span className={d.netProfitCents < 0 ? "text-bad" : "text-good"}>
-                      {formatKes(d.netProfitCents)}
+                  <Td align="right" className="whitespace-nowrap tnum text-muted">
+                    {x.expensesCents ? `− ${formatKes(x.expensesCents)}` : "—"}
+                  </Td>
+                  <Td align="right" className="whitespace-nowrap tnum font-bold">
+                    <span className={x.netProfitCents < 0 ? "text-bad" : "text-good"}>
+                      {formatKes(x.netProfitCents)}
                     </span>
                   </Td>
                 </tr>
@@ -284,101 +902,80 @@ export default async function ReportsPage(props: {
         </Card>
       )}
 
-      </div>
-      <div className="lg:col-span-7">
-      <SectionLabel>Last 6 months</SectionLabel>
-      <Card>
-        <SalesChart data={months.map((m) => ({ ym: m.ym, label: m.label, salesCents: m.salesCents }))} />
-      </Card>
+      {/* --------------------------------------------------- the long view */}
 
-      </div>
+      <SectionLabel>
+        The whole book{books ? <> · since {formatDate(books)}</> : null}
+      </SectionLabel>
+      <div className="grid grid-cols-2 gap-2.5 xl:grid-cols-4 xl:gap-3">
+        <Tile label="Sales, all of them" value={formatKesRounded(allTime.salesCents)} />
+        <Tile label="Gross profit" value={formatKesRounded(allTime.grossProfitCents)} />
+        <Tile
+          label="Net profit"
+          value={formatKesRounded(allTime.netProfitCents)}
+          tone={allTime.netProfitCents < 0 ? "bad" : "good"}
+          detail={
+            allTime.salesCents > 0
+              ? `${pct(allTime.netProfitCents, allTime.salesCents).toFixed(1)}% of sales`
+              : undefined
+          }
+        />
+        <Tile
+          label="Days traded"
+          value={String(tradingDays)}
+          detail={
+            tradingDays > 0
+              ? `${formatKesRounded(Math.round(allTime.salesCents / tradingDays))} on an average day`
+              : "no trading recorded yet"
+          }
+        />
       </div>
 
-      <div className="lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-4 xl:gap-x-5 2xl:gap-x-6">
-      <div className="lg:col-span-7">
-      <SectionLabel>Profit per product · {periodName}</SectionLabel>
-      {losers.length ? (
-        <div className="mb-2">
-          <Alert tone="bad">
-            <strong>Losing money:</strong>{" "}
-            {losers.map((p) => `${p.name} (${formatKes(p.profit_cents)})`).join(", ")}.{" "}
-            {losers.some((p) => p.estimated)
-              ? "Each row below says what it sold at and what it is costed at, per kg or litre. Where the cost is an estimate, the loss may be the cost price rather than the selling price — check it on the delivery, or under Products & prices."
-              : "Check the price or the cost."}
-          </Alert>
-        </div>
-      ) : null}
-      {products.length ? (
-        <Card className="!py-2.5">
-          {products.slice(0, 8).map((p) => (
-            <ListRow
-              key={`${p.item_id}-${p.name}`}
-              title={p.name}
-              value={`${formatKes(p.profit_cents)} profit`}
-              valueTone={p.profit_cents < 0 ? "bad" : "plain"}
-              meta={productMeta(p)}
+      <div className="mt-3 lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-4 xl:gap-x-5">
+        <div className="lg:col-span-7 2xl:col-span-8">
+          <Card>
+            <h3 className="mb-2 text-sm font-bold text-brand-deep">Last 6 months</h3>
+            <SalesChart
+              data={months.map((m) => ({ ym: m.ym, label: m.label, salesCents: m.salesCents }))}
             />
-          ))}
-          {products.length > 8 ? (
-            <details className="pt-2">
-              <summary className="cursor-pointer text-sm font-bold text-brand-dark">
-                All {products.length} products ▾
-              </summary>
-              <div className="mt-1">
-                {products.slice(8).map((p) => (
-                  <ListRow
-                    key={`${p.item_id}-${p.name}`}
-                    title={p.name}
-                    value={`${formatKes(p.profit_cents)} profit`}
-                    valueTone={p.profit_cents < 0 ? "bad" : "plain"}
-                    meta={productMeta(p)}
-                  />
-                ))}
-              </div>
-            </details>
-          ) : null}
-        </Card>
-      ) : (
-        <Card>
-          <Empty>No sales this month yet.</Empty>
-        </Card>
-      )}
-      <p className="mt-1.5 text-xs text-muted">
-        Prices and costs are the ones recorded on each sale. Changing a price today never
-        changes what a past month earned.
-      </p>
-
-      </div>
-      <div className="lg:col-span-5">
-      <SectionLabel>Which line earns · {periodName}</SectionLabel>
-      {lines.length ? (
-        // Two or three lines of business, each a short card: side by side once
-        // there is width for it rather than a single tall stack.
-        <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-1 2xl:grid-cols-2">
-          {lines.map((l) => (
-            <Card key={l.line}>
-              <div className="flex items-baseline justify-between gap-3">
-                <span className="text-sm font-bold">{l.line}</span>
-                <Chip tone={l.margin_pct >= 25 ? "good" : l.margin_pct >= 10 ? "warn" : "bad"}>
-                  {l.margin_pct.toFixed(1)}% margin
-                </Chip>
-              </div>
-              <div className="mt-1.5 grid grid-cols-3 gap-2 text-sm">
-                <Figure label="Sales" value={formatKes(l.revenue_cents)} />
-                <Figure label="Cost" value={formatKes(l.cost_cents)} />
-                <Figure label="Profit" value={formatKes(l.profit_cents)} strong />
-              </div>
-            </Card>
-          ))}
+          </Card>
         </div>
-      ) : (
-        <Card>
-          <Empty>Nothing sold this month, so there is no split to show.</Empty>
-        </Card>
-      )}
+        <div className="mt-3 lg:col-span-5 lg:mt-0 2xl:col-span-4">
+          <Card>
+            <h3 className="text-sm font-bold text-brand-deep">What the shelf is holding</h3>
+            <div className="mt-2.5 grid grid-cols-3 gap-2">
+              <Figure label="At cost" value={formatKesRounded(d.shelf.atCostCents)} />
+              <Figure label="At today's prices" value={formatKes(d.shelf.atRetailCents)} />
+              <Figure
+                label="Profit in it"
+                value={formatKes(d.shelf.atRetailCents - d.shelf.atCostCents)}
+                strong
+              />
+            </div>
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              <Chip tone={d.shelf.lowCount ? "warn" : "good"}>
+                {d.shelf.lowCount} running low
+              </Chip>
+              <Chip tone={d.shelf.owedCount ? "bad" : "good"}>
+                {d.shelf.owedCount} below zero
+              </Chip>
+              <Chip tone={d.shelf.uncostedCount ? "warn" : "good"}>
+                {d.shelf.uncostedCount} without a cost price
+              </Chip>
+            </div>
+            <p className="mt-2.5 text-[11px] leading-snug text-muted">
+              Cost is the weighted average of what was actually paid for what is still on the
+              shelf. The third figure is what it would earn if all of it sold at today’s asking
+              prices — money the shop is holding rather than money it has made.
+            </p>
+            <Link href="/stock" className="mt-2 inline-block text-[12px] font-bold text-brand">
+              Open stock
+            </Link>
+          </Card>
+        </div>
+      </div>
 
-      </div>
-      </div>
+      {/* --------------------------------------------------- leaks */}
 
       {/*
         Haggling, as a number.
@@ -394,192 +991,201 @@ export default async function ReportsPage(props: {
         actually charged. Nothing re-reads today's shelf price, so last month's
         discount does not move when this week's price does.
       */}
-      <div className="lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-4 xl:gap-x-5 2xl:gap-x-6">
-      <div className="lg:col-span-7">
-      <SectionLabel>Discounts given · {periodName}</SectionLabel>
+      <SectionLabel>
+        <span id="discounts">Discounts given · {periodName}</span>
+      </SectionLabel>
       {discounts.discountCents > 0 ? (
         <>
-          <div className="grid grid-cols-2 gap-2.5 xl:grid-cols-4">
-            <Stat
+          <div className="grid grid-cols-2 gap-2.5 xl:grid-cols-4 xl:gap-3">
+            <Tile
               label="Given away"
-              value={formatKes(discounts.discountCents)}
+              value={formatKesRounded(discounts.discountCents)}
+              tone="bad"
               detail={`${discounts.pct.toFixed(1)}% of what was asked`}
             />
-            <Stat
+            <Tile
               label="Asked"
-              value={formatKes(discounts.atListCents)}
+              value={formatKesRounded(discounts.atListCents)}
               detail="at the shelf price of the day"
             />
-            <Stat
+            <Tile
               label="Lines cut"
               value={String(discounts.lines)}
-              detail={`across ${discountedBills.length >= 12 ? "12+" : discountedBills.length} bills`}
+              detail={`across ${
+                discountedBills.length >= 12 ? "12 or more" : discountedBills.length
+              } bills`}
             />
             {/* The one figure that is a control rather than a fact: below the
                 floor is the price the owner said nobody may go under without
                 him, so each of these is a moment he was asked and said yes. */}
-            <Stat
+            <Tile
               label="Below the floor"
               value={String(discounts.belowFloorLines)}
+              tone={discounts.belowFloorLines ? "bad" : "plain"}
               detail={
-                discounts.belowFloorLines
-                  ? "each needed your PIN"
-                  : "none went under your minimum"
+                discounts.belowFloorLines ? "each needed your PIN" : "none went under your minimum"
               }
             />
           </div>
 
-          {byPerson.length ? (
+          <details className="mt-3">
+            <summary className="cursor-pointer text-[13px] font-bold text-brand">
+              Who agreed them, and on what
+            </summary>
+            <div className="mt-2 lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-4">
+              <div className="lg:col-span-4">
+                <p className="mb-1.5 text-xs text-muted">
+                  Who agreed them. A good attendant discounts — the one who never does may be
+                  losing the sale instead.
+                </p>
+                <Card className="!py-2.5">
+                  {byPerson.length ? (
+                    byPerson.map((r) => (
+                      <ListRow
+                        key={r.user_id ?? "none"}
+                        title={r.user_name ?? "Not recorded"}
+                        value={formatKes(r.discount_cents)}
+                        valueTone="bad"
+                        meta={`${pct(r.discount_cents, r.at_list_cents).toFixed(1)}% off · ${
+                          r.lines
+                        } line${r.lines === 1 ? "" : "s"} on ${r.sales} bill${
+                          r.sales === 1 ? "" : "s"
+                        }`}
+                      />
+                    ))
+                  ) : (
+                    <Empty>Nobody is recorded against these.</Empty>
+                  )}
+                </Card>
+              </div>
+              <div className="mt-3 lg:col-span-4 lg:mt-0">
+                <p className="mb-1.5 text-xs text-muted">
+                  What gets argued down. A chemical discounted on nearly every sale is usually a
+                  shelf price nobody believes — change the price rather than override it.
+                </p>
+                <Card className="!py-2.5">
+                  {byItem.length ? (
+                    byItem.map((r) => (
+                      <ListRow
+                        key={r.item_id ?? r.name}
+                        title={r.name}
+                        value={formatKes(r.discount_cents)}
+                        valueTone="bad"
+                        meta={`${pct(r.discount_cents, r.at_list_cents).toFixed(1)}% off · ${
+                          r.lines
+                        } line${r.lines === 1 ? "" : "s"}`}
+                      />
+                    ))
+                  ) : (
+                    <Empty>No single item stands out.</Empty>
+                  )}
+                </Card>
+              </div>
+              <div className="mt-3 lg:col-span-4 lg:mt-0">
+                <p className="mb-1.5 text-xs text-muted">The bills those came off.</p>
+                <Card className="!py-2.5">
+                  {discountedBills.length ? (
+                    discountedBills.map((b) => (
+                      <ListRow
+                        key={b.sale_id}
+                        href={`/invoice/${b.sale_id}`}
+                        title={b.invoice_no ?? `Sale #${b.sale_id}`}
+                        value={formatKes(b.discount_cents)}
+                        valueTone="bad"
+                        meta={`${formatDate(b.at)} · ${b.customer_name ?? "Walk-in"} · ${
+                          b.user_name ?? "not recorded"
+                        } · bill ${formatKes(b.total_cents)}`}
+                      />
+                    ))
+                  ) : (
+                    <Empty>No bill carries a discount.</Empty>
+                  )}
+                </Card>
+              </div>
+            </div>
+          </details>
+        </>
+      ) : (
+        <Card>
+          <Empty>Nothing was sold under its asking price in this period.</Empty>
+        </Card>
+      )}
+
+      <div className="lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-4 xl:gap-x-5">
+        <div className="lg:col-span-7 2xl:col-span-8">
+          <SectionLabel>
+            <span id="dead">Dead stock · nothing sold in 60 days</span>
+          </SectionLabel>
+          {dead.length ? (
             <>
-              <p className="mb-1.5 mt-3 text-xs text-muted">
-                Who agreed them. A good attendant discounts — the one who never does may be
-                losing the sale instead.
+              <p className="mb-1.5 text-xs text-muted">
+                <span className="font-bold tnum">{formatKes(deadValue)}</span> of cash is sitting on
+                these shelves, valued at what it cost.
               </p>
-              <Card className="!py-2.5">
-                {byPerson.map((r) => (
-                  <ListRow
-                    key={r.user_id ?? "none"}
-                    title={r.user_name ?? "Not recorded"}
-                    value={formatKes(r.discount_cents)}
-                    valueTone="bad"
-                    meta={`${pct(r.discount_cents, r.at_list_cents).toFixed(1)}% off · ${r.lines} line${
-                      r.lines === 1 ? "" : "s"
-                    } on ${r.sales} bill${r.sales === 1 ? "" : "s"}`}
-                  />
-                ))}
-              </Card>
+              <TableWrap>
+                <thead>
+                  <tr>
+                    <Th>Item</Th>
+                    <Th align="right">On hand</Th>
+                    <Th align="right">At cost</Th>
+                    <Th>Last sold</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {dead.map((x) => (
+                    <tr key={x.id}>
+                      <Td>{x.name}</Td>
+                      <Td align="right">{formatQty(x.qty_milli, x.canonical_unit)}</Td>
+                      <Td align="right">{formatKes(x.value_cents)}</Td>
+                      <Td>
+                        {x.last_sold_at ? (
+                          formatDate(x.last_sold_at)
+                        ) : (
+                          <span className="text-muted">never</span>
+                        )}
+                      </Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </TableWrap>
             </>
-          ) : null}
+          ) : (
+            <Card>
+              <Empty>Every item in stock has sold within the last 60 days.</Empty>
+            </Card>
+          )}
+        </div>
 
-          {byItem.length ? (
+        <div className="lg:col-span-5 2xl:col-span-4">
+          <SectionLabel>
+            <span id="shrinkage">Shrinkage · what the count says the book missed</span>
+          </SectionLabel>
+          {shrink.some((s) => s.milli !== 0 || s.value_cents !== 0) ? (
             <>
-              <p className="mb-1.5 mt-3 text-xs text-muted">
-                What gets argued down. A chemical discounted on nearly every sale is usually a
-                shelf price nobody believes — change the price rather than override it.
-              </p>
               <Card className="!py-2.5">
-                {byItem.map((r) => (
-                  <ListRow
-                    key={r.item_id ?? r.name}
-                    title={r.name}
-                    value={formatKes(r.discount_cents)}
-                    valueTone="bad"
-                    meta={`${pct(r.discount_cents, r.at_list_cents).toFixed(1)}% off · ${r.lines} line${
-                      r.lines === 1 ? "" : "s"
-                    }`}
-                  />
-                ))}
+                {shrink
+                  .filter((s) => s.milli !== 0 || s.value_cents !== 0)
+                  .map((s) => (
+                    <ListRow
+                      key={s.ym}
+                      title={`${s.label} ${s.ym.slice(0, 4)}`}
+                      value={formatKes(s.value_cents)}
+                      valueTone={s.value_cents < 0 ? "bad" : "plain"}
+                      meta={`${(s.milli / 1000).toFixed(3)} kg/L lost or gained`}
+                    />
+                  ))}
               </Card>
+              <p className="mt-1.5 text-xs text-muted">
+                A small gap is ordinary — spillage, a scale that reads a little light. One that
+                grows month on month is not.
+              </p>
             </>
-          ) : null}
-        </>
-      ) : (
-        <Card>
-          <Empty>Nothing was sold under its asking price this month.</Empty>
-        </Card>
-      )}
-
-      </div>
-      <div className="lg:col-span-5">
-      <SectionLabel>The bills those came off</SectionLabel>
-      {discountedBills.length ? (
-        <Card className="!py-2.5">
-          {discountedBills.map((b) => (
-            <ListRow
-              key={b.sale_id}
-              href={`/invoice/${b.sale_id}`}
-              title={b.invoice_no ?? `Sale #${b.sale_id}`}
-              value={formatKes(b.discount_cents)}
-              valueTone="bad"
-              meta={`${formatDate(b.at)} · ${b.customer_name ?? "Walk-in"} · ${
-                b.user_name ?? "not recorded"
-              } · bill ${formatKes(b.total_cents)}`}
-            />
-          ))}
-        </Card>
-      ) : (
-        <Card>
-          <Empty>No bill this month carries a discount.</Empty>
-        </Card>
-      )}
-
-      </div>
-      </div>
-
-      <div className="lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-4 xl:gap-x-5 2xl:gap-x-6">
-      <div className="lg:col-span-7">
-      <SectionLabel>Dead stock · nothing sold in 60 days</SectionLabel>
-      {dead.length ? (
-        <>
-          <p className="mb-1.5 text-xs text-muted">
-            <span className="font-bold tnum">{formatKes(deadValue)}</span> of cash is sitting on
-            these shelves, valued at what it cost.
-          </p>
-          {/* Row height set from the wrapper: the shared Td is tuned for a
-              thumb, and this table is only ever read with a mouse. */}
-          <TableWrap>
-            <thead>
-              <tr>
-                <Th>Item</Th>
-                <Th align="right">On hand</Th>
-                <Th align="right">At cost</Th>
-                <Th>Last sold</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {dead.map((d) => (
-                <tr key={d.id}>
-                  <Td>{d.name}</Td>
-                  <Td align="right">{formatQty(d.qty_milli, d.canonical_unit)}</Td>
-                  <Td align="right">{formatKes(d.value_cents)}</Td>
-                  <Td>
-                    {d.last_sold_at ? (
-                      formatDate(d.last_sold_at)
-                    ) : (
-                      <span className="text-muted">never</span>
-                    )}
-                  </Td>
-                </tr>
-              ))}
-            </tbody>
-          </TableWrap>
-        </>
-      ) : (
-        <Card>
-          <Empty>Every item in stock has sold within the last 60 days.</Empty>
-        </Card>
-      )}
-
-      </div>
-      <div className="lg:col-span-5">
-      <SectionLabel>Shrinkage · what the count says the book missed</SectionLabel>
-      {shrink.some((s) => s.milli !== 0 || s.value_cents !== 0) ? (
-        <>
-          <Card className="!py-2.5">
-            {shrink
-              .filter((s) => s.milli !== 0 || s.value_cents !== 0)
-              .map((s) => (
-                <ListRow
-                  key={s.ym}
-                  title={`${s.label} ${s.ym.slice(0, 4)}`}
-                  value={formatKes(s.value_cents)}
-                  valueTone={s.value_cents < 0 ? "bad" : "plain"}
-                  meta={`${(s.milli / 1000).toFixed(3)} kg/L lost or gained`}
-                />
-              ))}
-          </Card>
-          <p className="mt-1.5 text-xs text-muted">
-            A small gap is ordinary — spillage, a scale that reads a little light. One that grows
-            month on month is not.
-          </p>
-        </>
-      ) : (
-        <Card>
-          <Empty>No shrinkage recorded in the last six months.</Empty>
-        </Card>
-      )}
-
-      </div>
+          ) : (
+            <Card>
+              <Empty>No shrinkage recorded in the last six months.</Empty>
+            </Card>
+          )}
+        </div>
       </div>
 
       <SectionLabel>Take it out</SectionLabel>
@@ -588,11 +1194,104 @@ export default async function ReportsPage(props: {
   );
 }
 
-function Line({ label, value }: { label: string; value: string }) {
+/**
+ * One line of the attention list: a word for how bad it is, the fact, and the
+ * screen that fixes it.
+ */
+function WatchRow({
+  tone,
+  href,
+  children,
+}: {
+  tone: "bad" | "warn" | "neutral";
+  href?: string;
+  children: ReactNode;
+}) {
+  const word = tone === "bad" ? "Fix" : tone === "warn" ? "Check" : "Note";
+  const row = (
+    <div className="flex items-start gap-2.5 border-t border-line px-1 py-2.5 first:border-t-0">
+      <span className="shrink-0 pt-0.5">
+        <Chip tone={tone}>{word}</Chip>
+      </span>
+      <span className="min-w-0 flex-1 text-[13px] font-medium leading-snug">{children}</span>
+      {href ? (
+        <span aria-hidden className="shrink-0 pt-0.5 text-[12px] font-bold text-brand">
+          →
+        </span>
+      ) : null}
+    </div>
+  );
+  return href ? (
+    <Link href={href} className="block hover:bg-wash/60">
+      {row}
+    </Link>
+  ) : (
+    row
+  );
+}
+
+/** One row of the period-against-period table. */
+function CompareRow({
+  label,
+  now,
+  before,
+  strong,
+  invert,
+  money = true,
+}: {
+  label: string;
+  now: number;
+  before: number;
+  strong?: boolean;
+  invert?: boolean;
+  money?: boolean;
+}) {
+  const show = (n: number) => (money ? formatKes(n) : String(n));
+  const delta = change(now, before);
+  return (
+    <tr>
+      <Td className={strong ? "font-bold" : undefined}>{label}</Td>
+      <Td align="right" className={`whitespace-nowrap tnum ${strong ? "font-bold" : ""}`}>
+        {show(now)}
+      </Td>
+      <Td align="right" className="whitespace-nowrap tnum text-muted">
+        {show(before)}
+      </Td>
+      <Td align="right" className="whitespace-nowrap">
+        {delta === null ? (
+          <span className="text-[11px] font-semibold text-muted">—</span>
+        ) : (
+          <span
+            className={`text-[12px] font-bold tnum ${
+              Math.abs(delta) < 0.5
+                ? "text-muted"
+                : (invert ? delta < 0 : delta > 0)
+                  ? "text-good"
+                  : "text-bad"
+            }`}
+          >
+            {delta > 0 ? "+" : ""}
+            {delta.toFixed(0)}%
+          </span>
+        )}
+      </Td>
+    </tr>
+  );
+}
+
+function MoneyRow({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone?: "bad";
+}) {
   return (
     <div className="flex items-baseline justify-between gap-3">
       <dt className="text-muted">{label}</dt>
-      <dd className="font-semibold tnum">{value}</dd>
+      <dd className={`font-semibold tnum ${tone === "bad" ? "text-bad" : ""}`}>{value}</dd>
     </div>
   );
 }
@@ -601,7 +1300,7 @@ function Figure({ label, value, strong }: { label: string; value: string; strong
   return (
     <div>
       <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted">{label}</div>
-      <div className={`tnum ${strong ? "font-extrabold" : "font-semibold"}`}>{value}</div>
+      <div className={`tnum ${strong ? "font-extrabold text-good" : "font-semibold"}`}>{value}</div>
     </div>
   );
 }
