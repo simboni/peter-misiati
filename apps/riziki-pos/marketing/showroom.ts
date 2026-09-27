@@ -38,6 +38,19 @@ for (const [name, phone, kind, limit] of EXTRA) {
 }
 
 // ------------------------------------------------------------------ shelves
+/*
+  Prices and costs first, before a single line is rung up.
+
+  A row with no asking price sells for nothing, and a line sold for nothing is
+  a giveaway — stock leaves, no money arrives — which the reports are quite
+  right to show as a cost with no sale against it. True of a real shop, and
+  not what these pictures are about.
+*/
+run(`UPDATE items SET price_cents = 38000, floor_cents = 30000, ceiling_cents = 45000
+      WHERE active = 1 AND sellable = 1 AND COALESCE(price_cents, 0) = 0`);
+run(`UPDATE items SET cost_cents = CAST(price_cents * 0.74 AS INTEGER)
+      WHERE active = 1 AND COALESCE(cost_cents, 0) = 0 AND price_cents > 0`);
+
 const items = all<{
   id: number; name: string; kind: string; price_cents: number;
   cost_cents: number; size_milli: number; canonical_unit: string;
@@ -47,7 +60,7 @@ const items = all<{
 for (const it of items) {
   // Enough on the shelf that two months of trading never drives it negative:
   // a shop photographed mid-restock looks like a shop in trouble.
-  const opening = it.canonical_unit === "pcs" ? 250_000 : 300_000;
+  const opening = it.canonical_unit === "pcs" ? 300_000 : 460_000;
   run(`INSERT INTO stock_movements (item_id, delta_milli, reason, user_id, at)
        VALUES (?, ?, 'opening', 1, ?)`, it.id, opening, `${BOOKS} 06:30:00`);
 }
@@ -211,16 +224,12 @@ if (settle) {
   on everything, because "no cost price" is a true warning about a real shop
   and not the thing this picture is about.
 */
-// A row with no asking price cannot have a costed one either.
-run(`UPDATE items SET price_cents = 38000, floor_cents = 30000, ceiling_cents = 45000
-      WHERE active = 1 AND sellable = 1 AND COALESCE(price_cents, 0) = 0`);
-run(`UPDATE items SET cost_cents = CAST(price_cents * 0.74 AS INTEGER)
-      WHERE active = 1 AND COALESCE(cost_cents, 0) = 0 AND price_cents > 0`);
 const standing = all<{ id: number; q: number }>(
   `SELECT i.id, COALESCE((SELECT SUM(m.delta_milli) FROM stock_movements m WHERE m.item_id = i.id), 0) q
      FROM items i WHERE i.active = 1 AND i.sellable = 1 ORDER BY q ASC LIMIT 3`);
 for (const r of standing) {
-  run(`UPDATE items SET reorder_level_milli = ? WHERE id = ?`, Math.round(r.q * 1.2) + 1000, r.id);
+  run(`UPDATE items SET reorder_level_milli = ? WHERE id = ?`,
+      Math.max(1000, Math.round(r.q * 1.2) + 1000), r.id);
 }
 
 const s = get<{ n: number; t: number }>(`SELECT COUNT(*) n, SUM(total_cents) t FROM sales WHERE status='completed'`)!;

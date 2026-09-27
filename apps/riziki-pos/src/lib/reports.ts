@@ -438,6 +438,78 @@ export function expensesByCategory(ym: string): Array<{ category: string; total_
 
 // ---------------------------------------------------------------- profit & loss
 
+/*
+  ==========================================================================
+  COST, AND THE TWO HALVES OF A MIXED PRODUCT
+  ==========================================================================
+
+  WHAT A LINE COST. The snapshot on the line is the truth wherever there is
+  one. A delivery can be booked in before its invoice arrives, though — the
+  note is in the lorry driver's pocket — and everything sold from it until the
+  price turns up carries a cost of zero. Zero cost is not a cheap sale, it is
+  an unknown one, and totalling it as written reports a 100% margin on goods
+  the shop paid real money for. So a line with no cost of its own is valued at
+  what that product costs today, and what had to be valued that way is reported
+  beside the figure rather than buried in it.
+
+  Written once, here, because it used to be written out four times and four
+  copies of one rule are four chances for three of them to drift.
+
+  THE TWO HALVES. A recipe sold at the counter is one economic act written as
+  several rows: a priced line for the mixed product, carrying the charge and no
+  cost, and unpriced ingredient lines underneath it carrying the cost and no
+  charge. That shape is right — the receipt shows one price, the stock ledger
+  shows five chemicals leaving, and neither is double counted.
+
+  It is only right while something puts the halves back together. Totals do it
+  by accident, because they sum everything. Anything that groups — per product,
+  per line of business — does not, and reading the rows as they lie says the
+  mix was free to make and the chemicals under it were given away. Both are
+  false, both are loud, and an owner who sees "100% margin" on the one thing he
+  knows costs him money is right to stop believing the whole screen.
+
+  So the grouped reports below re-unite them: the ingredient lines are struck
+  out as products in their own right, and their cost is moved onto the priced
+  line that consumed them.
+*/
+
+/** What a line cost the shop: its own snapshot, else today's price, else zero. */
+const LINE_COST_SQL = `
+  CASE
+    WHEN sl.cost_cents > 0 THEN sl.cost_cents
+    WHEN sl.item_id IS NOT NULL AND COALESCE(i.cost_cents, 0) > 0
+      THEN CAST(ROUND(1.0 * i.cost_cents * sl.qty_milli / 1000) AS INTEGER)
+    ELSE 0
+  END`;
+
+/** True where the cost above is today's price standing in for the real one. */
+const LINE_ESTIMATED_SQL = `
+  (sl.cost_cents = 0 AND sl.item_id IS NOT NULL AND COALESCE(i.cost_cents, 0) > 0)`;
+
+/** True where nothing at all is known about what a line cost. */
+const LINE_UNCOSTED_SQL = `
+  (sl.cost_cents = 0 AND sl.item_id IS NOT NULL AND COALESCE(i.cost_cents, 0) = 0)`;
+
+/**
+ * The priced line of a recipe sale — the mixed product itself.
+ *
+ * It is the one row on a sale with a bundle and a recipe version but no item,
+ * because a thing the shop mixes to order is on nobody's shelf.
+ */
+const MIX_PARENT_SQL = `
+  (sl.bundle_id IS NOT NULL AND sl.formula_version_id IS NOT NULL AND sl.item_id IS NULL)`;
+
+/**
+ * An ingredient line of a recipe sale.
+ *
+ * Tagged with the recipe version, on no bundle, and charged nothing. The last
+ * of those three is what separates it from a recipe billed out AS its
+ * chemicals — that route prices every line, and those lines are ordinary sales
+ * of ordinary chemicals which must keep their own margins.
+ */
+const MIX_PART_SQL = `
+  (sl.formula_version_id IS NOT NULL AND sl.bundle_id IS NULL AND sl.line_total_cents = 0)`;
+
 export interface ProfitSummary {
   salesCents: number;
   cogsCents: number;
@@ -500,25 +572,13 @@ export function profitSummary(asked: DateRange): ProfitSummary {
     this: it has no item, and its cost sits on the ingredient lines underneath.
   */
   const cogs = get<{ total: number; estimated: number; uncosted: number }>(
-    `SELECT COALESCE(SUM(
-              CASE
-                WHEN sl.cost_cents > 0 THEN sl.cost_cents
-                WHEN sl.item_id IS NOT NULL AND COALESCE(i.cost_cents, 0) > 0
-                  THEN CAST(ROUND(1.0 * i.cost_cents * sl.qty_milli / 1000) AS INTEGER)
-                ELSE 0
-              END), 0) AS total,
+    `SELECT COALESCE(SUM(${LINE_COST_SQL}), 0) AS total,
             COALESCE(SUM(
-              CASE
-                WHEN sl.cost_cents = 0 AND sl.item_id IS NOT NULL AND COALESCE(i.cost_cents, 0) > 0
-                  THEN CAST(ROUND(1.0 * i.cost_cents * sl.qty_milli / 1000) AS INTEGER)
-                ELSE 0
-              END), 0) AS estimated,
+              CASE WHEN ${LINE_ESTIMATED_SQL}
+                   THEN CAST(ROUND(1.0 * i.cost_cents * sl.qty_milli / 1000) AS INTEGER)
+                   ELSE 0 END), 0) AS estimated,
             COALESCE(SUM(
-              CASE
-                WHEN sl.cost_cents = 0 AND sl.item_id IS NOT NULL AND COALESCE(i.cost_cents, 0) = 0
-                  THEN sl.line_total_cents
-                ELSE 0
-              END), 0) AS uncosted
+              CASE WHEN ${LINE_UNCOSTED_SQL} THEN sl.line_total_cents ELSE 0 END), 0) AS uncosted
        FROM sale_lines sl
        JOIN sales s ON s.id = sl.sale_id
        LEFT JOIN items i ON i.id = sl.item_id
@@ -597,13 +657,7 @@ export function dailyProfit(asked: DateRange): DayProfit[] {
 
   const cogs = all<{ d: string; total: number }>(
     `SELECT date(s.at, '+3 hours') AS d,
-            COALESCE(SUM(
-              CASE
-                WHEN sl.cost_cents > 0 THEN sl.cost_cents
-                WHEN sl.item_id IS NOT NULL AND COALESCE(i.cost_cents, 0) > 0
-                  THEN CAST(ROUND(1.0 * i.cost_cents * sl.qty_milli / 1000) AS INTEGER)
-                ELSE 0
-              END), 0) AS total
+            COALESCE(SUM(${LINE_COST_SQL}), 0) AS total
        FROM sale_lines sl
        JOIN sales s ON s.id = sl.sale_id
        LEFT JOIN items i ON i.id = sl.item_id
@@ -732,38 +786,93 @@ export function profitPerProduct(asked: DateRange, limit = 20): ProductProfit[] 
       under. Lines with no product are the priced line of a recipe sale, which
       genuinely is a thing of its own.
 
-      Cost falls back to today's cost price exactly as `profitSummary` does, so
-      the rows add up to the total above instead of quietly disagreeing with it.
+      `line` is the sale lines with the two halves of a mixed product put back
+      together: the ingredient rows are dropped, and what they cost is moved
+      onto the priced row that consumed them. See the note above LINE_COST_SQL.
+
+      ALLOCATING TO THE CENT. One bill can carry two sizes of the same recipe —
+      a 20 L and a 5 L — and then one pot of ingredient cost belongs to two
+      priced rows. Splitting it by weight and rounding each share separately
+      loses or gains a cent, and a product table that misses the period total by
+      a cent is a product table nobody trusts twice. So each row takes the
+      difference between the rounded running total and the one before it, which
+      sums to the pot exactly however it divides.
     */
-    `SELECT MIN(sl.item_id)                            AS item_id,
-            (SELECT x.name_snapshot FROM sale_lines x
-              WHERE COALESCE(x.item_id, -1) = COALESCE(sl.item_id, -1)
-                AND (sl.item_id IS NOT NULL OR x.name_snapshot = sl.name_snapshot)
-              ORDER BY x.id DESC LIMIT 1)              AS name,
-            COALESCE(SUM(sl.units), 0)                 AS units,
-            COALESCE(MAX(sl.unit_price_cents), 0)      AS unit_price_cents,
-            COALESCE(SUM(sl.line_total_cents), 0)      AS revenue_cents,
-            COALESCE(SUM(sl.qty_milli), 0)             AS qty_milli,
-            MAX(i.canonical_unit)                      AS unit,
-            COALESCE(SUM(
-              CASE
-                WHEN sl.cost_cents > 0 THEN sl.cost_cents
-                WHEN sl.item_id IS NOT NULL AND COALESCE(i.cost_cents, 0) > 0
-                  THEN CAST(ROUND(1.0 * i.cost_cents * sl.qty_milli / 1000) AS INTEGER)
-                ELSE 0
-              END), 0)                                 AS cost_cents,
-            MAX(CASE WHEN sl.cost_cents = 0 AND sl.item_id IS NOT NULL
-                      AND COALESCE(i.cost_cents, 0) > 0 THEN 1 ELSE 0 END)  AS estimated,
-            MAX(CASE WHEN sl.cost_cents = 0 AND sl.item_id IS NOT NULL
-                      AND COALESCE(i.cost_cents, 0) = 0 THEN 1 ELSE 0 END)  AS uncosted
-       FROM sale_lines sl
-       JOIN sales s ON s.id = sl.sale_id
-       LEFT JOIN items i ON i.id = sl.item_id
-      WHERE s.status = 'completed'
-        AND date(s.at, '+3 hours') BETWEEN ? AND ?
-      GROUP BY COALESCE(sl.item_id, -1),
-               CASE WHEN sl.item_id IS NULL THEN sl.name_snapshot ELSE '' END
-      ORDER BY (COALESCE(SUM(sl.line_total_cents), 0) - COALESCE(SUM(sl.cost_cents), 0)) DESC
+    `WITH scoped AS (
+       SELECT sl.id, sl.sale_id, sl.item_id, sl.name_snapshot, sl.units, sl.qty_milli,
+              sl.unit_price_cents, sl.line_total_cents,
+              sl.formula_version_id, sl.bundle_id,
+              i.canonical_unit                        AS unit,
+              ${LINE_COST_SQL}                        AS cost,
+              CASE WHEN ${LINE_ESTIMATED_SQL} THEN 1 ELSE 0 END AS est,
+              CASE WHEN ${LINE_UNCOSTED_SQL}  THEN 1 ELSE 0 END AS unc,
+              CASE WHEN ${MIX_PARENT_SQL}     THEN 1 ELSE 0 END AS is_parent,
+              CASE WHEN ${MIX_PART_SQL}       THEN 1 ELSE 0 END AS is_part
+         FROM sale_lines sl
+         JOIN sales s ON s.id = sl.sale_id
+         LEFT JOIN items i ON i.id = sl.item_id
+        WHERE s.status = 'completed'
+          AND date(s.at, '+3 hours') BETWEEN ? AND ?
+     ),
+     parent AS (SELECT * FROM scoped WHERE is_parent = 1),
+     /* An unpriced recipe line only counts as an ingredient when the sale
+        really does carry the mixed product it belongs to. */
+     part AS (
+       SELECT sc.* FROM scoped sc
+        WHERE sc.is_part = 1
+          AND EXISTS (SELECT 1 FROM parent p
+                       WHERE p.sale_id = sc.sale_id
+                         AND p.formula_version_id = sc.formula_version_id)
+     ),
+     pot AS (
+       SELECT sale_id, formula_version_id,
+              SUM(cost) AS cost, MAX(est) AS est, MAX(unc) AS unc
+         FROM part GROUP BY sale_id, formula_version_id
+     ),
+     made AS (
+       SELECT sale_id, formula_version_id, SUM(qty_milli) AS qty
+         FROM parent GROUP BY sale_id, formula_version_id
+     ),
+     share AS (
+       SELECT p.id,
+              CAST(ROUND(1.0 * t.cost * SUM(p.qty_milli) OVER w / m.qty) AS INTEGER)
+                - CAST(ROUND(1.0 * t.cost * (SUM(p.qty_milli) OVER w - p.qty_milli) / m.qty)
+                       AS INTEGER)                    AS cost,
+              t.est, t.unc
+         FROM parent p
+         JOIN pot  t ON t.sale_id = p.sale_id AND t.formula_version_id = p.formula_version_id
+         JOIN made m ON m.sale_id = p.sale_id AND m.formula_version_id = p.formula_version_id
+                    AND m.qty > 0
+       WINDOW w AS (PARTITION BY p.sale_id, p.formula_version_id
+                    ORDER BY p.id ROWS UNBOUNDED PRECEDING)
+     ),
+     line AS (
+       SELECT sc.*, sc.cost AS cost_eff, sc.est AS est_eff, sc.unc AS unc_eff
+         FROM scoped sc
+        WHERE sc.is_parent = 0
+          AND sc.id NOT IN (SELECT id FROM part)
+       UNION ALL
+       SELECT p.*, COALESCE(sh.cost, 0), COALESCE(sh.est, 0), COALESCE(sh.unc, 0)
+         FROM parent p LEFT JOIN share sh ON sh.id = p.id
+     )
+     SELECT MIN(line.item_id)                         AS item_id,
+            (SELECT x.name_snapshot FROM scoped x
+              WHERE COALESCE(x.item_id, -1) = COALESCE(line.item_id, -1)
+                AND (line.item_id IS NOT NULL OR x.name_snapshot = line.name_snapshot)
+              ORDER BY x.id DESC LIMIT 1)             AS name,
+            COALESCE(SUM(line.units), 0)              AS units,
+            COALESCE(MAX(line.unit_price_cents), 0)   AS unit_price_cents,
+            COALESCE(SUM(line.line_total_cents), 0)   AS revenue_cents,
+            COALESCE(SUM(line.qty_milli), 0)          AS qty_milli,
+            MAX(line.unit)                            AS unit,
+            COALESCE(SUM(line.cost_eff), 0)           AS cost_cents,
+            MAX(line.est_eff)                         AS estimated,
+            MAX(line.unc_eff)                         AS uncosted
+       FROM line
+      GROUP BY COALESCE(line.item_id, -1),
+               CASE WHEN line.item_id IS NULL THEN line.name_snapshot ELSE '' END
+      ORDER BY (COALESCE(SUM(line.line_total_cents), 0)
+                - COALESCE(SUM(line.cost_eff), 0)) DESC
       LIMIT ?`,
     range.from,
     range.to,
@@ -1013,15 +1122,28 @@ export function businessLineSplit(asked: DateRange): LineSplit[] {
   // Nothing before the day the books start is ever counted; see `clampRange`.
   const range = clampRange(asked);
   const rows = all<{ kind: string | null; revenue_cents: number; cost_cents: number }>(
-    `SELECT i.kind                                AS kind,
-            COALESCE(SUM(sl.line_total_cents), 0) AS revenue_cents,
-            COALESCE(SUM(sl.cost_cents), 0)       AS cost_cents
+    /*
+      A mixed product counts as a chemical, and so does its cost.
+
+      Its priced line is on no shelf, so `items.kind` is null for it and the
+      revenue used to land in "Other" while the ingredients underneath put
+      their cost in "Chemicals" — one line reading 100% margin and the other
+      carrying a cost with nothing to show for it. The recipe is a chemical the
+      shop makes; both halves belong on that side.
+
+      Cost uses the same fallback as every other report, so this split adds up
+      to the period total rather than quietly missing whatever was sold before
+      its delivery note arrived.
+    */
+    `SELECT CASE WHEN ${MIX_PARENT_SQL} THEN 'bulk' ELSE i.kind END AS kind,
+            COALESCE(SUM(sl.line_total_cents), 0)                   AS revenue_cents,
+            COALESCE(SUM(${LINE_COST_SQL}), 0)                      AS cost_cents
        FROM sale_lines sl
        JOIN sales s ON s.id = sl.sale_id
        LEFT JOIN items i ON i.id = sl.item_id
       WHERE s.status = 'completed'
         AND date(s.at, '+3 hours') BETWEEN ? AND ?
-      GROUP BY i.kind`,
+      GROUP BY CASE WHEN ${MIX_PARENT_SQL} THEN 'bulk' ELSE i.kind END`,
     range.from,
     range.to,
   );
