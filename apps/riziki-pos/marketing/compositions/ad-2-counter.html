@@ -1,0 +1,42 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="_base.css">
+<style>
+  .stage { width: 1600px; height: 1000px; background: var(--wash); padding: 58px 72px; }
+  .head { display: flex; align-items: flex-end; justify-content: space-between; gap: 40px; }
+  .head h2 { font-size: 46px; max-width: 760px; }
+  .head p { font-size: 19px; color: var(--muted); max-width: 560px; line-height: 1.5; font-weight: 500; }
+  .thread { width: 84px; margin-bottom: 18px; }
+  .row { display: grid; grid-template-columns: 1fr 396px; gap: 28px; margin-top: 40px; align-items: start; }
+  .browser { border-radius: 14px; }
+  .notes { display: grid; gap: 16px; }
+  .note { background: #fff; border-radius: 18px; padding: 20px 22px; box-shadow: 0 2px 4px rgba(13,43,48,.05), 0 16px 34px -20px rgba(13,43,48,.25); }
+  .note b { display: block; font-size: 17px; margin-bottom: 5px; }
+  .note span { font-size: 14.5px; color: var(--muted); line-height: 1.45; }
+  .note .n { display: inline-flex; width: 26px; height: 26px; border-radius: 99px; background: var(--brand); color: #fff;
+    align-items: center; justify-content: center; font-size: 13px; font-weight: 800; margin-bottom: 10px; }
+  .foot { color: var(--muted); font-size: 14px; position: absolute; bottom: 30px; left: 72px; font-weight: 600; }
+</style></head><body>
+<div class="stage">
+  <div class="wrap">
+    <div class="thread"></div>
+    <div class="head">
+      <div>
+        <span class="tag">The counter</span>
+        <h2 style="margin-top:14px">Four taps to a sale,<br>with the queue at the door.</h2>
+      </div>
+      <p>Every chemical on one board, colour-coded and searchable by its street name. Tap, type the weight, take the money.</p>
+    </div>
+    <div class="row">
+      <div class="browser">
+        <div class="bar"><i></i><i></i><i></i><div class="url">pos.rizikichemicals.co.ke/sell</div></div>
+        <img src="../screens/d-pay.jpg" alt="">
+      </div>
+      <div class="notes">
+        <div class="note"><span class="n">1</span><b>Priced by the unit</b><span>Per kilo, per litre, per piece — the price the shop actually quotes, not a pack size nobody buys.</span></div>
+        <div class="note"><span class="n">2</span><b>Haggling, with a floor</b><span>Come down as far as the owner allows. Under the floor price, the system asks for his PIN.</span></div>
+        <div class="note"><span class="n">3</span><b>Part cash, part M-Pesa</b><span>One bill, two tenders. Every M-Pesa code is unique, so one SMS can never pay twice.</span></div>
+        <div class="note"><span class="n">4</span><b>The network can go</b><span>The till keeps selling offline and catches up by itself when the line comes back.</span></div>
+      </div>
+    </div>
+  </div>
+  <div style="position:absolute;left:72px;bottom:16px;font-size:13px;font-weight:600;color:var(--muted)">RIZIKI POS · screens show sample data</div>
+</div></body></html>

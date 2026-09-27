@@ -1,0 +1,134 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="_base.css">
+<style>
+  .stage { width: 1240px; height: 1754px; background: #fff; }
+  .hd { background: linear-gradient(160deg, #10545c, var(--deep)); color: #fff; padding: 40px 56px 34px; position: relative; overflow: hidden; }
+  .hd::after { content:""; position:absolute; inset:0; background: radial-gradient(600px 300px at 88% -20%, rgba(90,156,47,.3), transparent 60%); }
+  .hd .in { position: relative; z-index: 2; display: flex; justify-content: space-between; align-items: flex-end; gap: 30px; }
+  .hd h1 { font-size: 42px; letter-spacing: -.02em; }
+  .hd p { font-size: 16px; color: var(--frost); margin-top: 8px; max-width: 620px; line-height: 1.5; font-weight: 500; }
+  .wordmark { font-size: 14px; font-weight: 900; letter-spacing: .26em; }
+  .wordmark b { color: var(--leaf); }
+  .hd img { height: 52px; }
+  .body { padding: 34px 56px 40px; }
+  .strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 30px; }
+  .strip .s { border-radius: 12px; overflow: hidden; border: 1px solid var(--line); height: 152px; background: var(--wash); }
+  .strip .s img { width: 100%; display: block; }
+  .strip .cap { font-size: 11.5px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-top: 8px; }
+  .cols { columns: 2; column-gap: 40px; }
+  .sec { break-inside: avoid; margin-bottom: 20px; }
+  .sec h3 { font-size: 15px; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; color: var(--brand-dark); margin-bottom: 9px;
+    padding-bottom: 6px; border-bottom: 2px solid var(--soft); }
+  .sec li { font-size: 13.2px; line-height: 1.52; color: var(--ink); list-style: none; padding-left: 15px; position: relative; margin-bottom: 5px; }
+  .sec li::before { content: "▪"; position: absolute; left: 0; color: var(--leaf); font-size: 11px; top: 1px; }
+  .sec li b { font-weight: 800; }
+  .band { margin-top: 26px; padding-top: 24px; border-top: 1px solid var(--line);
+    display: grid; grid-template-columns: 200px 200px 1fr; gap: 22px; align-items: start; }
+  .paper { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; height: 190px; background: var(--wash); }
+  .paper img { width: 100%; display: block; }
+  .note h3 { font-size: 15px; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; color: var(--brand-dark);
+    margin-bottom: 9px; padding-bottom: 6px; border-bottom: 2px solid var(--soft); }
+  .note p { font-size: 13.2px; line-height: 1.52; color: var(--muted); }
+  .ft { border-top: 1px solid var(--line); padding: 18px 56px; display: flex; justify-content: space-between; align-items: center;
+    font-size: 12.5px; color: var(--muted); font-weight: 600; position: absolute; bottom: 0; left: 0; right: 0; background: #fff; }
+</style></head><body>
+<div class="stage">
+  <div class="hd"><div class="in">
+    <div>
+      <div class="wordmark">RIZIKI<b>&nbsp;POS</b></div>
+      <h1 style="margin-top:12px">Everything the system does</h1>
+      <p>A counter, stock, mixing, credit and profit system for a chemicals shop — one database, one server, no monthly seat fees.</p>
+    </div>
+    <img src="../screens/riziki-logo.webp" alt="">
+  </div></div>
+  <div class="body">
+    <div class="strip">
+      <div><div class="s"><img src="../screens/d-reports.jpg"></div><div class="cap">The owner's dashboard</div></div>
+      <div><div class="s"><img src="../screens/d-sell.jpg"></div><div class="cap">The counter</div></div>
+      <div><div class="s"><img src="../screens/d-mix.jpg"></div><div class="cap">The mixing board</div></div>
+    </div>
+    <div class="cols">
+      <div class="sec"><h3>Selling</h3><ul>
+        <li>One board of every chemical and product, colour-coded, searched by name or street name</li>
+        <li>Sell by the kilo, the litre, the piece or the pack — priced per unit, no mental arithmetic</li>
+        <li>Haggling within limits: a floor price nobody goes under without the owner's PIN, and a ceiling that catches a fat finger</li>
+        <li>Split tenders — part cash, part M-Pesa, on one bill</li>
+        <li>M-Pesa codes are unique in the database, so one SMS can never pay twice</li>
+        <li>Wholesale and retail price tiers per customer</li>
+        <li><b>Works offline.</b> The till keeps selling with no network and syncs when the line returns</li>
+        <li>Void a sale with a reason; the stock and the money both come back</li>
+      </ul></div>
+      <div class="sec"><h3>Stock</h3><ul>
+        <li>Append-only ledger: nothing is edited or deleted, corrections are further entries</li>
+        <li>Held in thousandths of a unit, so 250 g and 0.25 kg are the same number</li>
+        <li>Repack a drum into jerricans, with the real loss recorded</li>
+        <li>Container counts — how many 20 L jerricans stand filled</li>
+        <li>Reorder levels, low-stock and below-zero warnings</li>
+        <li>Stock take with variance, and shrinkage month by month</li>
+        <li>Dead stock: what has not moved in 60 days and what it cost</li>
+        <li>Weighted-average cost, kept per unit, not per drum</li>
+      </ul></div>
+      <div class="sec"><h3>Recipes and mixing</h3><ul>
+        <li>Versioned formulas with mixing steps, scaled to any batch size</li>
+        <li>Mixed to order (billed at the counter) or mixed in advance (batched onto the shelf)</li>
+        <li>A batch takes the ingredients off the shelf and puts the product on it, in one transaction</li>
+        <li>Cost follows the yield — water carries mass, not money</li>
+        <li>Record what actually came out, not what the recipe hoped for</li>
+        <li>Undo a batch; the formula never prints on a customer's receipt</li>
+      </ul></div>
+      <div class="sec"><h3>Customers and credit</h3><ul>
+        <li>Credit limits per customer and debtor ageing by the day</li>
+        <li>Statements, and reminders ready to send on WhatsApp</li>
+        <li>Quotes that become invoices, and invoices that become delivery notes</li>
+        <li>Delivery note with a signature block and a title-retention line</li>
+      </ul></div>
+      <div class="sec"><h3>Money and the day</h3><ul>
+        <li>Day close: cash counted against what the system expected, with the variance flagged</li>
+        <li>Expenses by category, on the day they were paid</li>
+        <li>Price history — every change, who made it, and when</li>
+        <li>Discounts: what was given away, by whom, and on what</li>
+      </ul></div>
+      <div class="sec"><h3>The owner's dashboard</h3><ul>
+        <li>Right now: today's takings, today's profit, what is owed, what the shelf is worth</li>
+        <li>Any period against the same number of days before it, with the shape drawn under each figure</li>
+        <li>A computed watch list: what is wrong, what it costs, and the screen that fixes it</li>
+        <li>Sales and profit charted daily, weekly or monthly</li>
+        <li>Money in by the day it arrived — cash against M-Pesa, credit given, old bills settled</li>
+        <li>What earns, per product and per line of business</li>
+        <li>Day-by-day ledger, the whole book, dead stock, shrinkage</li>
+        <li>Sections fold away and remember what you left open</li>
+        <li>Export to PDF, a spreadsheet per table, or the whole database</li>
+      </ul></div>
+      <div class="sec"><h3>Who sees what</h3><ul>
+        <li>Two roles — owner and attendant — plus six switches: costs, recipes, products, purchases, stock take, voids</li>
+        <li>Cost and profit never reach an attendant's phone: the server refuses before it answers</li>
+        <li>PIN sign-in per person; an activity log of everything anyone did</li>
+      </ul></div>
+      <div class="sec"><h3>Papers and printing</h3><ul>
+        <li>Thermal receipts over Bluetooth (ESC/POS) from the counter phone</li>
+        <li>A5 invoices and delivery notes on ordinary paper</li>
+        <li>Any document shared straight into WhatsApp as a file</li>
+        <li>What prints on a receipt is set by the owner and stays set</li>
+      </ul></div>
+      <div class="sec"><h3>Running it</h3><ul>
+        <li>Self-hosted on a small server — no per-seat fee, and the data stays yours</li>
+        <li>Installs onto the phone's home screen like an app</li>
+        <li>One command deploys; an overnight update runs only when there is something to deploy</li>
+        <li>Nightly off-site backup, a restore script, and a health check</li>
+      </ul></div>
+    </div>
+    <div class="band">
+      <div class="paper"><img src="../screens/c-receipt.jpg"></div>
+      <div class="paper"><img src="../screens/c-delivery.jpg"></div>
+      <div class="note">
+        <h3>What it is made of</h3>
+        <p>One Next.js application and one SQLite database on a small Linux server, behind HTTPS.
+        No cloud account to lose, no per-user licence, no data leaving the country. The whole shop
+        fits in a file small enough to e-mail, and a backup of it goes off the server every night.</p>
+        <p style="margin-top:10px">Every figure in the reports is recomputed from the raw tables in
+        the test suite — sales, cost, expenses, the chart bars, cash against M-Pesa — and checked to
+        the cent before a release goes near the counter.</p>
+      </div>
+    </div>
+  </div>
+  <div class="ft"><span>RIZIKI POS · built for Riziki Industrial Chemicals, Nairobi · screens show sample data</span><span>pos.rizikichemicals.co.ke</span></div>
+</div></body></html>

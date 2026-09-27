@@ -1,0 +1,50 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="_base.css">
+<style>
+  .stage { width: 1600px; height: 1000px; padding: 54px 64px 46px; }
+  .thread { width: 84px; margin-bottom: 16px; }
+  .top { display: flex; align-items: flex-end; justify-content: space-between; gap: 40px; margin-bottom: 30px; }
+  .top h2 { font-size: 42px; }
+  .top p { font-size: 17px; color: var(--frost); max-width: 520px; line-height: 1.5; font-weight: 500; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  .f { background: #fff; border-radius: 20px; overflow: hidden; box-shadow: 0 24px 50px -26px rgba(0,0,0,.6); }
+  .f .pic { height: 168px; overflow: hidden; background: var(--wash); border-bottom: 1px solid var(--line); }
+  .f .pic img { width: 100%; display: block; object-fit: cover; object-position: top left; height: 168px; }
+  .f .pic img.deep { object-fit: none; height: auto; margin-top: -258px; }
+  .f .txt { padding: 18px 20px 20px; color: var(--ink); }
+  .f .tag { font-size: 10.5px; padding: 5px 10px; }
+  .f h3 { font-size: 19px; margin: 10px 0 6px; }
+  .f p { font-size: 14.5px; line-height: 1.45; color: var(--muted); }
+  .wordmark { font-size: 18px; font-weight: 900; letter-spacing: .26em; color: #fff; }
+  .wordmark b { color: var(--leaf); }
+</style></head><body>
+<div class="stage dark">
+  <div class="wrap">
+    <div class="wordmark">RIZIKI<b>&nbsp;POS</b></div>
+    <div class="thread" style="margin-top:14px"></div>
+    <div class="top">
+      <h2>Not a till with a chemicals<br>label stuck on it.</h2>
+      <p>Weighing, mixing, repacking, credit and haggling are the trade. The system was built around them, not around a supermarket checkout.</p>
+    </div>
+    <div class="grid">
+      <div class="f"><div class="pic"><img class="deep" src="../screens/d-mix.jpg"></div><div class="txt">
+        <span class="tag">Mixing room</span><h3>A batch, and the cost that follows it</h3>
+        <p>Ingredients leave the shelf, the product arrives on it, and the money lands on what came out — water carries mass, not cost.</p></div></div>
+      <div class="f"><div class="pic"><img src="../screens/d-stock-mid.jpg"></div><div class="txt">
+        <span class="tag">The store</span><h3>A ledger nobody can quietly edit</h3>
+        <p>Every movement is written once and never changed. A mistake is corrected by another entry, in the open, with a name on it.</p></div></div>
+      <div class="f"><div class="pic"><img src="../screens/d-formula.jpg"></div><div class="txt">
+        <span class="tag">Recipes</span><h3>Versioned, scaled, and off the receipt</h3>
+        <p>Mix to order or mix in advance. The formula scales to any batch — and never prints on the customer's copy.</p></div></div>
+      <div class="f"><div class="pic"><img src="../screens/d-debts.jpg"></div><div class="txt">
+        <span class="tag">Credit</span><h3>Who owes, and since when</h3>
+        <p>Limits per customer, ageing by the day, statements to send. The oldest unpaid bill is on the first screen you open.</p></div></div>
+      <div class="f"><div class="pic"><img src="../screens/c-delivery.jpg"></div><div class="txt">
+        <span class="tag">Papers</span><h3>Receipt, invoice, delivery note</h3>
+        <p>Thermal on the counter printer, A5 on paper, or straight into WhatsApp as a file — with a signature block for the lorry.</p></div></div>
+      <div class="f"><div class="pic"><img src="../screens/d-settings-roles.jpg"></div><div class="txt">
+        <span class="tag">Control</span><h3>What each person may see</h3>
+        <p>Two roles and six switches. Cost and profit never reach an attendant's phone — the server refuses before it answers.</p></div></div>
+    </div>
+  </div>
+  <div style="position:absolute;left:64px;bottom:18px;font-size:13px;font-weight:600;color:rgba(183,217,220,.75)">RIZIKI POS · screens show sample data</div>
+</div></body></html>

@@ -1,0 +1,42 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="_base.css">
+<style>
+  .stage { width: 1600px; height: 1000px; background: var(--wash); padding: 46px 56px 46px 74px; }
+  .thread { width: 78px; margin-bottom: 14px; }
+  h2 { font-size: 38px; }
+  .wrap { padding-left: 0; }
+  .sub { font-size: 16.5px; color: var(--muted); margin-top: 8px; font-weight: 500; }
+  .browser { position: absolute; left: 74px; top: 200px; width: 1000px; }
+  .dot { position: absolute; width: 34px; height: 34px; border-radius: 99px; background: var(--brand); color: #fff;
+    display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 16px;
+    box-shadow: 0 0 0 5px rgba(14,124,134,.18), 0 8px 18px rgba(13,43,48,.3); z-index: 5; }
+  .legend { position: absolute; right: 56px; top: 196px; width: 458px; display: grid; gap: 14px; }
+  .l { background: #fff; border-radius: 16px; padding: 17px 19px; display: flex; gap: 14px; align-items: flex-start;
+    box-shadow: 0 2px 4px rgba(13,43,48,.05), 0 16px 34px -20px rgba(13,43,48,.28); }
+  .l .n { flex: none; width: 30px; height: 30px; border-radius: 99px; background: var(--soft); color: var(--brand-dark);
+    display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 14px; }
+  .l b { font-size: 16.5px; display: block; margin-bottom: 4px; }
+  .l span { font-size: 14px; color: var(--muted); line-height: 1.45; }
+</style></head><body>
+<div class="stage">
+  <div class="wrap">
+    <div class="thread"></div>
+    <span class="tag">The owner's dashboard</span>
+    <h2 style="margin-top:12px">Ninety seconds, standing up.</h2>
+    <p class="sub">Not a report to read. A check to make — in the order an owner actually makes it.</p>
+  </div>
+  <div class="browser">
+    <div class="bar"><i></i><i></i><i></i><div class="url">pos.rizikichemicals.co.ke/reports</div></div>
+    <img src="../screens/d-reports.jpg" alt="">
+  </div>
+  <div class="dot" style="left:12px; top:392px">1</div>
+  <div class="dot" style="left:12px; top:501px">2</div>
+  <div class="dot" style="left:12px; top:651px">3</div>
+  <div class="dot" style="left:12px; top:797px">4</div>
+  <div class="legend">
+    <div class="l"><span class="n">1</span><div><b>Right now</b><span>Today's takings, today's profit, what customers owe and what the shelf is worth — true at this second, whatever period is chosen.</span></div></div>
+    <div class="l"><span class="n">2</span><div><b>Against the days before</b><span>Every figure carries the same number of days immediately before it, and the shape of the period drawn underneath.</span></div></div>
+    <div class="l"><span class="n">3</span><div><b>Needs your attention</b><span>Worked out, not written: debts and their age, stock running low, anything selling below cost — each one a link to the screen that fixes it.</span></div></div>
+    <div class="l"><span class="n">4</span><div><b>How it is going</b><span>Sales as bars, profit as a line, on one plot. Daily, weekly or monthly — because selling more and keeping more are two questions.</span></div></div>
+  </div>
+  <div style="position:absolute;right:56px;bottom:26px;font-size:13px;font-weight:600;color:var(--muted)">RIZIKI POS · screens show sample data</div>
+</div></body></html>

@@ -1,0 +1,51 @@
+/* The advertisement's own design language, borrowed from the product:
+   deep pine and teal, one leaf-green accent, white cards, a lot of air. */
+:root {
+  --ink: #0d2b30; --muted: #47646a; --line: #dde8e8; --wash: #f2f7f7;
+  --brand: #0e7c86; --brand-dark: #0a5f67; --deep: #0b3a40; --soft: #e3f1f2;
+  --leaf: #5a9c2f; --frost: #b7d9dc;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, "DejaVu Sans", sans-serif;
+  color: var(--ink); -webkit-font-smoothing: antialiased;
+}
+.stage { position: relative; overflow: hidden; }
+.dark { background: linear-gradient(165deg, #10545c 0%, var(--deep) 62%, #07272c 100%); color: #fff; }
+.dark::after {
+  content: ""; position: absolute; inset: 0;
+  background: radial-gradient(900px 500px at 82% -8%, rgba(90,156,47,.28), transparent 60%);
+  pointer-events: none;
+}
+.wrap { position: relative; z-index: 2; }
+.eyebrow {
+  display: inline-flex; align-items: center; gap: 10px;
+  font-size: 15px; font-weight: 700; letter-spacing: .18em; text-transform: uppercase;
+  color: var(--frost);
+}
+.eyebrow .dot { width: 8px; height: 8px; border-radius: 99px; background: var(--leaf); }
+h1 { font-size: 74px; line-height: 1.02; letter-spacing: -.028em; font-weight: 800; }
+h2 { font-size: 40px; line-height: 1.08; letter-spacing: -.02em; font-weight: 800; }
+.lede { font-size: 23px; line-height: 1.45; color: var(--frost); font-weight: 500; }
+.thread { height: 5px; border-radius: 99px; background: linear-gradient(90deg, var(--brand), var(--leaf)); }
+
+/* A browser, drawn rather than photographed. */
+.browser { border-radius: 16px; overflow: hidden; background: #fff; box-shadow: 0 50px 90px -30px rgba(0,0,0,.6), 0 10px 30px rgba(0,0,0,.25); }
+.browser .bar { height: 42px; background: #e9eff0; display: flex; align-items: center; gap: 8px; padding: 0 16px; border-bottom: 1px solid #d7e2e3; }
+.browser .bar i { width: 12px; height: 12px; border-radius: 99px; background: #c6d3d4; display: block; }
+.browser .url { margin-left: 14px; flex: 1; height: 24px; border-radius: 99px; background: #fff; border: 1px solid #d7e2e3;
+  display: flex; align-items: center; padding: 0 12px; font-size: 12px; color: var(--muted); font-weight: 600; }
+.browser img { display: block; width: 100%; }
+
+/* A phone, likewise. */
+.phone { border-radius: 38px; padding: 10px; background: #0a2226; box-shadow: 0 40px 70px -25px rgba(0,0,0,.65); }
+.phone img { display: block; width: 100%; border-radius: 29px; }
+
+.card { background: #fff; border-radius: 22px; padding: 26px 28px; box-shadow: 0 2px 4px rgba(13,43,48,.06), 0 18px 40px -18px rgba(13,43,48,.22); }
+.card h3 { font-size: 21px; font-weight: 800; letter-spacing: -.01em; margin-bottom: 8px; }
+.card p { font-size: 16px; line-height: 1.5; color: var(--muted); }
+.tag { display: inline-block; font-size: 12px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--brand-dark); background: var(--soft); border-radius: 99px; padding: 6px 12px; }
+.foot { font-size: 15px; color: var(--frost); font-weight: 600; }
+.shot { border-radius: 14px; overflow: hidden; box-shadow: 0 20px 45px -20px rgba(13,43,48,.45); border: 1px solid rgba(255,255,255,.14); }
+.shot img { display: block; width: 100%; }
