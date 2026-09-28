@@ -91,7 +91,7 @@ import { SalesChart } from "./sales-chart";
 import { PeriodPicker } from "./period-picker";
 import { ExportBar } from "./export-bar";
 import { Tile, TrendChart, SplitBar, RankRow } from "./dash-parts";
-import { Fold } from "./fold";
+import { Fold } from "@/components/fold";
 
 export const dynamic = "force-dynamic";
 
@@ -216,6 +216,15 @@ export default async function ReportsPage(props: {
 
   const products = profitPerProduct(range);
   const losers = products.filter((p) => p.profit_cents < 0);
+  /*
+    Every product row leads to its own money: what each delivery landed at, how
+    the blend moved, what the price has been and what it earned. "Losing money:
+    Flakes" is the start of a question, and the answer is one tap away rather
+    than somewhere in Stock. Only where the reader may open the item's ledger —
+    that screen is behind the stock-take permission, not this one.
+  */
+  const itemHref = (id: number | null) =>
+    id && can(user, "stocktake") ? `/stock/${id}` : undefined;
   const lines = businessLineSplit(range);
   const customers = topCustomers(range, 5);
   const discounts = discountSummary(range);
@@ -878,6 +887,7 @@ export default async function ReportsPage(props: {
                   }
                   meta={productMeta(p)}
                   tone={p.profit_cents < 0 ? "bad" : "good"}
+                  href={itemHref(p.item_id)}
                 />
               ))}
               {products.length > 10 ? (
@@ -897,6 +907,7 @@ export default async function ReportsPage(props: {
                         }
                         meta={productMeta(p)}
                         tone={p.profit_cents < 0 ? "bad" : "good"}
+                        href={itemHref(p.item_id)}
                       />
                     ))}
                   </div>

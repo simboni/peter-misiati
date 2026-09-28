@@ -3,7 +3,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 
 /**
- * A section of the report that folds away, and stays folded.
+ * A section that folds away, and stays folded.
  *
  * WHY. The dashboard answers the ninety-second question — what came in today,
  * how the period compares, what needs fixing, which way it is going. Everything
@@ -15,6 +15,10 @@ import { useEffect, useRef, type ReactNode } from "react";
  * one carrying a line of what is inside it, so the owner can tell whether to
  * open it without opening it. "Day by day · 26 days · best 7 Sept" is often the
  * whole answer.
+ *
+ * It started life on the dashboard and lives here because the money behind one
+ * chemical wants exactly the same treatment: a headline that is always there,
+ * and the working underneath it for whoever asks.
  *
  * WHY IT REMEMBERS. An owner who opens Discounts every morning should not have
  * to open it every morning. What is open is kept in this browser, per section,

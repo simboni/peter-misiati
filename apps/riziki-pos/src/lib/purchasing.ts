@@ -531,21 +531,59 @@ export function supplierSpend(): SupplierSpendRow[] {
  * cost had drifted to, for whatever reason, running it produces the figure the
  * shop's own records support.
  */
-export function recomputeCost(itemId: number): number {
-  const item = get<{ cost_cents: number }>(`SELECT cost_cents FROM items WHERE id = ?`, itemId);
-  if (!item) throw new Error(`unknown item ${itemId}`);
+export interface CostStep {
+  at: string;
+  /** What put cost in: a delivery, or a batch coming off the mixing board. */
+  reason: "purchase" | "batch_output";
+  refId: number | null;
+  /** What arrived. */
+  inMilli: number;
+  /** What the whole arrival cost, landed. */
+  inCents: number;
+  /** And per kilo, litre or piece — the only rate that can be compared. */
+  inRateCents: number;
+  /** On the shelf the instant before it arrived, and what that was costed at. */
+  heldMilli: number;
+  costBeforeCents: number;
+  /** The blend. This is the number the next sale is costed at. */
+  costAfterCents: number;
+}
 
+export interface CostReplay {
+  /** Every arrival that carried a price, oldest first. */
+  steps: CostStep[];
+  /** What the average comes to at the end of the ledger. */
+  finalCents: number;
+  /** Whether anything priced ever arrived — see the note in `recomputeCost`. */
+  priced: boolean;
+  /** Quantity on the shelf at the end of the replay. */
+  heldMilli: number;
+}
+
+/**
+ * Replay an item's cost, and keep the working.
+ *
+ * Split out from `recomputeCost` so that the screen showing an owner how a cost
+ * price was arrived at and the function that repairs that cost price are the
+ * same arithmetic. Two copies of a weighted average is two answers to "what did
+ * this cost", and the one on the screen would be the one nobody could check.
+ *
+ * Reads only. `recomputeCost` is what writes.
+ */
+export function replayCost(itemId: number): CostReplay {
   const moves = all<{
+    at: string;
     delta_milli: number;
     reason: string;
     ref_type: string | null;
     ref_id: number | null;
   }>(
-    `SELECT delta_milli, reason, ref_type, ref_id FROM stock_movements
+    `SELECT at, delta_milli, reason, ref_type, ref_id FROM stock_movements
       WHERE item_id = ? ORDER BY id`,
     itemId,
   );
 
+  const steps: CostStep[] = [];
   let qtyMilli = 0;
   let costCents = 0;
 
@@ -602,12 +640,38 @@ export function recomputeCost(itemId: number): number {
       const held = Math.max(0, qtyMilli);
       const existingValue = Math.round((held * costCents) / MILLI);
       const totalMilli = held + incomingMilli;
+      const before = costCents;
       if (totalMilli > 0) {
         costCents = Math.round(((existingValue + incomingCents) * MILLI) / totalMilli);
       }
+      steps.push({
+        at: m.at,
+        reason: m.reason === "purchase" ? "purchase" : "batch_output",
+        refId: m.ref_id,
+        inMilli: incomingMilli,
+        inCents: incomingCents,
+        inRateCents: Math.round((incomingCents * MILLI) / incomingMilli),
+        heldMilli: held,
+        costBeforeCents: before,
+        costAfterCents: costCents,
+      });
     }
     qtyMilli += incomingMilli;
   }
+
+  return {
+    steps,
+    finalCents: costCents,
+    priced: steps.length > 0,
+    heldMilli: qtyMilli,
+  };
+}
+
+export function recomputeCost(itemId: number): number {
+  const item = get<{ cost_cents: number }>(`SELECT cost_cents FROM items WHERE id = ?`, itemId);
+  if (!item) throw new Error(`unknown item ${itemId}`);
+
+  const replay = replayCost(itemId);
 
   /*
     Nothing priced ever arrived — a shop that counted its opening shelf with a
@@ -615,8 +679,7 @@ export function recomputeCost(itemId: number): number {
     is the best answer there is, and zeroing it would throw away a figure
     somebody may have set deliberately.
   */
-  const moved = moves.some((m) => m.reason === "purchase" || m.reason === "batch_output");
-  const finalCost = moved ? costCents : item.cost_cents;
+  const finalCost = replay.priced ? replay.finalCents : item.cost_cents;
 
   run(`UPDATE items SET cost_cents = ? WHERE id = ?`, finalCost, itemId);
   return finalCost;

@@ -5,6 +5,7 @@ import { get } from "@/lib/db";
 import { movementHistory, dailyStock } from "@/lib/stock-service";
 import { formatQty, formatDateTime } from "@/lib/units";
 import { Alert, Card, Chip, Empty, PageTitle, SectionLabel, TableWrap, Th, Td } from "@/components/ui";
+import { ItemMoney } from "./money";
 
 export const dynamic = "force-dynamic";
 
@@ -81,6 +82,16 @@ export default async function StockHistoryPage(props: {
         title={item.name}
         subtitle={`Every entry behind the count — ${formatQty(onHandMilli, item.canonical_unit)} on the shelf now`}
       />
+
+      {/*
+        The money first, because it is what is asked about first.
+
+        Behind the cost permission and not the stocktake one that guards this
+        page: an attendant may be trusted to see why the shelf moved without
+        being shown what the shop pays for its chemicals or what it makes on
+        them.
+      */}
+      {can(user, "cost") ? <ItemMoney itemId={item.id} /> : null}
 
       <SectionLabel>Day by day</SectionLabel>
       <Card>
