@@ -1,25 +1,28 @@
 "use client";
 
 /**
- * The hardware half of receipt printing: Web Bluetooth.
+ * The hardware half of receipt printing: the buttons that reach a printer.
  *
  * Deliberately thin. Every decision about what a receipt *says* lives in
- * `@/lib/escpos`, which is pure and unit-tested; this file only opens a
- * connection, pushes the bytes it is given, and explains — in words an
- * attendant can act on — whatever went wrong. Nothing here can be tested
- * without a printer in the room, so there is as little of it as possible.
+ * `@/lib/escpos`, which is pure and unit-tested; the connection itself lives in
+ * `@/lib/printer-link`. This file only offers the taps, shows what is connected,
+ * and explains — in words an attendant can act on — whatever went wrong.
+ * Nothing here can be tested without a printer in the room, so there is as
+ * little of it as possible.
  *
- * Three things the cheap printers force on us:
+ * TWO MACHINES, TWO WAYS IN. The counter phone reaches its printer over
+ * Bluetooth. The desktop in the office cannot: a browser speaks only Bluetooth
+ * Low Energy and these printers are Classic machines, so a desktop pairs, finds
+ * nothing to write on, and lets the device go again — which is what the shop
+ * saw as the app choosing a printer and then releasing it. The desktop's way in
+ * is the USB lead. So the screen asks the browser what it can actually do and
+ * offers only that: Bluetooth on the phone, the cable on the computer, both
+ * where both exist.
  *
- *  1. **Chunked writes.** A BLE characteristic write is capped by the negotiated
- *     MTU, and the 58 mm printers sold locally drop everything past roughly half
- *     a kilobyte in one go. The stream is therefore cut into small pieces with a
- *     breath between them.
- *  2. **A secure context.** Chrome only exposes `navigator.bluetooth` on https or
- *     localhost. The shop may well open the app over plain http on the LAN, so
- *     that case is detected and explained rather than left to fail as "undefined".
- *  3. **No single service UUID.** Every OEM picks its own. We ask for the handful
- *     that actually ship, then fall back to showing every device.
+ * A secure context is still required for either. Chrome exposes neither
+ * Bluetooth nor a cable on plain http, so the shop opening the app over
+ * http://192.168… is detected and explained rather than left to fail as
+ * "undefined".
  */
 
 import {
@@ -94,8 +97,7 @@ export function ThermalPrint({
     a printer several times an hour.
   */
   const printer = useSyncExternalStore(link.subscribe, link.getSnapshot, link.getServerSnapshot);
-  const [support, setSupport] = useState<link.Support | "ok">("ok");
-  const [checking, setChecking] = useState(true);
+  const [ways, setWays] = useState<link.Ways | null>(null);
   const [error, setError] = useState("");
   const [ok, setOk] = useState("");
   const [showAll, setShowAll] = useState(false);
@@ -103,16 +105,16 @@ export function ThermalPrint({
 
   const busy = printer.status === "connecting" || printer.status === "printing";
 
-  // Support has to be decided on the client — the server has no idea whether
-  // this page arrived over https — so it is state, not a render-time check.
+  // What this browser can do has to be decided on the client — the server has
+  // no idea whether this page arrived over https, nor whether the machine it
+  // landed on has Bluetooth — so it is state, not a render-time check.
   useEffect(() => {
     let live = true;
     (async () => {
-      const verdict = await link.available();
+      const found = await link.available();
       if (!live) return;
-      setSupport(verdict);
-      setChecking(false);
-      if (verdict === "ok") void link.rebind();
+      setWays(found);
+      if (found.verdict === "ok") void link.rebind();
     })();
     return () => {
       live = false;
@@ -163,13 +165,16 @@ export function ThermalPrint({
     setOk("");
     try {
       if (!printer.name || (!printer.live && !printer.remembered)) {
-        await link.choose(showAll);
+        // Whichever way this machine actually has. A desktop with no usable
+        // Bluetooth must not be shown a Bluetooth chooser it cannot answer.
+        if (ways && !ways.bluetooth && ways.cable) await link.chooseCable(ways.serial ? "serial" : "usb");
+        else await link.choose(showAll);
       }
       await send(false);
     } catch (err) {
       setError(link.explain(err));
     }
-  }, [printer.live, printer.name, printer.remembered, send, showAll]);
+  }, [printer.live, printer.name, printer.remembered, send, showAll, ways]);
 
   const choose = useCallback(async () => {
     setError("");
@@ -181,6 +186,19 @@ export function ThermalPrint({
       setError(link.explain(err));
     }
   }, [send, showAll]);
+
+  /** The way out when Bluetooth will not do it: the lead that came in the box. */
+  const byCable = useCallback(async () => {
+    setError("");
+    setOk("");
+    try {
+      link.forget();
+      await link.chooseCable(ways?.serial ? "serial" : "usb");
+      await send(false);
+    } catch (err) {
+      setError(link.explain(err));
+    }
+  }, [send, ways]);
 
   /*
     The receipt that prints itself.
@@ -196,7 +214,7 @@ export function ThermalPrint({
     attempt is cheap enough to be worth making.
   */
   useEffect(() => {
-    if (!auto || autoFired.current || support !== "ok") return;
+    if (!auto || autoFired.current || !ways || ways.verdict !== "ok") return;
     if (!printer.live && !printer.remembered) return;
     autoFired.current = true;
     /*
@@ -207,9 +225,9 @@ export function ThermalPrint({
     */
     const t = setTimeout(() => void send(true), 0);
     return () => clearTimeout(t);
-  }, [auto, support, printer.live, printer.remembered, send]);
+  }, [auto, ways, printer.live, printer.remembered, send]);
 
-  const blocked = support !== "ok" && !checking;
+  const blocked = ways !== null && ways.verdict !== "ok";
   const busyLabel = printer.status === "connecting" ? "Connecting…" : "Printing…";
 
   /*
@@ -248,7 +266,7 @@ export function ThermalPrint({
       {blocked ? (
         <div className="mt-2">
           <Alert tone="warn">
-            {link.SUPPORT_MESSAGE[support as Exclude<link.Support, "checking" | "ok">]}
+            {link.SUPPORT_MESSAGE[ways!.verdict as Exclude<link.Support, "checking" | "ok">]}
           </Alert>
         </div>
       ) : null}
@@ -267,7 +285,12 @@ export function ThermalPrint({
             >
               Choose another printer
             </Button>
-            {!showAll ? (
+            {ways?.cable ? (
+              <Button variant="ghost" onClick={() => void byCable()}>
+                Connect by cable instead
+              </Button>
+            ) : null}
+            {!showAll && ways?.bluetooth ? (
               <Button
                 variant="ghost"
                 onClick={() => {
@@ -308,38 +331,45 @@ export function ThermalPrint({
  */
 export function PrinterPicker({ paper, header, footer }: PrinterFieldsView) {
   const printer = useSyncExternalStore(link.subscribe, link.getSnapshot, link.getServerSnapshot);
-  const [support, setSupport] = useState<link.Support | "ok">("ok");
-  const [checking, setChecking] = useState(true);
+  const [ways, setWays] = useState<link.Ways | null>(null);
   const [error, setError] = useState("");
   const [ok, setOk] = useState("");
   const [showAll, setShowAll] = useState(false);
   const [working, setWorking] = useState(false);
+  const [baud, setBaud] = useState<link.Baud>(link.DEFAULT_BAUD);
 
   useEffect(() => {
     let live = true;
     (async () => {
-      const verdict = await link.available();
+      const found = await link.available();
       if (!live) return;
-      setSupport(verdict);
-      setChecking(false);
-      if (verdict === "ok") void link.rebind();
+      setWays(found);
+      setBaud(link.savedBaud());
+      if (found.verdict === "ok") void link.rebind();
     })();
     return () => {
       live = false;
     };
   }, []);
 
-  const pair = async () => {
+  const slip = () => receiptBytes(testReceipt(header, footer), { paper });
+
+  /**
+   * Prove it before saying it works.
+   *
+   * A device that connects and offers nothing to print on is the wrong half of
+   * a dual-mode printer, or a desktop's Bluetooth reaching for a Classic
+   * machine it can never speak to. The only way to find out is to ask it for a
+   * channel and push a slip down it, so every route below ends in a test print.
+   */
+  const attempt = async (open: () => Promise<void>, said: string) => {
     setError("");
     setOk("");
     setWorking(true);
     try {
-      await link.choose(showAll);
-      // Prove it before saying it works: a device that pairs and offers nothing
-      // to print on is the wrong half of a dual-mode printer, and the only way
-      // to find out is to ask it for a channel.
-      await link.send(receiptBytes(testReceipt(header, footer), { paper }));
-      setOk(`Paired with ${link.printerName()}. A test slip should be coming out of it.`);
+      await open();
+      await link.send(slip());
+      setOk(said.replace("{name}", link.printerName()));
     } catch (err) {
       setError(link.explain(err));
     } finally {
@@ -347,21 +377,20 @@ export function PrinterPicker({ paper, header, footer }: PrinterFieldsView) {
     }
   };
 
-  const test = async () => {
-    setError("");
-    setOk("");
-    setWorking(true);
-    try {
-      await link.send(receiptBytes(testReceipt(header, footer), { paper }));
-      setOk("Test slip sent.");
-    } catch (err) {
-      setError(link.explain(err));
-    } finally {
-      setWorking(false);
-    }
-  };
+  const pair = () =>
+    attempt(() => link.choose(showAll), "Paired with {name}. A test slip should be coming out of it.");
 
-  const blocked = support !== "ok" && !checking;
+  const cable = (prefer: "serial" | "usb") =>
+    attempt(
+      () => link.chooseCable(prefer, baud),
+      "Connected to {name} on the cable. A test slip should be coming out of it.",
+    );
+
+  const test = () => attempt(async () => {}, "Test slip sent.");
+
+  const blocked = ways !== null && ways.verdict !== "ok";
+  const busy = working || blocked || ways === null;
+  const where = printer.transport ? link.TRANSPORT_LABEL[printer.transport] : "";
 
   return (
     <div className="space-y-3 rounded-3xl bg-white p-4 shadow-card ring-1 ring-ink/5">
@@ -371,14 +400,14 @@ export function PrinterPicker({ paper, header, footer }: PrinterFieldsView) {
             The printer
           </div>
           <div className="mt-0.5 truncate text-base font-bold">
-            {printer.name || "None paired yet"}
+            {printer.name || "None connected yet"}
           </div>
           <p className="mt-0.5 text-xs text-muted">
             {!printer.name
-              ? "Switch the printer on, then pair it. It only has to be done once on this phone."
+              ? "Switch the printer on, then connect it. It only has to be done once on this machine."
               : printer.live
-                ? "Connected. Receipts print on their own."
-                : "Paired. It will connect itself on the next receipt."}
+                ? `Connected over ${where}. Receipts print on their own.`
+                : `Known over ${where}. It will connect itself on the next receipt.`}
           </p>
         </div>
         {printer.name ? (
@@ -390,51 +419,119 @@ export function PrinterPicker({ paper, header, footer }: PrinterFieldsView) {
 
       {blocked ? (
         <Alert tone="warn">
-          {link.SUPPORT_MESSAGE[support as Exclude<link.Support, "checking" | "ok">]}
+          {link.SUPPORT_MESSAGE[ways!.verdict as Exclude<link.Support, "checking" | "ok">]}
         </Alert>
       ) : null}
       {error ? <Alert tone="bad">{error}</Alert> : null}
       {ok && !error ? <Alert tone="good">{ok}</Alert> : null}
 
-      <div className="flex flex-wrap gap-2">
-        <Button onClick={() => void pair()} disabled={working || blocked}>
-          {working ? "Working…" : printer.name ? "Pair a different printer" : "Pair a printer"}
-        </Button>
-        {printer.name ? (
-          <>
-            <Button variant="ghost" onClick={() => void test()} disabled={working || blocked}>
-              Print a test slip
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() => {
-                link.forget();
-                setError("");
-                setOk("Forgotten. Pair a printer when you are ready.");
-              }}
-              disabled={working}
-            >
-              Forget it
-            </Button>
-          </>
-        ) : null}
-      </div>
-
       {/*
-        The way out for a printer that advertises something exotic. Off by
-        default because "every Bluetooth device" is a list of watches, phones and
-        earbuds, and picking a watch out of it is how the counter ends up paired
-        to something that will never print.
+        Only the ways this machine actually has.
+
+        A desktop was being offered a Bluetooth chooser it can never answer —
+        it would list the printer, accept it, and then have nothing to write on
+        — and was offered no cable at all, which is the one thing that does
+        work there. The browser is asked what it can do and the screen shows
+        that and nothing else.
       */}
-      <label className="flex items-center gap-2.5 text-xs text-muted">
-        <input
-          type="checkbox"
-          checked={showAll}
-          onChange={(e) => setShowAll(e.target.checked)}
-          className="h-4 w-4"
-        />
-        Show every Bluetooth device, not just printers — try this only if yours never appears.
-      </label>
+      {ways?.bluetooth ? (
+        <div className="rounded-2xl border border-line p-3">
+          <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted">
+            Over Bluetooth
+          </div>
+          <p className="mt-1 text-xs text-muted">
+            For the counter phone. Switch the printer on and hold it near the phone.
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button onClick={() => void pair()} disabled={busy}>
+              {working ? "Working…" : printer.name ? "Pair a different printer" : "Pair a printer"}
+            </Button>
+          </div>
+          <label className="mt-2.5 flex items-center gap-2.5 text-xs text-muted">
+            <input
+              type="checkbox"
+              checked={showAll}
+              onChange={(e) => setShowAll(e.target.checked)}
+              className="h-4 w-4"
+            />
+            Show every Bluetooth device, not just printers — try this only if yours never appears.
+          </label>
+        </div>
+      ) : null}
+
+      {ways?.cable ? (
+        <div className="rounded-2xl border border-line p-3">
+          <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted">
+            On a cable
+          </div>
+          <p className="mt-1 text-xs text-muted">
+            For a computer. Plug the printer into a USB socket, switch it on, then choose it from the
+            list the browser shows.
+          </p>
+
+          {/*
+            The speed matters and cannot be guessed. A printer set to 9600 and
+            fed at 115200 does not fail — it prints a page of rubbish, which is
+            the most confusing way this goes wrong. Every one of these machines
+            prints its own speed on its self-test slip: hold the feed button
+            down while switching it on.
+          */}
+          {ways.serial ? (
+            <label className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted">
+              Speed
+              <select
+                className="rounded-lg border border-line bg-white px-2 py-1.5 text-sm font-semibold text-ink"
+                value={baud}
+                onChange={(e) => setBaud(Number(e.target.value) as link.Baud)}
+              >
+                {link.BAUD_RATES.map((rate) => (
+                  <option key={rate} value={rate}>
+                    {rate}
+                  </option>
+                ))}
+              </select>
+              <span>9600 unless the printer{"'"}s own test slip says otherwise.</span>
+            </label>
+          ) : null}
+
+          <div className="mt-2 flex flex-wrap gap-2">
+            {ways.serial ? (
+              <Button onClick={() => void cable("serial")} disabled={busy}>
+                {working ? "Working…" : "Connect by cable"}
+              </Button>
+            ) : null}
+            {ways.usb ? (
+              <Button variant="ghost" onClick={() => void cable("usb")} disabled={busy}>
+                Connect as a USB printer
+              </Button>
+            ) : null}
+          </div>
+          <p className="mt-2 text-[11px] text-muted">
+            No port in the list? Install the printer{"'"}s USB driver — CH340 or Prolific on most of these
+            machines — and plug it back in. Windows and Linux both hand a USB printer to their own
+            driver, so the second button only works where nothing has claimed it.
+          </p>
+        </div>
+      ) : null}
+
+      {printer.name ? (
+        <div className="flex flex-wrap gap-2">
+          <Button variant="ghost" onClick={() => void test()} disabled={busy}>
+            Print a test slip
+          </Button>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              link.forget();
+              setError("");
+              setOk("Forgotten. Connect a printer when you are ready.");
+            }}
+            disabled={working}
+          >
+            Forget it
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }

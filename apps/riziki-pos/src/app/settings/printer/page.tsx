@@ -9,12 +9,13 @@ import { markSrc } from "@/lib/brand";
 export const dynamic = "force-dynamic";
 
 /**
- * Printer setup: pair the till printer, say how wide the paper is, set what
+ * Printer setup: connect the till printer, say how wide the paper is, set what
  * prints above and below the sale, and prove it with a test receipt.
  *
- * The pairing itself can only happen in the browser, so everything below the
- * fold is the client component — this page just supplies the saved settings and
- * the action to write them back.
+ * The connecting itself can only happen in the browser — and what is possible
+ * depends on the machine the page is open on, which the server cannot know — so
+ * everything below the fold is the client component. This page just supplies the
+ * saved settings and the action to write them back.
  */
 export default async function PrinterSettingsPage() {
   const user = await currentUser();
@@ -58,7 +59,7 @@ export default async function PrinterSettingsPage() {
     <div>
       <PageTitle
         title="Receipt printer"
-        subtitle="The Bluetooth till printer at the counter. Paper receipts (A5) are unaffected."
+        subtitle="The till printer at the counter, over Bluetooth or on a cable. Paper receipts (A5) are unaffected."
       />
 
       {/*
@@ -80,20 +81,39 @@ export default async function PrinterSettingsPage() {
       <SectionLabel>If it will not print</SectionLabel>
       <ul className="space-y-2 rounded-2xl border border-line bg-white p-4 text-sm text-muted">
         <li>
-          <span className="font-semibold text-ink">Use Chrome on Android.</span> Web Bluetooth does not
-          exist in Safari, Firefox, or any browser on an iPhone.
+          <span className="font-semibold text-ink">On a computer, use the cable.</span> A computer
+          cannot reach these printers over Bluetooth, however well they pair in Windows. A browser
+          speaks only Bluetooth Low Energy and the printer is an older Bluetooth Classic machine, so
+          the app finds it, accepts it, and then has nothing to print on — which looks exactly like it
+          choosing the printer and letting it go again. Plug the USB lead in and use Connect by cable.
         </li>
         <li>
-          <span className="font-semibold text-ink">The page must be secure.</span> Chrome only allows
-          Bluetooth on https, or on <span className="font-mono">http://localhost</span> when the app runs on
-          the phone itself. A plain <span className="font-mono">http://192.168…</span> address will be
-          refused.
+          <span className="font-semibold text-ink">On the counter phone, use Bluetooth.</span> Chrome
+          on Android. Web Bluetooth does not exist in Safari, Firefox, or any browser on an iPhone.
         </li>
         <li>
-          <span className="font-semibold text-ink">Pick the printer, not the pairing.</span> Choose the
-          device whose name matches the printer (often <span className="font-mono">Printer001</span> or{" "}
-          <span className="font-mono">BlueTooth Printer</span>) rather than anything already paired in
-          Android’s own Bluetooth settings.
+          <span className="font-semibold text-ink">Pick the printer, not the pairing.</span> On a
+          phone these machines usually show up twice — the same printer, listed once for its old
+          Bluetooth and once for the kind a browser can use. Choose the one whose name matches the
+          printer (often <span className="font-mono">Printer001</span> or{" "}
+          <span className="font-mono">BlueTooth Printer</span>). If the first one pairs and then says
+          it offers nothing to print on, tap Print again and take the other.
+        </li>
+        <li>
+          <span className="font-semibold text-ink">The page must be secure.</span> Neither Bluetooth
+          nor a cable is offered on plain http. Use https, or{" "}
+          <span className="font-mono">http://localhost</span> when the app runs on the machine itself.
+          A plain <span className="font-mono">http://192.168…</span> address will be refused.
+        </li>
+        <li>
+          <span className="font-semibold text-ink">No port in the cable list?</span> The computer
+          needs the driver for the printer’s USB chip — CH340 or Prolific on most of these machines.
+          Install it, unplug the printer and plug it back in, then try again.
+        </li>
+        <li>
+          <span className="font-semibold text-ink">Rubbish coming out on the cable?</span> That is the
+          speed, not the printer. Hold the feed button down while switching the printer on: it prints
+          its own settings, speed included. Set the same number in Speed above.
         </li>
         <li>
           <span className="font-semibold text-ink">Characters look wrong?</span> Set the printer’s own

@@ -7,24 +7,33 @@
  * `useRef` inside the print button. A ref dies with its component, and the
  * counter unmounts that component constantly: every completed sale navigates to
  * the receipt, every receipt sheet closes, every trip to Stock and back. So the
- * app forgot which printer it was talking to several times an hour, and Chrome
- * will only hand back a device through `requestDevice`, which by specification
+ * app forgot which printer it was talking to several times an hour, and a
+ * browser will only hand back a device through a chooser, which by specification
  * must be answered by a human. That is the whole reason the shop was choosing a
  * printer "every now and then": not a missing feature, a handle stored in the
  * wrong place.
  *
- * Here the device, the GATT connection and the write characteristic live at
- * module scope. They survive every remount and every client-side navigation, so
- * the chooser is answered once — when the browser is opened — and never again
- * that session. The connection is also kept OPEN rather than dropped after each
- * receipt: reconnecting a BLE printer costs two or three seconds with a customer
- * waiting, and there is nothing to gain by giving the link back between sales.
+ * Here the open channel lives at module scope. It survives every remount and
+ * every client-side navigation, so the chooser is answered once — when the
+ * browser is opened — and never again that session. The connection is also kept
+ * OPEN rather than dropped after each receipt: reconnecting a BLE printer costs
+ * two or three seconds with a customer waiting, and there is nothing to gain by
+ * giving the link back between sales.
+ *
+ * THREE WAYS IN, AND WHY. Bluetooth is the counter phone's answer. The desktop
+ * in the office cannot use it — a browser speaks only Bluetooth Low Energy and
+ * these printers are Classic machines, so the desktop pairs, finds nothing to
+ * write on, and has to let go again. That is the "it agrees and then releases
+ * it" the shop sees, and it is not a fault that can be retried away. The
+ * desktop's answer is the USB lead, which is `@/lib/printer-cable`. Everything
+ * below treats all three the same, as a `Channel`.
  *
  * What cannot be fixed here: after a full page reload, a browser that does not
  * implement `navigator.bluetooth.getDevices()` — which is most Chrome builds on
  * Android — can only be given back a device by asking. One tap when the phone is
  * restarted is the floor, and the app now spends that tap once instead of once
- * per receipt.
+ * per receipt. A cable has no such problem: both cable APIs hand back what they
+ * were already granted, so a desktop reconnects itself for good.
  *
  * Nothing in this file renders. It exposes a snapshot and a subscription so
  * React can watch it through `useSyncExternalStore`, which is the correct shape
@@ -32,6 +41,23 @@
  */
 
 import { CMD, isPaperOut } from "@/lib/escpos";
+import { chunks, sleep, withTimeout, TRANSPORT_LABEL, type Channel, type Transport } from "@/lib/printer-channel";
+import {
+  BAUD_RATES,
+  DEFAULT_BAUD,
+  cableSupported,
+  cableWays,
+  chooseSerial,
+  chooseUsb,
+  explainCable,
+  isBaud,
+  reopenSerial,
+  reopenUsb,
+  type Baud,
+} from "@/lib/printer-cable";
+
+export { BAUD_RATES, DEFAULT_BAUD, type Baud };
+export { TRANSPORT_LABEL, type Transport };
 
 // ------------------------------------------------- minimal Web Bluetooth
 
@@ -49,9 +75,9 @@ interface BtCharacteristic {
     notify: boolean;
     indicate: boolean;
   };
-  writeValue(value: BufferSource): Promise<void>;
-  writeValueWithResponse?(value: BufferSource): Promise<void>;
-  writeValueWithoutResponse?(value: BufferSource): Promise<void>;
+  writeValue(value: Uint8Array): Promise<void>;
+  writeValueWithResponse?(value: Uint8Array): Promise<void>;
+  writeValueWithoutResponse?(value: Uint8Array): Promise<void>;
   startNotifications?(): Promise<BtCharacteristic>;
   addEventListener(type: string, listener: (event: Event) => void): void;
   removeEventListener(type: string, listener: (event: Event) => void): void;
@@ -108,29 +134,13 @@ const CONNECT_TIMEOUT_MS = 20_000;
 const WRITE_TIMEOUT_MS = 45_000;
 const REMEMBERED_KEY = "riziki.printer";
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-/** Nothing may wait forever: a spinner with no end is worse than an error. */
-function withTimeout<T>(work: Promise<T>, ms: number, message: string): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(message)), ms);
-    work.then(
-      (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      (err) => {
-        clearTimeout(timer);
-        reject(err);
-      },
-    );
-  });
-}
-
-/** Turn a DOMException into something the person at the counter can act on. */
+/** Turn a failure into something the person at the counter can act on. */
 function explain(err: unknown): string {
   const name = (err as { name?: string })?.name ?? "";
   const raw = err instanceof Error ? err.message : String(err);
+
+  // A cable failure knows its own words, and they are different words.
+  if (lastAttempt !== "bluetooth") return explainCable(err);
 
   if (name === "NotFoundError") {
     return "No printer was chosen. Tap Print again, switch the printer on, and pick it from the list.";
@@ -143,10 +153,12 @@ function explain(err: unknown): string {
   }
   if (name === "NotSupportedError") {
     return (
-      "That entry paired but offers nothing to print on. Most of these printers " +
-      "show up twice on a phone — the same machine, listed once for its old " +
-      "Bluetooth and once for the kind a browser can use. Tap Print again and " +
-      "choose the other one."
+      "That entry paired but offers nothing to print on. On a phone, most of " +
+      "these printers show up twice — the same machine, listed once for its " +
+      "old Bluetooth and once for the kind a browser can use — so tap Print " +
+      "again and choose the other one. On a desktop there is no other one: a " +
+      "computer's Bluetooth cannot reach these printers at all, and the USB " +
+      "lead is the way. Use Connect by cable."
     );
   }
   if (name === "InvalidStateError") {
@@ -162,16 +174,20 @@ type Support = "checking" | "ok" | "insecure" | "unsupported" | "adapter-off";
 
 const SUPPORT_MESSAGE: Record<Exclude<Support, "checking" | "ok">, string> = {
   insecure:
-    "Bluetooth printing needs a secure page. This one was opened over plain http, which Chrome will not give Bluetooth access. " +
-    "Open the app on the counter phone itself at http://localhost:3100, or put the shop server behind https.",
+    "Printing needs a secure page. This one was opened over plain http, which a browser will not give " +
+    "Bluetooth or a cable access to. Open the app on the counter phone itself at http://localhost:3100, " +
+    "or put the shop server behind https.",
   unsupported:
-    "This browser cannot talk to Bluetooth printers. Use Chrome on the Android counter phone — Firefox, Safari and Chrome on iPhone all lack Web Bluetooth.",
-  "adapter-off": "Bluetooth is switched off on this phone. Turn it on, then tap Print again.",
+    "This browser cannot reach a printer at all. Use Chrome or Edge — on the counter phone for Bluetooth, " +
+    "or on a desktop with the printer's USB lead. Safari and Firefox support neither, on any device.",
+  "adapter-off": "Bluetooth is switched off on this phone. Turn it on, or plug the printer in by cable.",
 };
 
 interface Remembered {
   id: string;
   name: string;
+  transport: Transport;
+  baud?: number;
 }
 
 function readRemembered(): Remembered | null {
@@ -179,22 +195,29 @@ function readRemembered(): Remembered | null {
     const raw = window.localStorage.getItem(REMEMBERED_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Remembered;
-    return parsed && typeof parsed.id === "string" ? parsed : null;
+    if (!parsed || typeof parsed.id !== "string") return null;
+    // Anything saved before there was more than one way in was Bluetooth.
+    return { ...parsed, transport: parsed.transport ?? "bluetooth" };
   } catch {
     return null;
   }
 }
 
-function writeRemembered(device: BtDevice): void {
+function writeRemembered(value: Remembered): void {
   try {
-    const value: Remembered = { id: device.id, name: device.name ?? "printer" };
     window.localStorage.setItem(REMEMBERED_KEY, JSON.stringify(value));
   } catch {
     // A phone with storage blocked still prints; it just asks which printer.
   }
 }
 
-// --------------------------------------------------------- the connection
+/** The cable speed this browser last printed at. Meaningless for the other two. */
+export function savedBaud(): Baud {
+  const saved = readRemembered();
+  return isBaud(saved?.baud) ? (saved.baud as Baud) : DEFAULT_BAUD;
+}
+
+// ----------------------------------------------------- the Bluetooth channel
 
 async function findWriteCharacteristic(server: BtServer): Promise<{
   write: BtCharacteristic;
@@ -269,14 +292,80 @@ async function writeChunks(char: BtCharacteristic, bytes: Uint8Array): Promise<v
   // pause or the printer's buffer overruns and the tail of the receipt is lost.
   const withResponse = char.properties.write && typeof char.writeValueWithResponse === "function";
 
-  for (let i = 0; i < bytes.length; i += CHUNK_BYTES) {
-    const chunk = bytes.slice(i, i + CHUNK_BYTES);
+  for (const chunk of chunks(bytes, CHUNK_BYTES)) {
     if (withResponse) await char.writeValueWithResponse!(chunk);
     else await (char.writeValueWithoutResponse ?? char.writeValue).call(char, chunk);
     await sleep(withResponse ? 10 : 30);
   }
 }
 
+/**
+ * Hold a Bluetooth device and open a channel on it.
+ *
+ * Deliberately does NOT remember the device on the tap. Cheap ESC/POS printers
+ * are dual-mode — they run Bluetooth Classic for their own driver AND Low Energy
+ * for everything else — and on Android that can put two entries in the chooser
+ * for one printer on the counter. Only one of them offers a GATT characteristic
+ * to write on; the other pairs happily and then has nothing to print to.
+ * Remembering on the tap meant a shop that picked the wrong twin once was stuck
+ * with it. A printer is remembered below, after it has actually offered a
+ * channel — which is the first moment there is anything worth remembering.
+ */
+async function openBluetooth(d: BtDevice): Promise<Channel> {
+  const gatt = d.gatt;
+  if (!gatt) {
+    const err = new Error("that device does not accept a printing connection");
+    (err as { name?: string }).name = "NotSupportedError";
+    throw err;
+  }
+
+  const server = gatt.connected
+    ? gatt
+    : await withTimeout(
+        gatt.connect(),
+        CONNECT_TIMEOUT_MS,
+        "The printer did not answer. Check it is switched on and within a few metres.",
+      );
+  const found = await withTimeout(
+    findWriteCharacteristic(server),
+    CONNECT_TIMEOUT_MS,
+    "Connected, but the printer never offered a channel to print on. Switch it off and on, then try again.",
+  );
+
+  /*
+    A BLE printer switched off, carried out of range, or simply asleep fires
+    this. The channel goes dead; the device handle is kept, which is what lets
+    the next receipt reconnect without asking anybody anything.
+  */
+  let up = true;
+  d.addEventListener?.("gattserverdisconnected", () => {
+    up = false;
+    if (status !== "printing") status = "idle";
+    publish();
+  });
+
+  return {
+    transport: "bluetooth",
+    name: d.name ?? "printer",
+    id: d.id,
+    alive: () => up && Boolean(gatt.connected),
+    write: (bytes) =>
+      withTimeout(
+        writeChunks(found.write, bytes),
+        WRITE_TIMEOUT_MS,
+        "The printer stopped part-way through. Check the paper roll, then print again.",
+      ),
+    paperOut: () => paperOut(found),
+    close: () => {
+      up = false;
+      try {
+        gatt.disconnect();
+      } catch {
+        // already gone
+      }
+    },
+  };
+}
 
 // --------------------------------------------------------------- the link
 
@@ -294,24 +383,31 @@ export interface LinkSnapshot {
   remembered: boolean;
   /** Live connection right now — an auto-print can go straight out. */
   live: boolean;
+  /** How it is reached, so the screen can say "on the cable" and mean it. */
+  transport: Transport | null;
 }
 
-let device: BtDevice | null = null;
-let chars: { write: BtCharacteristic; notify?: BtCharacteristic } | null = null;
+let channel: Channel | null = null;
+/** Re-open the same printer with no chooser and no tap. Null until one is chosen. */
+let reopen: (() => Promise<Channel | null>) | null = null;
 /** In flight, so two receipts at once share one connection attempt. */
-let opening: Promise<{ write: BtCharacteristic; notify?: BtCharacteristic }> | null = null;
+let opening: Promise<Channel> | null = null;
 let status: LinkStatus = "idle";
 let name = "";
+let transport: Transport | null = null;
+/** Which way the last attempt went, so a failure is explained in its own terms. */
+let lastAttempt: Transport = "bluetooth";
 
 const watchers = new Set<() => void>();
-let snapshot: LinkSnapshot = { status: "idle", name: "", remembered: false, live: false };
+let snapshot: LinkSnapshot = { status: "idle", name: "", remembered: false, live: false, transport: null };
 
 function publish(): void {
   snapshot = {
     status,
     name,
     remembered: typeof window !== "undefined" && readRemembered() !== null,
-    live: Boolean(chars && device?.gatt?.connected),
+    live: Boolean(channel?.alive()),
+    transport,
   };
   for (const w of watchers) w();
 }
@@ -329,95 +425,113 @@ export function getSnapshot(): LinkSnapshot {
 
 /** The server renders no printer state; this keeps hydration honest. */
 export function getServerSnapshot(): LinkSnapshot {
-  return { status: "idle", name: "", remembered: false, live: false };
+  return { status: "idle", name: "", remembered: false, live: false, transport: null };
 }
 
 export function supported(): Support | "ok" {
   if (typeof window === "undefined") return "unsupported";
   if (!window.isSecureContext) return "insecure";
-  if (!bluetooth()) return "unsupported";
+  if (!bluetooth() && !cableSupported()) return "unsupported";
   return "ok";
 }
 
-export async function available(): Promise<Support | "ok"> {
-  const basic = supported();
-  if (basic !== "ok") return basic;
+/**
+ * What this browser can actually do, which is not one answer any more.
+ *
+ * A desktop has no usable Bluetooth for these printers and a perfectly good
+ * cable; the counter phone is the other way round. The screen needs both facts
+ * to offer the right button, so it gets both rather than a single verdict.
+ */
+export interface Ways {
+  bluetooth: boolean;
+  cable: boolean;
+  serial: boolean;
+  usb: boolean;
+  verdict: Support | "ok";
+}
+
+export async function available(): Promise<Ways> {
+  const base = supported();
+  const cable = cableWays();
+  if (base !== "ok") {
+    return { bluetooth: false, cable: false, serial: false, usb: false, verdict: base };
+  }
+
+  let bt = Boolean(bluetooth());
   const api = bluetooth();
-  if (api?.getAvailability) {
+  if (bt && api?.getAvailability) {
     try {
-      if (!(await api.getAvailability())) return "adapter-off";
+      bt = await api.getAvailability();
     } catch {
-      // advisory only
+      // advisory only — keep offering it
     }
   }
-  return "ok";
+
+  const anyCable = cable.serial || cable.usb;
+  const verdict: Support | "ok" = bt || anyCable ? "ok" : "adapter-off";
+  return { bluetooth: bt, cable: anyCable, serial: cable.serial, usb: cable.usb, verdict };
 }
 
 export function printerName(): string {
   return name || readRemembered()?.name || "";
 }
 
+/** Adopt an open channel: this is the first moment it is worth remembering. */
+function adopt(open: Channel, baud?: Baud): void {
+  channel = open;
+  name = open.name;
+  transport = open.transport;
+  writeRemembered({ id: open.id, name: open.name, transport: open.transport, baud });
+  status = "ready";
+  publish();
+}
+
 /**
  * Take back a printer this browser has already been given permission for.
  *
- * Silent, and allowed to fail: `getDevices` is absent in most Chrome builds on
- * Android, which is exactly the counter's phone. When it is absent the name is
- * still restored from storage so the button can say which printer it will use,
- * and the first tap of the session opens the chooser.
+ * Silent, and allowed to fail. On Bluetooth, `getDevices` is absent in most
+ * Chrome builds on Android — exactly the counter's phone — so the name is
+ * restored from storage and the first tap of the session opens the chooser.
+ * Both cable APIs do hand back what they granted, so a desktop that has printed
+ * once never asks again.
  */
 export async function rebind(): Promise<boolean> {
   const saved = readRemembered();
-  if (saved) name = saved.name;
+  if (saved) {
+    name = saved.name;
+    transport = saved.transport;
+  }
   publish();
 
-  if (device) return true;
-  const api = bluetooth();
-  if (!api?.getDevices || !saved) return false;
+  if (channel?.alive()) return true;
+  if (!saved) return false;
 
+  if (saved.transport === "serial") {
+    const baud = isBaud(saved.baud) ? (saved.baud as Baud) : DEFAULT_BAUD;
+    reopen = () => reopenSerial(saved.id, baud);
+    return true;
+  }
+  if (saved.transport === "usb") {
+    reopen = () => reopenUsb(saved.id);
+    return true;
+  }
+
+  const api = bluetooth();
+  if (!api?.getDevices) return false;
   try {
     const granted = await api.getDevices();
     const match = granted.find((d) => d.id === saved.id);
     if (!match) return false;
-    adopt(match);
+    reopen = () => openBluetooth(match);
     return true;
   } catch {
     return false;
   }
 }
 
-/**
- * Hold a device, but do not yet trust it.
- *
- * Deliberately does NOT remember it. Cheap ESC/POS printers are dual-mode — they
- * run Bluetooth Classic for their own driver AND Low Energy for everything else
- * — and on Android that can put two entries in the chooser for one printer on
- * the counter. Only one of them offers a GATT characteristic to write on; the
- * other pairs happily and then has nothing to print to.
- *
- * Remembering on the tap meant a shop that picked the wrong twin once was stuck
- * with it: the handle now outlives the page, so the bad choice would be
- * reconnected all day and every automatic receipt would fail against it in
- * silence. A printer is remembered in `connect`, after it has actually offered a
- * channel — which is the first moment there is anything worth remembering.
- */
-function adopt(d: BtDevice): void {
-  device = d;
-  name = d.name ?? "printer";
-  /*
-    A BLE printer switched off, carried out of range, or simply asleep fires
-    this. Dropping the characteristic — but KEEPING the device — is what lets
-    the next receipt reconnect without asking anybody anything.
-  */
-  d.addEventListener?.("gattserverdisconnected", () => {
-    chars = null;
-    if (status !== "printing") status = "idle";
-    publish();
-  });
-  publish();
-}
-
-/** Open the chooser. Must be called from a real tap: Chrome requires a gesture. */
+/** Open the Bluetooth chooser. Must be called from a real tap. */
 export async function choose(showAll = false): Promise<void> {
+  lastAttempt = "bluetooth";
   const api = bluetooth();
   if (!api) throw new Error(SUPPORT_MESSAGE.unsupported);
   const picked = await api.requestDevice(
@@ -428,62 +542,95 @@ export async function choose(showAll = false): Promise<void> {
           optionalServices: PRINTER_SERVICES,
         },
   );
-  chars = null;
-  adopt(picked);
+  release();
+  reopen = () => openBluetooth(picked);
+  name = picked.name ?? "printer";
+  transport = "bluetooth";
+  publish();
+}
+
+/**
+ * Open the cable chooser. Must be called from a real tap.
+ *
+ * `prefer` is what the shop picked on the screen: the serial port is right for
+ * nearly every printer with a USB lead, and the direct USB route is there for
+ * the machines that present themselves as printers and are not already claimed
+ * by the operating system's own driver.
+ */
+export async function chooseCable(prefer: "serial" | "usb" = "serial", baud: Baud = DEFAULT_BAUD): Promise<void> {
+  lastAttempt = prefer;
+  const ways = cableWays();
+  const use = ways[prefer] ? prefer : ways.serial ? "serial" : ways.usb ? "usb" : null;
+  if (!use) throw new Error(SUPPORT_MESSAGE.unsupported);
+  lastAttempt = use;
+
+  const open = use === "serial" ? await chooseSerial(baud) : await chooseUsb();
+  release();
+  adopt(open, use === "serial" ? baud : undefined);
+  // The port is already open, so there is nothing to reconnect to — but a later
+  // unplug must be recoverable without another tap.
+  const id = open.id;
+  reopen = use === "serial" ? () => reopenSerial(id, baud) : () => reopenUsb(id);
+}
+
+/** Drop whatever is open, keeping what is remembered. */
+function release(): void {
+  try {
+    channel?.close();
+  } catch {
+    // already gone
+  }
+  channel = null;
 }
 
 /**
  * A channel to print on, reusing whatever is already open.
  *
- * Never opens the chooser. A caller that has a tap to spend calls `choose`
- * first; a caller that does not — an automatic receipt — simply fails and says
- * so, rather than throwing a permission prompt at somebody who is not looking.
+ * Never opens a chooser. A caller that has a tap to spend calls `choose` or
+ * `chooseCable` first; a caller that does not — an automatic receipt — simply
+ * fails and says so, rather than throwing a permission prompt at somebody who
+ * is not looking.
  */
-export async function connect(): Promise<{ write: BtCharacteristic; notify?: BtCharacteristic }> {
-  if (chars && device?.gatt?.connected) return chars;
+export async function connect(): Promise<Channel> {
+  if (channel?.alive()) return channel;
   if (opening) return opening;
-  if (!device) throw new Error("No printer chosen yet.");
+  if (!reopen) throw new Error("No printer chosen yet.");
 
-  const gatt = device.gatt;
-  if (!gatt) throw new Error("That device does not accept a printing connection.");
-
+  const again = reopen;
   status = "connecting";
   publish();
 
   opening = (async () => {
-    const server = gatt.connected
-      ? gatt
-      : await withTimeout(
-          gatt.connect(),
-          CONNECT_TIMEOUT_MS,
-          "The printer did not answer. Check it is switched on and within a few metres.",
-        );
-    const found = await withTimeout(
-      findWriteCharacteristic(server),
-      CONNECT_TIMEOUT_MS,
-      "Connected, but the printer never offered a channel to print on. Switch it off and on, then try again.",
-    );
-    chars = found;
+    const open = await again();
+    if (!open) {
+      const err = new Error(
+        transport === "bluetooth"
+          ? "That printer is no longer reachable. Switch it on and choose it again."
+          : "The cable is no longer there. Plug the printer back in, then try again.",
+      );
+      (err as { name?: string }).name = "NetworkError";
+      throw err;
+    }
     // It printed, or at least it can. Only now is it worth coming back to.
-    writeRemembered(device);
-    status = "ready";
-    publish();
-    return found;
+    adopt(open, transport === "serial" ? savedBaud() : undefined);
+    return open;
   })();
 
   try {
     return await opening;
   } catch (err) {
-    chars = null;
+    channel = null;
     /*
-      A device that pairs and offers nothing to write on is the wrong half of a
-      dual-mode printer, and no amount of retrying will change that. Let it go,
-      so the next tap opens the chooser on the other entry instead of
-      reconnecting to the dud for the rest of the day.
+      A device that connects and offers nothing to write on is the wrong half of
+      a dual-mode printer, or a desktop's Bluetooth reaching for a Classic
+      printer it can never speak to. No amount of retrying will change it. Let it
+      go, so the next tap opens the chooser instead of reconnecting to the dud
+      for the rest of the day.
     */
     if ((err as { name?: string })?.name === "NotSupportedError") {
-      device = null;
+      reopen = null;
       name = "";
+      transport = null;
     }
     status = "idle";
     publish();
@@ -495,24 +642,21 @@ export async function connect(): Promise<{ write: BtCharacteristic; notify?: BtC
 
 /** Push a receipt. Assumes a printer has been chosen; reconnects if the link dropped. */
 export async function send(bytes: Uint8Array): Promise<void> {
-  const found = await connect();
+  const open = await connect();
+  lastAttempt = open.transport;
 
-  if (await paperOut(found)) {
+  if (open.paperOut && (await open.paperOut())) {
     throw new Error("The printer is out of paper. Load a roll and tap Print again.");
   }
 
   status = "printing";
   publish();
   try {
-    await withTimeout(
-      writeChunks(found.write, bytes),
-      WRITE_TIMEOUT_MS,
-      "The printer stopped part-way through. Check the paper roll, then print again.",
-    );
+    await open.write(bytes);
     status = "ready";
   } catch (err) {
-    // Force a fresh connection next time; the device handle is still good.
-    chars = null;
+    // Force a fresh connection next time; the way back to it is still good.
+    release();
     status = "idle";
     throw err;
   } finally {
@@ -522,14 +666,10 @@ export async function send(bytes: Uint8Array): Promise<void> {
 
 /** Forget the printer entirely — the shop is pairing a different one. */
 export function forget(): void {
-  try {
-    device?.gatt?.disconnect();
-  } catch {
-    // already gone
-  }
-  device = null;
-  chars = null;
+  release();
+  reopen = null;
   name = "";
+  transport = null;
   status = "idle";
   try {
     window.localStorage.removeItem(REMEMBERED_KEY);
