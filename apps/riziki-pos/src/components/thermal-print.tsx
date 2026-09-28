@@ -31,22 +31,54 @@ import {
   useSyncExternalStore,
 } from "react";
 import { Alert, Button, Chip, Field, inputClass } from "@/components/ui";
-import { receiptBytes, receiptText, testReceipt, type PaperWidth, type Receipt } from "@/lib/escpos";
+import {
+  receiptBytes,
+  receiptText,
+  deliveryNoteBytes,
+  testReceipt,
+  type PaperWidth,
+  type Receipt,
+  type DeliveryNote,
+  type Bitmap,
+} from "@/lib/escpos";
+import { logoBitmap } from "@/lib/logo-raster";
 import * as link from "@/lib/printer-link";
 import { formatDateTime } from "@/lib/units";
 
 // ------------------------------------------------------------ the button
 
+/**
+ * What is being sent to the printer.
+ *
+ * A receipt and a delivery note are different documents — one carries money and
+ * the other carries a signature block — but they are the same job from here:
+ * bytes down a Bluetooth characteristic. The union keeps the two apart at the
+ * call sites and together in the transport.
+ */
+export type Printable =
+  | { kind: "receipt"; receipt: Receipt }
+  | { kind: "delivery"; note: DeliveryNote };
+
 export function ThermalPrint({
-  receipt,
+  doc,
   paper,
+  logo = false,
+  logoSrc = null,
   auto = false,
   openDrawer = false,
   label = "Print receipt",
   className = "",
 }: {
-  receipt: Receipt;
+  doc: Printable;
   paper: PaperWidth;
+  /** Burn the shop's logo at the top. Off until a test print has proved it. */
+  logo?: boolean;
+  /**
+   * Where the logo file is. Passed in because it is the server that knows
+   * whether the shop has supplied one — `lib/brand` looks on disk, which is a
+   * thing only the server can do.
+   */
+  logoSrc?: string | null;
   /** Print as soon as the screen opens, if a printer is already remembered. */
   auto?: boolean;
   openDrawer?: boolean;
@@ -92,13 +124,31 @@ export function ThermalPrint({
       setError("");
       setOk("");
       try {
-        await link.send(receiptBytes(receipt, { paper, openDrawer }));
+        /*
+          The logo is fetched and reduced here, not on the way in.
+
+          It is a picture the phone has to draw into a canvas and threshold, and
+          doing that when the screen mounts would spend the work on every
+          receipt that is only ever looked at. A failure to load it prints the
+          document without it: a receipt with no logo is a receipt, and a till
+          that will not print because a picture would not load is a shop that
+          cannot sell.
+        */
+        const mark: Bitmap | undefined =
+          logo && logoSrc ? ((await logoBitmap(logoSrc, paper)) ?? undefined) : undefined;
+
+        const bytes =
+          doc.kind === "receipt"
+            ? receiptBytes(doc.receipt, { paper, openDrawer, logo: mark })
+            : deliveryNoteBytes(doc.note, { paper, logo: mark });
+
+        await link.send(bytes);
         setOk(`Sent to ${link.printerName() || "the printer"}.`);
       } catch (err) {
         if (!silent) setError(link.explain(err));
       }
     },
-    [openDrawer, paper, receipt],
+    [doc, logo, logoSrc, openDrawer, paper],
   );
 
   /**
@@ -395,6 +445,70 @@ export interface PrinterFieldsView {
   footer: string;
 }
 
+/**
+ * The logo as dots, drawn at the size the head will burn it.
+ *
+ * Not a smaller copy of the colour file: the same `rasterise` the printer is
+ * given, painted onto a canvas one screen pixel per printer dot. A logo whose
+ * thin strokes vanish at 276 dots vanishes here too, which is the point —
+ * finding that out costs a glance instead of a roll of paper.
+ */
+function LogoPreview({ src, paper }: { src: string; paper: PaperWidth }) {
+  const canvas = useRef<HTMLCanvasElement | null>(null);
+  const [state, setState] = useState<"working" | "ready" | "failed">("working");
+
+  useEffect(() => {
+    let live = true;
+    void (async () => {
+      const bmp = await logoBitmap(src, paper);
+      if (!live) return;
+      const el = canvas.current;
+      const ctx = el?.getContext("2d");
+      if (!bmp || !el || !ctx) {
+        setState("failed");
+        return;
+      }
+      el.width = bmp.width;
+      el.height = bmp.height;
+      const image = ctx.createImageData(bmp.width, bmp.height);
+      const bytesPerRow = Math.ceil(bmp.width / 8);
+      for (let y = 0; y < bmp.height; y++) {
+        for (let x = 0; x < bmp.width; x++) {
+          const on = bmp.data[y * bytesPerRow + (x >> 3)] & (0b1000_0000 >> (x & 7));
+          const i = (y * bmp.width + x) * 4;
+          const v = on ? 0 : 255;
+          image.data[i] = v;
+          image.data[i + 1] = v;
+          image.data[i + 2] = v;
+          image.data[i + 3] = 255;
+        }
+      }
+      ctx.putImageData(image, 0, 0);
+      setState("ready");
+    })();
+    return () => {
+      live = false;
+    };
+  }, [src, paper]);
+
+  return (
+    <div className="mt-1.5">
+      <canvas
+        ref={canvas}
+        className={`w-full max-w-[280px] rounded border border-line bg-white ${
+          state === "ready" ? "" : "opacity-40"
+        }`}
+        style={{ imageRendering: "pixelated" }}
+      />
+      {state === "failed" ? (
+        <p className="mt-1 text-xs text-bad">
+          The logo file could not be read on this phone, so receipts will print without it.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 // ------------------------------------------------------- settings screen
 
 export interface PrinterFields {
@@ -404,6 +518,10 @@ export interface PrinterFields {
   autoPrint: boolean;
   /** Whether the paper shows what came off a haggled price. */
   showDiscounts?: boolean;
+  /** Whether the shop's logo is burned at the top of every thermal receipt. */
+  logo?: boolean;
+  /** Where the logo file is, or null when the shop has not supplied one. */
+  logoSrc?: string | null;
   /** When these were last written. Empty means nobody has ever saved them. */
   savedAt?: string;
 }
@@ -436,6 +554,7 @@ export function PrinterSettingsForm({
   const [footer, setFooter] = useState(settings.footer);
   const [autoPrint, setAutoPrint] = useState(settings.autoPrint);
   const [showDiscounts, setShowDiscounts] = useState(settings.showDiscounts ?? false);
+  const [logo, setLogo] = useState(settings.logo ?? false);
 
   const headerLines = header
     .split("\n")
@@ -531,6 +650,42 @@ export function PrinterSettingsForm({
           </span>
         </label>
 
+        {/*
+          A thermal head has one ink and no grey, so the logo is reduced to
+          black dots before it is sent. The preview beside the switch is that
+          reduction, at the exact width the printer will burn it — what is drawn
+          there is what comes out, and an owner can see whether the wordmark
+          survives before spending a roll finding out.
+        */}
+        {settings.logoSrc ? (
+          <div className="rounded-xl border border-line bg-white px-3.5 py-3">
+            <label className="flex items-center gap-3">
+              <input
+                type="checkbox"
+                name="logo"
+                checked={logo}
+                onChange={(e) => setLogo(e.target.checked)}
+                className="h-5 w-5"
+              />
+              <span className="text-sm font-semibold">
+                Print the logo on the receipt
+                <span className="block text-xs font-normal text-muted">
+                  Not every cheap printer accepts a picture. Print a test before you rely on it —
+                  if nothing comes out but blank paper, turn this off.
+                </span>
+              </span>
+            </label>
+            {logo ? (
+              <div className="mt-3 border-t border-line pt-3">
+                <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted">
+                  What the printer will burn
+                </div>
+                <LogoPreview src={settings.logoSrc} paper={paper} />
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
         <Button type="submit" className="w-full" disabled={pending}>
           {pending ? "Saving…" : "Save printer settings"}
         </Button>
@@ -551,7 +706,13 @@ export function PrinterSettingsForm({
         </p>
       </form>
 
-      <ThermalPrint receipt={sample} paper={paper} label="Print test receipt" />
+      <ThermalPrint
+        doc={{ kind: "receipt", receipt: sample }}
+        paper={paper}
+        logo={logo}
+        logoSrc={settings.logoSrc ?? null}
+        label="Print test receipt"
+      />
 
       <div>
         <div className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-muted">

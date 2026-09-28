@@ -433,6 +433,8 @@ export interface PrinterPrefs {
   autoPrint: boolean;
   /** Whether the paper shows what came off a haggled price. */
   showDiscounts?: boolean;
+  /** Burn the shop's logo at the top of the thermal receipt. */
+  logo?: boolean;
   /** When the database last wrote these. Empty means never set by hand. */
   savedAt: string;
 }
@@ -759,6 +761,7 @@ export default function SellClient({
   action,
   isOwner,
   userId,
+  logoSrc,
   recipes,
   onLastOrder,
   onMix,
@@ -774,6 +777,8 @@ export default function SellClient({
   isOwner: boolean;
   /** Whose basket is whose: the owner and the attendant share this phone. */
   userId: number;
+  /** Where the shop's logo file is, or null when none has been supplied. */
+  logoSrc: string | null;
   /** The Products board: what a customer comes in to make. */
   recipes: RecipeChoice[];
   onLastOrder: (customerId: number) => Promise<RepeatOrder | null>;
@@ -1717,7 +1722,13 @@ export default function SellClient({
               there is no invoice page to land on afterwards — was the only
               receipt the setting did not reach.
             */}
-            <ThermalPrint receipt={local} paper={printer.paper} auto={printer.autoPrint} />
+            <ThermalPrint
+              doc={{ kind: "receipt", receipt: local }}
+              paper={printer.paper}
+              logo={printer.logo}
+              logoSrc={logoSrc}
+              auto={printer.autoPrint}
+            />
             <PdfShareButton
               source={{ bytes: receiptToPdf(local) }}
               fileName="pending-sale.pdf"
@@ -1752,8 +1763,10 @@ export default function SellClient({
         {receipt.receipt ? (
           <div className="mt-2.5">
             <ThermalPrint
-              receipt={receipt.receipt}
+              doc={{ kind: "receipt", receipt: receipt.receipt }}
               paper={printer.paper}
+              logo={printer.logo}
+              logoSrc={logoSrc}
               auto={printer.autoPrint}
               label="Print receipt"
             />

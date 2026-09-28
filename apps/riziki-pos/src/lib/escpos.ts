@@ -83,6 +83,60 @@ export const CMD = {
   paperStatus: [DLE, EOT, 0x04],
 } as const;
 
+// -------------------------------------------------------------- pictures
+
+/**
+ * A picture, as a thermal printer understands one: black or white, no grey.
+ *
+ * One bit per dot, eight dots to a byte, most significant bit leftmost, and
+ * every row padded out to whole bytes. A set bit is a dot that gets burned —
+ * black on the paper.
+ */
+export interface Bitmap {
+  /** Dots across. A 58 mm head is 384 dots wide, an 80 mm head 576. */
+  width: number;
+  /** Dots down. */
+  height: number;
+  /** `ceil(width / 8) * height` bytes. */
+  data: Uint8Array;
+}
+
+/** How many dots across the head is, for a roll of this width. */
+export const DOTS_PER_LINE: Record<PaperWidth, number> = { 58: 384, 80: 576 };
+
+/**
+ * GS v 0 — print a raster bitmap.
+ *
+ * The one image command that the cheap Bluetooth printers sold here actually
+ * implement. The older `ESC *` column mode exists and is worse: it prints in
+ * 8- or 24-dot strips that have to be interleaved by hand, and a printer that
+ * understands it understands this too.
+ *
+ * The width is sent in BYTES per row and the height in DOTS, both little-endian
+ * — a mismatch there is the classic "the printer spat out four feet of noise",
+ * so the header is computed from the bitmap rather than passed in beside it.
+ */
+export function rasterCommand(bmp: Bitmap): number[] {
+  const bytesPerRow = Math.ceil(bmp.width / 8);
+  const expected = bytesPerRow * bmp.height;
+  if (bmp.data.length !== expected) {
+    throw new Error(
+      `bitmap is ${bmp.data.length} bytes, but ${bmp.width}x${bmp.height} needs ${expected}`,
+    );
+  }
+  return [
+    GS,
+    0x76,
+    0x30,
+    0x00, // m = 0: normal size, no scaling
+    bytesPerRow & 0xff,
+    (bytesPerRow >> 8) & 0xff,
+    bmp.height & 0xff,
+    (bmp.height >> 8) & 0xff,
+    ...bmp.data,
+  ];
+}
+
 /** ESC d n — print buffer and feed n lines. */
 export function feed(lines: number): number[] {
   return [ESC, 0x64, Math.max(0, Math.min(255, Math.trunc(lines)))];
@@ -361,6 +415,14 @@ export interface ReceiptOptions {
   /** Blank lines fed before the cut, so the tear-off clears the print head. */
   feedLines?: number;
   cut?: boolean;
+  /**
+   * A picture to print above everything, already reduced to dots.
+   *
+   * Passed in rather than loaded here: turning the shop's logo into black and
+   * white needs a canvas, which exists in the browser and not in this module or
+   * in the tests. See `lib/logo-raster.ts`.
+   */
+  logo?: Bitmap;
 }
 
 /** One printed line, with the emphasis it carries. */
@@ -494,6 +556,19 @@ export function receiptText(receipt: Receipt, opts: ReceiptOptions = {}): string
  * style changes it actually needs, and finally a feed and a cut.
  */
 export function receiptBytes(receipt: Receipt, opts: ReceiptOptions = {}): Uint8Array {
+  return blocksToBytes(renderReceipt(receipt, opts), opts);
+}
+
+/**
+ * Laid-out lines to ESC/POS bytes: reset, code page, an optional picture, then
+ * each block with only the style changes it actually needs, and a feed and cut.
+ *
+ * Every document the printer is ever handed comes through here — a receipt, a
+ * delivery note, the test page — so there is one place where the printer is
+ * left in a known state afterwards, and one place to fix when a printer turns
+ * out to need coaxing.
+ */
+export function blocksToBytes(blocks: ReceiptBlock[], opts: ReceiptOptions = {}): Uint8Array {
   const bytes: number[] = [];
   const put = (cmd: readonly number[]) => bytes.push(...cmd);
   const text = (s: string) => {
@@ -508,11 +583,25 @@ export function receiptBytes(receipt: Receipt, opts: ReceiptOptions = {}): Uint8
   put(CMD.init);
   put(CMD.codepageCP437);
 
+  /*
+    The logo, if this phone managed to make one.
+
+    Centred and printed before anything else, then alignment is put back — the
+    text blocks below set their own, but only when it differs from what they
+    think is current, so leaving the head centred here would silently centre the
+    first left-aligned line of every receipt.
+  */
+  if (opts.logo) {
+    put(CMD.alignCenter);
+    put(rasterCommand(opts.logo));
+    put(CMD.alignLeft);
+  }
+
   let align: ReceiptBlock["align"] = "left";
   let bold = false;
   let tall = false;
 
-  for (const block of renderReceipt(receipt, opts)) {
+  for (const block of blocks) {
     const wantAlign = block.align ?? "left";
     if (wantAlign !== align) {
       put(wantAlign === "center" ? CMD.alignCenter : wantAlign === "right" ? CMD.alignRight : CMD.alignLeft);
@@ -540,6 +629,119 @@ export function receiptBytes(receipt: Receipt, opts: ReceiptOptions = {}): Uint8
   if (opts.cut !== false) put(CMD.cut);
 
   return Uint8Array.from(bytes);
+}
+
+// ------------------------------------------------------- the delivery note
+
+/**
+ * The paper that travels with the goods.
+ *
+ * Not an invoice with the prices rubbed out — a different document answering a
+ * different question. The invoice says what is owed; this says what was handed
+ * over, and it is the one the person receiving the goods signs. A customer in
+ * Narok who says two jerricans never arrived is answered by a signed note and
+ * by nothing else, so the signature block is not optional furniture: it is the
+ * reason the document exists, and it is printed even on a 58 mm roll where
+ * space is dear.
+ */
+export interface DeliveryNote {
+  /** Shop name first, then address / phone — the same header a receipt uses. */
+  header: string[];
+  /** "DN INV-00002". */
+  reference: string;
+  /** Already formatted in Africa/Nairobi; this module does no time zone work. */
+  dateTime: string;
+  deliverTo?: string | null;
+  phone?: string | null;
+  /** The sale this note belongs to, so the two can be put back together. */
+  saleRef?: string | null;
+  servedBy?: string | null;
+  /** Quantities only. The amount is the invoice's business, not this one's. */
+  lines: Array<{ name: string; qty: string }>;
+  note?: string | null;
+  footer?: string | null;
+}
+
+/** The delivery note, laid out. Exported because the tests assert on it. */
+export function renderDeliveryNote(note: DeliveryNote, opts: ReceiptOptions = {}): ReceiptBlock[] {
+  const w = opts.width ?? charsPerLine(opts.paper ?? 58);
+  const out: ReceiptBlock[] = [];
+  const rule = "-".repeat(w);
+  const push = (text: string, style: Omit<ReceiptBlock, "text"> = {}) =>
+    out.push({ text: toAscii(text), ...style });
+  const pushMany = (lines: string[], style: Omit<ReceiptBlock, "text"> = {}) =>
+    lines.forEach((l) => push(l, style));
+
+  const header = (note.header ?? []).map((h) => toAscii(h).trim()).filter(Boolean);
+  if (header.length) {
+    pushMany(wrapText(header[0], w), { align: "center", bold: true, tall: true });
+    for (const line of header.slice(1)) pushMany(wrapText(line, w), { align: "center" });
+  }
+
+  push(rule);
+  push("DELIVERY NOTE", { align: "center", bold: true });
+  pushMany(wrapText(note.reference, w), { align: "center", bold: true });
+  pushMany(wrapText(note.dateTime, w), { align: "center" });
+  push(rule);
+
+  if (note.deliverTo) {
+    push("DELIVER TO");
+    pushMany(wrapText(note.deliverTo, w), { bold: true });
+    if (note.phone) pushMany(wrapText(note.phone, w));
+  }
+  if (note.saleRef) push(`Sale ${note.saleRef}`);
+  if (note.servedBy) push(`Served by ${note.servedBy}`);
+  push(rule);
+
+  /*
+    Item on one line, quantity on the next, indented and right-aligned.
+
+    Two columns is what a 58 mm roll cannot do here: "Multipurpose Cleaner"
+    leaves eleven characters for "1 (18.5 kg)" and the two collide. The quantity
+    is the number the person counting drums is looking for, so it gets a line of
+    its own and the full width to be unambiguous in.
+  */
+  for (const line of note.lines) {
+    pushMany(wrapText(line.name, w));
+    pushMany(twoCol("", line.qty, w));
+  }
+  push(rule);
+
+  const count = note.lines.length;
+  pushMany(wrapText(`${count} ${count === 1 ? "line" : "lines"} of goods. This note is not a bill.`, w));
+
+  // The point of the document.
+  push("");
+  push("Received in good order:");
+  push("");
+  push("Name  " + ".".repeat(Math.max(4, w - 6)));
+  push("");
+  push("Sign  " + ".".repeat(Math.max(4, w - 6)));
+  push("");
+  push("Date  " + ".".repeat(Math.max(4, w - 6)));
+
+  if (note.note) {
+    push(rule);
+    pushMany(wrapText(note.note, w));
+  }
+  const footer = toAscii(note.footer ?? "").trim();
+  if (footer) {
+    push(rule);
+    pushMany(wrapText(footer, w), { align: "center" });
+  }
+  return out;
+}
+
+/** The delivery note as plain text — the preview, and the test fixtures. */
+export function deliveryNoteText(note: DeliveryNote, opts: ReceiptOptions = {}): string {
+  return renderDeliveryNote(note, opts)
+    .map((b) => b.text)
+    .join("\n");
+}
+
+/** The delivery note as ESC/POS bytes. */
+export function deliveryNoteBytes(note: DeliveryNote, opts: ReceiptOptions = {}): Uint8Array {
+  return blocksToBytes(renderDeliveryNote(note, opts), opts);
 }
 
 // ------------------------------------------------------------ test page

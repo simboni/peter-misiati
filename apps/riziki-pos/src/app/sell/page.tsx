@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { refresh } from "next/cache";
 import { currentUser, requireUser } from "@/lib/auth";
+import { markSrc } from "@/lib/brand";
 import { all } from "@/lib/db";
 import {
   authoriseOwnerPin,
@@ -474,6 +475,7 @@ export default async function SellPage() {
       // sale can print or PDF a receipt entirely on the phone, with no
       // server to ask, before the till has ever seen the sale.
       printer={getPrintSettings()}
+      logoSrc={markSrc()}
       recipes={recipes}
       onLastOrder={lastOrderAction}
       onMix={mixAction}

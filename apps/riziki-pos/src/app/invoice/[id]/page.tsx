@@ -8,6 +8,7 @@ import { formatKes, formatAmount, formatQty, formatDateTime } from "@/lib/units"
 import { ThermalPrint } from "@/components/thermal-print";
 import { PdfShareButton } from "@/components/pdf-share-button";
 import { Letterhead } from "@/components/letterhead";
+import { markSrc } from "@/lib/brand";
 import { PrintButton } from "./print-button";
 import { PayInvoiceForm } from "./pay-form";
 
@@ -360,8 +361,10 @@ export default async function InvoicePage(props: {
           opening an old invoice to check a figure must not burn a roll.
         */}
         <ThermalPrint
-          receipt={receipt}
+          doc={{ kind: "receipt", receipt }}
           paper={printer.paper}
+          logo={printer.logo}
+          logoSrc={markSrc()}
           auto={printer.autoPrint && justSold === "1" && sale.status === "completed"}
         />
 

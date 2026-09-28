@@ -4,6 +4,7 @@ import { currentUser, requireUser } from "@/lib/auth";
 import { getPrintSettings, savePrintSettings } from "@/lib/print-settings";
 import { PageTitle, SectionLabel } from "@/components/ui";
 import { PrinterSettingsForm, PrinterPicker, type PrinterFormState } from "@/components/thermal-print";
+import { markSrc } from "@/lib/brand";
 
 export const dynamic = "force-dynamic";
 
@@ -43,6 +44,7 @@ export default async function PrinterSettingsPage() {
           footer: String(formData.get("footer") ?? ""),
           autoPrint: formData.get("auto_print") != null,
           showDiscounts: formData.get("show_discounts") != null,
+          logo: formData.get("logo") != null,
         },
         actor.id,
       );
@@ -69,7 +71,10 @@ export default async function PrinterSettingsPage() {
       <PrinterPicker paper={settings.paper} header={settings.header} footer={settings.footer} />
 
       <div className="mt-4">
-        <PrinterSettingsForm settings={settings} action={savePrinterSettingsAction} />
+        <PrinterSettingsForm
+          settings={{ ...settings, logoSrc: markSrc() }}
+          action={savePrinterSettingsAction}
+        />
       </div>
 
       <SectionLabel>If it will not print</SectionLabel>

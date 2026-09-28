@@ -5,6 +5,10 @@ import { getInvoice, getBusiness } from "@/lib/credit";
 import { formatKes, formatAmount, formatQty, formatDateTime } from "@/lib/units";
 import { Letterhead } from "@/components/letterhead";
 import { PrintButton } from "../../invoice/[id]/print-button";
+import { ThermalPrint } from "@/components/thermal-print";
+import { getPrintSettings } from "@/lib/print-settings";
+import { markSrc } from "@/lib/brand";
+import type { DeliveryNote } from "@/lib/escpos";
 
 export const dynamic = "force-dynamic";
 
@@ -75,6 +79,38 @@ export default async function DeliveryNotePage(props: {
 
   const reference = sale.invoice_no ? `DN ${sale.invoice_no}` : `DN #${sale.id}`;
 
+  /*
+    The same note, for the counter printer.
+
+    The shop's thermal printer is at the counter and the A5 printer is in the
+    office — so a driver waiting at the door was being sent to the wrong room,
+    or given nothing. The roll takes a delivery note perfectly well: it is
+    quantities and a signature block, and neither needs A5.
+
+    Built here rather than in the browser because these are the same snapshots
+    the sheet below prints, and reading them twice is how two versions of one
+    document start to disagree.
+  */
+  const printer = getPrintSettings();
+  const note: DeliveryNote = {
+    header: printer.header,
+    reference,
+    dateTime: formatDateTime(sale.at),
+    deliverTo: sale.customer_name || "Walk-in customer",
+    phone: sale.customer_phone || null,
+    saleRef: sale.invoice_no ?? `#${sale.id}`,
+    servedBy: sale.user_name ?? null,
+    lines: goods.map((l) => ({
+      name: l.name_snapshot,
+      qty:
+        l.rate_cents && l.canonical_unit
+          ? formatQty(l.qty_milli, l.canonical_unit)
+          : `${l.units}${l.canonical_unit ? ` (${formatQty(l.qty_milli, l.canonical_unit)})` : ""}`,
+    })),
+    note: sale.status === "voided" ? "THIS SALE WAS VOIDED" : null,
+    footer: `Goods remain the property of ${business.name} until paid for in full.`,
+  };
+
   return (
     <div>
       <style>{PRINT_CSS}</style>
@@ -94,6 +130,21 @@ export default async function DeliveryNotePage(props: {
           {showPrices ? "Hide the prices" : "Show the prices"}
         </Link>
         <PrintButton />
+      </div>
+
+      {/*
+        The counter printer first: it is the one in the room the driver is
+        standing in. A5 is still a tap away above, for the notes that go in the
+        file rather than on the lorry.
+      */}
+      <div className="no-print mb-3">
+        <ThermalPrint
+          doc={{ kind: "delivery", note }}
+          paper={printer.paper}
+          logo={printer.logo}
+          logoSrc={markSrc()}
+          label="Print on the counter printer"
+        />
       </div>
 
       <div className="sheet mx-auto rounded-2xl border border-line bg-white p-5 text-ink">

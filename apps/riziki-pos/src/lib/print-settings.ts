@@ -73,6 +73,7 @@ const KEY = {
   footer: "printer.footer",
   auto: "printer.auto",
   discounts: "printer.discounts",
+  logo: "printer.logo",
 } as const;
 
 export interface PrintSettings {
@@ -98,6 +99,16 @@ export interface PrintSettings {
    */
   showDiscounts: boolean;
   /**
+   * Whether the shop's logo is burned at the top of every thermal receipt.
+   *
+   * OFF until the owner has seen a test print. A thermal head has one ink and
+   * no grey, so a logo is reduced to black dots before it is sent — and the
+   * cheap printers vary in what they accept: most take the raster command, a
+   * few take nothing and answer with a foot of blank paper. So it is a switch
+   * with a preview and a test print beside it, not an assumption.
+   */
+  logo: boolean;
+  /**
    * When these were last saved, as the database wrote it. Empty if never.
    *
    * It travels to the counter for one reason: the phone may be looking at a
@@ -117,6 +128,7 @@ export interface PrintSettingsInput {
   footer?: string;
   autoPrint?: boolean;
   showDiscounts?: boolean;
+  logo?: boolean;
 }
 
 /** At most six header lines — more than that and the receipt is mostly letterhead. */
@@ -155,6 +167,8 @@ export function defaultPrintSettings(): PrintSettings {
     autoPrint: true,
     // The shop asked for this off: see the field's own note above.
     showDiscounts: false,
+    // Off until somebody has watched it come out of the actual printer.
+    logo: false,
     savedAt: "",
   };
 }
@@ -186,6 +200,7 @@ export function getPrintSettings(): PrintSettings {
       getSetting(KEY.discounts) === undefined
         ? fallback.showDiscounts
         : getSetting(KEY.discounts) === "1",
+    logo: getSetting(KEY.logo) === undefined ? fallback.logo : getSetting(KEY.logo) === "1",
     savedAt: savedAtStamp(),
   };
 }
@@ -216,6 +231,7 @@ export function savePrintSettings(input: PrintSettingsInput, userId?: number | n
   setSetting(KEY.footer, String(input.footer ?? "").trim());
   setSetting(KEY.auto, input.autoPrint ? "1" : "0");
   setSetting(KEY.discounts, input.showDiscounts ? "1" : "0");
+  setSetting(KEY.logo, input.logo ? "1" : "0");
 
   audit(userId ?? null, "printer_settings_save", "settings", null, `${paper} mm, ${header.length} header line(s)`);
 
