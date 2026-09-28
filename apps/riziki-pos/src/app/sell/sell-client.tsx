@@ -33,7 +33,8 @@ import {
 } from "react";
 import type { PayMethod, Tier } from "@/lib/sales";
 import { countOutbox, enqueueSale, onOutboxChange, type QueuedSalePayload } from "@/lib/offline";
-import { formatDate, formatDateTime, formatKes, formatQty, formatUnits } from "@/lib/units";
+import { businessDate, formatDate, formatDateTime, formatKes, formatQty, formatUnits } from "@/lib/units";
+import { recallCart, keepCart } from "@/lib/cart-memory";
 import { Alert, Button, SectionLabel, inputClass } from "@/components/ui";
 import { SizeChip } from "@/components/size-chip";
 import { subscribeOnline, readOnline, assumeOnline } from "@/lib/online";
@@ -711,6 +712,22 @@ interface CartLine {
 }
 
 /**
+ * This phone's storage, or nothing.
+ *
+ * The screen renders on the server before it renders on the phone, and a
+ * browser can refuse storage outright. Both answers are "no basket", which the
+ * memory functions already handle, so they get told once here.
+ */
+function safeStore() {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * How a cart line is identified.
  *
  * Item alone is not enough once bundles exist: 2 kg loose and one 20 kg bundle
@@ -741,6 +758,7 @@ export default function SellClient({
   stockAsOf,
   action,
   isOwner,
+  userId,
   recipes,
   onLastOrder,
   onMix,
@@ -754,6 +772,8 @@ export default function SellClient({
   stockAsOf: string;
   action: (prev: SellState, payload: SalePayload) => Promise<SellState>;
   isOwner: boolean;
+  /** Whose basket is whose: the owner and the attendant share this phone. */
+  userId: number;
   /** The Products board: what a customer comes in to make. */
   recipes: RecipeChoice[];
   onLastOrder: (customerId: number) => Promise<RepeatOrder | null>;
@@ -1217,44 +1237,49 @@ export default function SellClient({
     uuid.current = newUuid();
   }, [state]);
 
-  // --- cart survives leaving the screen -----------------------------------
-  // An attendant mid-order taps Stock to check a shelf, comes back, and the cart
-  // must still be there — otherwise a six-line order is re-rung from memory with
-  // a queue waiting. sessionStorage persists across navigation within the app but
-  // clears when it's closed, so yesterday's cart never resurrects.
+  // --- the basket survives leaving the screen -----------------------------
+  /*
+    An attendant mid-order taps Stock to check a shelf, or Customers to see what
+    a laundry already owes, and comes back. The order has to still be there.
+
+    THE ORDER OF THESE TWO EFFECTS IS THE WHOLE THING. They both run when this
+    screen mounts, and the one that saves runs with the empty basket the screen
+    starts with — so without the flag below it deletes the basket a moment
+    before the other one restores it. That is not a hypothetical: it is what
+    this did for seven weeks while appearing to work, because nothing on the
+    screen says "your basket was not restored".
+
+    What is kept, and what is not: the lines and the account. Not the payment
+    pane, which is a step rather than an order, and not the search box.
+  */
   const restored = useRef(false);
-  useEffect(() => {
-    if (restored.current) return;
-    restored.current = true;
-    /*
-      Deferred by a tick.
-
-      The cart is React's own state, seeded once from the phone's storage — not
-      state that lives outside React, so a subscription would be the wrong
-      shape. What it must not be is a write during the effect body: that paints
-      an empty till and then paints it again with yesterday's basket in it.
-    */
-    const t = setTimeout(() => {
-      try {
-        const raw = sessionStorage.getItem("riziki_cart");
-        if (!raw) return;
-        const saved = JSON.parse(raw) as { cart: CartLine[] };
-        if (saved.cart?.length) setCart(saved.cart);
-      } catch {
-        /* a corrupt cart is not worth crashing the till over */
-      }
-    }, 0);
-    return () => clearTimeout(t);
-  }, []);
 
   useEffect(() => {
-    try {
-      if (cart.length) sessionStorage.setItem("riziki_cart", JSON.stringify({ cart }));
-      else sessionStorage.removeItem("riziki_cart");
-    } catch {
-      /* private mode / storage full — the cart just won't survive navigation */
+    const saved = recallCart<CartLine>(safeStore(), userId, businessDate());
+    if (saved) {
+      /*
+        Seeding state from the phone's storage is the one thing an effect is
+        for: the server rendered this screen without a basket because a server
+        has no idea what is on this phone, and the value only exists once the
+        browser is running. It happens once, on mount, and cascades nothing.
+
+        The previous attempt to satisfy this rule pushed the same two calls into
+        a setTimeout, which moved them out of the linter's sight and out of the
+        right order at the same time — the save effect below then ran first and
+        deleted the basket. The rule was not the problem it was solving.
+      */
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setCart(saved.lines);
+      if (saved.customerId !== null) setCustomerId(saved.customerId);
     }
-  }, [cart]);
+    restored.current = true;
+  }, [userId]);
+
+  useEffect(() => {
+    // Nothing is written before the restore has run. See above.
+    if (!restored.current) return;
+    keepCart(safeStore(), userId, businessDate(), { lines: cart, customerId });
+  }, [cart, customerId, userId]);
 
   // --- connection and outbox ----------------------------------------------
   useEffect(() => {

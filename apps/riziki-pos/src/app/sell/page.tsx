@@ -469,6 +469,7 @@ export default async function SellPage() {
       topSellerIds={topSellerItemIds(6)}
       customers={customers}
       isOwner={user.role === "owner"}
+      userId={user.id}
       // The shop's letterhead only — nothing owner-sensitive — so a queued
       // sale can print or PDF a receipt entirely on the phone, with no
       // server to ask, before the till has ever seen the sale.
