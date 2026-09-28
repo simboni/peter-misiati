@@ -206,3 +206,41 @@ at the asking price: it is money the shop is holding, not money it has made.
 | Today's-price fallback, and saying so | `src/lib/reports.ts` · `LINE_COST_SQL` |
 | Putting a mix back together | `src/lib/reports.ts` · `profitPerProduct` |
 | Gross, net and margin | `src/lib/reports.ts` · `profitSummary` |
+
+---
+
+## When a day comes out negative
+
+Three quite different things put a minus sign on a day, and they want three
+quite different answers. The dashboard can show *that* a day lost money; it
+cannot show which of these it was. This can:
+
+```sh
+npm run why -- 2026-09-22
+```
+
+It reads the books — it never writes to them — and names the cause.
+
+**1 · Money spent, not money lost.** Rent, a lorry, a drum paid for in cash.
+The goods still sold at a profit; the shop simply paid out more than it took
+that day. Gross profit stays positive and only the net goes under. Nothing is
+wrong and nothing needs correcting. On the dashboard it is the Expenses column
+on that row carrying the number.
+
+**2 · Something sold below what it cost.** Gross profit itself is negative.
+Either the asking price is too low or the cost on file is too high. The product
+shows up in the losing-money list with a negative margin, and if its cost is
+still above its price today it will go on losing money on every sale until one
+of the two numbers moves.
+
+**3 · A cost price entered after the fact.** A sale made before anybody recorded
+what the goods cost carries no cost of its own, so the reports value it at what
+that product costs **today** — and say how much they had to. Fix the cost
+wrongly and every past day that sold from it turns negative at once, without
+anybody touching those days. The classic slip is a whole drum's price typed into
+a box that means *per kilo*: a 250 kg drum at KES 380 a kilo entered as KES
+95,000 multiplies every past sale by two hundred and fifty.
+
+The third is the only one that rewrites history, and it is also the only one
+with a one-field fix: put the right per-unit cost on the product and every day
+it touched comes back on its own.
