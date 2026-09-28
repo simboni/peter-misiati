@@ -59,7 +59,7 @@ run(`INSERT INTO settings (key, value) VALUES ('books_start', date('now'))
      ON CONFLICT(key) DO UPDATE SET value = excluded.value`);
 
 const supplier = createSupplier({ name: "Chemi Traders Ltd" }, 1);
-let ungerol = named("Ungerol");
+const ungerol = named("Ungerol");
 // Room to move the asking price without the owner's band getting in the way.
 run(`UPDATE items SET floor_cents = 30000, ceiling_cents = 80000 WHERE id = ?`, ungerol.id);
 
