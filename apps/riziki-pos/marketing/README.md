@@ -83,3 +83,27 @@ node render.mjs ad-1-hero:1600:1000        # writes ../ads/ad-1-hero.png
 The committed pieces in `ads/` were rendered from the original lossless
 screenshots; the sources here point at the JPEGs in `screens/`, so a re-render
 is a touch softer. Re-shoot the screen you need as a PNG if that matters.
+
+---
+
+## `tour/` — the client walkthrough
+
+`riziki-pos-end-to-end.pdf` (13 pages, A4) explains the whole system in the
+order it happens: goods in, money back, the ledger under both; a day at the
+counter; how cost is worked out and frozen; the two ways a recipe sells; credit
+and its papers; the dashboard; who sees what; what cannot be changed; and how
+the thing is kept running. It is the handout for a wrap-up meeting — the same
+content is published as a page at `tour/index.html`.
+
+Regenerating the PDF needs the webfonts embedded once (the instructions are at
+the top of `tour/build-pdf.py`), then:
+
+```sh
+cd marketing/tour
+python3 build-pdf.py     # writes print.html — no sticky nav, both recipe
+                         # routes shown, diagram labels sized for A4
+node render-pdf.mjs      # writes ../riziki-pos-end-to-end.pdf
+```
+
+The page and the PDF are the same source. Edit `tour/index.html` and both
+follow.

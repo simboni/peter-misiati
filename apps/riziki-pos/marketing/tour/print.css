@@ -1,0 +1,26 @@
+<style>
+  @page { size: A4; margin: 11mm 10mm 13mm; }
+  body { background: #fff; font-size: 14.5px; }
+  .wrap { max-width: none; padding-inline: 0; }
+  .col { max-width: 70ch; }
+  section { padding-block: 22px; break-inside: auto; }
+  section#top { padding-top: 0; }
+  h1 { font-size: 40px; }
+  h2 { font-size: 25px; }
+  h2, h3, .eyebrow { break-after: avoid; }
+  figure, .card, .fact, .tablebox, .figbox, .note, ol.steps li, .shot { break-inside: avoid; }
+  .figbox { padding: 10px 6px; overflow: visible; }
+  .figbox svg { min-width: 0; }
+  .shot img { box-shadow: none; }
+  .pair { grid-template-columns: 1.5fr 1fr; }
+  h3.route {
+    font-size: 15px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--brand-ink);
+    margin: 22px 0 10px;
+  }
+  #pane-order { margin-top: 10px; }
+  footer { padding-block: 18px 0; }
+  a { text-decoration: none; }
+</style>
