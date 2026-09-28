@@ -10,6 +10,7 @@
     "seed": "node --experimental-strip-types scripts/seed.ts",
     "backup": "node --experimental-strip-types scripts/backup.ts",
     "why": "node --experimental-strip-types scripts/why-negative.ts",
+    "price-story": "node --experimental-strip-types scripts/price-story.ts",
     "test": "node --experimental-strip-types --test tests/*.test.ts"
   },
   "dependencies": {

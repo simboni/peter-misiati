@@ -194,6 +194,67 @@ at the asking price: it is money the shop is holding, not money it has made.
 
 ---
 
+## When the selling price moves
+
+Cost and price are two separate ledgers and they never touch each other.
+
+**The cost is the shop's, and it blends.** It is never typed in: it arrives with
+the goods, it is always per kilo, litre or piece, and each delivery averages into
+what is already on the shelf.
+
+**The price is the customer's, and it is stepped.** It is typed in — on the
+owner's catalogue screen, on the morning price check, or agreed at the counter
+and kept — and every change is written to `price_changes` with the old price, the
+new one, who made it and where. That table is append-only: a correction is
+another row, never an edit. So a customer arguing about last week's price can be
+answered from the record.
+
+A price change does nothing to the stock. The shelf holds the same kilos at the
+same cost the instant before and the instant after; only what the next customer
+pays has changed. And it does nothing to the sales already made, because each
+sale line froze **both** numbers when the goods left the counter: what was
+charged, and what it cost. Raising a price tomorrow cannot improve yesterday's
+margin, and a dearer drum tomorrow cannot spoil it.
+
+That is the whole rule, and it is worth saying plainly: **the same 100 kg on the
+shelf can be sold at three different prices on three days and be costed at three
+different figures, and every one of those six numbers stays where it was put.**
+
+### Seeing it happen
+
+```sh
+rm -rf /tmp/prices && mkdir -p /tmp/prices
+RIZIKI_DB=/tmp/prices/pos.db node --experimental-strip-types scripts/price-story.ts
+```
+
+One drum, half of it sold, a dearer second drum, the same quantity sold again,
+then the asking price put up and a third sale — with the books at the end. Every
+figure it prints comes out of the same functions the counter and the reports
+call, so it is not a description of the rules, it is the rules running.
+
+```
+Sale A   sold at KES 513.00/kg, costed at KES 320.00/kg  →  KES 17,370.00   37.6%
+Sale B   sold at KES 513.00/kg, costed at KES 363.90/kg  →  KES 13,419.00   29.1%
+Sale C   sold at KES 560.00/kg, costed at KES 363.90/kg  →  KES 17,649.00   35.0%
+```
+
+Sale A was rung before the second drum arrived and still reads exactly as it did
+that day. Sale B is the same chemical at the same price to the customer, earning
+KES 3,951 less, because the blend moved. Sale C is the same cost with the new
+asking price. Nothing was recalculated; the three lines simply kept what they
+were given.
+
+### One rounding note
+
+The cost on file is a whole number of cents per kilo, so a blend that does not
+divide exactly leaves a shilling or two between "quantity × cost on file" and the
+money actually spent — 410 kg at KES 363.90 values at KES 149,199 against KES
+149,200 paid. It is a rounding residue on the stock valuation, never on a sale:
+each sale line carries its own cost in cents and the report adds those, so the
+product rows always add up to the period total exactly.
+
+---
+
 ## Where each rule lives in the code
 
 | Rule | File |
