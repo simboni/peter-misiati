@@ -264,6 +264,14 @@ export default async function PurchasesPage(props: {
                 {watched.canonical_unit} and not per drum, so a smaller drum does not read as a
                 cheaper delivery.
               </p>
+              {/* One item at a time answers "what has this cost"; the whole
+                  catalogue at once answers "what is going up", which is the
+                  question that decides a price list. */}
+              <p className="text-xs">
+                <Link href="/landed" className="font-bold text-brand hover:underline">
+                  Every item{"'"}s landed cost, and which way each is moving →
+                </Link>
+              </p>
             </>
           ) : (
             <Empty>Pick an item to see what it has cost over time.</Empty>

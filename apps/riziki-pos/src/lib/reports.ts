@@ -1280,6 +1280,10 @@ export const EXPORT_TABLES = [
   // app as a spreadsheet rather than only as a printed page.
   "price_changes",
   "activity",
+  // Every delivery line at its landed rate per unit. The owner's pricing
+  // spreadsheet: what each thing has cost, delivery by delivery, transport
+  // included, in the only unit two different drums can be compared in.
+  "landed",
 ] as const;
 export type ExportTable = (typeof EXPORT_TABLES)[number];
 
@@ -1583,6 +1587,46 @@ const EXPORT_SPECS: Record<ExportTable, ExportSpec> = {
         kes(r.old_price as number), kes(r.new_price as number),
         kes((r.new_price as number) - (r.old_price as number)),
         r.changed_by, r.source, r.note,
+      ]),
+  },
+
+  // What each delivery landed at, per kilo, litre or piece.
+  //
+  // The rate is the line's landed total over what arrived, which is the figure
+  // the shop needs to decide a price and the one no spreadsheet can rebuild
+  // from an invoice alone: the transport is already spread across the lines in
+  // proportion to their value. Both the total and the quantity are carried so
+  // the rate can be checked rather than believed.
+  landed: {
+    header: [
+      "purchase_id", "business_date", "at_nairobi", "item", "unit", "supplier", "ref",
+      "units", "quantity", "landed_total_kes", "landed_rate_kes_per_unit",
+      "cost_on_file_kes_per_unit", "asking_price_kes_per_unit",
+    ],
+    page: (limit, offset) =>
+      all<Record<string, unknown>>(
+        `SELECT pl.purchase_id,
+                date(p.at, '+3 hours')     AS business_date,
+                datetime(p.at, '+3 hours') AS at_nairobi,
+                i.name AS item, i.canonical_unit AS unit, i.cost_cents, i.price_cents,
+                s.name AS supplier, p.ref,
+                pl.units, pl.qty_milli, pl.cost_cents AS landed_cents
+           FROM purchase_lines pl
+           JOIN purchases p ON p.id = pl.purchase_id
+           LEFT JOIN items i ON i.id = pl.item_id
+           LEFT JOIN suppliers s ON s.id = p.supplier_id
+          ORDER BY pl.id
+          LIMIT ? OFFSET ?`,
+        limit,
+        offset,
+      ).map((r: Record<string, unknown>) => [
+        r.purchase_id, r.business_date, r.at_nairobi, r.item, r.unit, r.supplier, r.ref,
+        r.units,
+        ((r.qty_milli as number) / 1000).toFixed(3),
+        kes(r.landed_cents as number),
+        kes(Math.round(((r.landed_cents as number) * 1000) / Math.max(1, r.qty_milli as number))),
+        kes(r.cost_cents as number),
+        kes(r.price_cents as number),
       ]),
   },
 

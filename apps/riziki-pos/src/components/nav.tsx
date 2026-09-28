@@ -114,6 +114,10 @@ const MORE_GROUPS: Array<{
     label: "Products & recipes",
     links: [
       { href: "/items", label: "Products & prices", short: "Products", need: "products" },
+      // Beside the prices on purpose: what a thing costs to put on the shelf and
+      // what the shop asks for it are two halves of one decision, and the shop
+      // was only ever shown the second.
+      { href: "/landed", label: "Landed cost", short: "Landed", need: "cost" },
       { href: "/formulas", label: "Recipes", need: "recipes" },
       { href: "/mix", label: "Mixing board", short: "Mixing", need: "recipes" },
     ],

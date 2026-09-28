@@ -411,6 +411,17 @@ export default async function ItemsPage(props: {
         subtitle="One price for each thing, and how far it may be argued. Changed here or at the till."
       />
 
+      {/* A price is half a decision. The other half is what the thing costs to
+          put on the shelf, which is a screen of its own and was reachable from
+          nowhere near the prices. */}
+      {seesCost ? (
+        <p className="mb-3 text-sm">
+          <Link href="/landed" className="font-bold text-brand hover:underline">
+            What each of these costs to put on the shelf →
+          </Link>
+        </p>
+      ) : null}
+
       {err ? (
         <div className="mb-3 max-w-4xl">
           <Alert tone="bad">{err}</Alert>
