@@ -150,18 +150,47 @@ export function ListToolbar({
   filters,
   current,
   extra,
+  param = "state",
+  defaultKey = "all",
 }: {
   action: string;
   q: string;
   placeholder: string;
   filters: Array<{ key: string; label: string; count?: number }>;
   current: string;
+  /**
+   * Other query parameters to carry through — the dates, usually.
+   *
+   * Written into the chips AND into the search form. Only the chips had them
+   * at first, so pressing Search threw the date filter away: the screen quietly
+   * went from "this month, unpaid" to "everything, unpaid" and the only sign
+   * was the chip row changing under you.
+   */
   extra?: Record<string, string>;
+  /**
+   * Which query parameter the chips set.
+   *
+   * It was always `state`, which is right for a standing — unpaid, voided — and
+   * wrong for the landed-cost screen, whose chips are a sort order. Those chips
+   * wrote `state=margin`, the page read `order`, and clicking them did nothing
+   * at all: a live link to the same page.
+   */
+  param?: string;
+  /** The value that means "no filter", left out of the URL to keep it clean. */
+  defaultKey?: string;
 }) {
   const href = (key: string) => {
     const p = new URLSearchParams({ ...(extra ?? {}) });
     if (q) p.set("q", q);
-    if (key !== "all") p.set("state", key);
+    if (key !== defaultKey) p.set(param, key);
+    const s = p.toString();
+    return s ? `${action}?${s}` : action;
+  };
+
+  /** Clearing the search clears the search, not the dates and not the chip. */
+  const cleared = () => {
+    const p = new URLSearchParams({ ...(extra ?? {}) });
+    if (current !== defaultKey) p.set(param, current);
     const s = p.toString();
     return s ? `${action}?${s}` : action;
   };
@@ -169,7 +198,12 @@ export function ListToolbar({
   return (
     <div className="no-print mb-3 space-y-2">
       <form action={action} className="flex gap-2">
-        {current !== "all" ? <input type="hidden" name="state" value={current} /> : null}
+        {current !== defaultKey ? <input type="hidden" name={param} value={current} /> : null}
+        {/* Everything else the list is filtered by, so searching narrows it
+            rather than replacing it. */}
+        {Object.entries(extra ?? {}).map(([k, v]) =>
+          v ? <input key={k} type="hidden" name={k} value={v} /> : null,
+        )}
         <input
           type="search"
           name="q"
@@ -186,7 +220,7 @@ export function ListToolbar({
         </button>
         {q ? (
           <Link
-            href={action}
+            href={cleared()}
             className="flex min-h-11 shrink-0 items-center rounded-xl px-3 text-sm font-bold text-muted hover:bg-wash xl:min-h-10"
           >
             Clear
@@ -194,27 +228,29 @@ export function ListToolbar({
         ) : null}
       </form>
 
-      <div className="flex flex-wrap gap-1.5">
-        {filters.map((f) => (
-          <Link
-            key={f.key}
-            href={href(f.key)}
-            aria-current={current === f.key ? "true" : undefined}
-            className={`flex min-h-9 items-center gap-1.5 rounded-full px-3 text-[13px] font-bold transition-colors ${
-              current === f.key
-                ? "bg-brand text-white"
-                : "bg-white text-muted ring-1 ring-inset ring-line hover:text-ink"
-            }`}
-          >
-            {f.label}
-            {typeof f.count === "number" ? (
-              <span className={current === f.key ? "text-white/70 tnum" : "text-muted tnum"}>
-                {f.count}
-              </span>
-            ) : null}
-          </Link>
-        ))}
-      </div>
+      {filters.length ? (
+        <div className="flex flex-wrap gap-1.5">
+          {filters.map((f) => (
+            <Link
+              key={f.key}
+              href={href(f.key)}
+              aria-current={current === f.key ? "true" : undefined}
+              className={`flex min-h-9 items-center gap-1.5 rounded-full px-3 text-[13px] font-bold transition-colors ${
+                current === f.key
+                  ? "bg-brand text-white"
+                  : "bg-white text-muted ring-1 ring-inset ring-line hover:text-ink"
+              }`}
+            >
+              {f.label}
+              {typeof f.count === "number" ? (
+                <span className={current === f.key ? "text-white/70 tnum" : "text-muted tnum"}>
+                  {f.count}
+                </span>
+              ) : null}
+            </Link>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

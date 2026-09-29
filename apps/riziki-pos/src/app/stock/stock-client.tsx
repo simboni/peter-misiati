@@ -15,7 +15,8 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { formatKes, formatQty, formatUnits } from "@/lib/units";
-import { Chip, Empty, Stat, TableWrap, Th, Td, inputClass } from "@/components/ui";
+import { Chip, Empty, Stat, TableWrap, Th, Td } from "@/components/ui";
+import { ClientSearch, ClientChips, ClientPager } from "@/components/list-controls";
 import type { StockStatus, StockView } from "@/lib/stock-service";
 
 const LABEL: Record<StockStatus, string> = {
@@ -56,6 +57,16 @@ export function StockClient({
   initialQuery?: string;
 }) {
   const [query, setQuery] = useState(initialQuery);
+  /*
+    What kind of thing, and what is running out.
+
+    The shelf is forty-six rows of three different kinds and the two questions
+    asked of it are never "show me everything": they are "what do I need to
+    order" and "how much of the packaging is left". Chips, because that is what
+    every other list in the app uses, and instant, because the whole shelf is
+    already here.
+  */
+  const [kind, setKind] = useState<"all" | "attention" | "bulk" | "finished" | "packaging">("all");
 
   const terms = useMemo(
     () => query.trim().toLowerCase().split(/\s+/).filter(Boolean),
@@ -97,9 +108,32 @@ export function StockClient({
     on the shelf and how much of it — so they are one table with a Kind column
     rather than three sections that cannot be compared with each other.
   */
-  const rows = useMemo(
+  const searched = useMemo(
     () => [...reagents, ...finished, ...packaging],
     [reagents, finished, packaging],
+  );
+
+  /** Low or out — the rows an owner opens this screen to find. */
+  const needsAttention = (l: { status: string }) => l.status === "low" || l.status === "reorder";
+
+  const rows = useMemo(() => {
+    if (kind === "all") return searched;
+    if (kind === "attention") return searched.filter(needsAttention);
+    if (kind === "bulk") return searched.filter((l) => l.kind === "bulk" || l.kind === "pack");
+    return searched.filter((l) => l.kind === kind);
+  }, [searched, kind]);
+
+  /* Counted over the search, not over the chip: a chip that counts only what is
+     already chosen stops being worth reading. */
+  const counts = useMemo(
+    () => ({
+      all: searched.length,
+      attention: searched.filter(needsAttention).length,
+      bulk: searched.filter((l) => l.kind === "bulk" || l.kind === "pack").length,
+      finished: searched.filter((l) => l.kind === "finished").length,
+      packaging: searched.filter((l) => l.kind === "packaging").length,
+    }),
+    [searched],
   );
 
   /*
@@ -111,11 +145,12 @@ export function StockClient({
     the page was chosen under is remembered instead and a stale one simply
     reads as page 1.
   */
-  const [pageFor, setPageFor] = useState({ query: initialQuery, page: 1 });
+  const [pageFor, setPageFor] = useState({ key: `${initialQuery}|all`, page: 1 });
+  const pageKey = `${query}|${kind}`;
   const pages = Math.max(1, Math.ceil(rows.length / PER_PAGE));
-  const current = pageFor.query === query ? Math.min(pageFor.page, pages) : 1;
+  const current = pageFor.key === pageKey ? Math.min(pageFor.page, pages) : 1;
   const shown = rows.slice((current - 1) * PER_PAGE, current * PER_PAGE);
-  const goTo = (n: number) => setPageFor({ query, page: Math.min(Math.max(1, n), pages) });
+  const goTo = (n: number) => setPageFor({ key: pageKey, page: Math.min(Math.max(1, n), pages) });
 
   return (
     <div>
@@ -142,20 +177,31 @@ export function StockClient({
 
       </div>
       <div className="lg:col-span-8 xl:col-span-9 2xl:col-span-10">
-      <input
-        className={`${inputClass} w-full`}
-        type="search"
+      <ClientSearch
         value={query}
-        onChange={(e) => setQuery(e.target.value)}
+        onChange={setQuery}
         placeholder="Search — try SLES, soda ash, jerrican"
-        aria-label="Search stock by name or chemical alias"
-        autoComplete="off"
+        label="Search stock by name or chemical alias"
       />
-
+      <ClientChips
+        current={kind}
+        onPick={(k) => setKind(k as typeof kind)}
+        filters={[
+          { key: "all", label: "All", count: counts.all },
+          { key: "attention", label: "Low or out", count: counts.attention },
+          { key: "bulk", label: "Chemicals", count: counts.bulk },
+          { key: "finished", label: "Products", count: counts.finished },
+          { key: "packaging", label: "Containers", count: counts.packaging },
+        ].filter((f) => f.key === "all" || f.count > 0)}
+      />
       </div>
       </div>
 
-      {nothing ? <Empty>Nothing matches “{query}”.</Empty> : null}
+      {nothing ? (
+        <Empty>Nothing matches “{query}”.</Empty>
+      ) : rows.length === 0 ? (
+        <Empty>Nothing on the shelf is in that group right now.</Empty>
+      ) : null}
 
       {/*
         One table, not three columns of cards.
@@ -266,34 +312,22 @@ export function StockClient({
       ) : null}
 
       {/* Paging inside the window: the whole list is already in the browser, so
-          turning a page costs nothing and never leaves Stock. */}
-      {pages > 1 ? (
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => goTo(current - 1)}
-            disabled={current <= 1}
-            className="flex min-h-11 items-center rounded-xl border border-line bg-white px-4 text-sm font-bold disabled:opacity-40 xl:min-h-9"
-          >
-            ← Back
-          </button>
-          <span className="text-[13px] font-semibold text-muted">
-            Page {current} of {pages} · {rows.length} items
-          </span>
-          <button
-            type="button"
-            onClick={() => goTo(current + 1)}
-            disabled={current >= pages}
-            className="flex min-h-11 items-center rounded-xl border border-line bg-white px-4 text-sm font-bold disabled:opacity-40 xl:min-h-9"
-          >
-            Next →
-          </button>
-        </div>
-      ) : (
-        <p className="mt-3 text-[13px] text-muted">
-          {rows.length} {rows.length === 1 ? "item" : "items"}
-        </p>
-      )}
+          turning a page costs nothing and never leaves Stock. It reads like the
+          pager on every other list, because the shop should only have to learn
+          one. */}
+      <ClientPager
+        page={current}
+        pages={pages}
+        total={rows.length}
+        noun="row"
+        note={
+          rows.length === view.itemCount
+            ? undefined
+            : `of ${view.itemCount} on the shelf`
+        }
+        onGo={goTo}
+      />
+
     </div>
   );
 }

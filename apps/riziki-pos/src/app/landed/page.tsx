@@ -169,6 +169,11 @@ export default async function LandedPage(props: {
         filters={LANDED_ORDERS.map((o) => ({ key: o, label: LANDED_ORDER_LABEL[o] }))}
         current={order}
         extra={dates}
+        // These chips are a sort order, not a standing. Left as `state` they
+        // wrote a parameter this page does not read, and clicking one did
+        // nothing whatsoever.
+        param="order"
+        defaultKey="move"
       />
 
       {rows.length === 0 ? (

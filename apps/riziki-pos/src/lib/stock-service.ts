@@ -210,13 +210,24 @@ export function groupReagents(lines: StockLine[]): ReagentGroup[] {
   const groups = new Map<number, ReagentGroup>();
   for (const line of lines) {
     if (line.kind !== "bulk" && line.kind !== "pack") continue;
-    if (line.chemicalId == null) continue;
 
-    let g = groups.get(line.chemicalId);
+    /*
+      A bulk or pack line with no chemical behind it is a block of its own.
+
+      It used to be skipped outright, and skipped here meant invisible on the
+      shelf: the item was counted in the shop's item total and its money was in
+      the stock value, but no row for it was ever drawn. Stock the shop is
+      holding and cannot see is worse than stock it has not recorded, because
+      nothing on any screen says it is missing. The negative key cannot collide
+      with a chemical id, so such a line groups only with itself.
+    */
+    const key = line.chemicalId ?? -line.id;
+
+    let g = groups.get(key);
     if (!g) {
-      const aliases = aliasOf.get(line.chemicalId) ?? "";
+      const aliases = line.chemicalId == null ? "" : (aliasOf.get(line.chemicalId) ?? "");
       g = {
-        chemicalId: line.chemicalId,
+        chemicalId: key,
         name: line.chemicalName ?? line.name,
         aliases,
         unit: line.unit,
@@ -226,7 +237,7 @@ export function groupReagents(lines: StockLine[]): ReagentGroup[] {
         lines: [],
         search: `${line.chemicalName ?? line.name} ${aliases}`.toLowerCase(),
       };
-      groups.set(line.chemicalId, g);
+      groups.set(key, g);
     }
     g.lines.push(line);
     g.totalMilli += line.qtyMilli;

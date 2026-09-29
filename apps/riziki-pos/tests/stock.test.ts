@@ -15,7 +15,7 @@ process.env.RIZIKI_DB = join(mkdtempSync(join(tmpdir(), "riziki-stock-")), "test
 import test from "node:test";
 import assert from "node:assert/strict";
 
-const { get, all, postMovement, stockOf } = await import("../src/lib/db.ts");
+const { get, all, run, postMovement, stockOf } = await import("../src/lib/db.ts");
 const { seed } = await import("../src/lib/seed.ts");
 const { performStocktake, planStocktake, stockStatus, stockView, movementHistory, dailyStock } =
   await import("../src/lib/stock-service.ts");
@@ -175,4 +175,50 @@ test("the day-by-day column answers \"it goes up every day\" on its own", () => 
   assert.equal(today.netMilli, today.inMilli - today.outMilli);
   assert.equal(today.closingMilli, stockOf(id), "and where the shelf ended up");
   assert.equal(today.closingMilli, before + 17_000);
+});
+
+// ------------------------------------------------- everything is on the shelf
+
+test("a chemical-less bulk item still appears on the shelf", () => {
+  /*
+    The bug this locks. Grouping skipped any bulk or pack line with no chemical
+    behind it, and skipped there meant invisible: the item counted towards the
+    shop's item total and its money was inside the stock value, but no row for
+    it was ever drawn. Stock the shop is holding and cannot see is worse than
+    stock it never recorded, because nothing on any screen says it is missing.
+  */
+  run(
+    `INSERT INTO items (chemical_id, name, kind, canonical_unit, size_milli, unit_label,
+                        sellable, price_basis, price_cents, cost_cents)
+     VALUES (NULL, 'Orphan Solvent', 'bulk', 'L', 20000, 'drum', 1, 'unit', 50000, 30000)`,
+  );
+  const orphan = itemId("Orphan Solvent");
+  postMovement({ itemId: orphan, deltaMilli: 40_000, reason: "stocktake", userId: OWNER });
+
+  const view = stockView();
+  const drawn = [...view.reagents.flatMap((g) => g.lines), ...view.finished, ...view.packaging];
+
+  assert.ok(
+    drawn.some((l) => l.name === "Orphan Solvent"),
+    "it has to be on the list somewhere",
+  );
+  assert.equal(
+    drawn.length,
+    view.itemCount,
+    "and the rows drawn have to agree with the count in the heading",
+  );
+});
+
+test("it groups only with itself, never with another orphan", () => {
+  run(
+    `INSERT INTO items (chemical_id, name, kind, canonical_unit, size_milli, unit_label,
+                        sellable, price_basis, price_cents, cost_cents)
+     VALUES (NULL, 'Second Orphan', 'bulk', 'L', 20000, 'drum', 1, 'unit', 50000, 30000)`,
+  );
+  postMovement({ itemId: itemId("Second Orphan"), deltaMilli: 20_000, reason: "stocktake", userId: OWNER });
+
+  const view = stockView();
+  const blocks = view.reagents.filter((g) => g.lines.some((l) => l.name.includes("Orphan")));
+  assert.equal(blocks.length, 2, "two items with no chemical are two blocks, not one");
+  for (const b of blocks) assert.equal(b.lines.length, 1);
 });
