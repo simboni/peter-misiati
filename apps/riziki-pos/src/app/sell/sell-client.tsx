@@ -46,7 +46,6 @@ import { PdfShareButton } from "@/components/pdf-share-button";
 import { receiptToPdf } from "@/lib/pdf";
 
 /** Sentinel value for the "＋ New customer" row in the customer dropdown. */
-const NEW_CUSTOMER = "__new";
 
 /**
  * The two things this shop sells, and the order they are offered in.
@@ -2130,34 +2129,40 @@ export default function SellClient({
                   value={customerId}
                   allowNone
                   noneLabel="Walk-in — no name"
-                  onChange={(v: string | number | null) => {
-                    if (v === NEW_CUSTOMER) {
+                  onChange={(v: string | number | null) =>
+                    setCustomerId(v === null ? null : Number(v))
+                  }
+                  options={allCustomers.map((c) => ({
+                    value: c.id,
+                    label: c.name,
+                    hint: c.limitCents > 0 ? `limit ${formatKes(c.limitCents)}` : undefined,
+                    trailing: `owes ${formatKes(c.outstandingCents)}`,
+                  }))}
+                  /*
+                    Adding a customer is not one of the choices — it is what you
+                    do when none of them is the answer, which is precisely when
+                    a filtered list has hidden it. So it is pinned, the search
+                    never takes it away, and the name already typed is carried
+                    into the form instead of being typed twice.
+
+                    Offline it is shown and refused rather than left out: the
+                    till cannot hand out an account number on its own, and a
+                    control that quietly disappears teaches the counter that the
+                    app is unreliable.
+                  */
+                  action={{
+                    label: (q) => (q ? `＋ Add “${q}” as a new customer` : "＋ New customer…"),
+                    disabled: !online,
+                    note: online
+                      ? undefined
+                      : "Needs the network — sell as a walk-in and add them when it is back.",
+                    onPick: (q) => {
+                      setNewName(q);
                       setAdding(true);
                       setAddError(null);
-                      return;
-                    }
-                    setCustomerId(v === null ? null : Number(v));
+                    },
                   }}
-                  options={[
-                    ...allCustomers.map((c) => ({
-                      value: c.id,
-                      label: c.name,
-                      hint: c.limitCents > 0 ? `limit ${formatKes(c.limitCents)}` : undefined,
-                      trailing: `owes ${formatKes(c.outstandingCents)}`,
-                    })),
-                    // Offline this cannot work — the till assigns the id — so
-                    // it is left out rather than offered and refused.
-                    ...(online
-                      ? [{ value: NEW_CUSTOMER, label: "＋ New customer…" }]
-                      : []),
-                  ]}
                 />
-                {!online ? (
-                  <p className="mt-1 text-[11px] text-muted">
-                    A new customer needs the network — the till cannot give out an account number on
-                    its own. Sell it as a walk-in and add them when the connection is back.
-                  </p>
-                ) : null}
               </>
             )}
 

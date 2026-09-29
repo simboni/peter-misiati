@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { matchOptions, type PickerOption } from "@/lib/picker-match";
+import { matchOptions, pickerRows, type PickerOption, type PickerRow } from "@/lib/picker-match";
 
 export { matchOptions, type PickerOption };
 
@@ -28,7 +28,28 @@ export { matchOptions, type PickerOption };
  * already on the page — it is a few hundred rows of names at most — and a
  * picker that needs the network is a picker that stops working in a shop whose
  * connection comes and goes.
+ *
+ * AND ONE ROW THAT IS NEVER FILTERED. "Add a new customer" is not one of the
+ * options; it is what you do when none of them is the answer. Filtering it
+ * alongside the names took it away at the exact moment it was wanted — type a
+ * name that is not on file and the list said "nothing matches" and offered no
+ * way to put them on file. It is pinned to the bottom, it is never hidden by
+ * the search, and it is handed what was typed so it can say "add Kamau"
+ * instead of "add somebody".
  */
+
+/**
+ * The row at the bottom that does something rather than choosing something.
+ */
+export interface PickerAction {
+  /** What it says. Given whatever has been typed, which is usually the name. */
+  label: (query: string) => string;
+  /** Called with the typed text, so the form it opens can start filled in. */
+  onPick: (query: string) => void;
+  /** Offered but refused, with the reason under it — never silently absent. */
+  disabled?: boolean;
+  note?: string;
+}
 
 export function Picker({
   options,
@@ -40,6 +61,7 @@ export function Picker({
   empty = "Nothing to choose from.",
   allowNone = false,
   noneLabel = "Not chosen",
+  action,
   disabled = false,
   className = "",
 }: {
@@ -55,6 +77,8 @@ export function Picker({
   /** Offer a "nothing chosen" row — for a filter, or an optional field. */
   allowNone?: boolean;
   noneLabel?: string;
+  /** A pinned row at the bottom that the search never takes away. */
+  action?: PickerAction;
   disabled?: boolean;
   className?: string;
 }) {
@@ -77,7 +101,17 @@ export function Picker({
   }, [open]);
 
   const matches = useMemo(() => matchOptions(options, query), [options, query]);
-  const rows: Array<PickerOption | null> = allowNone ? [null, ...matches] : matches;
+
+  /*
+    What the arrow keys walk, in the order it is drawn: the "nothing chosen"
+    row, the matches, and the action — which is in the list rather than beside
+    it so that Enter can reach it after typing a name nobody matches.
+  */
+  type Row = PickerRow;
+  const rows: Row[] = pickerRows(options, query, {
+    allowNone,
+    hasAction: Boolean(action),
+  });
 
   // Keep the highlighted row on screen when it is reached by keyboard.
   useEffect(() => {
@@ -85,8 +119,16 @@ export function Picker({
     list.current?.children[active]?.scrollIntoView({ block: "nearest" });
   }, [active, open]);
 
-  function choose(option: PickerOption | null) {
-    onChange?.(option ? option.value : null);
+  function pick(row: Row | undefined) {
+    if (!row) return;
+    if (row.kind === "action") {
+      if (action?.disabled) return;
+      action?.onPick(query.trim());
+      setQuery("");
+      setOpen(false);
+      return;
+    }
+    onChange?.(row.kind === "option" ? row.option.value : null);
     setQuery("");
     setOpen(false);
   }
@@ -139,7 +181,7 @@ export function Picker({
                 setActive((a) => Math.max(a - 1, 0));
               } else if (e.key === "Enter") {
                 e.preventDefault();
-                if (rows.length) choose(rows[active] ?? null);
+                pick(rows[active]);
               } else if (e.key === "Escape") {
                 e.preventDefault();
                 setOpen(false);
@@ -149,15 +191,51 @@ export function Picker({
           />
 
           <ul ref={list} role="listbox" aria-label={label} className="max-h-72 overflow-y-auto">
-            {rows.length ? (
-              rows.map((o, k) => (
-                <li key={o ? String(o.value) : "__none"} role="option" aria-selected={k === active}>
+            {!matches.length && query.trim() ? (
+              <li className="px-3 py-3 text-center text-sm text-muted">
+                Nothing matches “{query}”.
+              </li>
+            ) : null}
+
+            {rows.map((row, k) => {
+              const key =
+                row.kind === "action" ? "__action" : row.kind === "none" ? "__none" : String(row.option.value);
+              const on = k === active;
+
+              if (row.kind === "action") {
+                return (
+                  <li key={key} role="option" aria-selected={on}>
+                    <button
+                      type="button"
+                      disabled={action?.disabled}
+                      onMouseEnter={() => setActive(k)}
+                      onClick={() => pick(row)}
+                      className={`flex w-full items-baseline gap-2 border-t border-line px-3 py-2.5 text-left disabled:opacity-60 ${
+                        on && !action?.disabled ? "bg-brand-soft" : ""
+                      }`}
+                    >
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[13px] font-bold text-brand">
+                          {action?.label(query.trim())}
+                        </span>
+                        {action?.note ? (
+                          <span className="block text-[11px] text-muted">{action.note}</span>
+                        ) : null}
+                      </span>
+                    </button>
+                  </li>
+                );
+              }
+
+              const o = row.kind === "option" ? row.option : null;
+              return (
+                <li key={key} role="option" aria-selected={on}>
                   <button
                     type="button"
                     onMouseEnter={() => setActive(k)}
-                    onClick={() => choose(o)}
+                    onClick={() => pick(row)}
                     className={`flex w-full items-baseline gap-2 px-3 py-2 text-left ${
-                      k === active ? "bg-brand-soft" : ""
+                      on ? "bg-brand-soft" : ""
                     }`}
                   >
                     <span className="min-w-0 flex-1">
@@ -179,12 +257,8 @@ export function Picker({
                     ) : null}
                   </button>
                 </li>
-              ))
-            ) : (
-              <li className="px-3 py-4 text-center text-sm text-muted">
-                Nothing matches “{query}”.
-              </li>
-            )}
+              );
+            })}
           </ul>
 
           {matches.length >= 60 ? (

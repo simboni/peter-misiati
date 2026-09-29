@@ -17,7 +17,7 @@ import {
   rangeClause,
   readListPeriod,
 } from "../src/lib/list-range.ts";
-import { matchOptions, type PickerOption } from "../src/lib/picker-match.ts";
+import { matchOptions, pickerRows, type PickerOption } from "../src/lib/picker-match.ts";
 
 const TODAY = "2026-09-28"; // a Monday
 
@@ -135,4 +135,42 @@ test("a long catalogue is cut, so the panel cannot become the scroll it replaced
   assert.equal(matchOptions(many, "").length, 60);
   assert.equal(matchOptions(many, "item").length, 60);
   assert.equal(matchOptions(many, "", 10).length, 10);
+});
+
+// ------------------------------------------- the row that is never filtered
+
+/**
+ * The bug this exists to prevent, written down.
+ *
+ * "Add a new customer" was an option like any other, so the search filtered it.
+ * Type the name of somebody who is not on file — which is the one moment that
+ * row is wanted — and the list said "nothing matches" and offered no way to put
+ * them on file. The counter could no longer add a customer from the till.
+ */
+const kinds = (rows: ReturnType<typeof pickerRows>) => rows.map((r) => r.kind);
+
+test("the action row survives a search that matches nothing", () => {
+  const rows = pickerRows(CATALOGUE, "kamau", { allowNone: true, hasAction: true });
+  assert.deepEqual(kinds(rows), ["none", "action"], "no matches, and still a way to act");
+});
+
+test("the action row is last, after whatever the search left", () => {
+  const rows = pickerRows(CATALOGUE, "ungerol", { allowNone: true, hasAction: true });
+  assert.deepEqual(kinds(rows), ["none", "option", "option", "action"]);
+});
+
+test("the action row is there on an empty box too", () => {
+  const rows = pickerRows(CATALOGUE, "", { hasAction: true });
+  assert.equal(kinds(rows).filter((k) => k === "action").length, 1);
+  assert.equal(kinds(rows)[kinds(rows).length - 1], "action");
+});
+
+test("a picker with no action has none, and a filter with no action has none", () => {
+  assert.equal(kinds(pickerRows(CATALOGUE, "", { allowNone: true })).includes("action"), false);
+  assert.deepEqual(kinds(pickerRows(CATALOGUE, "kamau", {})), [], "nothing at all to show");
+});
+
+test("the walk-in row is not filtered away either", () => {
+  // Same class of mistake: "nobody" is a choice, not a match.
+  assert.equal(kinds(pickerRows(CATALOGUE, "kamau", { allowNone: true }))[0], "none");
 });

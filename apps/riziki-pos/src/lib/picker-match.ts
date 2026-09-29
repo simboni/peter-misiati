@@ -44,3 +44,34 @@ export function matchOptions(options: PickerOption[], query: string, limit = 60)
     })
     .slice(0, limit);
 }
+
+/** One line in an open dropdown, in the order it is drawn. */
+export type PickerRow =
+  | { kind: "none" }
+  | { kind: "option"; option: PickerOption }
+  | { kind: "action" };
+
+/**
+ * What an open dropdown shows, given what has been typed.
+ *
+ * Its own function because of the bug it exists to prevent. The "add a new
+ * customer" row used to be an option like any other, so the search filtered it
+ * — and typing the name of somebody who is not on file left "nothing matches"
+ * and no way to put them on file, which is the one moment that row is wanted.
+ *
+ * The rule is one line and it is the whole point: **the action is never
+ * filtered.** It is appended after whatever the search left, so it is there on
+ * an empty box, there on a match, and there on no match at all.
+ */
+export function pickerRows(
+  options: PickerOption[],
+  query: string,
+  opts: { allowNone?: boolean; hasAction?: boolean; limit?: number } = {},
+): PickerRow[] {
+  const matches = matchOptions(options, query, opts.limit);
+  return [
+    ...(opts.allowNone ? [{ kind: "none" } as PickerRow] : []),
+    ...matches.map((option) => ({ kind: "option", option }) as PickerRow),
+    ...(opts.hasAction ? [{ kind: "action" } as PickerRow] : []),
+  ];
+}
