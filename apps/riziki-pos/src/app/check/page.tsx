@@ -135,6 +135,46 @@ export default async function CheckPage() {
         </ul>
       )}
 
+      {/*
+        The way to get a second opinion without handing over the shop.
+
+        Working out why a day came out wrong used to mean four separate exports
+        and a conversation about which of them carried customer names. The shop
+        should not have to make that judgement in a hurry.
+      */}
+      <div className="mt-5 rounded-2xl border border-line bg-white p-4">
+        <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted">
+          Asking somebody else to look
+        </div>
+        <p className="mt-1 text-sm text-muted">
+          One file with the figures behind all of this — deliveries and what they landed at, every
+          line sold with its cost, the shelf, what moved, what was mixed, and the day-by-day
+          totals. <span className="font-semibold text-ink">No customer names, no phone numbers,
+          no staff names, no notes, no PINs</span> — those columns are emptied before the file is
+          written, not left to whoever presses the button.
+        </p>
+        <div className="mt-2.5 flex flex-wrap gap-1.5">
+          <a
+            href="/support?period=month"
+            className="inline-flex min-h-11 items-center rounded-full bg-brand px-4 text-sm font-bold text-white xl:min-h-10"
+          >
+            This month
+          </a>
+          <a
+            href="/support?period=last-month"
+            className="inline-flex min-h-11 items-center rounded-full px-4 text-sm font-bold text-brand-dark ring-1 ring-inset ring-line hover:bg-wash xl:min-h-10"
+          >
+            Last month
+          </a>
+          <a
+            href="/support"
+            className="inline-flex min-h-11 items-center rounded-full px-4 text-sm font-bold text-brand-dark ring-1 ring-inset ring-line hover:bg-wash xl:min-h-10"
+          >
+            Everything
+          </a>
+        </div>
+      </div>
+
       <p className="mt-4 text-xs text-muted">
         Run this after a week of deliveries, or whenever a figure looks wrong. A cost price entered
         wrongly is quiet: it does not fail, it just makes everything built on it slightly — or

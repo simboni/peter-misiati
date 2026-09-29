@@ -1419,6 +1419,15 @@ interface ExportSpec {
    */
   dated?: string;
   /**
+   * Columns naming a person, or free text they might have named one in.
+   *
+   * Emptied when the export is asked for redacted — see `supportBundle`. Named
+   * here beside the header so the two cannot drift: a column added to one and
+   * forgotten in the other is how a phone number ends up in a file somebody
+   * sends to a stranger.
+   */
+  personal?: string[];
+  /**
    * `where` arrives already written, as "" or "date(...) BETWEEN ? AND ?", with
    * its parameters beside it. Built once in `csvChunks` rather than twelve
    * times here, because twelve copies of a date comparison is twelve chances
@@ -1430,6 +1439,7 @@ interface ExportSpec {
 const EXPORT_SPECS: Record<ExportTable, ExportSpec> = {
   sales: {
     dated: "s.at",
+    personal: ["served_by", "customer", "void_reason", "note"],
     header: [
       "id", "invoice_no", "business_date", "at_nairobi", "served_by", "customer",
       "tier", "total_kes", "paid_kes", "balance_kes", "status", "void_reason", "note",
@@ -1462,6 +1472,7 @@ const EXPORT_SPECS: Record<ExportTable, ExportSpec> = {
   // totals: what was sold, how many, at what price against what cost.
   sale_lines: {
     dated: "s.at",
+    personal: [],
     header: [
       "id", "sale_id", "invoice_no", "business_date", "item", "units",
       "qty", "unit_price_kes", "line_total_kes", "cost_kes", "sale_status",
@@ -1493,6 +1504,7 @@ const EXPORT_SPECS: Record<ExportTable, ExportSpec> = {
   // M-Pesa statement and the cash drawer.
   payments: {
     dated: "p.at",
+    personal: ["mpesa_code", "taken_by"],
     header: [
       "id", "sale_id", "invoice_no", "business_date", "at_nairobi",
       "method", "amount_kes", "mpesa_code", "taken_by",
@@ -1520,6 +1532,7 @@ const EXPORT_SPECS: Record<ExportTable, ExportSpec> = {
 
   purchases: {
     dated: "p.at",
+    personal: ["entered_by"],
     header: [
       "line_id", "purchase_id", "business_date", "supplier", "ref", "item",
       "units", "qty", "line_cost_kes", "transport_kes", "entered_by",
@@ -1553,6 +1566,7 @@ const EXPORT_SPECS: Record<ExportTable, ExportSpec> = {
   // in or out, who moved it and why. The one table that proves the others.
   movements: {
     dated: "m.at",
+    personal: ["by", "note"],
     header: [
       "id", "at_nairobi", "item", "kind", "delta", "reason",
       "ref_type", "ref_id", "by", "note",
@@ -1579,6 +1593,7 @@ const EXPORT_SPECS: Record<ExportTable, ExportSpec> = {
   },
 
   stock: {
+    personal: [],
     header: [
       "id", "name", "kind", "unit", "size", "unit_label", "qty", "units_on_hand",
       "cost_kes", "price_kes", "never_below_kes", "never_beyond_kes", "stock_value_kes", "active",
@@ -1611,6 +1626,7 @@ const EXPORT_SPECS: Record<ExportTable, ExportSpec> = {
 
   batches: {
     dated: "b.at",
+    personal: ["made_by"],
     header: [
       "id", "at_nairobi", "batch_no", "formula", "formula_version",
       "target_litres", "actual_litres", "cost_kes", "status", "made_by",
@@ -1639,6 +1655,7 @@ const EXPORT_SPECS: Record<ExportTable, ExportSpec> = {
   },
 
   customers: {
+    personal: ["name", "phone"],
     header: ["id", "name", "phone", "kind", "credit_limit_kes", "balance_kes", "last_sale_date", "active"],
     page: (limit, offset) =>
       all<Record<string, unknown>>(
@@ -1663,6 +1680,7 @@ const EXPORT_SPECS: Record<ExportTable, ExportSpec> = {
 
   expenses: {
     dated: "e.at",
+    personal: ["note", "entered_by"],
     header: ["id", "business_date", "at_nairobi", "category", "amount_kes", "method", "note", "entered_by"],
     page: (limit, offset, where, args) =>
       all<Record<string, unknown>>(
@@ -1690,6 +1708,7 @@ const EXPORT_SPECS: Record<ExportTable, ExportSpec> = {
   // was in force, and a delta cannot be turned back into one.
   price_changes: {
     dated: "p.at",
+    personal: ["changed_by", "note"],
     header: [
       "id", "business_date", "at_nairobi", "item", "old_price_kes", "new_price_kes",
       "change_kes", "changed_by", "where", "note",
@@ -1727,6 +1746,7 @@ const EXPORT_SPECS: Record<ExportTable, ExportSpec> = {
   // the rate can be checked rather than believed.
   landed: {
     dated: "p.at",
+    personal: [],
     header: [
       "purchase_id", "business_date", "at_nairobi", "item", "unit", "supplier", "ref",
       "units", "quantity", "landed_total_kes", "landed_rate_kes_per_unit",
@@ -1766,6 +1786,7 @@ const EXPORT_SPECS: Record<ExportTable, ExportSpec> = {
   // desktop with no screen around it to explain the name.
   activity: {
     dated: "a.at",
+    personal: ["who", "detail"],
     header: ["id", "business_date", "at_nairobi", "who", "action", "about", "about_id", "detail"],
     page: (limit, offset, where, args) =>
       all<Record<string, unknown>>(
@@ -1799,6 +1820,11 @@ const EXPORT_SPECS: Record<ExportTable, ExportSpec> = {
  * either would be a claim nobody could check. Every other export is a record of
  * things that happened, and those can be cut to a day.
  */
+/** Which columns this export empties when redacted, for a screen to name them. */
+export function personalColumns(table: ExportTable): string[] {
+  return EXPORT_SPECS[table].personal ?? [];
+}
+
 export function isDatedExport(table: ExportTable): boolean {
   return Boolean(EXPORT_SPECS[table].dated);
 }
@@ -1816,9 +1842,29 @@ export function isDatedExport(table: ExportTable): boolean {
  * A day cut any other way would hold a nine-o'clock sale the dashboard counts
  * on the day before.
  */
-function* csvChunks(table: ExportTable, range?: DateRange | null): Generator<string> {
+export interface ExportOptions {
+  /**
+   * Empty the columns that name a person.
+   *
+   * For a file leaving the shop to somebody who is helping with the figures.
+   * The figures are the whole point and the names are none of their business —
+   * and unlike a promise to be careful, a column emptied at the source cannot
+   * be forgotten on the day somebody is in a hurry.
+   */
+  redact?: boolean;
+}
+
+function* csvChunks(
+  table: ExportTable,
+  range?: DateRange | null,
+  opts: ExportOptions = {},
+): Generator<string> {
   const spec = EXPORT_SPECS[table];
   yield csvRow(spec.header);
+
+  const blank = opts.redact
+    ? (spec.personal ?? []).map((c) => spec.header.indexOf(c)).filter((i) => i >= 0)
+    : [];
 
   const where =
     range && spec.dated ? `WHERE date(${spec.dated}, '+3 hours') BETWEEN ? AND ?` : "";
@@ -1828,6 +1874,7 @@ function* csvChunks(table: ExportTable, range?: DateRange | null): Generator<str
   for (;;) {
     const rows = spec.page(EXPORT_PAGE, offset, where, args);
     if (rows.length === 0) return;
+    for (const r of rows) for (const i of blank) r[i] = "";
     yield rows.map(csvRow).join("");
     offset += rows.length;
     if (rows.length < EXPORT_PAGE || offset >= EXPORT_MAX_ROWS) return;
@@ -1835,14 +1882,22 @@ function* csvChunks(table: ExportTable, range?: DateRange | null): Generator<str
 }
 
 /** The whole CSV as one string. Used by tests; the route streams instead. */
-export function csvText(table: ExportTable, range?: DateRange | null): string {
+export function csvText(
+  table: ExportTable,
+  range?: DateRange | null,
+  opts: ExportOptions = {},
+): string {
   let out = "";
-  for (const chunk of csvChunks(table, range)) out += chunk;
+  for (const chunk of csvChunks(table, range, opts)) out += chunk;
   return out;
 }
 
-export function csvStream(table: ExportTable, range?: DateRange | null): ReadableStream<Uint8Array> {
-  const chunks = csvChunks(table, range);
+export function csvStream(
+  table: ExportTable,
+  range?: DateRange | null,
+  opts: ExportOptions = {},
+): ReadableStream<Uint8Array> {
+  const chunks = csvChunks(table, range, opts);
   const encoder = new TextEncoder();
   return new ReadableStream<Uint8Array>({
     pull(controller) {
