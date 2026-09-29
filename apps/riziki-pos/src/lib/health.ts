@@ -24,6 +24,13 @@ import { all, get } from "./db.ts";
 
 const MILLI = 1000;
 
+/**
+ * How much a delivery has to be over the asking price before it is worth
+ * saying. Two thousand shillings is about the smallest errand the shop would
+ * thank you for; below it the check would be reporting rounding.
+ */
+const OVER_PAID_FLOOR_CENTS = 200_000;
+
 export type Severity = "high" | "medium" | "low";
 
 export interface Finding {
@@ -194,6 +201,61 @@ export function landedAbovePrice(lines: LineRow[]): Finding[] {
 }
 
 /**
+ * A delivery bought for more than the shop charges for it.
+ *
+ * WHY THIS IS SEPARATE from the check above. That one is looking for a typing
+ * mistake and so it waits until a delivery is half again the asking price;
+ * below that bar it keeps quiet, because a thin margin is the shop's business
+ * and a check that nags about thin margins stops being read.
+ *
+ * But there is a line beneath a thin margin, and it is not a judgement call:
+ * paying MORE for a drum than you sell it for. UNGEROL is a third of this
+ * shop's turnover, it asks 395 a kilo, and on 18 September 1,125 kg of it
+ * landed at 450 — under the other check's bar at 1.14 times the price, so
+ * nothing was said, and it dragged the average cost of every kilo on the shelf
+ * above the asking price for the next six days. The day the shop asked about
+ * was one of those six.
+ *
+ * So this says nothing about margin and only ever fires above the price — and
+ * only when the money at stake is worth an errand, because a 0.42 kg sample
+ * bought dear is not news. What it reports is the shillings, not the ratio:
+ * "55 a kilo over, 1,125 kg, 61,875 down" is a sentence somebody can act on.
+ */
+export function boughtAboveShelf(lines: LineRow[]): Finding[] {
+  return all<{ id: number; price_cents: number }>(
+    `SELECT id, price_cents FROM items WHERE price_cents > 0`,
+  ).flatMap((item) =>
+    lines
+      .filter((l) => {
+        const rate = rateOf(l);
+        // Above the asking price, but under the other check's bar, which has
+        // already spoken for anything dearer than that.
+        return rate > item.price_cents && rate < item.price_cents * 1.5 && l.item_id === item.id;
+      })
+      .map((l) => {
+        const rate = Math.round(rateOf(l));
+        const over = rate - item.price_cents;
+        const bleed = Math.round((over * l.qty_milli) / MILLI);
+        return { l, rate, over, bleed };
+      })
+      .filter((x) => x.bleed >= OVER_PAID_FLOOR_CENTS)
+      .map(({ l, rate, over, bleed }) => ({
+        id: `dear:${l.line_id}`,
+        severity: "high" as const,
+        kind: "Bought for more than it sells for",
+        title: `${l.item} on ${day(l.at)} landed at ${kes(rate)} a ${l.unit}`,
+        detail:
+          `The shop asks ${kes(item.price_cents)} a ${l.unit} — this delivery is ` +
+          `${kes(over)} a ${l.unit} over it. ${qty(l.qty_milli, l.unit)} came in, ` +
+          `so ${kes(bleed)} is lost if it all sells at the asking price. It also pulls the ` +
+          `average cost of the stock already on the shelf up with it.`,
+        fix: "Check the delivery note. If the price is right, the asking price has to move before this drum is sold.",
+        href: `/stock/${l.item_id}`,
+      })),
+  );
+}
+
+/**
  * A delivery that landed at a rate nothing like the others of the same thing.
  *
  * NEEDS THREE. With two deliveries there is no way to tell from the figures
@@ -342,6 +404,7 @@ export function checkBooks(): HealthReport {
     ...pricedUnderCost(),
     ...oddContainers(lines),
     ...landedAbovePrice(lines),
+    ...boughtAboveShelf(lines),
     ...rateOutliers(lines),
     ...notPriced(),
     ...heldWithNoCost(),
@@ -367,7 +430,7 @@ export function checkBooks(): HealthReport {
   const spokenFor = new Set<number>();
   const deduped: Finding[] = [];
   for (const f of findings) {
-    const m = /^(?:size|overprice|rate|free):(\d+)$/.exec(f.id);
+    const m = /^(?:size|overprice|dear|rate|free):(\d+)$/.exec(f.id);
     if (m) {
       const line = Number(m[1]);
       if (spokenFor.has(line)) continue;

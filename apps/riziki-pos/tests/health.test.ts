@@ -193,3 +193,58 @@ test("an ordinary shop produces an empty list", () => {
     "two sensible deliveries of a sensibly priced thing raise nothing",
   );
 });
+
+// ------------------------------------- bought for more than it is sold for
+
+/*
+  The check the first version did not have, written from the delivery that cost
+  the shop its worst day. Everything below is the real UNGEROL figures.
+*/
+
+test("UNGEROL: 1,125 kg at 450 against a 395 asking price", () => {
+  const ungerol = product("UNGEROL", "kg", 170, 395);
+  delivery(ungerol, 1, 170, 61200, "INV-U1"); // 360/kg, the ordinary one
+  delivery(ungerol, 5, 225, 506250, "INV-U2"); // 450/kg
+
+  const found = checkBooks().findings.filter((f) => f.title.startsWith("UNGEROL on"));
+  assert.equal(found.length, 1, "the 450 delivery, and only that one");
+  assert.equal(found[0].kind, "Bought for more than it sells for");
+  assert.ok(found[0].detail.includes("55.00"), "says how much a kilo over it is");
+  assert.ok(found[0].detail.includes("61,875.00"), "and what that is in shillings across the drum");
+});
+
+test("a thin margin is the shop's business and is not reported", () => {
+  // 390 against a 395 price is 1.3% — the kind of week a chemicals shop has.
+  const thin = product("THIN MARGIN SOAP", "kg", 200, 395);
+  delivery(thin, 5, 200, 390000, "INV-T1");
+
+  assert.equal(
+    checkBooks().findings.filter((f) => f.title.includes("THIN MARGIN SOAP")).length,
+    0,
+    "under the asking price, however narrowly, says nothing",
+  );
+});
+
+test("a small quantity bought dear is not an errand", () => {
+  // 2 kg at 20 over the price is 40 shillings. Reporting it would be noise.
+  // Sold in 1 kg tins, so the container check has nothing to say about it and
+  // what is left is this check alone.
+  const tiny = product("TINY OVERPAY", "kg", 1, 400);
+  delivery(tiny, 2, 1, 840, "INV-Y1");
+
+  assert.equal(
+    checkBooks().findings.filter((f) => f.title.startsWith("TINY OVERPAY on")).length,
+    0,
+    "above the price but only by pocket change",
+  );
+});
+
+test("a delivery half again the price is still the older, blunter finding", () => {
+  // One mistake, one row: the 1.5× check speaks first and this one stays quiet.
+  const wild = product("WILD RATE POWDER", "kg", 50, 100);
+  delivery(wild, 10, 50, 400000, "INV-W1"); // 800/kg, eight times the price
+
+  const found = checkBooks().findings.filter((f) => f.title.startsWith("WILD RATE POWDER on"));
+  assert.equal(found.length, 1, "told once");
+  assert.equal(found[0].kind, "Delivery dearer than the selling price");
+});
