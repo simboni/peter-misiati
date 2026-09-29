@@ -21,6 +21,8 @@
  */
 
 import { all, get } from "./db.ts";
+import { currentVersion, scaleFormula } from "./production.ts";
+import { stockSource } from "./mixing.ts";
 
 const MILLI = 1000;
 
@@ -30,6 +32,18 @@ const MILLI = 1000;
  * thank you for; below it the check would be reporting rounding.
  */
 const OVER_PAID_FLOOR_CENTS = 200_000;
+
+/**
+ * How far under cost a product has to have been sold, across the whole month,
+ * before it is worth an errand.
+ *
+ * A hundred shillings, which sounds low until you run it over a real month:
+ * September had exactly two products sold under cost at all, and only one of
+ * them over a hundred. This check is not sifting a pile — it is finding the one
+ * line in eighteen hundred where somebody typed the 500 ml price against a full
+ * litre. Set higher it finds nothing; set at zero it starts reporting rounding.
+ */
+const UNDERCHARGE_FLOOR_CENTS = 10_000;
 
 export type Severity = "high" | "medium" | "low";
 
@@ -45,6 +59,8 @@ export interface Finding {
   /** What to do about it, where there is a clear answer. */
   fix?: string;
   href?: string;
+  /** The product this is about, where it is about exactly one. */
+  item?: number;
 }
 
 const kes = (cents: number) =>
@@ -223,6 +239,171 @@ function twinNames(): Finding[] {
     });
   }
   return out;
+}
+
+/**
+ * A size sold for less than the chemical inside it costs.
+ *
+ * THE GAP THIS CLOSES. "Priced under cost" reads an item's own price against
+ * its own cost, which is right for a kilogramme of chlorine — the shop asks 350
+ * and pays 255 and nothing is wrong. It cannot see a BUNDLE, because a bundle
+ * is a price on the parent and carries no cost of its own. A 45 kg drum of that
+ * same chlorine was on the till at 7,000, which is 155 a kilo, and it went out
+ * three times over six days before anybody noticed.
+ *
+ * Both kinds are checked, because both can be wrong the same way. An item
+ * bundle is a size of something on the shelf, so its contents cost the item's
+ * cost times the size. A formula bundle is a size of something mixed to order,
+ * so its contents cost whatever the recipe takes — the same arithmetic the
+ * mixing board does, borrowed rather than rewritten so the two cannot drift.
+ *
+ * Silent where it cannot know: a bundle whose parent has no cost yet, or a
+ * recipe with an ingredient nothing is stocked for, is not evidence of anything.
+ */
+export function bundleUnderContents(): Finding[] {
+  const out: Finding[] = [];
+
+  for (const b of all<{
+    id: number;
+    item_id: number;
+    name: string;
+    unit: string;
+    size_milli: number;
+    price_cents: number;
+    cost_cents: number;
+  }>(
+    `SELECT b.id, b.size_milli, b.price_cents,
+            i.id AS item_id, i.name, i.canonical_unit AS unit, i.cost_cents
+       FROM bundles b
+       JOIN items i ON i.id = b.item_id
+      WHERE b.active = 1 AND i.active = 1 AND b.price_cents > 0 AND i.cost_cents > 0`,
+  )) {
+    const inside = Math.round((b.cost_cents * b.size_milli) / MILLI);
+    if (b.price_cents > inside) continue;
+    out.push({
+      id: `bundle:${b.id}`,
+      severity: "high",
+      kind: "Sold for less than it holds",
+      title: `${b.name} — ${qty(b.size_milli, b.unit)} is on the till at ${kes(b.price_cents)}`,
+      detail:
+        `The ${qty(b.size_milli, b.unit)} inside it cost ${kes(inside)} at ${kes(b.cost_cents)} a ` +
+        `${b.unit}, so every one sold loses ${kes(inside - b.price_cents)}. Loose, the shop ` +
+        `charges ${kes(Math.round((priceOfItem(b.item_id) * b.size_milli) / MILLI))} for the same amount.`,
+      fix: "Fix the price on this size under Products and prices. Until it is changed, the next person to tap it sells another one.",
+      href: `/items/${b.item_id}`,
+      item: b.item_id,
+    });
+  }
+
+  for (const b of all<{
+    id: number;
+    formula_id: number;
+    name: string;
+    size_milli: number;
+    price_cents: number;
+  }>(
+    `SELECT b.id, b.size_milli, b.price_cents, f.id AS formula_id, f.name
+       FROM bundles b
+       JOIN formulas f ON f.id = b.formula_id
+      WHERE b.active = 1 AND b.price_cents > 0`,
+  )) {
+    const version = currentVersion(b.formula_id);
+    if (!version) continue;
+
+    let inside = 0;
+    let known = true;
+    for (const line of scaleFormula(version.id, b.size_milli)) {
+      const source = stockSource(line.chemicalId);
+      if (!source || source.cost_cents === 0) {
+        known = false;
+        break;
+      }
+      inside += Math.round((source.cost_cents * line.neededMilli) / MILLI);
+    }
+    if (!known || inside === 0 || b.price_cents > inside) continue;
+
+    out.push({
+      id: `bundle:${b.id}`,
+      severity: "high",
+      kind: "Sold for less than it holds",
+      title: `${b.name} — ${qty(b.size_milli, version.ref_unit)} is on the till at ${kes(b.price_cents)}`,
+      detail:
+        `The chemicals the recipe takes for that size cost ${kes(inside)}, so every one mixed ` +
+        `loses ${kes(inside - b.price_cents)} before anybody is paid for mixing it.`,
+      fix: "Either the size's price is too low or an ingredient's cost is wrong. Check the last delivery of each ingredient before moving the price.",
+      href: `/formulas/${b.formula_id}`,
+    });
+  }
+
+  return out;
+}
+
+/** What the shop asks for one kg / L / pcs of an item, for comparing against. */
+function priceOfItem(itemId: number): number {
+  return get<{ price_cents: number }>(`SELECT price_cents FROM items WHERE id = ?`, itemId)?.price_cents ?? 0;
+}
+
+/**
+ * Charged less at the counter than the thing cost.
+ *
+ * EVERY CHECK ABOVE READS THE PRICE LIST. None of them reads what was actually
+ * taken. A price list can be perfect and the shop still lose money, because the
+ * figure on the till is a starting point and the counter may type over it — for
+ * a friend, for a wholesale customer, or by accident. A litre of Peach mild
+ * went out at 300 on a day it cost 450, because somebody charged the 500 ml
+ * price for a full litre. Nothing said a word.
+ *
+ * Grouped per product rather than per sale, because one row per discount would
+ * bury the screen, and because the pattern is the useful part: once is a
+ * customer, nine times is a price that needs changing.
+ *
+ * It says nothing about a product whose COST is already known to be wrong —
+ * that finding is above, and this one would only be the same mistake seen from
+ * the other side.
+ */
+export function chargedUnderCost(sinceDays = 30): Finding[] {
+  return all<{
+    item_id: number;
+    name: string;
+    times: number;
+    short_cents: number;
+    took_cents: number;
+  }>(
+    `SELECT l.item_id,
+            i.name,
+            COUNT(*) AS times,
+            SUM(l.cost_cents - l.line_total_cents) AS short_cents,
+            SUM(l.line_total_cents) AS took_cents
+       FROM sale_lines l
+       JOIN sales s ON s.id = l.sale_id
+       JOIN items i ON i.id = l.item_id
+      WHERE s.voided_at IS NULL
+        AND l.line_total_cents > 0
+        AND l.cost_cents > l.line_total_cents
+        AND i.active = 1
+        AND i.price_cents > i.cost_cents
+        AND s.at >= datetime('now', ?)
+      GROUP BY l.item_id
+      ORDER BY short_cents DESC`,
+    `-${Math.max(1, Math.round(sinceDays))} days`,
+  )
+    .filter((r) => r.short_cents >= UNDERCHARGE_FLOOR_CENTS)
+    .map((r) => ({
+      id: `charged:${r.item_id}`,
+      severity: "medium" as const,
+      kind: "Charged under cost",
+      title:
+        r.times === 1
+          ? `${r.name} was sold once below what it cost`
+          : `${r.name} was sold below cost ${r.times} times`,
+      detail:
+        `${kes(r.took_cents)} was taken for goods that cost ${kes(r.took_cents + r.short_cents)} — ` +
+        `${kes(r.short_cents)} short. The price on the list is above cost, so this was typed over ` +
+        `at the counter.`,
+      fix: "Look at the sales on the product's own screen. A one-off is a customer; a habit is a price the counter does not believe.",
+      href: `/stock/${r.item_id}`,
+      item: r.item_id,
+    }));
 }
 
 // --------------------------------------------------------- the deliveries
@@ -495,6 +676,8 @@ export function checkBooks(): HealthReport {
 
   const findings = [
     ...pricedUnderCost(),
+    ...bundleUnderContents(),
+    ...chargedUnderCost(),
     ...oddContainers(lines),
     ...landedAbovePrice(lines),
     ...boughtAboveShelf(lines),
@@ -534,13 +717,27 @@ export function checkBooks(): HealthReport {
     deduped.push(f);
   }
 
-  deduped.sort((a, b) => RANK[a.severity] - RANK[b.severity] || a.kind.localeCompare(b.kind));
+  /*
+    A wrong bundle price and the sale it produced are one mistake.
+
+    "Sold for less than it holds" is the trap — a size sitting on the till at a
+    price nobody will question. "Charged under cost" is what happened when
+    somebody tapped it. Listing both makes the screen say twice what it means
+    once, and the trap is the row worth acting on: changing the price is what
+    stops the next one.
+  */
+  const trapped = new Set(
+    deduped.filter((f) => f.id.startsWith("bundle:") && f.item).map((f) => f.item!),
+  );
+  const final = deduped.filter((f) => !(f.id.startsWith("charged:") && f.item && trapped.has(f.item)));
+
+  final.sort((a, b) => RANK[a.severity] - RANK[b.severity] || a.kind.localeCompare(b.kind));
 
   const counts: Record<Severity, number> = { high: 0, medium: 0, low: 0 };
-  for (const f of deduped) counts[f.severity]++;
+  for (const f of final) counts[f.severity]++;
 
   return {
-    findings: deduped,
+    findings: final,
     counts,
     checked: {
       items: get<{ n: number }>(`SELECT COUNT(*) AS n FROM items WHERE active = 1`)?.n ?? 0,

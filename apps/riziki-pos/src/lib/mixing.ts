@@ -201,7 +201,7 @@ export interface MixPlan {
  * stock off exactly the row the counter would have — but drops `sellable`:
  * something the shop mixes with need not be sold over the counter.
  */
-function stockSource(chemicalId: number) {
+export function stockSource(chemicalId: number) {
   return get<{
     id: number;
     name: string;

@@ -25,6 +25,7 @@ const { seed } = await import("../src/lib/seed.ts");
 const { get, all, run, stockOf, postMovement } = await import("../src/lib/db.ts");
 const { createSupplier, recordPurchase } = await import("../src/lib/purchasing.ts");
 const { checkBooks } = await import("../src/lib/health.ts");
+const { createFormula, currentVersion } = await import("../src/lib/production.ts");
 
 seed();
 for (const it of all<{ id: number }>(`SELECT id FROM items WHERE active = 1`)) {
@@ -330,4 +331,210 @@ test("the twin check does not cry wolf across the whole catalogue", () => {
       `unexpected pair: ${f.title} — ${f.detail}`,
     );
   }
+});
+
+// ------------------------- a size that costs more than it is sold for
+
+/** A size of something on the shelf, at a price of its own. */
+function bundle(itemId: number, sizeKg: number, priceKes: number) {
+  run(
+    `INSERT INTO bundles (item_id, size_milli, price_cents) VALUES (?, ?, ?)`,
+    itemId,
+    Math.round(sizeKg * 1000),
+    Math.round(priceKes * 100),
+  );
+}
+
+/** A completed sale of one line, with what was really charged and really cost. */
+function sold(itemId: number, name: string, qtyKg: number, tookKes: number, costKes: number) {
+  run(
+    `INSERT INTO sales (client_uuid, at, total_cents, paid_cents)
+     VALUES (?, datetime('now'), ?, ?)`,
+    `t-${name}-${qtyKg}-${tookKes}`,
+    Math.round(tookKes * 100),
+    Math.round(tookKes * 100),
+  );
+  const sale = get<{ id: number }>(`SELECT MAX(id) AS id FROM sales`)!.id;
+  run(
+    `INSERT INTO sale_lines (sale_id, item_id, name_snapshot, units, qty_milli,
+                             unit_price_cents, line_total_cents, cost_cents)
+     VALUES (?, ?, ?, 1, ?, ?, ?, ?)`,
+    sale,
+    itemId,
+    name,
+    Math.round(qtyKg * 1000),
+    Math.round(tookKes * 100),
+    Math.round(tookKes * 100),
+    Math.round(costKes * 100),
+  );
+}
+
+test("the chlorine drum: 45 kg on the till at 7,000 when the chlorine cost 11,500", () => {
+  /*
+    The real one. Loose chlorine asks 350 a kilo and costs 255.56, so every
+    check that reads the price list says this product is fine. The 45 kg size
+    was 7,000 — 155.56 a kilo — and it went out three times over six days.
+  */
+  const chlorine = product("CHLORINE", "kg", 45, 350);
+  delivery(chlorine, 2, 45, 23000, "INV-CL1");
+  bundle(chlorine, 45, 7000);
+
+  const found = checkBooks().findings.filter((f) => f.kind === "Sold for less than it holds");
+  assert.equal(found.length, 1, "one size, one finding");
+  assert.ok(found[0].title.includes("CHLORINE"), found[0].title);
+  assert.ok(found[0].detail.includes("11,500.20"), `says what is inside it: ${found[0].detail}`);
+  assert.ok(found[0].detail.includes("4,500.20"), `and what each one loses: ${found[0].detail}`);
+  assert.ok(found[0].detail.includes("15,750.00"), `and what loose would have fetched: ${found[0].detail}`);
+});
+
+test("a bulk discount is not a mistake and is left alone", () => {
+  /*
+    The whole point of a bundle is that it is cheaper per kilo than the counter
+    price. A check that cannot tell a discount from a loss would be turned off
+    within a week.
+  */
+  // Ungerol's own figures, under a name of its own: this file already has an
+  // UNGEROL, carrying the 450 a kilo delivery that the check above is about.
+  const ung = product("BULK DISCOUNT DRUM", "kg", 170, 395);
+  delivery(ung, 2, 170, 124100, "INV-UG1"); // 365/kg
+  bundle(ung, 20, 7800); // 390/kg — under the counter price, well over cost
+
+  assert.equal(
+    checkBooks().findings.filter(
+      (f) => f.kind === "Sold for less than it holds" && f.title.includes("BULK DISCOUNT DRUM"),
+    ).length,
+    0,
+    "390 a kilo against a 365 cost is a discount, not a loss",
+  );
+});
+
+test("a bundle whose parent has no cost yet says nothing", () => {
+  // Silence where it cannot know. A product never delivered against proves
+  // nothing about its prices.
+  const unknown = product("UNCOSTED POWDER", "kg", 25, 300);
+  bundle(unknown, 25, 100);
+
+  assert.equal(
+    checkBooks().findings.filter((f) => f.title.includes("UNCOSTED POWDER") && f.kind === "Sold for less than it holds").length,
+    0,
+  );
+});
+
+// ------------------------------- what was really charged, not what is listed
+
+test("Peach mild: the 500 ml price typed against a full litre", () => {
+  /*
+    Every other check here reads the price list, and the price list is right —
+    600 a litre against a 450 cost. What went wrong was at the counter: one
+    litre left the shelf and 300 was taken for it, which is the price of half.
+  */
+  const peach = product("Peach mild", "L", 5, 600);
+  delivery(peach, 1, 7, 3150, "INV-PM1"); // 450/L
+  sold(peach, "Peach mild", 1, 300, 450);
+
+  const found = checkBooks().findings.filter((f) => f.kind === "Charged under cost");
+  assert.equal(found.length, 1, "one product, one row");
+  assert.ok(found[0].title.includes("Peach mild"), found[0].title);
+  assert.ok(found[0].title.includes("once"), `a single sale is said as once: ${found[0].title}`);
+  assert.ok(found[0].detail.includes("150.00"), `and by how much: ${found[0].detail}`);
+});
+
+test("an ordinary sale at the asking price says nothing", () => {
+  const plain = product("HONEST SOAP", "kg", 25, 200);
+  delivery(plain, 4, 25, 10000, "INV-HS1"); // 100/kg
+  sold(plain, "HONEST SOAP", 10, 2000, 1000);
+
+  assert.equal(
+    checkBooks().findings.filter((f) => f.kind === "Charged under cost" && f.title.includes("HONEST SOAP")).length,
+    0,
+  );
+});
+
+test("a wrong bundle price and the sale it produced are one row, not two", () => {
+  /*
+    Changing the price is what stops the next one, so the trap is the row worth
+    acting on. The sale it already produced is the same mistake seen from the
+    other side.
+  */
+  const hcl = product("MURIATIC", "kg", 40, 120);
+  delivery(hcl, 20, 40, 36000, "INV-MU1"); // 45/kg
+  bundle(hcl, 40, 1000); // 25/kg — under the 45 it costs
+  sold(hcl, "MURIATIC", 40, 1000, 1800);
+
+  const about = checkBooks().findings.filter((f) => f.title.includes("MURIATIC"));
+  assert.equal(about.length, 1, `told once, got: ${about.map((f) => f.kind).join(" + ")}`);
+  assert.equal(about[0].kind, "Sold for less than it holds", "and it is the trap, not the damage");
+});
+
+test("Fabric softener: the 5 L size fetches less than the flakes in it", () => {
+  /*
+    A recipe bundle, which carries no cost of its own at all — the chemicals
+    leave the store when it is sold and they are what it costs. Three of these
+    went out for 2,800 against 4,756 of flakes.
+
+    Flakes land at 640.20 a kilo and the recipe takes 1.5 kg to make 5 L.
+  */
+  run(`INSERT INTO chemicals (name, canonical_unit) VALUES ('SOFTENER FLAKES', 'kg')`);
+  const chem = get<{ id: number }>(`SELECT id FROM chemicals WHERE name = 'SOFTENER FLAKES'`)!.id;
+  run(
+    `INSERT INTO items (chemical_id, name, kind, canonical_unit, size_milli, unit_label,
+                        sellable, price_basis, price_cents, cost_cents)
+     VALUES (?, 'SOFTENER FLAKES', 'bulk', 'kg', 25000, 'BAG', 1, 'unit', 85000, 64020)`,
+    chem,
+  );
+  const flakes = get<{ id: number }>(`SELECT id FROM items WHERE name = 'SOFTENER FLAKES'`)!.id;
+  postMovement({ itemId: flakes, deltaMilli: 50_000, reason: "purchase", userId: 1 });
+
+  const { formulaId } = createFormula({
+    name: "Fabric softerner(Flakes)",
+    refSizeMilli: 5_000,
+    refUnit: "L",
+    steps: "1.5 kg of flakes brought up to 5 L.",
+    note: "",
+    items: [{ chemicalId: chem, qtyMilli: 1_500 }],
+    userId: 1,
+  });
+  assert.ok(currentVersion(formulaId), "the recipe has a current version");
+  run(
+    `INSERT INTO bundles (formula_id, size_milli, price_cents) VALUES (?, 5000, 93300)`,
+    formulaId,
+  );
+
+  const found = checkBooks().findings.filter(
+    (f) => f.kind === "Sold for less than it holds" && f.title.includes("Fabric softerner"),
+  );
+  assert.equal(found.length, 1, "the recipe's own size is checked, not just the shelf's");
+  // 1.5 kg at 640.20 is 960.30 against a 933.00 price.
+  assert.ok(found[0].detail.includes("960.30"), `says what the chemicals cost: ${found[0].detail}`);
+  assert.ok(found[0].detail.includes("27.30"), `and what each one loses: ${found[0].detail}`);
+});
+
+test("a recipe size that pays for itself is left alone", () => {
+  run(`INSERT INTO chemicals (name, canonical_unit) VALUES ('CHEAP POWDER', 'kg')`);
+  const chem = get<{ id: number }>(`SELECT id FROM chemicals WHERE name = 'CHEAP POWDER'`)!.id;
+  run(
+    `INSERT INTO items (chemical_id, name, kind, canonical_unit, size_milli, unit_label,
+                        sellable, price_basis, price_cents, cost_cents)
+     VALUES (?, 'CHEAP POWDER', 'bulk', 'kg', 25000, 'BAG', 1, 'unit', 20000, 10000)`,
+    chem,
+  );
+  const powder = get<{ id: number }>(`SELECT id FROM items WHERE name = 'CHEAP POWDER'`)!.id;
+  postMovement({ itemId: powder, deltaMilli: 50_000, reason: "purchase", userId: 1 });
+
+  const { formulaId } = createFormula({
+    name: "Honest Mix",
+    refSizeMilli: 20_000,
+    refUnit: "L",
+    steps: "2 kg of powder brought up to 20 L.",
+    note: "",
+    items: [{ chemicalId: chem, qtyMilli: 2_000 }],
+    userId: 1,
+  });
+  run(`INSERT INTO bundles (formula_id, size_milli, price_cents) VALUES (?, 20000, 80000)`, formulaId);
+
+  // 2 kg at 100.00 is 200.00 against an 800.00 price.
+  assert.equal(
+    checkBooks().findings.filter((f) => f.title.includes("Honest Mix")).length,
+    0,
+  );
 });
