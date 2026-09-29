@@ -994,8 +994,20 @@ export default async function ReportsPage(props: {
             <tbody>
               {days.map((x) => (
                 <tr key={x.date} className="hover:bg-wash/50">
+                  {/*
+                    Every day opens. A red figure is the start of a question —
+                    was it an expense, was something sold under cost, did a cost
+                    price get typed in afterwards — and the answer used to live
+                    in a script behind an ssh session, which is a diagnosis
+                    nobody runs.
+                  */}
                   <Td className="whitespace-nowrap">
-                    <span className="font-semibold">{formatDate(x.date)}</span>
+                    <Link
+                      href={`/day/${x.date}${hrefWith({}).includes("?") ? `?back=${encodeURIComponent(hrefWith({}).split("?")[1] ?? "")}` : ""}`}
+                      className="font-semibold text-brand hover:underline"
+                    >
+                      {formatDate(x.date)}
+                    </Link>
                     <span className="ml-1.5 text-[11px] text-muted">
                       {x.saleCount} {x.saleCount === 1 ? "sale" : "sales"}
                     </span>
@@ -1013,6 +1025,14 @@ export default async function ReportsPage(props: {
                     <span className={x.netProfitCents < 0 ? "text-bad" : "text-good"}>
                       {formatKes(x.netProfitCents)}
                     </span>
+                    {x.netProfitCents < 0 ? (
+                      <Link
+                        href={`/day/${x.date}`}
+                        className="block text-[11px] font-bold text-brand hover:underline"
+                      >
+                        Why?
+                      </Link>
+                    ) : null}
                   </Td>
                 </tr>
               ))}
