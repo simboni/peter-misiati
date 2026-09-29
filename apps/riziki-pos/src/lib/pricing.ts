@@ -25,6 +25,7 @@
  */
 
 import { all, get, run, tx, audit } from "./db.ts";
+import type { DateRange } from "./reports.ts";
 import { priceBandCheck } from "./sales.ts";
 import { formatKes, fromCents, toCents } from "./units.ts";
 
@@ -207,34 +208,88 @@ export interface HistoryRow {
  * complete. The count comes from the database rather than from the rows,
  * because the whole point is to know about the rows that were not fetched.
  */
-export function priceHistoryPage(
-  page: number,
-  perPage: number,
-  itemId?: number,
-): { rows: HistoryRow[]; total: number; pages: number } {
-  const where = itemId ? "WHERE p.item_id = ?" : "";
-  const args = itemId ? [itemId] : [];
+export interface PriceHistoryQuery {
+  page?: number;
+  perPage?: number;
+  /** An item, or the name of whoever changed it. */
+  q?: string;
+  range?: DateRange | null;
+  /** One item, when the screen is already about one item. */
+  itemId?: number;
+  /** Where the change was made: the till, the catalogue, the morning check. */
+  source?: string;
+}
 
-  const total =
-    get<{ n: number }>(`SELECT count(*) AS n FROM price_changes p ${where}`, ...args)?.n ?? 0;
-  const pages = Math.max(1, Math.ceil(total / perPage));
-  const current = Math.min(Math.max(1, page), pages);
+export function priceHistoryPage(
+  page: number | PriceHistoryQuery,
+  perPage = 25,
+  itemIdArg?: number,
+): { rows: HistoryRow[]; total: number; pages: number; page: number } {
+  // The old shape — priceHistoryPage(page, perPage, itemId) — still works; the
+  // item screen calls it that way and there is nothing wrong with the call.
+  const q: PriceHistoryQuery =
+    typeof page === "number" ? { page, perPage, itemId: itemIdArg } : page;
+
+  const size = Math.max(1, Math.min(200, Math.trunc(q.perPage ?? perPage)));
+  const where: string[] = [];
+  const args: unknown[] = [];
+
+  if (q.itemId) {
+    where.push(`p.item_id = ?`);
+    args.push(q.itemId);
+  }
+  if (q.range) {
+    where.push(`date(p.at, '+3 hours') BETWEEN ? AND ?`);
+    args.push(q.range.from, q.range.to);
+  }
+  if (q.source) {
+    where.push(`p.source = ?`);
+    args.push(q.source);
+  }
+  const needle = (q.q ?? "").trim();
+  if (needle) {
+    const like = `%${needle.toLowerCase()}%`;
+    where.push(`(lower(i.name) LIKE ? OR lower(u.name) LIKE ? OR lower(p.note) LIKE ?)`);
+    args.push(like, like, like);
+  }
+
+  const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const from = `FROM price_changes p
+       JOIN items i ON i.id = p.item_id
+       LEFT JOIN users u ON u.id = p.user_id`;
+
+  const total = get<{ n: number }>(`SELECT count(*) AS n ${from} ${clause}`, ...args)?.n ?? 0;
+  const pages = Math.max(1, Math.ceil(total / size));
+  const current = Math.min(Math.max(1, Math.trunc(q.page ?? 1) || 1), pages);
 
   const rows = all<HistoryRow>(
     `SELECT p.at, i.name AS item_name, p.old_price, p.new_price,
             u.name AS user_name, p.source
-       FROM price_changes p
-       JOIN items i ON i.id = p.item_id
-       LEFT JOIN users u ON u.id = p.user_id
-      ${where}
+       ${from}
+      ${clause}
       ORDER BY p.at DESC, p.id DESC
       LIMIT ? OFFSET ?`,
     ...args,
-    perPage,
-    (current - 1) * perPage,
+    size,
+    (current - 1) * size,
   );
 
-  return { rows, total, pages };
+  return { rows, total, pages, page: current };
+}
+
+/** How many changes came from each place, for the numbers on the chips. */
+export function priceSourceCounts(
+  range: DateRange | null,
+  needle = "",
+): Record<string, number> {
+  const count = (source?: string) =>
+    priceHistoryPage({ page: 1, perPage: 1, range, q: needle, source }).total;
+  return {
+    all: count(),
+    counter: count("counter"),
+    admin: count("admin"),
+    check: count("check"),
+  };
 }
 
 export function priceHistory(itemId?: number, limit = 60): HistoryRow[] {

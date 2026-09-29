@@ -27,6 +27,7 @@
 
 import { useActionState, useState } from "react";
 import { Card, Field, inputClass, Button, Alert } from "@/components/ui";
+import { Picker } from "@/components/picker";
 import { formatKes } from "@/lib/units";
 
 export interface ChemicalOption {
@@ -245,21 +246,18 @@ export function EditFormulaForm({
         <div className="grid gap-2.5 xl:grid-cols-2 xl:gap-x-3">
         {lines.map((line) => (
           <div key={line.key} className="flex items-end gap-2">
-            <label className="min-w-0 flex-1">
-              <span className="sr-only">Chemical</span>
-              <select
-                className={inputClass}
+            {/* Every chemical the shop holds, in one wheel, on every line of a
+                recipe that can be twenty lines long. Typed instead. */}
+            <div className="min-w-0 flex-1">
+              <Picker
                 name="chemicalId"
+                label="Chemical"
+                placeholder="Type a chemical name…"
                 value={line.chemicalId}
-                onChange={(e) => update(line.key, { chemicalId: Number(e.target.value) })}
-              >
-                {chemicals.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+                onChange={(v) => update(line.key, { chemicalId: Number(v ?? 0) })}
+                options={chemicals.map((c) => ({ value: c.id, label: c.name }))}
+              />
+            </div>
 
             <label className="w-28">
               <span className="sr-only">Quantity</span>

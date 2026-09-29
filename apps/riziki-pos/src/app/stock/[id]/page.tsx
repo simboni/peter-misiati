@@ -2,7 +2,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { currentUser, can } from "@/lib/auth";
 import { get } from "@/lib/db";
-import { movementHistory, dailyStock } from "@/lib/stock-service";
+import { movementHistory, movementHistoryPage, dailyStock } from "@/lib/stock-service";
+import { Pager } from "@/components/section-nav";
 import { formatQty, formatDateTime } from "@/lib/units";
 import { Alert, Card, Chip, Empty, PageTitle, SectionLabel, TableWrap, Th, Td } from "@/components/ui";
 import { ItemMoney } from "./money";
@@ -25,8 +26,10 @@ export const dynamic = "force-dynamic";
 export default async function StockHistoryPage(props: {
   // `params` is a Promise in Next.js 16 — synchronous access was removed.
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ page?: string }>;
 }) {
   const { id } = await props.params;
+  const { page: pageParam } = await props.searchParams;
   const itemId = Number(id);
 
   const user = await currentUser();
@@ -55,9 +58,13 @@ export default async function StockHistoryPage(props: {
     );
   }
 
-  const moves = movementHistory(item.id);
+  const ledger = movementHistoryPage(item.id, Number(pageParam) || 1, 50);
+  const moves = ledger.rows;
   const days = dailyStock(item.id, 14);
-  const onHandMilli = moves.length ? moves[0].balanceMilli : 0;
+  // The shelf now is the newest entry's balance, which is on page one and only
+  // page one — so it is read from the ledger's own head rather than from the
+  // rows this page happens to be showing.
+  const onHandMilli = ledger.total ? movementHistory(item.id, 1)[0].balanceMilli : 0;
 
   /*
     The days that went UP without a delivery on them.
@@ -140,7 +147,9 @@ export default async function StockHistoryPage(props: {
         ) : null}
       </Card>
 
-      <SectionLabel>Every entry, newest first</SectionLabel>
+      <SectionLabel>
+        <span id="entries">Every entry, newest first</span>
+      </SectionLabel>
       {moves.length === 0 ? (
         <Empty>No movements recorded.</Empty>
       ) : (
@@ -184,6 +193,17 @@ export default async function StockHistoryPage(props: {
           </tbody>
         </TableWrap>
       )}
+
+      <Pager
+        action={`/stock/${item.id}`}
+        page={ledger.page}
+        pages={ledger.pages}
+        total={ledger.total}
+        noun="entry"
+        plural="entries"
+        params={{}}
+        anchor="#entries"
+      />
 
       <p className="mt-3 text-xs text-muted">
         Nothing on this page can be edited. The stock ledger is append-only: a mistake is put right

@@ -5,6 +5,7 @@ import {
   listSuppliers,
   getSupplier,
   recentPurchases,
+  listPurchases,
   purchaseLines,
   priceHistory,
   purchasedItems,
@@ -13,10 +14,20 @@ import {
   supplierDeletableReason,
 } from "@/lib/purchasing";
 import RemoveSupplier from "./remove-supplier";
-import { formatKes, formatDate, formatDateTime, formatUnits, formatQty, pct } from "@/lib/units";
+import {
+  businessDate,
+  formatKes,
+  formatDate,
+  formatDateTime,
+  formatUnits,
+  formatQty,
+  pct,
+} from "@/lib/units";
+import { listRange, readListPeriod } from "@/lib/list-range";
 import { Card, PageTitle, SectionLabel, Chip, Stat, Empty, TableWrap, Th, Td, Alert } from "@/components/ui";
 import { CorrectForm } from "./correct-form";
-import { Pager } from "@/components/section-nav";
+import { ListToolbar, Pager } from "@/components/section-nav";
+import { DateBar } from "@/components/date-bar";
 import { ExportButtons } from "@/components/export-buttons";
 import { SupplierForm, PurchaseForm, ItemPicker } from "./forms";
 
@@ -66,7 +77,17 @@ function goodsOf(landedCents: number, totalCents: number, transportCents: number
 }
 
 export default async function PurchasesPage(props: {
-  searchParams: Promise<{ item?: string; dp?: string; sp?: string; edit?: string; err?: string }>;
+  searchParams: Promise<{
+    item?: string;
+    dp?: string;
+    sp?: string;
+    edit?: string;
+    err?: string;
+    q?: string;
+    period?: string;
+    from?: string;
+    to?: string;
+  }>;
 }) {
   const user = await currentUser();
   if (!user) redirect("/login");
@@ -81,8 +102,25 @@ export default async function PurchasesPage(props: {
   // `edit` names the supplier the form at the bottom is filled with, and `err`
   // carries a refused delete back from the action — the row it was pressed on
   // is re-rendered by then, so there is nothing left holding the message.
-  const { item, dp, sp, edit, err } = await props.searchParams;
+  const sp2 = await props.searchParams;
+  const { item, dp, sp, edit, err } = sp2;
   const requestedSupplierPage = Math.max(1, Number(sp) || 1);
+
+  /*
+    Deliveries: any window, and searchable by what came in.
+
+    The list was the last 200 with nothing to look through them by — fine for a
+    year, useless for three. The search reaches into the lines on purpose:
+    "when did we last get caustic soda" is asked far more often than anything
+    about an invoice number, and a delivery is filed under a supplier.
+  */
+  const q = (sp2.q ?? "").trim();
+  const period = readListPeriod(sp2);
+  const range = listRange(period, businessDate(), sp2.from, sp2.to);
+  const dateKeys: Record<string, string> = {};
+  if (period !== "all") dateKeys.period = period;
+  if (sp2.from) dateKeys.from = sp2.from;
+  if (sp2.to) dateKeys.to = sp2.to;
   const editing = edit ? getSupplier(Number(edit)) : undefined;
 
   const suppliers = listSuppliers();
@@ -107,13 +145,14 @@ export default async function PurchasesPage(props: {
   }
 
   // ------------------------------------------------------------ owner view
+  const deliveries = listPurchases({ page: Number(dp) || 1, perPage: PER_PAGE, q, range });
+  const shownPurchases = deliveries.rows;
+  const deliveryPage = deliveries.page;
+  const deliveryPages = deliveries.pages;
+
+  // The "spent lately" tile still reads the real recent list rather than the
+  // filtered one: it answers a question about the shop, not about the search box.
   const purchases = recentPurchases(200);
-  const deliveryPages = Math.max(1, Math.ceil(purchases.length / PER_PAGE));
-  const deliveryPage = Math.min(Math.max(1, Number(dp) || 1), deliveryPages);
-  const shownPurchases = purchases.slice(
-    (deliveryPage - 1) * PER_PAGE,
-    deliveryPage * PER_PAGE,
-  );
 
   const spend = supplierSpend();
   const supplierPages = Math.max(1, Math.ceil(spend.length / PER_PAGE));
@@ -283,8 +322,28 @@ export default async function PurchasesPage(props: {
         </Card>
       )}
 
-      <SectionLabel>Recent deliveries</SectionLabel>
-      {purchases.length ? (
+      <SectionLabel>Deliveries</SectionLabel>
+
+      <DateBar
+        action="/purchases"
+        current={period}
+        range={range}
+        from={sp2.from ?? ""}
+        to={sp2.to ?? ""}
+        keep={{ ...(q ? { q } : {}), ...(item ? { item } : {}) }}
+        label="Delivered"
+      />
+
+      <ListToolbar
+        action="/purchases"
+        q={q}
+        placeholder="A supplier, an invoice number, or what came in…"
+        filters={[]}
+        current="all"
+        extra={{ ...dateKeys, ...(item ? { item } : {}) }}
+      />
+
+      {shownPurchases.length ? (
         /*
           A delivery is a date, a supplier and a total, with the lines under it.
 
@@ -379,7 +438,7 @@ export default async function PurchasesPage(props: {
             anchor="#deliveries"
             page={deliveryPage}
             pages={deliveryPages}
-            total={purchases.length}
+            total={deliveries.total}
             noun="delivery"
             plural="deliveries"
             params={keeping({ sp: supplierPage })}
@@ -387,7 +446,11 @@ export default async function PurchasesPage(props: {
         </div>
       ) : (
         <Card>
-          <Empty>Nothing bought in yet.</Empty>
+          <Empty>
+            {q || period !== "all"
+              ? "No delivery matches. Widen the dates, or clear the search."
+              : "Nothing bought in yet."}
+          </Empty>
         </Card>
       )}
 

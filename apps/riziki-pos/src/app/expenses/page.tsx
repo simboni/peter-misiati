@@ -22,8 +22,13 @@ import {
   expensesForMonth,
   expenseTotalForMonth,
   expensesByCategory,
+  listExpenses,
+  expenseCategoryTotals,
   monthKey,
 } from "@/lib/reports";
+import { listRange, readListPeriod } from "@/lib/list-range";
+import { ListToolbar, Pager } from "@/components/section-nav";
+import { DateBar } from "@/components/date-bar";
 import {
   PageTitle,
   Card,
@@ -170,20 +175,36 @@ const ERRORS: Record<string, string> = {
 };
 
 export default async function ExpensesPage(props: {
-  searchParams: Promise<{ saved?: string; error?: string }>;
+  searchParams: Promise<{
+    saved?: string;
+    error?: string;
+    q?: string;
+    state?: string;
+    period?: string;
+    from?: string;
+    to?: string;
+    page?: string;
+  }>;
 }) {
   // `searchParams` is a Promise in Next.js 16 — synchronous access was removed.
-  const { saved, error } = await props.searchParams;
+  const sp = await props.searchParams;
+  const { saved, error } = sp;
 
   const user = await currentUser();
   const owner = user?.role === "owner";
   if (!user) redirect("/login");
 
+  /*
+    The month's own totals stay the month's own totals.
+
+    The tiles and the category breakdown answer "how are we doing this month",
+    which is a question about the month and not about whatever the list happens
+    to be filtered to. The list below is the record, and it now goes anywhere.
+  */
   const ym = monthKey(businessDate());
-  const rows = expensesForMonth(ym);
   const { totalCents, count } = expenseTotalForMonth(ym);
   const byCategory = expensesByCategory(ym);
-  const cashCents = rows
+  const cashCents = expensesForMonth(ym, 1000)
     .filter((r) => r.method === "cash")
     .reduce((sum, r) => sum + r.amount_cents, 0);
 
@@ -192,6 +213,37 @@ export default async function ExpensesPage(props: {
     year: "numeric",
     timeZone: "UTC",
   });
+
+  /*
+    The list: any window, any category, and searchable.
+
+    It used to be this month and a hard cap of 200 rows, with nothing on the
+    screen saying either. "That lorry we paid for in August" was a question the
+    shop's own expense screen could not answer.
+  */
+  const q = (sp.q ?? "").trim();
+  const category = sp.state && isExpenseCategory(sp.state) ? sp.state : "";
+  const period = readListPeriod(sp);
+  const range = listRange(period, businessDate(), sp.from, sp.to);
+
+  const list = listExpenses({
+    page: Number(sp.page) || 1,
+    perPage: 25,
+    q,
+    range,
+    category,
+  });
+  const rows = list.rows;
+  const catTotals = expenseCategoryTotals(range);
+
+  const dates: Record<string, string> = {};
+  if (period !== "all") dates.period = period;
+  if (sp.from) dates.from = sp.from;
+  if (sp.to) dates.to = sp.to;
+
+  const filters: Record<string, string> = { ...dates };
+  if (q) filters.q = q;
+  if (category) filters.state = category;
 
   return (
     <div>
@@ -316,6 +368,33 @@ export default async function ExpensesPage(props: {
 
       <div className="xl:col-span-3">
       <SectionLabel>Entries</SectionLabel>
+
+      <DateBar
+        action="/expenses"
+        current={period}
+        range={range}
+        from={sp.from ?? ""}
+        to={sp.to ?? ""}
+        keep={{ ...(q ? { q } : {}), ...(category ? { state: category } : {}) }}
+        label="Paid out"
+      />
+
+      <ListToolbar
+        action="/expenses"
+        q={q}
+        placeholder="A note, a category, or who entered it…"
+        filters={[
+          { key: "all", label: "All", count: catTotals.reduce((n, c) => n + c.n, 0) },
+          ...EXPENSE_CATEGORIES.map((c) => ({
+            key: c,
+            label: c,
+            count: catTotals.find((t) => t.category === c)?.n,
+          })).filter((c) => c.count),
+        ]}
+        current={category || "all"}
+        extra={dates}
+      />
+
       {rows.length ? (
         <TableWrap>
           <thead>
@@ -401,21 +480,46 @@ export default async function ExpensesPage(props: {
                 <Td align="right">{formatKes(r.amount_cents)}</Td>
               </tr>
             ))}
+            {/* The total of what is being shown, not of the month — a screen
+                that filters the rows and not the sum under them invites
+                somebody to read one against the other. */}
             <tr>
-              <Td className="font-bold">Total</Td>
+              <Td className="font-bold">
+                Total
+                {list.pages > 1 ? (
+                  <span className="block text-[11px] font-normal text-muted">
+                    all {list.total} entries, not just this page
+                  </span>
+                ) : null}
+              </Td>
               <Td>{null}</Td>
               <Td>{null}</Td>
               <Td align="right" className="font-extrabold">
-                {formatKes(totalCents)}
+                {formatKes(list.totalCents)}
               </Td>
             </tr>
           </tbody>
         </TableWrap>
       ) : (
         <Card>
-          <Empty>Nothing recorded this month yet.</Empty>
+          <Empty>
+            {q || category || period !== "all"
+              ? "Nothing matches. Widen the dates, change the category, or clear the search."
+              : "Nothing recorded yet."}
+          </Empty>
         </Card>
       )}
+
+      <Pager
+        action="/expenses"
+        page={list.page}
+        pages={list.pages}
+        total={list.total}
+        noun="entry"
+        plural="entries"
+        params={filters}
+        anchor="#entries"
+      />
       </div>
       </div>
     </div>

@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { currentUser } from "@/lib/auth";
-import { priceHistoryPage } from "@/lib/pricing";
-import { formatKes, formatDateTime } from "@/lib/units";
+import { priceHistoryPage, priceSourceCounts } from "@/lib/pricing";
+import { listRange, readListPeriod } from "@/lib/list-range";
+import { businessDate, formatKes, formatDateTime } from "@/lib/units";
 import { PageTitle, Card, Empty } from "@/components/ui";
-import { Pager } from "@/components/section-nav";
+import { ListToolbar, Pager } from "@/components/section-nav";
+import { DateBar } from "@/components/date-bar";
 import { ExportButtons } from "@/components/export-buttons";
 
 export const dynamic = "force-dynamic";
@@ -21,16 +23,57 @@ const PER_PAGE = 25;
  * owner what the counter has been doing with the freedom he handed over —
  * every change made at the till lands here, named.
  */
+const SOURCES = [
+  { key: "all", label: "Everywhere" },
+  { key: "counter", label: "At the till" },
+  { key: "admin", label: "Catalogue" },
+  { key: "check", label: "Price check" },
+];
+
 export default async function PriceHistoryPage(props: {
-  searchParams: Promise<{ page?: string }>;
+  searchParams: Promise<{
+    page?: string;
+    q?: string;
+    state?: string;
+    period?: string;
+    from?: string;
+    to?: string;
+  }>;
 }) {
   const user = await currentUser();
   if (!user) redirect("/login");
 
-  const { page: pageParam } = await props.searchParams;
-  const requested = Math.max(1, Number(pageParam) || 1);
-  const { rows, total, pages } = priceHistoryPage(requested, PER_PAGE);
-  const page = Math.min(requested, pages);
+  const sp = await props.searchParams;
+
+  /*
+    A customer says "last week it was nine hundred".
+
+    That is the question this screen exists for, and until now answering it
+    meant turning pages until the week showed up — the history was complete and
+    unreachable. Now it takes a name and a date.
+  */
+  const q = (sp.q ?? "").trim();
+  const source = SOURCES.some((s) => s.key === sp.state && s.key !== "all") ? sp.state! : "";
+  const period = readListPeriod(sp);
+  const range = listRange(period, businessDate(), sp.from, sp.to);
+
+  const { rows, total, pages, page } = priceHistoryPage({
+    page: Number(sp.page) || 1,
+    perPage: PER_PAGE,
+    q,
+    range,
+    source,
+  });
+  const counts = priceSourceCounts(range, q);
+
+  const dates: Record<string, string> = {};
+  if (period !== "all") dates.period = period;
+  if (sp.from) dates.from = sp.from;
+  if (sp.to) dates.to = sp.to;
+
+  const filters: Record<string, string> = { ...dates };
+  if (q) filters.q = q;
+  if (source) filters.state = source;
 
   return (
     <div>
@@ -44,6 +87,25 @@ export default async function PriceHistoryPage(props: {
       <div className="mb-3">
         <ExportButtons csv="price_changes" label="the price history" />
       </div>
+
+      <DateBar
+        action="/prices/history"
+        current={period}
+        range={range}
+        from={sp.from ?? ""}
+        to={sp.to ?? ""}
+        keep={{ ...(q ? { q } : {}), ...(source ? { state: source } : {}) }}
+        label="Changed"
+      />
+
+      <ListToolbar
+        action="/prices/history"
+        q={q}
+        placeholder="A product, or who changed it…"
+        filters={SOURCES.map((s) => ({ key: s.key, label: s.label, count: counts[s.key] }))}
+        current={source || "all"}
+        extra={dates}
+      />
 
       {rows.length ? (
         <div className="overflow-hidden rounded-2xl bg-white shadow-card ring-1 ring-ink/5">
@@ -104,7 +166,11 @@ export default async function PriceHistoryPage(props: {
         </div>
       ) : (
         <Card>
-          <Empty>No price has been changed yet. The first change will appear here.</Empty>
+          <Empty>
+            {q || source || period !== "all"
+              ? "No change matches. Widen the dates, or clear the search."
+              : "No price has been changed yet. The first change will appear here."}
+          </Empty>
         </Card>
       )}
 
@@ -114,7 +180,7 @@ export default async function PriceHistoryPage(props: {
         pages={pages}
         total={total}
         noun="change"
-        params={{}}
+        params={filters}
       />
     </div>
   );

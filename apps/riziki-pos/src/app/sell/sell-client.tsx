@@ -36,6 +36,7 @@ import { countOutbox, enqueueSale, onOutboxChange, type QueuedSalePayload } from
 import { businessDate, formatDate, formatDateTime, formatKes, formatQty, formatUnits } from "@/lib/units";
 import { recallCart, keepCart } from "@/lib/cart-memory";
 import { Alert, Button, SectionLabel, inputClass } from "@/components/ui";
+import { Picker } from "@/components/picker";
 import { SizeChip } from "@/components/size-chip";
 import { subscribeOnline, readOnline, assumeOnline } from "@/lib/online";
 import { quickAddCustomerAction } from "@/app/customers/actions";
@@ -2114,31 +2115,50 @@ export default function SellClient({
                 </p>
               </div>
             ) : (
-              <select
-                className={inputClass}
-                value={customerId ?? ""}
-                onChange={(e) => {
-                  if (e.target.value === NEW_CUSTOMER) {
-                    setAdding(true);
-                    setAddError(null);
-                    return;
-                  }
-                  setCustomerId(e.target.value ? Number(e.target.value) : null);
-                }}
-              >
-                <option value="">Walk-in — no name</option>
-                {allCustomers.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} — owes {formatKes(c.outstandingCents)}
-                    {c.limitCents > 0 ? ` of ${formatKes(c.limitCents)}` : ""}
-                  </option>
-                ))}
-                {/* Offline this cannot work — the till assigns the id — and a
-                    disabled option that says why beats one that fails. */}
-                <option value={NEW_CUSTOMER} disabled={!online}>
-                  {online ? "＋ New customer…" : "＋ New customer (needs the network)"}
-                </option>
-              </select>
+              <>
+                {/*
+                  A typed name, not a scroll.
+
+                  The account list grows with the shop and this is a control the
+                  counter reaches for mid-sale, with somebody waiting. Each row
+                  carries what they owe, because choosing the account and seeing
+                  the balance are the same glance.
+                */}
+                <Picker
+                  label="Whose account"
+                  placeholder="Type a name — mama, laundry, njeri…"
+                  value={customerId}
+                  allowNone
+                  noneLabel="Walk-in — no name"
+                  onChange={(v: string | number | null) => {
+                    if (v === NEW_CUSTOMER) {
+                      setAdding(true);
+                      setAddError(null);
+                      return;
+                    }
+                    setCustomerId(v === null ? null : Number(v));
+                  }}
+                  options={[
+                    ...allCustomers.map((c) => ({
+                      value: c.id,
+                      label: c.name,
+                      hint: c.limitCents > 0 ? `limit ${formatKes(c.limitCents)}` : undefined,
+                      trailing: `owes ${formatKes(c.outstandingCents)}`,
+                    })),
+                    // Offline this cannot work — the till assigns the id — so
+                    // it is left out rather than offered and refused.
+                    ...(online
+                      ? [{ value: NEW_CUSTOMER, label: "＋ New customer…" }]
+                      : []),
+                  ]}
+                />
+                {!online ? (
+                  <p className="mt-1 text-[11px] text-muted">
+                    A new customer needs the network — the till cannot give out an account number on
+                    its own. Sell it as a walk-in and add them when the connection is back.
+                  </p>
+                ) : null}
+              </>
             )}
 
           </div>

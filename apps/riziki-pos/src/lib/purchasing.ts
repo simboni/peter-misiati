@@ -17,6 +17,7 @@
 
 import { all, get, run, tx, audit, postMovement, updateAverageCost } from "./db.ts";
 import { formatKes, MILLI } from "./units.ts";
+import type { DateRange } from "./reports.ts";
 
 // --------------------------------------------------------------- suppliers
 
@@ -352,6 +353,77 @@ export function recentPurchases(limit = 30): PurchaseRow[] {
       LIMIT ?`,
     limit,
   );
+}
+
+export interface PurchaseQuery {
+  page?: number;
+  perPage?: number;
+  /** A supplier, an invoice number, or the name of something on the delivery. */
+  q?: string;
+  range?: DateRange | null;
+}
+
+/**
+ * A page of deliveries, searched and dated.
+ *
+ * The list used to be the last 200 with nothing to look through them by, which
+ * is fine for a year and useless for three. The search reaches into the lines
+ * on purpose: "when did we last get caustic soda" is asked far more often than
+ * anything about an invoice number, and the delivery is filed under a supplier.
+ */
+export function listPurchases(query: PurchaseQuery = {}): {
+  rows: PurchaseRow[];
+  total: number;
+  totalCents: number;
+  page: number;
+  pages: number;
+} {
+  const size = Math.max(1, Math.min(100, Math.trunc(query.perPage ?? 20)));
+  const where: string[] = [];
+  const args: unknown[] = [];
+
+  if (query.range) {
+    where.push(`date(p.at, '+3 hours') BETWEEN ? AND ?`);
+    args.push(query.range.from, query.range.to);
+  }
+  const needle = (query.q ?? "").trim();
+  if (needle) {
+    const like = `%${needle.toLowerCase()}%`;
+    where.push(
+      `(lower(s.name) LIKE ? OR lower(p.ref) LIKE ? OR EXISTS (
+          SELECT 1 FROM purchase_lines pl JOIN items i ON i.id = pl.item_id
+           WHERE pl.purchase_id = p.id AND lower(i.name) LIKE ?))`,
+    );
+    args.push(like, like, like);
+  }
+
+  const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const from = `FROM purchases p
+       LEFT JOIN suppliers s ON s.id = p.supplier_id
+       LEFT JOIN users u     ON u.id = p.user_id`;
+
+  const head = get<{ n: number; total: number }>(
+    `SELECT COUNT(*) AS n, COALESCE(SUM(p.total_cents), 0) AS total ${from} ${clause}`,
+    ...args,
+  );
+  const total = head?.n ?? 0;
+  const pages = Math.max(1, Math.ceil(total / size));
+  const current = Math.min(Math.max(1, Math.trunc(query.page ?? 1) || 1), pages);
+
+  const rows = all<PurchaseRow>(
+    `SELECT p.id, p.at, p.ref, p.total_cents, p.transport_cents,
+            s.name AS supplier_name, u.name AS user_name,
+            (SELECT COUNT(*) FROM purchase_lines pl WHERE pl.purchase_id = p.id) AS lines
+       ${from}
+      ${clause}
+      ORDER BY p.at DESC, p.id DESC
+      LIMIT ? OFFSET ?`,
+    ...args,
+    size,
+    (current - 1) * size,
+  );
+
+  return { rows, total, totalCents: head?.total ?? 0, page: current, pages };
 }
 
 export interface PurchaseLineRow {

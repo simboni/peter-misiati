@@ -17,7 +17,8 @@
 
 import { useActionState, useState } from "react";
 import Link from "next/link";
-import { Alert, Button, Field, inputClass } from "@/components/ui";
+import { Alert, Button, Field } from "@/components/ui";
+import { Picker } from "@/components/picker";
 import { saveFormulaOutput, type OutputFormState } from "./output-action";
 
 const EMPTY: OutputFormState = {};
@@ -125,18 +126,19 @@ export function OutputForm({
           label="What this recipe makes"
           hint="The product the batch puts on the shelf. Add it under Products & prices first if it is not here."
         >
-          <select
-            className={inputClass}
+          <Picker
+            label="What this recipe makes"
+            placeholder="Type a product name…"
             value={picked}
-            onChange={(e) => setPicked(e.target.value)}
-          >
-            <option value="">Choose a product…</option>
-            {choices.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name} (per {c.unit})
-              </option>
-            ))}
-          </select>
+            onChange={(v) => setPicked(v === null ? "" : String(v))}
+            allowNone
+            noneLabel="Choose a product…"
+            options={choices.map((c) => ({
+              value: c.id,
+              label: c.name,
+              trailing: `per ${c.unit}`,
+            }))}
+          />
         </Field>
       ) : null}
 

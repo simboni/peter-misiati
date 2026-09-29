@@ -9,6 +9,7 @@
 
 import { useActionState, useState } from "react";
 import { Button, Field, inputClass, Alert } from "@/components/ui";
+import { Picker, PickerFilter } from "@/components/picker";
 import { formatKes } from "@/lib/units";
 import { saveSupplierAction, recordPurchaseAction, type FormState } from "./actions";
 
@@ -84,7 +85,7 @@ export interface ItemChoice {
  * not the number of drums — is what the ledger is about to be moved by, and it
  * is the one an owner can check against the delivery note in his hand.
  */
-function PurchaseLine({ items, groups }: { items: ItemChoice[]; groups: string[] }) {
+function PurchaseLine({ items }: { items: ItemChoice[] }) {
   const [itemId, setItemId] = useState("");
   const [units, setUnits] = useState("");
   const [size, setSize] = useState("");
@@ -102,31 +103,35 @@ function PurchaseLine({ items, groups }: { items: ItemChoice[]; groups: string[]
 
   return (
     <>
-      <select
-        className={`${inputClass} mb-2`}
-        name="item_id"
-        value={itemId}
-        onChange={(e) => {
-          setItemId(e.target.value);
-          setSize(""); // back to the new item's usual container
-        }}
-      >
-        <option value="">Choose an item…</option>
-        {groups.map((kind) => (
-          <optgroup key={kind} label={KIND_GROUP[kind]}>
-            {items
-              .filter((it) => it.kind === kind)
-              .map((it) => (
-                <option key={it.id} value={it.id}>
-                  {it.name}
-                  {it.cost_cents
-                    ? ` — last ${formatKes(it.cost_cents)}/${it.canonical_unit}`
-                    : ""}
-                </option>
-              ))}
-          </optgroup>
-        ))}
-      </select>
+      {/*
+        A search box, not a scroll.
+
+        This held the whole catalogue in one wheel, grouped by kind. On the
+        counter phone that is four entries visible at a time with no way to
+        jump, and whoever is booking a delivery already has the name in front of
+        them on the note. The kind is kept as a label on each row rather than as
+        a group heading, because grouping only helps somebody who is browsing.
+      */}
+      <div className="mb-2">
+        <Picker
+          name="item_id"
+          label="What came in"
+          placeholder="Type a name — ungerol, caustic, 20 kg…"
+          value={itemId}
+          onChange={(v) => {
+            setItemId(v === null ? "" : String(v));
+            setSize(""); // back to the new item's usual container
+          }}
+          options={items.map((it) => ({
+            value: it.id,
+            label: it.name,
+            hint: KIND_GROUP[it.kind] ?? it.kind,
+            trailing: it.cost_cents
+              ? `last ${formatKes(it.cost_cents)}/${it.canonical_unit}`
+              : "",
+          }))}
+        />
+      </div>
 
       <div className="grid grid-cols-2 gap-2">
         <Field label="How many">
@@ -213,7 +218,6 @@ export function PurchaseForm({
   const [rows, setRows] = useState([0, 1]);
   const [nextRow, setNextRow] = useState(2);
 
-  const groups = Object.keys(KIND_GROUP).filter((k) => items.some((i) => i.kind === k));
 
   return (
     <form action={action} className="space-y-3">
@@ -259,7 +263,7 @@ export function PurchaseForm({
               ) : null}
             </div>
 
-            <PurchaseLine items={items} groups={groups} />
+            <PurchaseLine items={items} />
           </div>
         ))}
       </div>
@@ -302,7 +306,13 @@ export function PurchaseForm({
   );
 }
 
-/** Item picker for the price-history panel; plain GET so the URL stays shareable. */
+/**
+ * Item picker for the price-history panel; plain GET so the URL stays shareable.
+ *
+ * Every item the shop has ever bought is in here, which is most of the
+ * catalogue — so it takes a typed name rather than a scroll, and submits on
+ * the choice instead of asking for a second tap on a Show button.
+ */
 export function ItemPicker({
   items,
   selected,
@@ -311,18 +321,20 @@ export function ItemPicker({
   selected?: number;
 }) {
   return (
-    <form method="get" className="flex max-w-xl gap-2">
-      <select className={inputClass} name="item" defaultValue={selected ? String(selected) : ""}>
-        <option value="">Choose an item…</option>
-        {items.map((i) => (
-          <option key={i.id} value={i.id}>
-            {i.name} ({i.deliveries})
-          </option>
-        ))}
-      </select>
-      <Button type="submit" variant="ghost">
-        Show
-      </Button>
-    </form>
+    <div className="max-w-xl">
+      <PickerFilter
+        action=""
+        name="item"
+        label="Which item"
+        placeholder="Type a name — ungerol, caustic, magadi…"
+        noneLabel="Choose an item…"
+        value={selected ?? null}
+        options={items.map((i) => ({
+          value: i.id,
+          label: i.name,
+          trailing: `${i.deliveries} ${i.deliveries === 1 ? "delivery" : "deliveries"}`,
+        }))}
+      />
+    </div>
   );
 }

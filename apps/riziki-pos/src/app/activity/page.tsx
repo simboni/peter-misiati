@@ -1,9 +1,11 @@
 import { redirect } from "next/navigation";
 import { currentUser } from "@/lib/auth";
 import { all, get } from "@/lib/db";
-import { formatDateTime } from "@/lib/units";
+import { businessDate, formatDateTime } from "@/lib/units";
+import { listRange, readListPeriod } from "@/lib/list-range";
 import { Card, Chip, Empty, PageTitle } from "@/components/ui";
 import { ListToolbar, Pager } from "@/components/section-nav";
+import { DateBar } from "@/components/date-bar";
 import { ExportButtons } from "@/components/export-buttons";
 
 export const dynamic = "force-dynamic";
@@ -133,7 +135,15 @@ interface Row {
 }
 
 export default async function ActivityPage(props: {
-  searchParams: Promise<{ q?: string; state?: string; page?: string; size?: string }>;
+  searchParams: Promise<{
+    q?: string;
+    state?: string;
+    page?: string;
+    size?: string;
+    period?: string;
+    from?: string;
+    to?: string;
+  }>;
 }) {
   const me = await currentUser();
   if (!me) redirect("/login");
@@ -141,7 +151,10 @@ export default async function ActivityPage(props: {
   // this page. Staff have no reason to browse who did what.
   if (me.role !== "owner") redirect("/");
 
-  const { q = "", state, page: pageParam, size: sizeParam } = await props.searchParams;
+  const sp = await props.searchParams;
+  const { q = "", state, page: pageParam, size: sizeParam } = sp;
+  const period = readListPeriod(sp);
+  const range = listRange(period, businessDate(), sp.from, sp.to);
   const group = (["money", "prices", "stock", "people", "system"] as const).includes(state as never)
     ? (state as Group)
     : null;
@@ -158,6 +171,17 @@ export default async function ActivityPage(props: {
   const where: string[] = [];
   const params: Array<string | number> = [];
 
+  /*
+    Dates, because "who changed that price, and when" is half a question.
+
+    The log is the answer to a dispute, and a dispute always has a day attached
+    to it. Without dates the only way to reach last Tuesday was to turn pages
+    through everything that has happened since.
+  */
+  if (range) {
+    where.push(`date(a.at, '+3 hours') BETWEEN ? AND ?`);
+    params.push(range.from, range.to);
+  }
   if (group) {
     const codes = codesIn(group);
     where.push(`a.action IN (${codes.map(() => "?").join(", ")})`);
@@ -194,6 +218,10 @@ export default async function ActivityPage(props: {
   // is already selected.
   const searchOnly: string[] = [];
   const searchParams2: string[] = [];
+  if (range) {
+    searchOnly.push(`date(a.at, '+3 hours') BETWEEN ? AND ?`);
+    searchParams2.push(range.from, range.to);
+  }
   if (q.trim()) {
     searchOnly.push(`(a.detail LIKE ? OR u.name LIKE ? OR a.entity LIKE ?)`);
     const like = `%${q.trim()}%`;
@@ -213,7 +241,13 @@ export default async function ActivityPage(props: {
       ...searchParams2,
     )?.n ?? 0;
 
+  const dates: Record<string, string> = {};
+  if (period !== "all") dates.period = period;
+  if (sp.from) dates.from = sp.from;
+  if (sp.to) dates.to = sp.to;
+
   const keep: Record<string, string> = {
+    ...dates,
     ...(q ? { q } : {}),
     ...(group ? { state: group } : {}),
     ...(size !== DEFAULT_SIZE ? { size: String(size) } : {}),
@@ -231,12 +265,26 @@ export default async function ActivityPage(props: {
         <ExportButtons csv="activity" label="the activity log" />
       </div>
 
+      <DateBar
+        action="/activity"
+        current={period}
+        range={range}
+        from={sp.from ?? ""}
+        to={sp.to ?? ""}
+        keep={{
+          ...(q ? { q } : {}),
+          ...(group ? { state: group } : {}),
+          ...(size !== DEFAULT_SIZE ? { size: String(size) } : {}),
+        }}
+        label="Logged"
+      />
+
       <ListToolbar
         action="/activity"
         q={q}
         placeholder="Search a name, a product, a note…"
         current={group ?? "all"}
-        extra={size !== DEFAULT_SIZE ? { size: String(size) } : undefined}
+        extra={{ ...dates, ...(size !== DEFAULT_SIZE ? { size: String(size) } : {}) }}
         filters={[
           { key: "all", label: "Everything", count: allCount },
           ...(["money", "prices", "stock", "people", "system"] as Group[]).map((g) => ({

@@ -27,6 +27,8 @@ import { verifyPin } from "./pin.ts";
 import { findBundle } from "./bundles.ts";
 import { mixFor, currentVersion } from "./production.ts";
 import { formatKes, formatQty, MILLI } from "./units.ts";
+import { rangeClause } from "./list-range.ts";
+import type { DateRange } from "./reports.ts";
 
 export type Tier = "retail" | "wholesale";
 export type PayMethod = "cash" | "mpesa" | "credit";
@@ -1056,16 +1058,92 @@ export interface SaleRow {
 }
 
 /** Newest first, one page at a time — the sales table only ever grows. */
-export function listSales(page: number, perPage: number = SALES_PAGE_SIZE): {
+export type SaleFilter = "all" | "unpaid" | "credit" | "voided";
+
+export interface SaleQuery {
+  page?: number;
+  perPage?: number;
+  /** A customer, an attendant, a receipt number, or a word from a void reason. */
+  q?: string;
+  /** Business dates, inclusive. Null means every sale there has ever been. */
+  range?: DateRange | null;
+  state?: SaleFilter;
+}
+
+/**
+ * A page of the sales record, filtered the way somebody actually looks for one.
+ *
+ * WHAT WAS WRONG WITH IT. This screen showed every sale there has ever been,
+ * twenty at a time, newest first, with no search and no dates. Finding the sale
+ * a customer is asking about meant turning pages until you reached the day —
+ * which on a shop doing thirty sales a day is a page for every hour of trading.
+ * The record was complete and unusable, which is its own kind of missing.
+ *
+ * Four ways in, because they are the four ways the question arrives: by name
+ * ("Mama Njeri was in on Tuesday"), by receipt number ("what was #418"), by
+ * date ("what did we take on the 22nd"), and by standing ("who still owes").
+ * They compose, so "unpaid, this month, Njeri" is one query rather than three
+ * screens.
+ *
+ * The count is the count of what matches, not of the table: a pager that says
+ * "1,400 sales" while showing a filtered eleven is lying about both.
+ */
+export function listSales(query: SaleQuery | number = {}, perPageArg?: number): {
   rows: SaleRow[];
   total: number;
   page: number;
   pages: number;
 } {
-  const size = Math.max(1, Math.min(100, Math.trunc(perPage)));
-  const total = get<{ n: number }>(`SELECT COUNT(*) AS n FROM sales`)?.n ?? 0;
+  // The old shape — listSales(page, perPage) — still works. Several screens and
+  // the export call it that way and there is nothing wrong with the call.
+  const q: SaleQuery =
+    typeof query === "number" ? { page: query, perPage: perPageArg } : query;
+
+  const size = Math.max(1, Math.min(100, Math.trunc(q.perPage ?? SALES_PAGE_SIZE)));
+  const needle = (q.q ?? "").trim();
+  const state = q.state ?? "all";
+
+  const where: string[] = [];
+  const args: unknown[] = [];
+
+  const dates = rangeClause("s.at", q.range ?? null);
+  if (dates.sql) {
+    where.push(dates.sql.replace(/^ AND /, ""));
+    args.push(...dates.params);
+  }
+
+  if (state === "unpaid") where.push(`s.status = 'completed' AND s.paid_cents < s.total_cents`);
+  else if (state === "credit") where.push(`s.customer_id IS NOT NULL AND s.status = 'completed'`);
+  else if (state === "voided") where.push(`s.status = 'voided'`);
+
+  if (needle) {
+    /*
+      A receipt number is typed as "418" or as "#418", and both have to find
+      sale 418 rather than every sale whose total happens to contain 418. So a
+      bare number matches the id exactly, and everything else is a text search
+      across the names and the void reason.
+    */
+    const bare = needle.replace(/^#/, "");
+    const asId = /^\d+$/.test(bare) ? Number(bare) : null;
+    const like = `%${needle.toLowerCase()}%`;
+    if (asId !== null) {
+      where.push(`(s.id = ? OR lower(c.name) LIKE ? OR lower(u.name) LIKE ?)`);
+      args.push(asId, like, like);
+    } else {
+      where.push(`(lower(c.name) LIKE ? OR lower(u.name) LIKE ? OR lower(s.void_reason) LIKE ? OR lower(s.note) LIKE ?)`);
+      args.push(like, like, like, like);
+    }
+  }
+
+  const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const from = `FROM sales s
+       LEFT JOIN users u      ON u.id = s.user_id
+       LEFT JOIN users vu     ON vu.id = s.voided_by
+       LEFT JOIN customers c  ON c.id = s.customer_id`;
+
+  const total = get<{ n: number }>(`SELECT COUNT(*) AS n ${from} ${clause}`, ...args)?.n ?? 0;
   const pages = Math.max(1, Math.ceil(total / size));
-  const current = Math.min(Math.max(1, Math.trunc(page) || 1), pages);
+  const current = Math.min(Math.max(1, Math.trunc(q.page ?? 1) || 1), pages);
 
   const rows = all<SaleRow>(
     `SELECT s.id, s.at, s.tier, s.total_cents, s.paid_cents, s.status,
@@ -1075,17 +1153,28 @@ export function listSales(page: number, perPage: number = SALES_PAGE_SIZE): {
             c.name  AS customer_name,
             (SELECT GROUP_CONCAT(DISTINCT p.method) FROM payments p WHERE p.sale_id = s.id) AS methods,
             (SELECT COUNT(*) FROM sale_lines l WHERE l.sale_id = s.id) AS line_count
-       FROM sales s
-       LEFT JOIN users u      ON u.id = s.user_id
-       LEFT JOIN users vu     ON vu.id = s.voided_by
-       LEFT JOIN customers c  ON c.id = s.customer_id
+       ${from}
+      ${clause}
       ORDER BY s.at DESC, s.id DESC
       LIMIT ? OFFSET ?`,
+    ...args,
     size,
     (current - 1) * size,
   );
 
   return { rows, total, page: current, pages };
+}
+
+/** How many sales sit under each standing, for the numbers on the filter chips. */
+export function saleFilterCounts(range: DateRange | null, needle = ""): Record<SaleFilter, number> {
+  const count = (state: SaleFilter) =>
+    listSales({ page: 1, perPage: 1, range, state, q: needle }).total;
+  return {
+    all: count("all"),
+    unpaid: count("unpaid"),
+    credit: count("credit"),
+    voided: count("voided"),
+  };
 }
 
 export interface SaleLineRow {

@@ -2,10 +2,20 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { refresh } from "next/cache";
 import { currentUser, requirePermission, can } from "@/lib/auth";
-import { listSales, saleLinesFor, voidSale, SaleError, SALES_PAGE_SIZE } from "@/lib/sales";
-import { formatKes, formatDateTime } from "@/lib/units";
+import {
+  listSales,
+  saleFilterCounts,
+  saleLinesFor,
+  voidSale,
+  SaleError,
+  SALES_PAGE_SIZE,
+  type SaleFilter,
+} from "@/lib/sales";
+import { listRange, readListPeriod } from "@/lib/list-range";
+import { businessDate, formatKes, formatDateTime } from "@/lib/units";
 import { Alert, Chip, Empty, PageTitle, TableWrap, Th, Td, inputClass } from "@/components/ui";
-import { Pager } from "@/components/section-nav";
+import { ListToolbar, Pager } from "@/components/section-nav";
+import { DateBar } from "@/components/date-bar";
 import { ExportButtons } from "@/components/export-buttons";
 
 export const dynamic = "force-dynamic";
@@ -27,13 +37,16 @@ async function voidAction(formData: FormData) {
   const owner = await requirePermission("void");
   const saleId = Number(formData.get("saleId"));
   const reason = String(formData.get("reason") ?? "");
-  const page = String(formData.get("page") ?? "1");
+  // Everything the list was filtered by, carried back so a void does not dump
+  // whoever did it at the top of an unfiltered page one.
+  const back = String(formData.get("back") ?? "");
 
   try {
     voidSale(saleId, owner.id, reason);
   } catch (err) {
     if (err instanceof SaleError) {
-      redirect(`/sales?page=${page}&err=${encodeURIComponent(err.message)}`);
+      const sep = back.includes("?") ? "&" : "?";
+      redirect(`/sales${back}${sep}err=${encodeURIComponent(err.message)}`);
     }
     throw err;
   }
@@ -41,11 +54,27 @@ async function voidAction(formData: FormData) {
   refresh();
 }
 
+const STATES: Array<{ key: SaleFilter; label: string }> = [
+  { key: "all", label: "All" },
+  { key: "unpaid", label: "Unpaid" },
+  { key: "credit", label: "On account" },
+  { key: "voided", label: "Voided" },
+];
+
 export default async function SalesPage(props: {
   // `searchParams` is a Promise in Next.js 16 — synchronous access was removed.
-  searchParams: Promise<{ page?: string; err?: string }>;
+  searchParams: Promise<{
+    page?: string;
+    err?: string;
+    q?: string;
+    state?: string;
+    period?: string;
+    from?: string;
+    to?: string;
+  }>;
 }) {
-  const { page, err } = await props.searchParams;
+  const sp = await props.searchParams;
+  const { page, err } = sp;
 
   const user = await currentUser();
   if (!user) redirect("/login");
@@ -54,8 +83,45 @@ export default async function SalesPage(props: {
   const mayVoid = can(user, "void");
   const seesRecipe = can(user, "recipes");
 
-  const { rows, total, page: current, pages } = listSales(Number(page) || 1, SALES_PAGE_SIZE);
+  /*
+    Search, dates and standing, together.
+
+    This list is the shop's memory and it only grows. Somebody arrives at it
+    with one of four questions — a name, a receipt number, a day, or "who still
+    owes" — and until now the answer to every one of them was to turn pages.
+  */
+  const q = (sp.q ?? "").trim();
+  const state: SaleFilter =
+    STATES.some((s) => s.key === sp.state) ? (sp.state as SaleFilter) : "all";
+  const period = readListPeriod(sp);
+  const range = listRange(period, businessDate(), sp.from, sp.to);
+
+  const { rows, total, page: current, pages } = listSales({
+    page: Number(page) || 1,
+    perPage: SALES_PAGE_SIZE,
+    q,
+    range,
+    state,
+  });
+  const counts = saleFilterCounts(range, q);
   const lines = saleLinesFor(rows.map((r) => r.id));
+
+  /* What every control has to carry so the others survive being used. */
+  const dates: Record<string, string> = {};
+  if (period !== "all") dates.period = period;
+  if (sp.from) dates.from = sp.from;
+  if (sp.to) dates.to = sp.to;
+
+  const filters: Record<string, string> = { ...dates };
+  if (q) filters.q = q;
+  if (state !== "all") filters.state = state;
+
+  const backTo = (() => {
+    const p = new URLSearchParams(filters);
+    if (current > 1) p.set("page", String(current));
+    const str = p.toString();
+    return str ? `?${str}` : "";
+  })();
 
   return (
     <div>
@@ -77,6 +143,25 @@ export default async function SalesPage(props: {
         <ExportButtons csv="sales" label="the sales history" />
       </div>
 
+      <DateBar
+        action="/sales"
+        current={period}
+        range={range}
+        from={sp.from ?? ""}
+        to={sp.to ?? ""}
+        keep={{ ...(q ? { q } : {}), ...(state !== "all" ? { state } : {}) }}
+        label="Sold"
+      />
+
+      <ListToolbar
+        action="/sales"
+        q={q}
+        placeholder="A customer, an attendant, or a receipt number…"
+        filters={STATES.map((s) => ({ key: s.key, label: s.label, count: counts[s.key] }))}
+        current={state}
+        extra={dates}
+      />
+
       {err ? (
         <div className="mb-3">
           <Alert tone="bad">{err}</Alert>
@@ -84,7 +169,11 @@ export default async function SalesPage(props: {
       ) : null}
 
       {rows.length === 0 ? (
-        <Empty>No sales yet. They will appear here as the counter records them.</Empty>
+        <Empty>
+          {q || state !== "all" || period !== "all"
+            ? "No sale matches. Widen the dates, change the standing, or clear the search."
+            : "No sales yet. They will appear here as the counter records them."}
+        </Empty>
       ) : null}
 
       {/*
@@ -213,7 +302,7 @@ export default async function SalesPage(props: {
                         className="absolute right-0 z-20 mt-1 w-64 space-y-2 rounded-xl border border-line bg-white p-2.5 text-left shadow-lift"
                       >
                         <input type="hidden" name="saleId" value={s.id} />
-                        <input type="hidden" name="page" value={current} />
+                        <input type="hidden" name="back" value={backTo} />
                         <input
                           className={inputClass}
                           name="reason"
@@ -238,7 +327,7 @@ export default async function SalesPage(props: {
         </tbody>
       </TableWrap>
 
-      <Pager action="/sales" page={current} pages={pages} total={total} noun="sale" params={{}} />
+      <Pager action="/sales" page={current} pages={pages} total={total} noun="sale" params={filters} />
     </div>
   );
 }

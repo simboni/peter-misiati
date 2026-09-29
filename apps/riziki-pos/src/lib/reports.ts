@@ -436,6 +436,96 @@ export function expensesByCategory(ym: string): Array<{ category: string; total_
   );
 }
 
+/**
+ * Expenses over any window, searched, and paged.
+ *
+ * WHAT WAS WRONG. The screen showed the current month and nothing else: no way
+ * to look at last month, no way to find "that lorry we paid for in August", and
+ * a hard cap of 200 rows with nothing saying so. An expense screen a shop
+ * cannot look backwards from is a form with a receipt stapled to it.
+ *
+ * The month version above is kept and still used for the month's own totals,
+ * which is a different question and rightly a different query.
+ */
+export interface ExpenseQuery {
+  page?: number;
+  perPage?: number;
+  /** A word from the note, the category, or the person who entered it. */
+  q?: string;
+  range?: DateRange | null;
+  /** One category, exactly as it is spelled on the buttons. */
+  category?: string;
+}
+
+export function listExpenses(query: ExpenseQuery = {}): {
+  rows: ExpenseRow[];
+  total: number;
+  totalCents: number;
+  page: number;
+  pages: number;
+} {
+  const size = Math.max(1, Math.min(200, Math.trunc(query.perPage ?? 25)));
+  const where: string[] = [];
+  const args: unknown[] = [];
+
+  if (query.range) {
+    where.push(`date(e.at, '+3 hours') BETWEEN ? AND ?`);
+    args.push(query.range.from, query.range.to);
+  }
+  if (query.category && isExpenseCategory(query.category)) {
+    where.push(`e.category = ?`);
+    args.push(query.category);
+  }
+  const needle = (query.q ?? "").trim();
+  if (needle) {
+    const like = `%${needle.toLowerCase()}%`;
+    where.push(`(lower(e.note) LIKE ? OR lower(e.category) LIKE ? OR lower(u.name) LIKE ?)`);
+    args.push(like, like, like);
+  }
+
+  const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const from = `FROM expenses e LEFT JOIN users u ON u.id = e.user_id`;
+
+  // The total is of what matches, not of the month. A screen that filters the
+  // rows and not the total invites somebody to read one against the other.
+  const head = get<{ n: number; total: number }>(
+    `SELECT COUNT(*) AS n, COALESCE(SUM(e.amount_cents), 0) AS total ${from} ${clause}`,
+    ...args,
+  );
+  const total = head?.n ?? 0;
+  const pages = Math.max(1, Math.ceil(total / size));
+  const current = Math.min(Math.max(1, Math.trunc(query.page ?? 1) || 1), pages);
+
+  const rows = all<ExpenseRow>(
+    `SELECT e.id, e.at, date(e.at, '+3 hours') AS business_date, e.category,
+            e.amount_cents, e.method, e.note, u.name AS user_name
+       ${from}
+      ${clause}
+      ORDER BY e.at DESC, e.id DESC
+      LIMIT ? OFFSET ?`,
+    ...args,
+    size,
+    (current - 1) * size,
+  );
+
+  return { rows, total, totalCents: head?.total ?? 0, page: current, pages };
+}
+
+/** What each category comes to over the same window — the chips' numbers. */
+export function expenseCategoryTotals(
+  range: DateRange | null,
+): Array<{ category: string; total_cents: number; n: number }> {
+  const clause = range ? `WHERE date(at, '+3 hours') BETWEEN ? AND ?` : "";
+  const args = range ? [range.from, range.to] : [];
+  return all<{ category: string; total_cents: number; n: number }>(
+    `SELECT category, COALESCE(SUM(amount_cents), 0) AS total_cents, COUNT(*) AS n
+       FROM expenses ${clause}
+      GROUP BY category
+      ORDER BY total_cents DESC`,
+    ...args,
+  );
+}
+
 // ---------------------------------------------------------------- profit & loss
 
 /*

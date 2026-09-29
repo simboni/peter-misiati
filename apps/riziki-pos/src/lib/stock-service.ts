@@ -503,6 +503,36 @@ export function movementHistory(itemId: number, limit = 200): StockMove[] {
   return walked.reverse().slice(0, limit);
 }
 
+/**
+ * The same ledger, a page at a time.
+ *
+ * The screen showed the newest 200 entries and said nothing about the rest, so
+ * an item the shop has been trading for a year quietly stopped having a
+ * history — which on an append-only ledger is the one thing that must not
+ * happen invisibly.
+ *
+ * Paged in memory rather than in SQL on purpose: the balance beside each row is
+ * a running total walked from the very first movement, and a LIMIT/OFFSET query
+ * cannot produce it without walking the same rows anyway. What this does avoid
+ * is rendering ten thousand table rows into a phone.
+ */
+export function movementHistoryPage(
+  itemId: number,
+  page = 1,
+  perPage = 50,
+): { rows: StockMove[]; total: number; page: number; pages: number } {
+  const all = movementHistory(itemId, Number.MAX_SAFE_INTEGER);
+  const size = Math.max(1, Math.min(500, Math.trunc(perPage)));
+  const pages = Math.max(1, Math.ceil(all.length / size));
+  const current = Math.min(Math.max(1, Math.trunc(page) || 1), pages);
+  return {
+    rows: all.slice((current - 1) * size, current * size),
+    total: all.length,
+    page: current,
+    pages,
+  };
+}
+
 /** A day of an item's ledger, as the shop's day: UTC+3, no daylight saving. */
 export interface StockDay {
   date: string;

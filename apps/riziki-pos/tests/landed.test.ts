@@ -17,6 +17,10 @@ process.env.RIZIKI_DB = join(mkdtempSync(join(tmpdir(), "riziki-landed-")), "tes
 import test from "node:test";
 import assert from "node:assert/strict";
 
+// Type-only, so it is erased and cannot open the database before the line above
+// has said which database to open.
+import type { LandedRow } from "../src/lib/landed.ts";
+
 const { seed } = await import("../src/lib/seed.ts");
 const { get, all, run, stockOf, postMovement } = await import("../src/lib/db.ts");
 const { createSupplier, recordPurchase } = await import("../src/lib/purchasing.ts");
@@ -49,7 +53,7 @@ const drum = (itemId: number, goods: number, transport: number, ref: string, siz
     lines: [{ itemId, units: 1, sizeMilli, costCents: goods }],
   });
 
-const row = (rows: landed.LandedRow[], name: string) => rows.find((r) => r.name.startsWith(name))!;
+const row = (rows: LandedRow[], name: string) => rows.find((r) => r.name.startsWith(name))!;
 
 test("nothing bought is nothing to watch", () => {
   assert.deepEqual(landed.landedCosts(), [], "an item with no delivery has no landed cost at all");
