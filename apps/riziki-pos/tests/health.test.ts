@@ -248,3 +248,86 @@ test("a delivery half again the price is still the older, blunter finding", () =
   assert.equal(found.length, 1, "told once");
   assert.equal(found[0].kind, "Delivery dearer than the selling price");
 });
+
+// ------------------------------------------- one product wearing two names
+
+/*
+  The fortnight nobody noticed. "Ocean breeze mild" was sold nine times and
+  never delivered against once, because a second product of the same name —
+  spelled with a zero for the O — was holding every litre. The figures below
+  are the shop's.
+*/
+
+test("Ocean breeze: the deliveries land on one spelling and the sales come off the other", () => {
+  const zero = product("0cean breeze mild", "L", 5, 600); // a zero, not an O
+  const oh = product("Ocean breeze mild", "L", 5, 600);
+  delivery(zero, 1, 5.5, 2475, "INV-OB1");
+  delivery(zero, 2, 5, 4500, "INV-OB2");
+  // Every sale came off the other one, which never saw a drum.
+  for (const litres of [0.5, 1, 1, 0.5, 0.25, 0.25, 1]) {
+    postMovement({ itemId: oh, deltaMilli: -Math.round(litres * 1000), reason: "sale", userId: 1 });
+  }
+
+  const found = checkBooks().findings;
+
+  const twin = found.find(
+    (f) => f.kind === "Two products, one name" && f.detail.includes("0cean breeze mild"),
+  );
+  assert.ok(twin, "the two names are reported as one product wearing two");
+  assert.ok(twin.detail.includes("Ocean breeze mild"), "and both spellings are quoted");
+
+  const short = found.find((f) => f.kind === "Sold below zero" && f.title.startsWith("Ocean breeze mild"));
+  assert.ok(short, "and the half that has gone below zero is named");
+  assert.ok(short.title.includes("4.5 L"), `says how far short it is, got: ${short.title}`);
+  assert.ok(short.detail.includes("not one"), "and that nothing was ever delivered against it");
+});
+
+test("two chemicals that differ by a digit are left alone", () => {
+  /*
+    The check folds a zero into an O and a one into an l, because those are the
+    two that a person cannot see. It must not go further: 10% and 12% are
+    different chemicals and the shop sells both.
+  */
+  const ten = product("HYPOCHLORITE (10%)", "kg", 23, 110);
+  const twelve = product("HYPOCHLORITE (12%)", "kg", 24, 105);
+  delivery(ten, 2, 23, 4150, "INV-H10");
+  delivery(twelve, 1, 24, 2250, "INV-H12");
+
+  assert.equal(
+    checkBooks().findings.filter(
+      (f) => f.kind === "Two products, one name" && f.title.includes("HYPOCHLORITE (1"),
+    ).length,
+    0,
+    "10% and 12% are two chemicals, not one name typed twice",
+  );
+});
+
+test("short on a product that HAS been delivered reads differently", () => {
+  // The counter is allowed to sell past the book when the drum is in the store
+  // and the delivery is not typed yet. What must not happen is nobody going back.
+  const marina = product("MARINA SALT", "kg", 50, 20);
+  delivery(marina, 10, 50, 6500, "INV-M1");
+  postMovement({ itemId: marina, deltaMilli: -501_000, reason: "sale", userId: 1 });
+
+  const short = checkBooks().findings.find(
+    (f) => f.kind === "Sold below zero" && f.title.startsWith("MARINA SALT"),
+  );
+  assert.ok(short, "still reported");
+  assert.ok(short.detail.includes("nearly the same name"), "but as a missing delivery, not a missing product");
+  assert.ok(!short.detail.includes("not one"));
+});
+
+test("the twin check does not cry wolf across the whole catalogue", () => {
+  /*
+    Every other product this file has made, plus the shop's own starting
+    catalogue, and the only pairs it may name are the ones that really are one
+    product typed twice.
+  */
+  for (const f of checkBooks().findings.filter((f) => f.kind === "Two products, one name")) {
+    assert.match(
+      f.title,
+      /(cean breeze mild|AFRIC SALT|BLUE|CAUSTIC SODA|CHLORINE|EDTA|FLAKES|HCL|MAGADI|MARINA SALT|PURECARE SALT|UFACID|UNGEROL|OCEAN BREEZE MILD|CITRIC ACID)/i,
+      `unexpected pair: ${f.title} — ${f.detail}`,
+    );
+  }
+});

@@ -132,6 +132,99 @@ function heldWithNoCost(): Finding[] {
     }));
 }
 
+/**
+ * Sold further than it ever arrived.
+ *
+ * WHY IT IS NOT ENOUGH to leave this to the counter's own stock warning. That
+ * warning fires at the moment of the sale, to somebody with a customer in front
+ * of them and a good reason to carry on — the drum IS in the store, the delivery
+ * simply has not been typed in yet. Which is fine, and the shop allows it on
+ * purpose. What is not fine is that nobody ever comes back.
+ *
+ * "Ocean breeze mild" was sold nine times over a fortnight and never once
+ * delivered against, because a second product of the same name — spelled with a
+ * zero for the O — was holding every litre. Nothing said so. The shelf said
+ * minus four and a half litres, and because the product also had no cost, all
+ * 1,800 shillings of it was booked as pure profit.
+ *
+ * So a count below zero is reported as what it is: a sale that has been made
+ * out of stock the books have never seen.
+ */
+function soldBelowZero(): Finding[] {
+  return all<{ id: number; name: string; held: number; unit: string; arrivals: number }>(
+    `SELECT i.id, i.name, i.canonical_unit AS unit,
+            COALESCE((SELECT SUM(m.delta_milli) FROM stock_movements m WHERE m.item_id = i.id), 0) AS held,
+            (SELECT COUNT(*) FROM purchase_lines pl WHERE pl.item_id = i.id) AS arrivals
+       FROM items i
+      WHERE i.active = 1
+      ORDER BY held ASC`,
+  )
+    .filter((i) => i.held < 0)
+    .map((i) => ({
+      id: `below-zero:${i.id}`,
+      severity: "high" as const,
+      kind: "Sold below zero",
+      title: `${i.name} is ${qty(-i.held, i.unit)} short on the shelf`,
+      detail: i.arrivals
+        ? `More has been sold than has ever been delivered. Either a delivery was never ` +
+          `typed in, or it went in against a different product of nearly the same name.`
+        : `More has been sold than has ever been delivered, and there is no delivery ` +
+          `against this product at all — not one. Whatever is being sold, the stock for it ` +
+          `is sitting somewhere else.`,
+      fix: "Find the delivery. If it went in against another product, move the stock with a stock take and retire the one that is not used.",
+      href: `/stock/${i.id}`,
+    }));
+}
+
+/**
+ * Two products the same name would reach.
+ *
+ * A zero for an O is invisible on a screen and invisible in a search box, and
+ * it splits a product in two: the deliveries land on one, the sales come off
+ * the other, and both halves lie — one holds stock it never sells, the other
+ * sells stock it never had. The shop has no way to see it, because the two rows
+ * read identically.
+ *
+ * Only the characters that are genuinely confusable are folded — a zero for an
+ * O, a one for an l — so HYPOCHLORITE (10%) and HYPOCHLORITE (12%) stay the two
+ * different chemicals they are.
+ */
+function twinNames(): Finding[] {
+  const rows = all<{ id: number; name: string; held: number; unit: string }>(
+    `SELECT i.id, i.name, i.canonical_unit AS unit,
+            COALESCE((SELECT SUM(m.delta_milli) FROM stock_movements m WHERE m.item_id = i.id), 0) AS held
+       FROM items i WHERE i.active = 1 ORDER BY i.id`,
+  );
+
+  const groups = new Map<string, typeof rows>();
+  for (const r of rows) {
+    const key = r.name.toLowerCase().replace(/0/g, "o").replace(/1/g, "l").replace(/\s+/g, " ").trim();
+    const found = groups.get(key);
+    if (found) found.push(r);
+    else groups.set(key, [r]);
+  }
+
+  const out: Finding[] = [];
+  for (const twins of groups.values()) {
+    if (twins.length < 2) continue;
+    const [first] = twins;
+    out.push({
+      id: `twin:${first.id}`,
+      severity: "high",
+      kind: "Two products, one name",
+      title: `${twins.length} products are called ${first.name}`,
+      detail:
+        `Nothing on any screen tells them apart: ` +
+        twins.map((t) => `"${t.name}" holding ${qty(t.held, t.unit)}`).join(", ") +
+        `. Deliveries go in against one and sales come off the other, so one runs ` +
+        `below zero while the other never moves.`,
+      fix: "Keep the one that is spelled right, move the stock onto it with a stock take, and mark the other not for sale.",
+      href: `/stock/${first.id}`,
+    });
+  }
+  return out;
+}
+
 // --------------------------------------------------------- the deliveries
 
 interface LineRow {
@@ -408,6 +501,8 @@ export function checkBooks(): HealthReport {
     ...rateOutliers(lines),
     ...notPriced(),
     ...heldWithNoCost(),
+    ...soldBelowZero(),
+    ...twinNames(),
     ...freeDeliveries(lines),
     ...uncostedSales(),
   ];
