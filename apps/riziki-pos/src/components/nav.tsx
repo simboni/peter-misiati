@@ -125,6 +125,9 @@ const MORE_GROUPS: Array<{
   {
     label: "Setup & records",
     links: [
+      // Beside the activity log because both are the shop auditing itself: one
+      // says who did what, the other says which of it does not look right.
+      { href: "/check", label: "Worth checking", short: "Check", need: "cost" },
       { href: "/activity", label: "Activity log", need: "owner" },
       { href: "/settings", label: "Users & settings", need: "owner" },
       { href: "/settings/printer", label: "Receipt printer", need: "owner" },
