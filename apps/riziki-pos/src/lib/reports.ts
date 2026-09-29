@@ -26,6 +26,7 @@
 
 import { all, get } from "./db.ts";
 import { businessDate, pct } from "./units.ts";
+import { valueAtCost } from "./stock-service.ts";
 
 /** SQL modifier that turns a stored UTC timestamp into shop time. */
 export const SHOP_SHIFT = "+3 hours";
@@ -1619,7 +1620,11 @@ const EXPORT_SPECS: Record<ExportTable, ExportSpec> = {
           (qty / 1000).toFixed(3), units.toFixed(3),
           kes(r.cost_cents as number), kes(r.price_cents as number),
           kes(r.floor_cents as number), kes(r.ceiling_cents as number),
-          kes(Math.round(units * (r.cost_cents as number))), r.active,
+          // Cost is per kilogramme, litre or piece — never per drum. Multiplying
+          // it by the number of DRUMS valued 587 kg of Ungerol at 1,263
+          // shillings instead of 214,822, and the mistake is invisible unless
+          // somebody adds the column up.
+          kes(valueAtCost(qty, size, r.cost_cents as number)), r.active,
         ];
       }),
   },

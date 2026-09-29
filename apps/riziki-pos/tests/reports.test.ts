@@ -587,6 +587,32 @@ describe("CSV escaping", () => {
     assert.ok(csv.includes("2026-09-26,2026-09-26 13:00:00"), csv);
   });
 
+  test("the shelf is valued by what is on it, not by how many drums it is in", () => {
+    /*
+      The cost on file is per kilogramme, litre or piece — never per drum. This
+      column multiplied it by the number of DRUMS, which valued 587 kg of
+      Ungerol at 1,263 shillings instead of 214,822. Nothing looked wrong on the
+      row; the mistake only shows if somebody adds the column up.
+    */
+    run(
+      `INSERT INTO items (chemical_id, name, kind, canonical_unit, size_milli, unit_label,
+                          sellable, price_basis, price_cents, cost_cents)
+       VALUES (NULL, 'VALUED DRUM', 'bulk', 'kg', 170000, 'drum', 1, 'unit', 39500, 36542)`,
+    );
+    run(
+      `INSERT INTO stock_movements (item_id, at, delta_milli, reason, user_id)
+       SELECT id, '2026-09-20 09:00:00', 340000, 'purchase', 1
+         FROM items WHERE name = 'VALUED DRUM'`,
+    );
+
+    const row = csvText("stock")
+      .split("\n")
+      .find((l) => l.includes("VALUED DRUM"))!;
+    // 340 kg at 365.42 a kilo is 124,242.80 — not 2 drums at 365.42, which is 730.84.
+    assert.ok(row.includes("124242.80"), row);
+    assert.ok(!row.includes("730.84"), "and not the two-drums figure");
+  });
+
   test("the stock ledger exports with reasons and quantities in real units", () => {
     const csv = csvText("movements");
     assert.ok(csv.includes("opening"), "opening movements are present");
