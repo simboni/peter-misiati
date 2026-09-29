@@ -262,7 +262,7 @@ export default async function ActivityPage(props: {
         }, none of them editable`}
       />
       <div className="mb-3">
-        <ExportButtons csv="activity" label="the activity log" />
+        <ExportButtons csv="activity" label="the activity log" range={dates} />
       </div>
 
       <DateBar

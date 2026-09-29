@@ -31,10 +31,18 @@ export function ExportBar({ range }: { range: DateRange }) {
   return (
     <>
       <div className="no-print mb-3 flex flex-wrap items-center gap-2">
-        <ExportButtons csv="sales" label={`the report for ${describeRange(range)}`} />
+        {/* Both now take the period that is on screen. Excel used to take
+            every sale on record whatever the report said, which made "send me
+            the figures for August" impossible to answer without sending the
+            whole book. */}
+        <ExportButtons
+          csv="sales"
+          label={`the report for ${describeRange(range)}`}
+          range={{ period: "custom", from: range.from, to: range.to }}
+        />
         <span className="text-[13px] text-muted">
-          PDF takes the report as it stands — {describeRange(range)}. Excel takes every sale on
-          record, which is what an accountant needs.
+          Both take the report as it stands — {describeRange(range)}. The whole book is under
+          Spreadsheets and backup below.
         </span>
       </div>
 

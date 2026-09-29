@@ -140,7 +140,7 @@ export default async function SalesPage(props: {
         subtitle={`${total} sale${total === 1 ? "" : "s"} · newest first`}
       />
       <div className="mb-3">
-        <ExportButtons csv="sales" label="the sales history" />
+        <ExportButtons csv="sales" label="the sales history" range={dates} />
       </div>
 
       <DateBar

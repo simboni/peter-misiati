@@ -250,7 +250,11 @@ export default async function ExpensesPage(props: {
       <PageTitle title="Expenses" subtitle={`${monthName} · what the shop paid out`} />
 
       <div className="mb-3">
-        <ExportButtons csv="expenses" label={`expenses for ${monthName}`} />
+        <ExportButtons
+          csv="expenses"
+          label={period === "all" ? "every expense" : `expenses for ${monthName}`}
+          range={dates}
+        />
       </div>
 
       {/*

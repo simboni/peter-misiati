@@ -216,7 +216,7 @@ export default async function PurchasesPage(props: {
       ) : null}
 
       <div className="mb-3">
-        <ExportButtons csv="purchases" label="the purchase record" />
+        <ExportButtons csv="purchases" label="the purchase record" range={dateKeys} />
       </div>
 
       {/* Two tiles only — capped so they stay tile-sized instead of stretching

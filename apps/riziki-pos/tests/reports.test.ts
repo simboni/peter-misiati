@@ -36,6 +36,7 @@ const {
   csvField,
   csvRow,
   csvText,
+  isDatedExport,
   EXPORT_TABLES,
   closeForDate,
   recentCloses,
@@ -462,6 +463,78 @@ describe("CSV escaping", () => {
     assert.equal(csv.trimEnd().split("\r\n").length, 4);
     // Nairobi date, not UTC.
     assert.ok(csv.includes("2026-09-26,2026-09-26 13:00:00"));
+  });
+
+  /*
+    Exporting a slice of time rather than the whole book.
+
+    This is not only convenience. "Send me the sales" used to mean every sale
+    the shop has ever made, because whole-table was the only export there was —
+    so answering a question about one Tuesday meant handing the whole record
+    over. The range decides what leaves the shop.
+  */
+  test("a dated export holds the days asked for and no others", () => {
+    const rows = (csv: string) => csv.trimEnd().split("\r\n").slice(1);
+
+    const everything = rows(csvText("expenses"));
+    const oneDay = rows(csvText("expenses", { from: "2026-09-26", to: "2026-09-26" }));
+
+    assert.ok(everything.length > oneDay.length, "the slice is smaller than the book");
+    assert.ok(oneDay.length > 0, "and it is not empty");
+    for (const r of oneDay) {
+      assert.ok(r.includes("2026-09-26"), `a row outside the window got through: ${r}`);
+    }
+  });
+
+  test("a window with nothing in it exports a header and no rows", () => {
+    // Not an empty file: a spreadsheet with no header is a spreadsheet nobody
+    // can read, and "no rows" is itself an answer worth being able to see.
+    const csv = csvText("sales", { from: "1900-01-01", to: "1900-01-02" });
+    assert.equal(csv.trimEnd().split("\r\n").length, 1);
+    assert.match(csv, /^id,invoice_no,business_date/);
+  });
+
+  test("the window is read in shop time, like every other date here", () => {
+    // 2026-09-26 13:00 Nairobi is 10:00 UTC; the expense above was written at
+    // 10:00 UTC and belongs to the 26th. A UTC comparison would agree here and
+    // disagree after 21:00, which is the failure that never shows up in a test
+    // written at midday.
+    run(
+      `INSERT INTO expenses (at, category, amount_cents, method, note, user_id)
+       VALUES ('2026-09-26 21:30:00', 'Other', 1000, 'cash', 'late night airtime', 1)`,
+    );
+    const csv = csvText("expenses", { from: "2026-09-27", to: "2026-09-27" });
+    assert.ok(csv.includes("late night airtime"), "21:30 UTC is half past midnight on the 27th");
+    assert.ok(
+      !csvText("expenses", { from: "2026-09-26", to: "2026-09-26" }).includes("late night airtime"),
+      "and it is not on the 26th",
+    );
+  });
+
+  test("a snapshot ignores a range rather than returning nothing", () => {
+    // The shelf and the customer list are what is true now. A date range over
+    // either would be a claim nobody could check, so it is not offered — and
+    // silently returning an empty file would be the worst of both.
+    assert.equal(isDatedExport("stock"), false);
+    assert.equal(isDatedExport("customers"), false);
+    assert.equal(isDatedExport("sales"), true);
+
+    const withRange = csvText("stock", { from: "1900-01-01", to: "1900-01-02" });
+    assert.equal(withRange, csvText("stock"), "the same file either way");
+    assert.ok(withRange.trimEnd().split("\r\n").length > 1, "and it is not empty");
+  });
+
+  test("every export still runs, dated and undated", () => {
+    // The date clause is spliced into twelve hand-written queries. One of them
+    // landing in the wrong place is a SQL error the moment somebody presses
+    // Excel, and nowhere before that.
+    for (const table of EXPORT_TABLES) {
+      assert.doesNotThrow(() => csvText(table), `${table} undated`);
+      assert.doesNotThrow(
+        () => csvText(table, { from: "2026-09-01", to: "2026-09-30" }),
+        `${table} dated`,
+      );
+    }
   });
 
   test("every export table produces a header even when empty", () => {

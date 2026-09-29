@@ -1410,16 +1410,31 @@ export const EXPORT_MAX_ROWS = 100_000;
 
 interface ExportSpec {
   header: string[];
-  page: (limit: number, offset: number) => unknown[][];
+  /**
+   * The timestamp a date filter applies to, e.g. "s.at".
+   *
+   * Absent means the table is not a record of things that happened — the shelf
+   * and the customer list are both snapshots of now, and a date range over
+   * either would be a claim nobody could check.
+   */
+  dated?: string;
+  /**
+   * `where` arrives already written, as "" or "date(...) BETWEEN ? AND ?", with
+   * its parameters beside it. Built once in `csvChunks` rather than twelve
+   * times here, because twelve copies of a date comparison is twelve chances
+   * for one of them to be in UTC.
+   */
+  page: (limit: number, offset: number, where: string, args: unknown[]) => unknown[][];
 }
 
 const EXPORT_SPECS: Record<ExportTable, ExportSpec> = {
   sales: {
+    dated: "s.at",
     header: [
       "id", "invoice_no", "business_date", "at_nairobi", "served_by", "customer",
       "tier", "total_kes", "paid_kes", "balance_kes", "status", "void_reason", "note",
     ],
-    page: (limit, offset) =>
+    page: (limit, offset, where, args) =>
       all<Record<string, unknown>>(
         `SELECT s.id, s.invoice_no,
                 date(s.at, '+3 hours')     AS business_date,
@@ -1429,8 +1444,10 @@ const EXPORT_SPECS: Record<ExportTable, ExportSpec> = {
            FROM sales s
            LEFT JOIN users u ON u.id = s.user_id
            LEFT JOIN customers c ON c.id = s.customer_id
+          ${where}
           ORDER BY s.id
           LIMIT ? OFFSET ?`,
+        ...args,
         limit,
         offset,
       ).map((r: Record<string, unknown>) => [
@@ -1444,11 +1461,12 @@ const EXPORT_SPECS: Record<ExportTable, ExportSpec> = {
   // An accountant reconstructing a period needs the line detail, not just sale
   // totals: what was sold, how many, at what price against what cost.
   sale_lines: {
+    dated: "s.at",
     header: [
       "id", "sale_id", "invoice_no", "business_date", "item", "units",
       "qty", "unit_price_kes", "line_total_kes", "cost_kes", "sale_status",
     ],
-    page: (limit, offset) =>
+    page: (limit, offset, where, args) =>
       all<Record<string, unknown>>(
         `SELECT l.id, l.sale_id, s.invoice_no,
                 date(s.at, '+3 hours') AS business_date,
@@ -1457,8 +1475,10 @@ const EXPORT_SPECS: Record<ExportTable, ExportSpec> = {
                 s.status AS sale_status
            FROM sale_lines l
            JOIN sales s ON s.id = l.sale_id
+          ${where}
           ORDER BY l.id
           LIMIT ? OFFSET ?`,
+        ...args,
         limit,
         offset,
       ).map((r: Record<string, unknown>) => [
@@ -1472,11 +1492,12 @@ const EXPORT_SPECS: Record<ExportTable, ExportSpec> = {
   // Every tender, with its M-Pesa code — this is what reconciles against the
   // M-Pesa statement and the cash drawer.
   payments: {
+    dated: "p.at",
     header: [
       "id", "sale_id", "invoice_no", "business_date", "at_nairobi",
       "method", "amount_kes", "mpesa_code", "taken_by",
     ],
-    page: (limit, offset) =>
+    page: (limit, offset, where, args) =>
       all<Record<string, unknown>>(
         `SELECT p.id, p.sale_id, s.invoice_no,
                 date(p.at, '+3 hours')     AS business_date,
@@ -1485,8 +1506,10 @@ const EXPORT_SPECS: Record<ExportTable, ExportSpec> = {
            FROM payments p
            JOIN sales s ON s.id = p.sale_id
            LEFT JOIN users u ON u.id = p.user_id
+          ${where}
           ORDER BY p.id
           LIMIT ? OFFSET ?`,
+        ...args,
         limit,
         offset,
       ).map((r: Record<string, unknown>) => [
@@ -1496,11 +1519,12 @@ const EXPORT_SPECS: Record<ExportTable, ExportSpec> = {
   },
 
   purchases: {
+    dated: "p.at",
     header: [
       "line_id", "purchase_id", "business_date", "supplier", "ref", "item",
       "units", "qty", "line_cost_kes", "transport_kes", "entered_by",
     ],
-    page: (limit, offset) =>
+    page: (limit, offset, where, args) =>
       all<Record<string, unknown>>(
         `SELECT l.id AS line_id, l.purchase_id,
                 date(p.at, '+3 hours') AS business_date,
@@ -1512,8 +1536,10 @@ const EXPORT_SPECS: Record<ExportTable, ExportSpec> = {
            LEFT JOIN suppliers sup ON sup.id = p.supplier_id
            JOIN items i ON i.id = l.item_id
            LEFT JOIN users u ON u.id = p.user_id
+          ${where}
           ORDER BY l.id
           LIMIT ? OFFSET ?`,
+        ...args,
         limit,
         offset,
       ).map((r: Record<string, unknown>) => [
@@ -1526,11 +1552,12 @@ const EXPORT_SPECS: Record<ExportTable, ExportSpec> = {
   // The whole append-only ledger. This is the audit trail itself: every kilo
   // in or out, who moved it and why. The one table that proves the others.
   movements: {
+    dated: "m.at",
     header: [
       "id", "at_nairobi", "item", "kind", "delta", "reason",
       "ref_type", "ref_id", "by", "note",
     ],
-    page: (limit, offset) =>
+    page: (limit, offset, where, args) =>
       all<Record<string, unknown>>(
         `SELECT m.id, datetime(m.at, '+3 hours') AS at_nairobi,
                 i.name AS item, i.kind, m.delta_milli, m.reason,
@@ -1538,8 +1565,10 @@ const EXPORT_SPECS: Record<ExportTable, ExportSpec> = {
            FROM stock_movements m
            JOIN items i ON i.id = m.item_id
            LEFT JOIN users u ON u.id = m.user_id
+          ${where}
           ORDER BY m.id
           LIMIT ? OFFSET ?`,
+        ...args,
         limit,
         offset,
       ).map((r: Record<string, unknown>) => [
@@ -1581,11 +1610,12 @@ const EXPORT_SPECS: Record<ExportTable, ExportSpec> = {
   },
 
   batches: {
+    dated: "b.at",
     header: [
       "id", "at_nairobi", "batch_no", "formula", "formula_version",
       "target_litres", "actual_litres", "cost_kes", "status", "made_by",
     ],
-    page: (limit, offset) =>
+    page: (limit, offset, where, args) =>
       all<Record<string, unknown>>(
         `SELECT b.id, datetime(b.at, '+3 hours') AS at_nairobi, b.batch_no,
                 f.name AS formula, fv.version AS formula_version,
@@ -1594,8 +1624,10 @@ const EXPORT_SPECS: Record<ExportTable, ExportSpec> = {
            JOIN formula_versions fv ON fv.id = b.formula_version_id
            JOIN formulas f ON f.id = fv.formula_id
            LEFT JOIN users u ON u.id = b.user_id
+          ${where}
           ORDER BY b.id
           LIMIT ? OFFSET ?`,
+        ...args,
         limit,
         offset,
       ).map((r: Record<string, unknown>) => [
@@ -1630,8 +1662,9 @@ const EXPORT_SPECS: Record<ExportTable, ExportSpec> = {
   },
 
   expenses: {
+    dated: "e.at",
     header: ["id", "business_date", "at_nairobi", "category", "amount_kes", "method", "note", "entered_by"],
-    page: (limit, offset) =>
+    page: (limit, offset, where, args) =>
       all<Record<string, unknown>>(
         `SELECT e.id,
                 date(e.at, '+3 hours')     AS business_date,
@@ -1639,8 +1672,10 @@ const EXPORT_SPECS: Record<ExportTable, ExportSpec> = {
                 e.category, e.amount_cents, e.method, e.note, u.name AS entered_by
            FROM expenses e
            LEFT JOIN users u ON u.id = e.user_id
+          ${where}
           ORDER BY e.id
           LIMIT ? OFFSET ?`,
+        ...args,
         limit,
         offset,
       ).map((r: Record<string, unknown>) => [
@@ -1654,11 +1689,12 @@ const EXPORT_SPECS: Record<ExportTable, ExportSpec> = {
   // accountant asked "was this sold below cost in March" needs the number that
   // was in force, and a delta cannot be turned back into one.
   price_changes: {
+    dated: "p.at",
     header: [
       "id", "business_date", "at_nairobi", "item", "old_price_kes", "new_price_kes",
       "change_kes", "changed_by", "where", "note",
     ],
-    page: (limit, offset) =>
+    page: (limit, offset, where, args) =>
       all<Record<string, unknown>>(
         `SELECT p.id,
                 date(p.at, '+3 hours')     AS business_date,
@@ -1668,8 +1704,10 @@ const EXPORT_SPECS: Record<ExportTable, ExportSpec> = {
            FROM price_changes p
            LEFT JOIN items i ON i.id = p.item_id
            LEFT JOIN users u ON u.id = p.user_id
+          ${where}
           ORDER BY p.id
           LIMIT ? OFFSET ?`,
+        ...args,
         limit,
         offset,
       ).map((r: Record<string, unknown>) => [
@@ -1688,12 +1726,13 @@ const EXPORT_SPECS: Record<ExportTable, ExportSpec> = {
   // proportion to their value. Both the total and the quantity are carried so
   // the rate can be checked rather than believed.
   landed: {
+    dated: "p.at",
     header: [
       "purchase_id", "business_date", "at_nairobi", "item", "unit", "supplier", "ref",
       "units", "quantity", "landed_total_kes", "landed_rate_kes_per_unit",
       "cost_on_file_kes_per_unit", "asking_price_kes_per_unit",
     ],
-    page: (limit, offset) =>
+    page: (limit, offset, where, args) =>
       all<Record<string, unknown>>(
         `SELECT pl.purchase_id,
                 date(p.at, '+3 hours')     AS business_date,
@@ -1705,8 +1744,10 @@ const EXPORT_SPECS: Record<ExportTable, ExportSpec> = {
            JOIN purchases p ON p.id = pl.purchase_id
            LEFT JOIN items i ON i.id = pl.item_id
            LEFT JOIN suppliers s ON s.id = p.supplier_id
+          ${where}
           ORDER BY pl.id
           LIMIT ? OFFSET ?`,
+        ...args,
         limit,
         offset,
       ).map((r: Record<string, unknown>) => [
@@ -1724,8 +1765,9 @@ const EXPORT_SPECS: Record<ExportTable, ExportSpec> = {
   // what the screen it comes from is called, and the file lands on somebody's
   // desktop with no screen around it to explain the name.
   activity: {
+    dated: "a.at",
     header: ["id", "business_date", "at_nairobi", "who", "action", "about", "about_id", "detail"],
-    page: (limit, offset) =>
+    page: (limit, offset, where, args) =>
       all<Record<string, unknown>>(
         `SELECT a.id,
                 date(a.at, '+3 hours')     AS business_date,
@@ -1733,8 +1775,10 @@ const EXPORT_SPECS: Record<ExportTable, ExportSpec> = {
                 u.name AS who, a.action, a.entity, a.entity_id, a.detail
            FROM audit_log a
            LEFT JOIN users u ON u.id = a.user_id
+          ${where}
           ORDER BY a.id
           LIMIT ? OFFSET ?`,
+        ...args,
         limit,
         offset,
       ).map((r: Record<string, unknown>) => [
@@ -1748,13 +1792,41 @@ const EXPORT_SPECS: Record<ExportTable, ExportSpec> = {
  * off the heap — the promise in the quotation is that the owner can always take
  * their data out, including on the day the phone is nearly full.
  */
-export function* csvChunks(table: ExportTable): Generator<string> {
+/**
+ * Whether a table can be asked for a slice of time at all.
+ *
+ * The shelf and the customer list are snapshots of now, so a date range over
+ * either would be a claim nobody could check. Every other export is a record of
+ * things that happened, and those can be cut to a day.
+ */
+export function isDatedExport(table: ExportTable): boolean {
+  return Boolean(EXPORT_SPECS[table].dated);
+}
+
+/**
+ * The export, optionally cut to a range of business days.
+ *
+ * WHY IT MATTERS MORE THAN CONVENIENCE. "Send me the sales" used to mean the
+ * whole history, because that was the only export there was — so answering a
+ * question about one Tuesday meant handing over every sale the shop has ever
+ * made. A range means the file that leaves the shop is the file the question
+ * needs, and nothing else goes with it.
+ *
+ * The comparison is in shop time, UTC+3, like every other date in this system.
+ * A day cut any other way would hold a nine-o'clock sale the dashboard counts
+ * on the day before.
+ */
+function* csvChunks(table: ExportTable, range?: DateRange | null): Generator<string> {
   const spec = EXPORT_SPECS[table];
   yield csvRow(spec.header);
 
+  const where =
+    range && spec.dated ? `WHERE date(${spec.dated}, '+3 hours') BETWEEN ? AND ?` : "";
+  const args: unknown[] = where ? [range!.from, range!.to] : [];
+
   let offset = 0;
   for (;;) {
-    const rows = spec.page(EXPORT_PAGE, offset);
+    const rows = spec.page(EXPORT_PAGE, offset, where, args);
     if (rows.length === 0) return;
     yield rows.map(csvRow).join("");
     offset += rows.length;
@@ -1763,14 +1835,14 @@ export function* csvChunks(table: ExportTable): Generator<string> {
 }
 
 /** The whole CSV as one string. Used by tests; the route streams instead. */
-export function csvText(table: ExportTable): string {
+export function csvText(table: ExportTable, range?: DateRange | null): string {
   let out = "";
-  for (const chunk of csvChunks(table)) out += chunk;
+  for (const chunk of csvChunks(table, range)) out += chunk;
   return out;
 }
 
-export function csvStream(table: ExportTable): ReadableStream<Uint8Array> {
-  const chunks = csvChunks(table);
+export function csvStream(table: ExportTable, range?: DateRange | null): ReadableStream<Uint8Array> {
+  const chunks = csvChunks(table, range);
   const encoder = new TextEncoder();
   return new ReadableStream<Uint8Array>({
     pull(controller) {

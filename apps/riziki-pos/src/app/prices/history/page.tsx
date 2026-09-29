@@ -85,7 +85,7 @@ export default async function PriceHistoryPage(props: {
       </Link>
       <PageTitle title="Price history" subtitle="Every change, who made it, and what it was before" />
       <div className="mb-3">
-        <ExportButtons csv="price_changes" label="the price history" />
+        <ExportButtons csv="price_changes" label="the price history" range={dates} />
       </div>
 
       <DateBar

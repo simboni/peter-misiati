@@ -7,13 +7,19 @@
  * streams, it escapes properly, and it needs nothing but a browser.
  *
  * `GET /export?table=sales|stock|batches|customers|expenses`
+ *
+ * Optionally `&period=month` or `&from=…&to=…`, in which case the file holds
+ * that slice of business days and nothing else. That is not only convenience:
+ * answering a question about one Tuesday used to mean handing over every sale
+ * the shop has ever made, because whole-table was the only export there was.
  */
 
 import type { NextRequest } from "next/server";
 import { requireOwner } from "@/lib/auth";
 import { audit } from "@/lib/db";
 import { businessDate } from "@/lib/units";
-import { csvStream, isExportTable, EXPORT_TABLES } from "@/lib/reports";
+import { csvStream, isExportTable, isDatedExport, EXPORT_TABLES } from "@/lib/reports";
+import { listRange, readListPeriod } from "@/lib/list-range";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +40,8 @@ export async function GET(request: NextRequest) {
 
   // On the request object `searchParams` is plain and synchronous — it is the
   // route's `params`/`searchParams` *props* that became promises in Next.js 16.
-  const table = request.nextUrl.searchParams.get("table") ?? "";
+  const sp = request.nextUrl.searchParams;
+  const table = sp.get("table") ?? "";
 
   if (!isExportTable(table)) {
     return new Response(
@@ -43,11 +50,29 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  audit(ownerId, "export", table);
+  /*
+    The dates the screen was filtered to, carried into the file.
 
-  const filename = `riziki-${table}-${businessDate()}.csv`;
+    A table with no date of its own — the shelf, the customer list — ignores
+    them rather than silently returning nothing: both are snapshots of now, and
+    a range over either would be a claim nobody could check.
+  */
+  const period = readListPeriod({
+    period: sp.get("period") ?? undefined,
+    from: sp.get("from") ?? undefined,
+    to: sp.get("to") ?? undefined,
+  });
+  const range = isDatedExport(table)
+    ? listRange(period, businessDate(), sp.get("from") ?? undefined, sp.get("to") ?? undefined)
+    : null;
 
-  return new Response(csvStream(table), {
+  // The audit log says WHAT was taken out, so it has to say how much of it.
+  audit(ownerId, "export", table, null, range ? `${range.from} to ${range.to}` : "everything");
+
+  const span = range ? `${range.from}_to_${range.to}` : businessDate();
+  const filename = `riziki-${table}-${span}.csv`;
+
+  return new Response(csvStream(table, range), {
     status: 200,
     headers: {
       // text/csv plus the filename is what makes Android offer "Save to Files"

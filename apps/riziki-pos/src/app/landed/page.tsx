@@ -103,7 +103,7 @@ export default async function LandedPage(props: {
       />
 
       <div className="mb-3">
-        <ExportButtons csv="landed" label="the landed costs" />
+        <ExportButtons csv="landed" label="the landed costs" range={dates} />
       </div>
 
       <Card className="mb-3">

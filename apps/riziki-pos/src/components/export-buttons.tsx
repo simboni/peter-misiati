@@ -54,10 +54,23 @@ export function ExportButtons({
   csv,
   /** What the file should be called when it lands, minus the extension. */
   label,
+  range,
 }: {
   csv?: string;
   label: string;
+  /**
+   * The dates the screen is filtered to, so the file matches what is on it.
+   *
+   * Without this the button exported the whole table whatever the screen was
+   * showing — so somebody looking at one Tuesday, and asked for "the sales",
+   * would hand over every sale the shop has ever made. What leaves the shop
+   * should be what the question needed and nothing else.
+   */
+  range?: Record<string, string>;
 }) {
+  const query = new URLSearchParams({ ...(range ?? {}) });
+  const dated = query.toString();
+
   return (
     <div className="no-print flex flex-wrap items-center gap-1.5">
       <button
@@ -75,8 +88,12 @@ export function ExportButtons({
           // A plain anchor, not next/link: this is a file download, and a
           // prefetched link would quietly export the whole table every time the
           // page was looked at.
-          href={`/export?table=${csv}`}
-          title={`Download ${label} as a spreadsheet — opens in Excel or Sheets`}
+          href={`/export?table=${csv}${dated ? `&${dated}` : ""}`}
+          title={
+            dated
+              ? `Download ${label} for the dates on this screen — opens in Excel or Sheets`
+              : `Download ${label} as a spreadsheet — opens in Excel or Sheets`
+          }
           className={`${CHIP} bg-white text-good ring-line hover:bg-good-soft`}
         >
           <SheetGlyph />
