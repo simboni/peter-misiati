@@ -522,13 +522,36 @@ export async function rebind(): Promise<boolean> {
   if (channel?.alive()) return true;
   if (!saved) return false;
 
-  if (saved.transport === "serial") {
+  /*
+    A cable comes back on its own, now, rather than on the next receipt.
+
+    This used to arm the way back and stop — the screen read "Known over the
+    cable", the first print reconnected silently, and it worked. What it looked
+    like was a printer that was not connected, so the shop pressed Connect by
+    cable every time, which opens a chooser, which is exactly the tap this was
+    meant to save.
+
+    Opening it here costs nothing and asks nobody: `getPorts` and `getDevices`
+    hand back only what this browser has already been granted, so there is no
+    prompt and no chooser — the difference between this and the first
+    connection of all is that this one needs no human. Failure is silent and
+    keeps the name and the way back: unplugged is a thing to say when somebody
+    prints, not a thing to shout at a screen on the way past.
+
+    Bluetooth is left alone. A BLE connect takes seconds, drains the printer's
+    battery and fails noisily out of range, and the counter phone's Chrome
+    usually has no `getDevices` to ask in the first place.
+  */
+  if (saved.transport === "serial" || saved.transport === "usb") {
     const baud = isBaud(saved.baud) ? (saved.baud as Baud) : DEFAULT_BAUD;
-    reopen = () => reopenSerial(saved.id, baud);
-    return true;
-  }
-  if (saved.transport === "usb") {
-    reopen = () => reopenUsb(saved.id);
+    reopen =
+      saved.transport === "serial" ? () => reopenSerial(saved.id, baud) : () => reopenUsb(saved.id);
+    try {
+      await connect();
+    } catch {
+      status = "idle";
+      publish();
+    }
     return true;
   }
 
