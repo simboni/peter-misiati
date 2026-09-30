@@ -358,7 +358,28 @@ export function explainCable(err: unknown): string {
     return "No printer was chosen. Plug the printer in, switch it on, then try again and pick it from the list.";
   }
   if (name === "SecurityError") {
-    return "This browser blocked the cable on this page. Open the app over https, or as http://localhost on the machine itself.";
+    /*
+      TWO DIFFERENT FAULTS WEARING ONE ERROR NAME, and telling somebody the
+      wrong one costs them an afternoon.
+
+      This used to answer "open the app over https" every time. But the cable
+      buttons are only drawn at all when the page IS already a secure one —
+      `supported()` returns "insecure" otherwise and the whole panel is hidden.
+      So the only people who could ever read that sentence were the people for
+      whom it was untrue, and the shop went looking at the certificate while a
+      blocked permission sat in the browser's own settings.
+
+      Chrome and Edge remember a "Block" on a site's serial ports or USB
+      devices for good, and having remembered it they refuse the chooser
+      without asking again. That is what this almost always is now.
+    */
+    const secure = typeof window !== "undefined" && window.isSecureContext;
+    return secure
+      ? "This browser has this site blocked from reaching printers on the cable — somebody answered " +
+          "Block when it asked, and it does not ask twice. Click the icon at the left of the address " +
+          "bar, find Serial ports (or USB devices), set it back to Ask, then reload the page and try again."
+      : "This page was opened over plain http, which a browser will not give a cable to. Open the app " +
+          "over https, or as http://localhost on the machine itself.";
   }
   if (name === "NetworkError" || /failed to open|access denied|unable to claim/i.test(raw)) {
     return (

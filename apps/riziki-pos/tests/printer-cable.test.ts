@@ -13,6 +13,7 @@ import assert from "node:assert/strict";
 
 import { chunks } from "../src/lib/printer-channel.ts";
 import {
+  explainCable,
   pickPrinterEndpoint,
   isBaud,
   BAUD_RATES,
@@ -139,4 +140,64 @@ test("a speed from storage is checked before it is used", () => {
   assert.equal(isBaud(undefined), false);
   assert.equal(isBaud(null), false);
   assert.equal(isBaud("fast"), false);
+});
+
+// -------------------------------------------------- saying which fault it is
+
+/** The shape a browser throws: a DOMException is an Error with a `name`. */
+function refusal(name: string, message = ""): Error {
+  const err = new Error(message);
+  err.name = name;
+  return err;
+}
+
+/** Stand in for the browser, since node has no window. */
+function withSecureContext<T>(secure: boolean | null, run: () => T): T {
+  const had = "window" in globalThis;
+  const before = (globalThis as { window?: unknown }).window;
+  if (secure === null) delete (globalThis as { window?: unknown }).window;
+  else (globalThis as { window?: unknown }).window = { isSecureContext: secure };
+  try {
+    return run();
+  } finally {
+    if (had) (globalThis as { window?: unknown }).window = before;
+    else delete (globalThis as { window?: unknown }).window;
+  }
+}
+
+test("a blocked permission is not reported as a missing certificate", () => {
+  /*
+    The whole reason this split exists. The cable buttons are only drawn when
+    the page is already secure, so the old single answer — "open the app over
+    https" — could only ever be read by somebody for whom it was untrue. The
+    shop went looking at its certificate while a Block sat in the browser's own
+    site settings.
+  */
+  const said = withSecureContext(true, () => explainCable(refusal("SecurityError")));
+  assert.match(said, /blocked/i, "it says the site is blocked");
+  assert.match(said, /address bar/i, "and where to go to undo it");
+  assert.doesNotMatch(said, /https/i, "and never sends them to the certificate");
+});
+
+test("a page opened over plain http still gets told so", () => {
+  const said = withSecureContext(false, () => explainCable(refusal("SecurityError")));
+  assert.match(said, /https/, "the old answer, for the case it was written for");
+  assert.match(said, /localhost/, "with the way out on the machine itself");
+});
+
+test("off a browser altogether it does not guess", () => {
+  // Rendered on the server, or read in a test: no window to ask.
+  const said = withSecureContext(null, () => explainCable(refusal("SecurityError")));
+  assert.match(said, /https/, "falls back to the safe, general answer");
+});
+
+test("a printer claimed by the operating system is named as that, not as a block", () => {
+  const said = explainCable(refusal("NetworkError", "Failed to open serial port."));
+  assert.match(said, /Windows and Linux/);
+  assert.match(said, /COM port/, "and points at the route that works");
+});
+
+test("a chooser nobody picked from is not an error worth alarming about", () => {
+  const said = explainCable(refusal("NotFoundError", "No port selected by the user."));
+  assert.match(said, /No printer was chosen/);
 });
