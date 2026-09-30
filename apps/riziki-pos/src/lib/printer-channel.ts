@@ -34,6 +34,15 @@ export interface Channel {
   name: string;
   /** A stable handle for this exact device, so it can be recognised again. */
   id: string;
+  /**
+   * The computer's own COM port rather than anything that was plugged in.
+   *
+   * Only a serial channel can be this, and it is the difference between a
+   * printer and a nine-pin socket on the back of a desktop with nothing in it.
+   * Both open, both take every byte without complaint, and only one of them
+   * prints — so the screen has to be told which it got.
+   */
+  onboard?: boolean;
   /** Still connected right now — an automatic receipt can go straight out. */
   alive(): boolean;
   write(bytes: Uint8Array): Promise<void>;

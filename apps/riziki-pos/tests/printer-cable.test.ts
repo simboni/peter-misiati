@@ -13,7 +13,10 @@ import assert from "node:assert/strict";
 
 import { chunks } from "../src/lib/printer-channel.ts";
 import {
+  ONBOARD_PORT_CAUTION,
+  chooseSerial,
   explainCable,
+  isUsbPort,
   pickPrinterEndpoint,
   isBaud,
   BAUD_RATES,
@@ -216,4 +219,80 @@ test("a printer claimed by the operating system is named as that, not as a block
 test("a chooser nobody picked from is not an error worth alarming about", () => {
   const said = explainCable(refusal("NotFoundError", "No port selected by the user."));
   assert.match(said, /No printer was chosen/);
+});
+
+// ----------------------------------- a socket with nothing on the end of it
+
+/*
+  The failure that reports itself as a success.
+
+  On the client's desktop the serial chooser held exactly one entry —
+  "Communications Port (COM1)" — the nine-pin socket on the back of the
+  machine, with nothing plugged into it. The printer was not in the list at
+  all, because Windows had it on the USB side and no USB-serial driver had ever
+  been installed. The port opened, took the whole receipt without complaint,
+  and the app said "Connected" and then "Test slip sent". Both were true. No
+  paper moved.
+
+  Chrome gives a serial port's USB vendor and product only when a USB device
+  made that port, so the two cases are told apart without guessing.
+*/
+
+function fakePort(info: { usbVendorId?: number; usbProductId?: number }) {
+  const written: number[] = [];
+  return {
+    getInfo: () => info,
+    open: async () => {},
+    close: async () => {},
+    written,
+    get writable() {
+      return {
+        getWriter: () => ({
+          write: async (c: Uint8Array) => void written.push(...c),
+          releaseLock: () => {},
+        }),
+      } as unknown as WritableStream<Uint8Array>;
+    },
+  };
+}
+
+/** Node 22 has a real `navigator` and it is getter-only, so it is redefined. */
+function withSerial<T>(port: ReturnType<typeof fakePort>, run: () => T): T {
+  const before = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: { serial: { requestPort: async () => port, getPorts: async () => [port] } },
+  });
+  try {
+    return run();
+  } finally {
+    if (before) Object.defineProperty(globalThis, "navigator", before);
+    else delete (globalThis as { navigator?: unknown }).navigator;
+  }
+}
+
+test("a port with no USB behind it is the computer's own, and says so", () => {
+  assert.equal(isUsbPort(fakePort({})), false);
+  assert.equal(isUsbPort(fakePort({ usbVendorId: 0x1a86, usbProductId: 0x7523 })), true);
+});
+
+test("the computer's own socket is not called a printer", async () => {
+  const chan = await withSerial(fakePort({}), () => chooseSerial(9600));
+  assert.equal(chan.onboard, true, "the screen is told which one it got");
+  assert.doesNotMatch(chan.name, /printer/i, `it must not read as a printer: ${chan.name}`);
+  assert.match(chan.name, /this computer/i);
+});
+
+test("a real USB printer is named by what it is", async () => {
+  const chan = await withSerial(fakePort({ usbVendorId: 0x1a86, usbProductId: 0x7523 }), () =>
+    chooseSerial(9600),
+  );
+  assert.equal(chan.onboard, false);
+  assert.match(chan.name, /1a86:7523/, `named by its ids: ${chan.name}`);
+});
+
+test("the caution names the driver, because that is the errand", () => {
+  assert.match(ONBOARD_PORT_CAUTION, /CH340|Prolific/);
+  assert.match(ONBOARD_PORT_CAUTION, /USB driver/i);
+  assert.match(ONBOARD_PORT_CAUTION, /nine-pin/, "and allows for a printer really wired to it");
 });

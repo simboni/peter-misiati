@@ -151,6 +151,28 @@ const OPEN_TIMEOUT_MS = 15_000;
 
 // ----------------------------------------------------------- a serial port
 
+/**
+ * Whether anything was actually plugged in to make this port exist.
+ *
+ * Chrome tells us a serial port's USB vendor and product only when the port
+ * comes from a USB device. A port with neither is one the computer already had
+ * — the nine-pin socket on the back of a desktop — and on the machine this was
+ * written for that was the ONLY entry in the chooser, because the printer's
+ * USB-serial driver had never been installed. It opened, it took the whole
+ * receipt without a word of complaint, and the bytes went into an empty socket.
+ */
+export function isUsbPort(port: { getInfo?(): SerialPortInfo }): boolean {
+  return port.getInfo?.()?.usbVendorId != null;
+}
+
+/**
+ * What to call it on screen.
+ *
+ * This used to call a port with no USB behind it "Printer on the cable", which
+ * is the friendliest possible way of saying something untrue: the shop read
+ * "Printer on the cable — connected", believed it, and spent an afternoon
+ * wondering why a COM1 socket would not print. A thing is called what it is.
+ */
 function portLabel(port: SerialPortLike): string {
   const info = port.getInfo?.();
   if (info?.usbVendorId != null) {
@@ -158,8 +180,23 @@ function portLabel(port: SerialPortLike): string {
     const p = (info.usbProductId ?? 0).toString(16).padStart(4, "0");
     return `USB printer ${v}:${p}`;
   }
-  return "Printer on the cable";
+  return "This computer's own serial port";
 }
+
+/**
+ * What to say about a port nothing was plugged in to make.
+ *
+ * Not an error: a genuine RS-232 printer on that socket is a real thing and
+ * the shop may have one. But it is the likeliest reason for a test slip that
+ * reports itself sent and never appears, so it is said out loud at the moment
+ * of connecting rather than left for somebody to work out.
+ */
+export const ONBOARD_PORT_CAUTION =
+  "That is this computer's own serial socket, not anything plugged into it — so if the printer is " +
+  "on a USB lead, nothing typed here will reach it. Windows needs the printer's USB driver (CH340 " +
+  "or Prolific on most of these machines) before the printer gets a COM port of its own; install " +
+  "it, plug the printer back in, and connect again, choosing the new port. Ignore this only if the " +
+  "printer really is wired into that nine-pin socket.";
 
 /** A stable-enough name for a port, which the API gives no id of its own. */
 function portId(port: SerialPortLike): string {
@@ -192,6 +229,7 @@ async function openSerial(port: SerialPortLike, baud: Baud): Promise<Channel> {
     transport: "serial",
     name: portLabel(port),
     id: portId(port),
+    onboard: !isUsbPort(port),
     alive: () => open && port.writable !== null,
     async write(bytes) {
       if (!port.writable) throw new Error("The cable is no longer open. Plug it back in and try again.");

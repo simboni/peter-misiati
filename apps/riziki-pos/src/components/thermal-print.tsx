@@ -426,6 +426,16 @@ export function PrinterPicker({ paper, header, footer }: PrinterFieldsView) {
       {ok && !error ? <Alert tone="good">{ok}</Alert> : null}
 
       {/*
+        The one failure that reports itself as a success.
+
+        A desktop's own nine-pin socket opens, accepts a whole receipt and
+        prints nothing, because there is nothing on the end of it. The screen
+        said "Connected" and "Test slip sent", and both were true, and the shop
+        spent an afternoon on it. Now the screen says which one it got.
+      */}
+      {printer.onboard ? <Alert tone="warn">{link.ONBOARD_PORT_CAUTION}</Alert> : null}
+
+      {/*
         Only the ways this machine actually has.
 
         A desktop was being offered a Bluetooth chooser it can never answer —

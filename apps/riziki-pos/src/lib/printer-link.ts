@@ -45,6 +45,7 @@ import { chunks, sleep, withTimeout, TRANSPORT_LABEL, type Channel, type Transpo
 import {
   BAUD_RATES,
   DEFAULT_BAUD,
+  ONBOARD_PORT_CAUTION,
   cableSupported,
   cableWays,
   chooseSerial,
@@ -56,7 +57,7 @@ import {
   type Baud,
 } from "@/lib/printer-cable";
 
-export { BAUD_RATES, DEFAULT_BAUD, type Baud };
+export { BAUD_RATES, DEFAULT_BAUD, ONBOARD_PORT_CAUTION, type Baud };
 export { TRANSPORT_LABEL, type Transport };
 
 // ------------------------------------------------- minimal Web Bluetooth
@@ -386,6 +387,11 @@ export interface LinkSnapshot {
   live: boolean;
   /** How it is reached, so the screen can say "on the cable" and mean it. */
   transport: Transport | null;
+  /**
+   * Connected to the computer's own serial socket rather than to anything
+   * plugged in. The screen says so, because nothing else will.
+   */
+  onboard: boolean;
 }
 
 let channel: Channel | null = null;
@@ -400,7 +406,14 @@ let transport: Transport | null = null;
 let lastAttempt: Transport = "bluetooth";
 
 const watchers = new Set<() => void>();
-let snapshot: LinkSnapshot = { status: "idle", name: "", remembered: false, live: false, transport: null };
+let snapshot: LinkSnapshot = {
+  status: "idle",
+  name: "",
+  remembered: false,
+  live: false,
+  transport: null,
+  onboard: false,
+};
 
 function publish(): void {
   snapshot = {
@@ -409,6 +422,7 @@ function publish(): void {
     remembered: typeof window !== "undefined" && readRemembered() !== null,
     live: Boolean(channel?.alive()),
     transport,
+    onboard: Boolean(channel?.onboard),
   };
   for (const w of watchers) w();
 }
@@ -426,7 +440,7 @@ export function getSnapshot(): LinkSnapshot {
 
 /** The server renders no printer state; this keeps hydration honest. */
 export function getServerSnapshot(): LinkSnapshot {
-  return { status: "idle", name: "", remembered: false, live: false, transport: null };
+  return { status: "idle", name: "", remembered: false, live: false, transport: null, onboard: false };
 }
 
 export function supported(): Support | "ok" {
