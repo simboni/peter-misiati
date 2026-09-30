@@ -129,7 +129,7 @@ export default async function DeliveryNotePage(props: {
         >
           {showPrices ? "Hide the prices" : "Show the prices"}
         </Link>
-        <PrintButton />
+        <PrintButton label="Print on A5 paper" />
       </div>
 
       {/*
@@ -138,11 +138,21 @@ export default async function DeliveryNotePage(props: {
         file rather than on the lorry.
       */}
       <div className="no-print mb-3">
+        {/*
+          It prints itself, on the same setting the receipts use.
+
+          The driver is standing in the room the counter printer is in, and
+          this page is opened to print from — not to read, because the invoice
+          already says everything. Leaving it to a tap meant the tap that got
+          pressed was the browser's own Print, whose dialog then covered the
+          button that would have done the right thing.
+        */}
         <ThermalPrint
           doc={{ kind: "delivery", note }}
           paper={printer.paper}
           logo={printer.logo}
           logoSrc={markSrc()}
+          auto={printer.autoPrint}
           label="Print on the counter printer"
         />
       </div>
