@@ -52,12 +52,13 @@ import {
   chooseUsb,
   explainCable,
   isBaud,
+  onWindows,
   reopenSerial,
   reopenUsb,
   type Baud,
 } from "@/lib/printer-cable";
 
-export { BAUD_RATES, DEFAULT_BAUD, ONBOARD_PORT_CAUTION, type Baud };
+export { BAUD_RATES, DEFAULT_BAUD, ONBOARD_PORT_CAUTION, onWindows, type Baud };
 export { TRANSPORT_LABEL, type Transport };
 
 // ------------------------------------------------- minimal Web Bluetooth

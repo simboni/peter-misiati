@@ -15,6 +15,7 @@ import { chunks } from "../src/lib/printer-channel.ts";
 import {
   ONBOARD_PORT_CAUTION,
   chooseSerial,
+  onWindows,
   explainCable,
   isUsbPort,
   pickPrinterEndpoint,
@@ -295,4 +296,59 @@ test("the caution names the driver, because that is the errand", () => {
   assert.match(ONBOARD_PORT_CAUTION, /CH340|Prolific/);
   assert.match(ONBOARD_PORT_CAUTION, /USB driver/i);
   assert.match(ONBOARD_PORT_CAUTION, /nine-pin/, "and allows for a printer really wired to it");
+});
+
+// ------------------------------------------- which machine somebody is on
+
+/*
+  The same printer, the same lead and the same app printed first time from a
+  MacBook and could not be made to work at all from a Windows desktop. Nothing
+  in this file was wrong — Windows binds every USB device to a driver and a
+  browser can only reach one bound to WinUSB — but it took two days to find
+  out, so the screen now says so on the machine where it matters.
+*/
+
+function withPlatform<T>(ua: string, hint: string | null, run: () => T): T {
+  const before = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: hint === null ? { userAgent: ua } : { userAgent: ua, userAgentData: { platform: hint } },
+  });
+  try {
+    return run();
+  } finally {
+    if (before) Object.defineProperty(globalThis, "navigator", before);
+    else delete (globalThis as { navigator?: unknown }).navigator;
+  }
+}
+
+const WINDOWS_UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36";
+const MAC_UA =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36";
+
+test("Windows is recognised from the modern hint and from the old string", () => {
+  assert.equal(withPlatform(WINDOWS_UA, "Windows", () => onWindows()), true);
+  assert.equal(withPlatform(WINDOWS_UA, null, () => onWindows()), true, "no hint, fall back to the string");
+});
+
+test("a Mac is not offered the Windows driver advice", () => {
+  // It is the machine the printer worked on first time. Telling it about
+  // WinUSB would be noise on the one platform with nothing to fix.
+  assert.equal(withPlatform(MAC_UA, "macOS", () => onWindows()), false);
+  assert.equal(withPlatform(MAC_UA, null, () => onWindows()), false);
+});
+
+test("the hint wins over the string, and a server says no", () => {
+  // Chrome's user-agent string still says "Windows NT" in places it should
+  // not; the hint is the one to believe when there is one.
+  assert.equal(withPlatform(WINDOWS_UA, "macOS", () => onWindows()), false);
+
+  const before = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  delete (globalThis as { navigator?: unknown }).navigator;
+  try {
+    assert.equal(onWindows(), false, "rendered on the server, it decides nothing");
+  } finally {
+    if (before) Object.defineProperty(globalThis, "navigator", before);
+  }
 });

@@ -269,6 +269,29 @@ export async function reopenSerial(id: string, baud: Baud = DEFAULT_BAUD): Promi
   }
 }
 
+/**
+ * Windows, which is the only operating system where the cable is hard.
+ *
+ * WHY THIS IS WORTH KNOWING ON SCREEN. The same printer, the same lead and the
+ * same app printed first time from a MacBook and could not be made to work at
+ * all from a Windows desktop, and two days went into finding out why. It is not
+ * a fault anywhere in this code. macOS lets a browser take hold of a USB
+ * printer directly. Windows binds every USB device to a driver first, and
+ * Chrome's USB route can only speak to a device bound to Microsoft's own
+ * WinUSB — so a printer carrying its maker's driver is refused, however many
+ * permissions are granted, and a printer with no serial driver has no COM port
+ * for the cable route either. Both doors, one key.
+ *
+ * Best effort and never load-bearing: it decides whether a paragraph of help is
+ * shown, nothing more.
+ */
+export function onWindows(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const hinted = (navigator as { userAgentData?: { platform?: string } }).userAgentData?.platform;
+  if (hinted) return /win/i.test(hinted);
+  return /Windows/i.test(navigator.userAgent ?? "");
+}
+
 // ------------------------------------------------------------- a USB device
 
 /** USB's own number for "this is a printer". */

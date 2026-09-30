@@ -391,6 +391,7 @@ export function PrinterPicker({ paper, header, footer }: PrinterFieldsView) {
   const blocked = ways !== null && ways.verdict !== "ok";
   const busy = working || blocked || ways === null;
   const where = printer.transport ? link.TRANSPORT_LABEL[printer.transport] : "";
+  const windows = link.onWindows();
 
   return (
     <div className="space-y-3 rounded-3xl bg-white p-4 shadow-card ring-1 ring-ink/5">
@@ -521,6 +522,59 @@ export function PrinterPicker({ paper, header, footer }: PrinterFieldsView) {
             machines — and plug it back in. Windows and Linux both hand a USB printer to their own
             driver, so the second button only works where nothing has claimed it.
           </p>
+
+          {/*
+            The paragraph that cost two days.
+
+            The same printer, the same lead and the same app printed first time
+            from a MacBook and could not be made to work at all from a Windows
+            desktop. Nothing here was wrong: macOS lets a browser take hold of a
+            USB printer directly, and Windows does not. It is written down on
+            the screen where somebody hits it, rather than left to be worked out
+            again from a Device Manager tree.
+
+            Shut by default, because a shop that is printing does not need it.
+          */}
+          {windows ? (
+            <details className="mt-2 rounded-xl border border-line bg-wash p-2.5">
+              <summary className="cursor-pointer text-[11px] font-bold text-brand">
+                On Windows and it will not connect? Read this
+              </summary>
+              <div className="mt-2 space-y-2 text-[11px] leading-relaxed text-muted">
+                <p>
+                  Windows gives every USB device to a driver before the browser can reach it, and a
+                  browser can only speak to one that is using Microsoft{"'"}s own WinUSB driver. A
+                  printer carrying its maker{"'"}s driver is refused however many permissions it is
+                  given, and a printer with no serial driver has no COM port for the cable button
+                  either. A Mac has neither restriction, which is why the same printer and the same
+                  lead work there straight away.
+                </p>
+                <p>
+                  <span className="font-bold text-ink">Open Device Manager and find the printer.</span>{" "}
+                  Under <span className="font-bold">Ports (COM &amp; LPT)</span> it is ready for the
+                  cable button — connect and pick it, and take care not to pick{" "}
+                  <span className="font-bold">Communications Port (COM1)</span>, which is the empty
+                  socket on the back of the machine. Under{" "}
+                  <span className="font-bold">Universal Serial Bus controllers</span> or{" "}
+                  <span className="font-bold">Print queues</span>, a driver already has it and one of
+                  the two below is needed.
+                </p>
+                <p>
+                  <span className="font-bold text-ink">Either</span> install the printer{"'"}s own
+                  driver package and turn on its virtual COM port, which gives it a port under Ports
+                  (COM &amp; LPT) for the cable button.{" "}
+                  <span className="font-bold text-ink">Or</span> use Zadig (zadig.akeo.ie) to put the
+                  WinUSB driver on it, which makes the USB button work — but then only this app can
+                  print to it and no other Windows program can, until the driver is put back from
+                  Device Manager.
+                </p>
+                <p>
+                  Neither is needed on the counter phone over Bluetooth, and neither affects the A5
+                  paper receipts, which print through Windows as normal.
+                </p>
+              </div>
+            </details>
+          ) : null}
         </div>
       ) : null}
 
