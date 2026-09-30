@@ -350,7 +350,7 @@ export async function reopenUsb(id: string): Promise<Channel | null> {
  * not a fault in the app and retrying will never fix it — the way out is the
  * serial route, which no printer driver claims.
  */
-export function explainCable(err: unknown): string {
+export function explainCable(err: unknown, tried?: "serial" | "usb"): string {
   const name = (err as { name?: string })?.name ?? "";
   const raw = err instanceof Error ? err.message : String(err);
 
@@ -359,27 +359,51 @@ export function explainCable(err: unknown): string {
   }
   if (name === "SecurityError") {
     /*
-      TWO DIFFERENT FAULTS WEARING ONE ERROR NAME, and telling somebody the
-      wrong one costs them an afternoon.
+      THREE DIFFERENT FAULTS WEARING ONE ERROR NAME, and telling somebody the
+      wrong one costs them an afternoon. This answered "open the app over
+      https" for all of them, and sent a shop to look at a certificate that was
+      never wrong.
 
-      This used to answer "open the app over https" every time. But the cable
-      buttons are only drawn at all when the page IS already a secure one —
-      `supported()` returns "insecure" otherwise and the whole panel is hidden.
-      So the only people who could ever read that sentence were the people for
-      whom it was untrue, and the shop went looking at the certificate while a
-      blocked permission sat in the browser's own settings.
+      Which one it is can be worked out without guessing.
 
-      Chrome and Edge remember a "Block" on a site's serial ports or USB
-      devices for good, and having remembered it they refuse the chooser
-      without asking again. That is what this almost always is now.
+      The cable buttons are only drawn at all when the page IS already secure —
+      `supported()` returns "insecure" otherwise and the whole panel is hidden
+      — so an insecure page is the one case that can only happen somewhere
+      other than that screen, and it keeps the old wording.
+
+      On a secure page, which route was tried decides the rest. A USB attempt
+      that gets this far has already been GRANTED the device — the browser
+      names it in the site panel with a Reset permission button beside it — so
+      there is nothing to unblock, and what refused is underneath the browser:
+      Windows and Linux bind a printer to their own driver and will not let it
+      go. No amount of permission will move that, and the serial route is the
+      answer, because no printer driver claims a COM port.
+
+      A serial attempt is the only one where a blocked permission is really the
+      likely cause, because Chrome remembers a "Block" for good and then
+      refuses the chooser without ever asking again.
     */
     const secure = typeof window !== "undefined" && window.isSecureContext;
-    return secure
-      ? "This browser has this site blocked from reaching printers on the cable — somebody answered " +
-          "Block when it asked, and it does not ask twice. Click the icon at the left of the address " +
-          "bar, find Serial ports (or USB devices), set it back to Ask, then reload the page and try again."
-      : "This page was opened over plain http, which a browser will not give a cable to. Open the app " +
-          "over https, or as http://localhost on the machine itself.";
+    if (!secure) {
+      return (
+        "This page was opened over plain http, which a browser will not give a cable to. Open the app " +
+        "over https, or as http://localhost on the machine itself."
+      );
+    }
+    if (tried === "usb") {
+      return (
+        "The browser has the printer but cannot take hold of it: on Windows and on Linux the " +
+        "operating system's own printer driver has it first, and no permission will move that. " +
+        "Use Connect by cable instead and pick the printer's COM port — nothing claims a serial " +
+        "port. If there is no port in the list, install the printer's USB driver (CH340 or Prolific " +
+        "on most of these machines) and plug it back in."
+      );
+    }
+    return (
+      "This browser has this site blocked from reaching serial ports — somebody answered Block when " +
+      "it asked, and it does not ask twice. Click the icon at the left of the address bar, open Site " +
+      "settings, find Serial ports, set it back to Ask, then reload the page and try again."
+    );
   }
   if (name === "NetworkError" || /failed to open|access denied|unable to claim/i.test(raw)) {
     return (

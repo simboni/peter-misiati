@@ -173,10 +173,26 @@ test("a blocked permission is not reported as a missing certificate", () => {
     shop went looking at its certificate while a Block sat in the browser's own
     site settings.
   */
-  const said = withSecureContext(true, () => explainCable(refusal("SecurityError")));
+  const said = withSecureContext(true, () => explainCable(refusal("SecurityError"), "serial"));
   assert.match(said, /blocked/i, "it says the site is blocked");
   assert.match(said, /address bar/i, "and where to go to undo it");
   assert.doesNotMatch(said, /https/i, "and never sends them to the certificate");
+});
+
+test("a USB route that is refused is not blamed on a permission", () => {
+  /*
+    The client's desktop, with Chrome's own site panel open beside it: USB
+    devices "Ask (default)", Serial ports "Ask (default)", the printer listed
+    by name with a Reset permission button next to it. Nothing was blocked.
+    There was nothing on that screen to unblock, and an answer that said to go
+    and unblock something sent somebody hunting for a setting that did not
+    exist. What had refused was underneath the browser.
+  */
+  const said = withSecureContext(true, () => explainCable(refusal("SecurityError"), "usb"));
+  assert.match(said, /operating system/i, "it names what actually has the printer");
+  assert.match(said, /Connect by cable/, "and sends them to the route that works");
+  assert.doesNotMatch(said, /set it back to Ask/i, "and never to a setting that is already right");
+  assert.doesNotMatch(said, /https/i, "and never to the certificate");
 });
 
 test("a page opened over plain http still gets told so", () => {

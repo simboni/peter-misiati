@@ -139,8 +139,9 @@ function explain(err: unknown): string {
   const name = (err as { name?: string })?.name ?? "";
   const raw = err instanceof Error ? err.message : String(err);
 
-  // A cable failure knows its own words, and they are different words.
-  if (lastAttempt !== "bluetooth") return explainCable(err);
+  // A cable failure knows its own words, and they are different words — and
+  // which of the two cables was tried changes the answer, so it is passed on.
+  if (lastAttempt !== "bluetooth") return explainCable(err, lastAttempt);
 
   if (name === "NotFoundError") {
     return "No printer was chosen. Tap Print again, switch the printer on, and pick it from the list.";
