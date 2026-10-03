@@ -654,6 +654,53 @@ export const projects: Project[] = [
     ],
   },
   {
+    slug: "smp-credits",
+    title: "SMP Credits",
+    summary:
+      "Modern lending, powered by M-Pesa — a back office for the lending team and an app for members, on web and Android. Loans, savings, approvals, payments and reporting in one system.",
+    type: "Product",
+    year: "2026",
+    role: "Product design & full-stack engineering",
+    stack: ["Web admin", "Member web app", "Android app", "M-Pesa"],
+    tags: ["Fintech", "SaaS", "Web App", "Product"],
+    featured: true,
+    cover: { from: "from-green-600", to: "to-ink-950", initials: "SC" },
+    logo: "/logos/smp-credits.webp",
+    logoBg: "#ffffff",
+    category: "Web Apps",
+    links: { live: "https://smpcredits.co.ke" },
+    problem:
+      "Small lenders, SACCOs and chamas run their books on spreadsheets and WhatsApp: loan balances recalculated by hand, M-Pesa payments reconciled from SMS, approvals decided in a group chat and no reliable answer to the only question that matters — what is actually outstanding, and who owes it.",
+    approach:
+      "I built SMP Credits as two connected surfaces over one lending engine. The back office gives the team a live loan book split into principal, interest and admin fees, work queues for approvals, unallocated payments and ageing loans, plus members, savings, reports and an audit log. Members get their own app — web and Android — to see their balance, repay by M-Pesa in seconds, save and withdraw, and pull a statement without calling the office.",
+    architecture: [
+      "Two surfaces on one engine: an admin back office for staff and a member app shipped to both web and Android.",
+      "M-Pesa repayment from inside the member app, with collections reconciling against each member's loan automatically.",
+      "A loan book broken down into principal, interest and admin fees, with lending-versus-collections trends over twelve months.",
+      "Work queues that surface what needs a human: loans waiting for approval, unallocated payments, members to review and loans ageing past 90 days.",
+      "Tiered member loan levels, savings with deposit and withdrawal, staff roles and an audit log of who did what.",
+      "Light and dark themes across admin and member app; Play Store build with icon and store listing assets.",
+    ],
+    highlights: [
+      "One system covering both sides of lending — the team's back office and the member's phone.",
+      "M-Pesa repayment in seconds, replacing SMS reconciliation with automatic allocation.",
+      "Work queues and an audit log that turn a spreadsheet into something a lender can actually control.",
+      "Shipped to web and Android from one product, with store-ready listing assets.",
+    ],
+    impact: [
+      { value: "Web + Android", label: "Member app" },
+      { value: "M-Pesa", label: "Repayment & collection" },
+      { value: "Audit log", label: "Every action traced" },
+    ],
+    media: [
+      { src: "/mockups/smp-credits-hero.webp", alt: "SMP Credits — modern lending, powered by M-Pesa: back office and member app" },
+      { src: "/mockups/smp-credits-admin.webp", alt: "SMP Credits admin — outstanding loan book, work queues and lending-vs-collections" },
+      { src: "/mockups/smp-credits-member.webp", alt: "SMP Credits member app — loan balance, savings and M-Pesa repayment" },
+      { src: "/mockups/smp-credits-reports.webp", alt: "SMP Credits admin — reports" },
+      { src: "/mockups/smp-credits-android.webp", alt: "SMP Credits on Android — member home screen" },
+    ],
+  },
+  {
     slug: "riziki-chemicals",
     title: "Riziki Chemicals",
     summary:
