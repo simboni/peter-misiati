@@ -1,0 +1,81 @@
+<!doctype html><html><head><meta charset="utf-8">
+<style>
+  *{margin:0;box-sizing:border-box}
+  :root{--ink900:#0a0f0c;--ink700:#18211b;--ink600:#223029;
+    --green400:#2ee88a;--green300:#8bf7bd;--mist100:#e9f1ec;--mist300:#b7c7bd;--mist400:#93a89c;--mist600:#55645b;--gold:#e7b64b}
+  html,body{width:1080px;height:1080px}
+  body{font-family:'DejaVu Sans','Liberation Sans',Arial,sans-serif;color:var(--mist300);
+    background:radial-gradient(80% 55% at 92% -6%,rgba(46,232,138,.16),transparent 55%),radial-gradient(60% 40% at -8% 108%,rgba(46,232,138,.10),transparent 60%),var(--ink900);
+    padding:58px 62px 52px;display:flex;flex-direction:column;position:relative;overflow:hidden}
+  .grid{position:absolute;inset:0;opacity:.5;background-image:linear-gradient(rgba(233,241,236,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(233,241,236,.03) 1px,transparent 1px);background-size:54px 54px;mask-image:radial-gradient(92% 72% at 50% 22%,#000,transparent 88%)}
+  .z{position:relative;z-index:2}
+  .head{display:flex;align-items:center;justify-content:space-between}
+  .logo{display:flex;align-items:center;gap:14px}
+  .mark{width:54px;height:54px;border-radius:14px;background:linear-gradient(150deg,#12271c,#0b1310);border:1.5px solid rgba(46,232,138,.5);display:flex;align-items:center;justify-content:center;color:var(--green400);font-family:'DejaVu Sans Mono',monospace;font-weight:700;font-size:21px}
+  .logo b{color:var(--mist100);font-family:'DejaVu Sans Mono',monospace;font-size:20px}
+  .logo .t{color:var(--green400);font-family:'DejaVu Sans Mono',monospace;font-size:20px}
+  .logo .sub{color:var(--mist600);font-size:11px;letter-spacing:2px;text-transform:uppercase;margin-top:3px}
+  .cred{font-family:'DejaVu Sans Mono',monospace;font-size:14px;color:var(--green300);border:1px solid var(--ink600);background:rgba(46,232,138,.05);padding:9px 15px;border-radius:999px}
+
+  .kick{font-family:'DejaVu Sans Mono',monospace;font-size:18px;letter-spacing:1px;color:var(--green400);margin-top:36px}
+  h1{color:var(--mist100);font-weight:800;font-size:64px;line-height:1.02;letter-spacing:-2px;margin-top:14px}
+  h1 .g{color:var(--green400)}
+  .price{display:flex;align-items:center;gap:16px;margin-top:22px;flex-wrap:wrap}
+  .pill{font-family:'DejaVu Sans Mono',monospace;font-weight:700;border-radius:12px;padding:14px 20px;font-size:22px}
+  .pill.big{background:var(--green400);color:#06110b;box-shadow:0 18px 40px -18px rgba(46,232,138,.6)}
+  .pill.gh{border:1px solid var(--ink600);color:var(--mist100);background:rgba(255,255,255,.03)}
+  .pill .s{font-size:14px;font-weight:600;opacity:.8;display:block;margin-bottom:-2px}
+
+  .feat{display:grid;grid-template-columns:1fr 1fr;gap:18px 26px;margin-top:30px}
+  .f{display:flex;align-items:flex-start;gap:13px}
+  .f .c{width:34px;height:34px;border-radius:10px;background:rgba(46,232,138,.13);border:1px solid rgba(46,232,138,.38);color:var(--green400);display:flex;align-items:center;justify-content:center;font-size:19px;font-weight:800;flex-shrink:0;margin-top:1px}
+  .f .x{font-size:25px;line-height:1.22;color:var(--mist100);font-weight:700}
+  .f .x small{display:block;font-size:17px;color:var(--mist400);font-weight:400;margin-top:2px}
+
+  .bar{margin-top:26px;border:1px dashed rgba(231,182,75,.5);background:rgba(231,182,75,.07);border-radius:14px;padding:15px 22px;display:flex;align-items:center;gap:14px}
+  .bar .tag{font-family:'DejaVu Sans Mono',monospace;font-size:13px;font-weight:700;color:#0a0f0c;background:var(--gold);padding:5px 11px;border-radius:7px}
+  .bar .b{font-size:19px;color:var(--mist100);font-weight:600}
+  .bar .b small{color:var(--mist400);font-weight:400}
+
+  .more{margin-top:18px;font-size:19px;color:var(--mist400)}
+  .more b{color:var(--green300);font-weight:700}
+
+  .foot{margin-top:auto;padding-top:22px;border-top:1px solid var(--ink600);display:flex;align-items:center;justify-content:space-between;gap:16px}
+  .contact{font-family:'DejaVu Sans Mono',monospace;font-size:19px;color:var(--mist300);line-height:1.75}
+  .contact .k{color:var(--green400)}
+  .cta{background:var(--green400);color:#06110b;font-weight:800;font-size:23px;padding:20px 30px;border-radius:14px;white-space:nowrap;box-shadow:0 18px 40px -18px rgba(46,232,138,.6)}
+</style></head>
+<body>
+  <div class="grid"></div>
+  <div class="head z">
+    <div class="logo"><div class="mark">&lt;/&gt;</div><div><div><span class="t">~/</span><b>smp-developers</b></div><div class="sub">SMP · Simboni Misiati Peter</div></div></div>
+    <div class="cred">10+ yrs · 100+ projects</div>
+  </div>
+
+  <div class="z">
+    <div class="kick">// custom business websites &amp; systems</div>
+    <h1>A website that gets<br>you <span class="g">found &amp; booked</span>.</h1>
+    <div class="price">
+      <div class="pill big"><span class="s">starting from</span>KES 60,000</div>
+      <div class="pill gh"><span class="s">ready in</span>1 week ⚡</div>
+    </div>
+  </div>
+
+  <div class="feat z">
+    <div class="f"><div class="c">✓</div><div class="x">Free domain + hosting<small>A full year — you own it all</small></div></div>
+    <div class="f"><div class="c">✓</div><div class="x">Admin dashboard<small>Update your site &amp; blog yourself</small></div></div>
+    <div class="f"><div class="c">✓</div><div class="x">Online booking built in<small>Turn visitors into bookings</small></div></div>
+    <div class="f"><div class="c">✓</div><div class="x">Unlimited changes<small>Until it&rsquo;s exactly right</small></div></div>
+    <div class="f"><div class="c">✓</div><div class="x">Modern &amp; fast<small>Mobile-first, SEO &amp; WhatsApp ready</small></div></div>
+    <div class="f"><div class="c">✓</div><div class="x">Built &amp; handed over<small>From first chat to launch</small></div></div>
+  </div>
+
+  <div class="bar z"><span class="tag">FREE</span><div class="b">Domain + hosting for 1 full year included <small>&mdash; no hidden costs</small></div></div>
+
+  <div class="more z">Need more than a website? I also build <b>POS, booking &amp; M-Pesa systems</b> &mdash; ask.</div>
+
+  <div class="foot z">
+    <div class="contact"><div><span class="k">see the work</span> smp-developers.com</div><div><span class="k">whatsapp</span> +254 706 289 514</div></div>
+    <div class="cta">Message me →</div>
+  </div>
+</body></html>

@@ -1,7 +1,7 @@
-# Ad — "Custom business website from KES 20,000" · poster + captions
+# Ad — "Custom business website from KES 60,000" · poster + captions
 
 **Images:** `public/marketing/ads/ad-website-offer.png` (square 1080²) · `ad-website-offer-story.png` (story 1080×1920).
-**The offer on the poster:** custom business website **from KES 20,000**, delivered in **1 week**, **unlimited changes**, **free domain + hosting for 1 year**, **admin dashboard** (edit site & blog), **online booking**, modern/fast/mobile/SEO.
+**The offer on the poster:** custom business website **from KES 60,000**, delivered in **1 week**, **unlimited changes**, **free domain + hosting for 1 year**, **admin dashboard** (edit site & blog), **online booking**, modern/fast/mobile/SEO.
 **One rule:** every caption ends in a single action — WhatsApp **+254 706 289 514** or **smp-developers.com**. Reply within the hour.
 
 ---
@@ -10,7 +10,7 @@
 Post the story image. Caption / broadcast text:
 
 > Your business needs a website that actually brings customers. 👇
-> ✅ Custom-built, from KES 20,000
+> ✅ Custom-built, from KES 60,000
 > ✅ Ready in 1 week
 > ✅ FREE domain + hosting for 1 year
 > ✅ Admin dashboard — you update it yourself
@@ -18,12 +18,12 @@ Post the story image. Caption / broadcast text:
 > See the work → smp-developers.com · WhatsApp +254 706 289 514
 
 ## Instagram / Facebook feed (use the SQUARE image)
-> **A website that gets you found & booked — from KES 20,000.** 🚀
+> **A website that gets you found & booked — from KES 60,000.** 🚀
 >
 > If customers can't find you online, they're booking your competitor instead. Let's fix that this week.
 >
 > Here's exactly what you get:
-> ✅ A custom business website (not a template) — from KES 20,000
+> ✅ A custom business website (not a template) — from KES 60,000
 > ✅ Delivered in 1 week
 > ✅ FREE domain + hosting for a full year — you own everything
 > ✅ Your own admin dashboard to update the site & blog anytime
@@ -43,7 +43,7 @@ Post the story image. Caption / broadcast text:
 ## LinkedIn (use the SQUARE image)
 > Your website should be your hardest-working employee — open 24/7, taking bookings while you sleep.
 >
-> I build custom business websites for Kenyan organisations — **from KES 20,000, delivered in one week** — with free domain + hosting for the first year, an admin dashboard so your team can update it themselves, online booking built in, and modern, fast, SEO-ready design.
+> I build custom business websites for Kenyan organisations — **from KES 60,000, delivered in one week** — with free domain + hosting for the first year, an admin dashboard so your team can update it themselves, online booking built in, and modern, fast, SEO-ready design.
 >
 > No templates, no hidden costs, unlimited changes until it's right. 10+ years, 100+ projects.
 >
@@ -52,7 +52,7 @@ Post the story image. Caption / broadcast text:
 > #WebDevelopment #Kenya #SmallBusiness #SoftwareEngineering
 
 ## X / Twitter (square image)
-> A website that gets you found & booked — from KES 20,000. 🚀
+> A website that gets you found & booked — from KES 60,000. 🚀
 > ✅ Ready in 1 week ✅ Free domain + hosting (1yr)
 > ✅ Admin dashboard ✅ Online booking ✅ Unlimited changes
 > 10+ yrs · 100+ projects · Kenya.
@@ -70,4 +70,7 @@ Post the story image. Caption / broadcast text:
 
 **Then:** send **5 direct messages** today to businesses with weak/no sites (SME script in `outreach-templates.md`) so the ad + outreach land together.
 
-> **Tip:** the KES 20,000 is a "starting from" anchor — quote higher for booking systems, many pages, or e-commerce. The free domain + hosting and the 1-week delivery are what close the deal; lead with those in the chat.
+> **Tip:** KES 60,000 is the floor for a website, not the ceiling for the job. Send the
+> **rate card** (`docs/sales/SMP-Rate-Card.pdf`) the moment someone asks "how much?" — it moves the
+> conversation from one number to three tiers, and tier 2 (bookings + M-Pesa, from KES 150,000) is
+> where most businesses actually land. Never quote tier 3 system work off this ad.
