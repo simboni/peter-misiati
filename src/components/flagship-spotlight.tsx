@@ -1,50 +1,65 @@
 import Link from "next/link";
-import { getProject } from "@/lib/portfolio";
+import { projects, type Project } from "@/lib/portfolio";
 import { Button } from "@/components/ui";
 import { ExternalLinkIcon, GitHubIcon, ArrowRightIcon } from "@/components/icons";
 
 /**
- * Flagship-product band for the home page. StackUp is SMP's own venture — not
- * a client build — so it gets a distinct spotlight with the product's own
- * (purple) accent, set apart from the client work below.
+ * Flagship-product bands for the home page. These are SMP's own products —
+ * not client builds — so each gets a spotlight in its own brand accent, set
+ * apart from the client work below. Add `flagship: true` to a project in
+ * portfolio.ts and it appears here.
  */
 
-const PURPLE = "#7B68EE";
+const FALLBACK_ACCENT = "#7B68EE";
 
-export function StackupSpotlight() {
-  const p = getProject("stackup");
-  if (!p) return null;
+export function FlagshipSpotlights() {
+  const flagships = projects.filter((p) => p.flagship);
+  if (flagships.length === 0) return null;
+
+  return (
+    <>
+      {flagships.map((p, i) => (
+        <FlagshipBand key={p.slug} project={p} reversed={i % 2 === 1} />
+      ))}
+    </>
+  );
+}
+
+function FlagshipBand({
+  project: p,
+  reversed,
+}: {
+  project: Project;
+  reversed: boolean;
+}) {
+  const accent = p.accent ?? FALLBACK_ACCENT;
+  const points = p.highlights.slice(0, 4);
 
   return (
     <section className="border-b border-ink-700 bg-ink-850">
       <div className="container-page py-16 sm:py-20">
         <div className="grid items-center gap-10 lg:grid-cols-2 lg:gap-14">
           {/* Copy */}
-          <div className="order-2 lg:order-1">
+          <div className={reversed ? "order-2" : "order-2 lg:order-1"}>
             <span
               className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em]"
-              style={{ color: PURPLE, borderColor: `${PURPLE}66`, background: `${PURPLE}14` }}
+              style={{ color: accent, borderColor: `${accent}66`, background: `${accent}14` }}
             >
-              <span className="h-1.5 w-1.5 rounded-full" style={{ background: PURPLE }} />
+              <span className="h-1.5 w-1.5 rounded-full" style={{ background: accent }} />
               Flagship product · building in the open
             </span>
 
             <h2 className="mt-5 font-display text-3xl font-bold leading-tight tracking-tight text-mist-100 text-balance sm:text-4xl">
-              StackUp — the product I&rsquo;m building, not just shipping for clients.
+              {p.flagshipHeadline ?? p.title}
             </h2>
             <p className="mt-4 max-w-xl leading-relaxed text-mist-400">{p.summary}</p>
 
             <ul className="mt-6 grid gap-2.5 sm:grid-cols-2">
-              {[
-                "Database-enforced multi-tenancy (fail-closed RLS)",
-                "One codebase → API, web & mobile",
-                "Open & self-hostable",
-                "CI-gated tenant isolation on every push",
-              ].map((point) => (
+              {points.map((point) => (
                 <li key={point} className="flex gap-2.5 text-sm text-mist-300">
                   <span
                     className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full"
-                    style={{ background: PURPLE }}
+                    style={{ background: accent }}
                   />
                   <span>{point}</span>
                 </li>
@@ -78,11 +93,11 @@ export function StackupSpotlight() {
             </div>
           </div>
 
-          {/* Preview — dashboard up front, sign-in peeking behind */}
-          <div className="order-1 lg:order-2">
+          {/* Preview — lead image up front, second peeking behind */}
+          <div className={reversed ? "order-1" : "order-1 lg:order-2"}>
             <Link
               href={`/work/${p.slug}`}
-              aria-label="StackUp — case study"
+              aria-label={`${p.title} — case study`}
               className="group relative block"
             >
               {p.media[1] && (
@@ -92,7 +107,9 @@ export function StackupSpotlight() {
                   alt=""
                   aria-hidden="true"
                   loading="lazy"
-                  className="absolute -right-3 -top-6 hidden w-1/2 rotate-[3deg] rounded-xl border border-ink-600 opacity-90 shadow-[0_24px_50px_-30px_rgba(0,0,0,0.7)] transition-transform duration-500 group-hover:-translate-y-1 sm:block"
+                  className={`absolute -top-6 hidden w-1/2 rounded-xl border border-ink-600 opacity-90 shadow-[0_24px_50px_-30px_rgba(0,0,0,0.7)] transition-transform duration-500 group-hover:-translate-y-1 sm:block ${
+                    reversed ? "-left-3 -rotate-[3deg]" : "-right-3 rotate-[3deg]"
+                  }`}
                 />
               )}
               {p.media[0] && (
@@ -101,12 +118,13 @@ export function StackupSpotlight() {
                   src={p.media[0].src}
                   alt={p.media[0].alt}
                   loading="lazy"
-                  className="relative w-full overflow-hidden rounded-2xl border border-ink-600 shadow-[0_30px_70px_-40px_rgba(123,104,238,0.65)] transition-transform duration-500 group-hover:scale-[1.02]"
+                  className="relative w-full overflow-hidden rounded-2xl border border-ink-600 transition-transform duration-500 group-hover:scale-[1.02]"
+                  style={{ boxShadow: `0 30px 70px -40px ${accent}a6` }}
                 />
               )}
             </Link>
             <div className="mt-3 flex items-center justify-end gap-1.5 text-xs text-mist-500">
-              <span>Dashboard &amp; sign-in — full case study</span>
+              <span>Full case study</span>
               <ArrowRightIcon className="h-3.5 w-3.5" />
             </div>
           </div>

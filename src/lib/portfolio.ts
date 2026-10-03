@@ -228,6 +228,12 @@ export type Project = {
   stack: string[];
   tags: string[];
   featured?: boolean;
+  /** Own product given a spotlight band on the home page. */
+  flagship?: boolean;
+  /** The product's own accent colour, used by the flagship band. */
+  accent?: string;
+  /** Headline for the flagship band; falls back to the title. */
+  flagshipHeadline?: string;
   cover: { from: string; to: string; initials: string };
   /** Brand logo for the "worked with" strip and partners page. */
   logo?: string;
@@ -256,6 +262,10 @@ export const projects: Project[] = [
     stack: ["NestJS", "PostgreSQL", "Next.js 15", "React 19", "TypeScript", "Capacitor", "Fly.io"],
     tags: ["Web App", "SaaS", "Product"],
     featured: true,
+    flagship: true,
+    accent: "#7B68EE",
+    flagshipHeadline:
+      "StackUp \u2014 the product I\u2019m building, not just shipping for clients.",
     cover: { from: "from-ink-700", to: "to-ink-950", initials: "SU" },
     logo: "/logos/stackup.svg",
     logoBg: "#ffffff",
@@ -664,6 +674,10 @@ export const projects: Project[] = [
     stack: ["Web admin", "Member web app", "Android app", "M-Pesa"],
     tags: ["Fintech", "SaaS", "Web App", "Product"],
     featured: true,
+    flagship: true,
+    accent: "#5A8F1E",
+    flagshipHeadline:
+      "SMP Credits \u2014 lending that runs on M-Pesa, from the back office to the member\u2019s phone.",
     cover: { from: "from-green-600", to: "to-ink-950", initials: "SC" },
     logo: "/logos/smp-credits.webp",
     logoBg: "#ffffff",
