@@ -1,0 +1,28 @@
+# Portfolio — INTERNAL static file server.
+#
+# Plain HTTP on :80 inside the `edge` Docker network. No TLS here and no
+# domain name: edge-caddy terminates HTTPS on the public side and proxies
+# to this container. Keeping certificates in one place (edge-caddy) is why
+# this file is so short.
+
+:80 {
+	root * /srv/site
+
+	encode zstd gzip
+
+	# The site is a Next.js static export with trailingSlash: true, so a
+	# request for /work/stackup/ must resolve to /work/stackup/index.html.
+	try_files {path} {path}/ {path}/index.html /404.html
+	file_server
+
+	# Hashed build assets never change under the same name — cache hard.
+	header /_next/static/* Cache-Control "public, max-age=31536000, immutable"
+
+	# Everything else: let the browser revalidate so a deploy is picked up.
+	header / Cache-Control "public, max-age=0, must-revalidate"
+
+	log {
+		output stdout
+		format console
+	}
+}

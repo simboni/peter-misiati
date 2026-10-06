@@ -1,0 +1,39 @@
+# Portfolio — static site container for the Contabo box.
+#
+# This deliberately does NOT bind ports 80/443. `edge-caddy` already owns them
+# and terminates TLS for every site on this server. This container just serves
+# the static export on port 80 *inside* the shared `edge` network, and
+# edge-caddy reverse-proxies to it by container name.
+#
+#   cd /root/peter-misiati/deploy/contabo
+#   docker compose up -d
+#
+# Nothing else on the server is affected: no host ports, no shared volumes,
+# no changes to any other compose project.
+
+name: smp-portfolio
+
+services:
+  web:
+    image: caddy:2-alpine
+    container_name: smp-portfolio
+    restart: unless-stopped
+    expose:
+      - "80"                      # internal to the edge network only
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # The static export, built from the repo root (npm run build -> out/).
+      # Read-only: this container can never modify the site.
+      - ../../out:/srv/site:ro
+    networks:
+      - edge
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+networks:
+  # Created and owned by the `edge` project in /srv/edge — we only join it.
+  edge:
+    external: true
