@@ -1,0 +1,85 @@
+# StackUp on the Contabo box.
+#
+# Two containers: PostgreSQL, and one API container that serves BOTH the API
+# and the web app (the web is a static export the API serves from WEB_DIST —
+# single origin, no CORS).
+#
+# Ports: none published. `edge-caddy` owns 80/443 and reverse-proxies to
+# stackup-api:3000 over the shared `edge` network. The database sits on a
+# PRIVATE network and is never reachable from outside this project.
+#
+#   cd /srv/stackup && docker compose up -d
+#
+# Memory is capped on both services so StackUp can never starve the other apps.
+
+name: stackup
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: stackup-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD:?set in .env}
+      # Consumed by init-db.sh on FIRST start only, to create the two roles.
+      STACKUP_MIGRATOR_PASSWORD: ${STACKUP_MIGRATOR_PASSWORD:?set in .env}
+      STACKUP_APP_PASSWORD: ${STACKUP_APP_PASSWORD:?set in .env}
+    volumes:
+      - stackup-db-data:/var/lib/postgresql/data
+      - ./init-db.sh:/docker-entrypoint-initdb.d/10-stackup.sh:ro
+    networks:
+      - internal
+    mem_limit: 768m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  api:
+    build:
+      context: ./repo
+    image: stackup-api:local
+    container_name: stackup-api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      # Private docker network — TLS to the database would be ceremony.
+      DB_SSL: disable
+      APP_DB_URL: postgres://stackup_app:${STACKUP_APP_PASSWORD}@db:5432/stackup
+      JWT_SECRET: ${JWT_SECRET:?set in .env}
+      ACCESS_TOKEN_TTL: ${ACCESS_TOKEN_TTL:-900}
+      REFRESH_TOKEN_TTL: ${REFRESH_TOKEN_TTL:-2592000}
+      # Optional — omit for the offline heuristic instead of the real AI Brain.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      STACKUP_AI_MODEL: ${STACKUP_AI_MODEL:-}
+    expose:
+      - "3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - internal     # to reach the database
+      - edge         # so edge-caddy can reach it
+    mem_limit: 1g
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+
+volumes:
+  # The business data. Backed up nightly — see README.
+  stackup-db-data:
+
+networks:
+  internal:
+  # Owned by the `edge` project in /srv/edge — we only join it.
+  edge:
+    external: true
