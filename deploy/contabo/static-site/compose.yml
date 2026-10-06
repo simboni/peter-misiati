@@ -1,0 +1,39 @@
+# Reusable static-site container for the Contabo box.
+#
+# Serves a folder of static files on port 80 INSIDE the shared `edge`
+# network. It binds no host ports — edge-caddy keeps 80/443 and reverse
+# proxies to this container by name.
+#
+# Configure with a .env file next to this one:
+#   SITE_NAME=wamalwa            -> container becomes `wamalwa-web`
+#   SITE_ROOT=./repo             -> the directory holding index.html
+#
+#   docker compose up -d
+#
+# Memory is capped so a single site can never starve the box.
+
+name: ${SITE_NAME}
+
+services:
+  web:
+    image: caddy:2-alpine
+    container_name: ${SITE_NAME}-web
+    restart: unless-stopped
+    expose:
+      - "80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${SITE_ROOT}:/srv/site:ro
+    networks:
+      - edge
+    mem_limit: 128m
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+
+networks:
+  # Owned by the `edge` project in /srv/edge — we only join it.
+  edge:
+    external: true

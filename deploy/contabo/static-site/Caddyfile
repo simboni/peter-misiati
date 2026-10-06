@@ -1,0 +1,31 @@
+# INTERNAL static file server for a plain HTML site.
+#
+# Plain HTTP on :80 inside the `edge` network — edge-caddy terminates TLS
+# on the public side. No domain name appears here, which is what makes
+# this file reusable for any site.
+#
+# Suits sites written as real .html files (about.html, work.html …) rather
+# than Next.js-style directories. `/about` and `/about.html` both resolve.
+
+:80 {
+	root * /srv/site
+
+	encode zstd gzip
+
+	# Site-specific redirects go here, before try_files.
+	# Carried over from the site's _redirects file:
+	redir /news.html /blog.html 301
+
+	# /about -> about.html, /blog/post -> blog/post.html, /dir -> dir/index.html
+	try_files {path} {path}.html {path}/index.html
+	file_server
+
+	# Images, CSS and JS under assets/ are versioned by deploy, not by name,
+	# so cache for a month rather than forever.
+	header /assets/* Cache-Control "public, max-age=2592000"
+
+	log {
+		output stdout
+		format console
+	}
+}
