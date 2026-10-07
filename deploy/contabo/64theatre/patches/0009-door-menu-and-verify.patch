@@ -1,0 +1,266 @@
+diff --git a/app/Filament/Pages/VerifyTicket.php b/app/Filament/Pages/VerifyTicket.php
+new file mode 100644
+index 0000000..1269447
+--- /dev/null
++++ b/app/Filament/Pages/VerifyTicket.php
+@@ -0,0 +1,214 @@
++<?php
++
++namespace App\Filament\Pages;
++
++use App\Models\Performance;
++use App\Models\Ticket;
++use App\Services\GateCheckin;
++use App\Support\TicketShare;
++use BackedEnum;
++use Filament\Actions\Action;
++use Filament\Forms\Components\Select;
++use Filament\Forms\Components\TextInput;
++use Filament\Notifications\Notification;
++use Filament\Pages\Page;
++use Filament\Schemas\Components\Actions;
++use Filament\Schemas\Components\EmbeddedSchema;
++use Filament\Schemas\Components\Form;
++use Filament\Schemas\Components\Section;
++use Filament\Schemas\Components\Text;
++use Filament\Schemas\Schema;
++use Filament\Support\Icons\Heroicon;
++
++/**
++ * Checking a ticket at the door, from the office.
++ *
++ * The scanner at /gate is the right tool on a phone at the door. This is for
++ * the other half of the job: somebody at the desk with a code read out over
++ * the phone, a printed list to settle, or a dispute about whether a ticket has
++ * already been used.
++ *
++ * Verifying and admitting are separate on purpose. Looking a ticket up must
++ * never spend it — the common case is answering a question, and a check that
++ * silently redeems would turn every enquiry into a used ticket and an argument
++ * at the door.
++ */
++class VerifyTicket extends Page
++{
++    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedQrCode;
++
++    protected static string|\UnitEnum|null $navigationGroup = 'Door';
++
++    protected static ?int $navigationSort = 1;
++
++    protected static ?string $title = 'Verify a ticket';
++
++    protected static ?string $slug = 'verify-ticket';
++
++    /** @var array<string, mixed>|null */
++    public ?array $data = [];
++
++    /** Result of the last lookup, rendered below the form. */
++    public ?array $result = null;
++
++    public static function canAccess(): bool
++    {
++        return in_array(auth()->user()?->role, ['super_admin', 'admin', 'finance', 'gate'], true);
++    }
++
++    public function mount(): void
++    {
++        $this->form->fill([
++            'performance_id' => Performance::query()
++                ->where('starts_at', '>=', now()->subDay())
++                ->orderBy('starts_at')
++                ->value('id'),
++        ]);
++    }
++
++    public function form(Schema $schema): Schema
++    {
++        return $schema
++            ->components([
++                Section::make()
++                    ->schema([
++                        Select::make('performance_id')
++                            ->label('Performance')
++                            ->options(fn (): array => Performance::with('event')
++                                ->orderByDesc('starts_at')
++                                ->limit(60)
++                                ->get()
++                                ->mapWithKeys(fn (Performance $p): array => [$p->getKey() => $p->label])
++                                ->all())
++                            ->searchable()
++                            ->required()
++                            ->helperText('A ticket for another night is not valid tonight, so the performance has to be chosen.'),
++                        TextInput::make('code')
++                            ->label('Ticket code')
++                            ->placeholder('AXNS8YWB')
++                            ->required()
++                            ->autofocus()
++                            ->extraInputAttributes(['style' => 'text-transform:uppercase; letter-spacing:.18em; font-family:ui-monospace,monospace'])
++                            ->helperText('The eight characters printed under the QR.'),
++                    ])
++                    ->columns(2),
++            ])
++            ->statePath('data');
++    }
++
++    /** Read-only. Says what the ticket is without spending it. */
++    public function verify(): void
++    {
++        $data = $this->form->getState();
++        $code = strtoupper(trim((string) $data['code']));
++        $ticket = Ticket::with(['order.customer', 'ticketType', 'performance.event', 'performance.venue'])
++            ->where('short_code', $code)
++            ->first();
++
++        if (! $ticket) {
++            $this->result = ['state' => 'invalid', 'title' => 'No such ticket', 'body' => "Nothing matches the code {$code}."];
++
++            return;
++        }
++
++        $wrongNight = (int) $ticket->performance_id !== (int) $data['performance_id'];
++
++        $this->result = [
++            'state' => match (true) {
++                $wrongNight => 'wrong',
++                $ticket->status === 'redeemed' => 'used',
++                $ticket->status === 'void' => 'void',
++                $ticket->status === 'refunded' => 'void',
++                $ticket->status === 'issued' => 'valid',
++                default => 'wrong',
++            },
++            'title' => match (true) {
++                $wrongNight => 'Wrong performance',
++                $ticket->status === 'redeemed' => 'Already used',
++                $ticket->status === 'void' => 'Void',
++                $ticket->status === 'refunded' => 'Refunded',
++                $ticket->status === 'issued' => 'Valid — admit',
++                default => ucfirst($ticket->status),
++            },
++            'body' => $this->describe($ticket, $wrongNight),
++            'ticket_id' => $ticket->id,
++            'admittable' => ! $wrongNight && $ticket->status === 'issued',
++        ];
++    }
++
++    private function describe(Ticket $ticket, bool $wrongNight): string
++    {
++        $bits = [
++            $ticket->ticketType?->name,
++            $ticket->holder_name ?: $ticket->order?->customer?->name,
++            $ticket->holder_phone ? TicketShare::msisdn($ticket->holder_phone) : null,
++        ];
++
++        $line = implode(' · ', array_filter($bits));
++
++        if ($wrongNight) {
++            return trim($line.' — this ticket is for '.($ticket->performance?->label ?? 'another performance').'.');
++        }
++
++        if ($ticket->status === 'redeemed') {
++            return trim($line.' — went through the gate at '
++                .($ticket->redeemed_at?->format('D j M, g:i A') ?? 'an unrecorded time').'.');
++        }
++
++        return $line;
++    }
++
++    /** Spends the ticket. Only offered when a verify said it was good. */
++    public function admit(): void
++    {
++        $data = $this->form->getState();
++        $outcome = app(GateCheckin::class)->redeemByCode(
++            strtoupper(trim((string) $data['code'])),
++            (int) $data['performance_id'],
++            auth()->user(),
++            gate: 'admin',
++        );
++
++        match ($outcome['status']) {
++            GateCheckin::OK => Notification::make()->title('Admitted')->success()->send(),
++            GateCheckin::DUPLICATE => Notification::make()->title('Already used')
++                ->body('This ticket was scanned before. Do not admit again.')->danger()->send(),
++            GateCheckin::WRONG_PERFORMANCE => Notification::make()->title('Wrong performance')->danger()->send(),
++            GateCheckin::NOT_SOLD => Notification::make()->title('Not sold')
++                ->body('Printed stock that was never paid for.')->warning()->send(),
++            default => Notification::make()->title('Not a valid ticket')->danger()->send(),
++        };
++
++        $this->verify();
++    }
++
++    public function content(Schema $schema): Schema
++    {
++        return $schema->components([
++            Form::make([EmbeddedSchema::make('form')])
++                ->id('form')
++                ->livewireSubmitHandler('verify')
++                ->footer([
++                    Actions::make([
++                        Action::make('verify')
++                            ->label('Check this ticket')
++                            ->submit('verify'),
++                        Action::make('admit')
++                            ->label('Admit')
++                            ->color('success')
++                            ->icon(Heroicon::OutlinedCheckCircle)
++                            ->visible(fn (): bool => (bool) ($this->result['admittable'] ?? false))
++                            ->requiresConfirmation()
++                            ->modalDescription('Marks the ticket used. It will not scan again.')
++                            ->action('admit'),
++                    ])->key('form-actions'),
++                ]),
++
++            Section::make(fn (): string => $this->result['title'] ?? '')
++                ->visible(fn (): bool => filled($this->result))
++                ->schema([
++                    Text::make(fn (): string => $this->result['body'] ?? ''),
++                ]),
++        ]);
++    }
++}
+diff --git a/app/Providers/Filament/AdminPanelProvider.php b/app/Providers/Filament/AdminPanelProvider.php
+index c55917a..b196b31 100644
+--- a/app/Providers/Filament/AdminPanelProvider.php
++++ b/app/Providers/Filament/AdminPanelProvider.php
+@@ -8,6 +8,8 @@
+ use Filament\Http\Middleware\DisableBladeIconComponents;
+ use Filament\Http\Middleware\DispatchServingFilamentEvent;
+ use Filament\Pages\Dashboard;
++use Filament\Navigation\NavigationItem;
++use Filament\Support\Icons\Heroicon;
+ use Filament\Panel;
+ use Filament\PanelProvider;
+ use Filament\Support\Colors\Color;
+@@ -72,9 +74,32 @@ public function panel(Panel $panel): Panel
+             ->navigationGroups([
+                 'Programming',
+                 'Sales',
++                'Door',
+                 'Marketing',
+                 'Team',
+             ])
++            // The scanner and box office have always existed at /gate, but
++            // nothing in the admin linked to them — so they were findable only
++            // by knowing the URL, and somebody who saw the page once could not
++            // get back to it. They open in a new tab because the door is used
++            // alongside the office, not instead of it.
++            ->navigationItems([
++                NavigationItem::make('Scanner')
++                    ->group('Door')
++                    ->icon(Heroicon::OutlinedViewfinderCircle)
++                    ->sort(2)
++                    ->url(fn (): string => route('gate.scanner'), shouldOpenInNewTab: true),
++                NavigationItem::make('Box office')
++                    ->group('Door')
++                    ->icon(Heroicon::OutlinedBuildingStorefront)
++                    ->sort(3)
++                    ->url(fn (): string => route('gate.sell'), shouldOpenInNewTab: true),
++                NavigationItem::make('Door stats')
++                    ->group('Door')
++                    ->icon(Heroicon::OutlinedChartBar)
++                    ->sort(4)
++                    ->url(fn (): string => route('gate.stats'), shouldOpenInNewTab: true),
++            ])
+             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\Filament\Resources')
+             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\Filament\Pages')
+             ->pages([

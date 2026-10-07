@@ -208,6 +208,7 @@ git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0005-payment-
 git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0006-payment-waiting-feedback.patch
 git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0007-prices-on-the-event-screen.patch
 git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0008-seamless-checkout.patch
+git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0009-door-menu-and-verify.patch
 cd /srv/64theatre && docker compose up -d --build
 ```
 
@@ -224,6 +225,7 @@ cd /srv/64theatre && docker compose up -d --build
 | `0006-payment-waiting-feedback` | A spinner while the STK prompt is sent, a locked Pay button, and a live waiting state on the order page |
 | `0007-prices-on-the-event-screen` | Ticket categories and prices editable from **Edit event**, which previously had no route to an amount |
 | `0008-seamless-checkout` | Three-step checkout, a canonical phone number, resuming an unpaid order instead of duplicating it, and a ticket that does not break on a phone |
+| `0009-door-menu-and-verify` | A **Door** menu reaching the scanner and box office, plus verifying a ticket from the office |
 
 `0002` fixes a **go-live blocker**, not a convenience. Venues are created only
 inside `demoSeason()` in `database/seeders/DatabaseSeeder.php`, which runs
@@ -390,6 +392,47 @@ there is nowhere to put a reference. The buyer is told to keep the M-Pesa
 confirmation SMS and quote their order number at the box office. Budget for
 someone matching those by hand, or keep the panel off until you have a process
 for it.
+
+## The door
+
+The scanner, box office and door stats have always existed, at `/gate`,
+`/gate/sell` and `/gate/stats` — but **nothing in the admin linked to them**.
+They were reachable only by knowing the URL, so somebody who saw the scanner
+once had no way back to it.
+
+A **Door** group now carries all three, opening in a new tab because the door
+is worked alongside the office rather than instead of it.
+
+| | |
+|---|---|
+| **Verify a ticket** | In the admin — look a code up without spending it |
+| **Scanner** | `/gate` — the phone-at-the-door QR scanner |
+| **Box office** | `/gate/sell` — selling printed stock and new tickets |
+| **Door stats** | `/gate/stats` — what has come through |
+
+### Verifying from the office
+
+The scanner is the right tool at the door. **Door → Verify a ticket** is for
+the other half of the job: a code read out over the phone, a printed list to
+settle, or an argument about whether a ticket has already been used.
+
+Choose the performance, type the eight characters under the QR, and it answers
+one of:
+
+| | |
+|---|---|
+| **Valid — admit** | Issued, for this performance, unused |
+| **Already used** | With the time it went through the gate |
+| **Wrong performance** | Naming the night it is actually for |
+| **Void** / **Refunded** | Killed, or money returned |
+| **No such ticket** | Nothing matches that code |
+
+**Checking never spends the ticket.** Admitting is a separate, confirmed
+button that appears only after a check says the ticket is good. That
+separation is the point: the common case is answering a question, and a lookup
+that silently redeemed would turn every enquiry into a used ticket and a row at
+the door. Admitting goes through the same `GateCheckin` service the scanner
+uses, so duplicates are caught and audited identically.
 
 ## Buying a ticket
 
