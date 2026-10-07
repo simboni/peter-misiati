@@ -204,8 +204,12 @@ git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0001-event-ce
 git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0002-venue-create-inline.patch
 git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0003-kopokopo-and-offline-payment.patch
 git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0004-admin-ticket-authority.patch
+git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0005-payment-methods-admin.patch
 cd /srv/64theatre && docker compose up -d --build
 ```
+
+`0005` adds a table, so it needs its migration — the container runs
+`migrate` on boot, so `up -d --build` is enough.
 
 | Patch | What it does |
 |---|---|
@@ -213,6 +217,7 @@ cd /srv/64theatre && docker compose up -d --build
 | `0002-venue-create-inline` | Add and correct venues from the venue dropdown itself |
 | `0003-kopokopo-and-offline-payment` | M-Pesa via Kopo Kopo, so tickets sell before the Safaricom paybill exists; plus Pay Bill details for buyers whose prompt never arrives |
 | `0004-admin-ticket-authority` | A Tickets screen (there was none), void/reinstate, email + WhatsApp resend, and a payment-method choice when marking an order paid |
+| `0005-payment-methods-admin` | **Sales → Payment methods**: switch online payments and the Pay Bill panel on or off, and choose the provider, without a deploy |
 
 `0002` fixes a **go-live blocker**, not a convenience. Venues are created only
 inside `demoSeason()` in `database/seeders/DatabaseSeeder.php`, which runs
@@ -281,9 +286,33 @@ number — both of which go to the ledger and the audit log. A blank reference
 generates one prefixed `MANUAL-`, so it can never be mistaken for something a
 gateway returned.
 
-> The **gateway** that online buyers use is still `PAYMENT_GATEWAY` in `.env`,
-> not an admin setting. Switching where money goes from a web form would be a
-> serious hazard, and it is the same for Pesapal and Daraja.
+## Payment methods, from the admin
+
+**Sales → Payment methods**, super admin only, every change audited with its
+previous value.
+
+- **Accept payments online** — off refuses checkout before an order is
+  created, so switching payments off during an outage does not strand seats in
+  unpaid orders that only release when they expire.
+- **Provider** — Kopo Kopo, Pesapal or Daraja. The page refuses a provider
+  whose credentials are missing, and says so, rather than letting a buyer find
+  out. It also warns when the chosen provider is pointed at its sandbox, where
+  payments look successful and no money moves.
+- **Show Pay Bill details** — the buyer-facing offline panel.
+
+Credentials are **not** editable here and never will be. A form that could
+change where money settles turns a stolen admin session into a theft, so the
+provider can be chosen in the browser but only configured in `.env`.
+
+`fake` is not offered either. It confirms orders and issues real tickets for
+nothing — indispensable in testing, catastrophic in production, and a dropdown
+is exactly how it would get picked by accident. It stays reachable through
+`PAYMENT_GATEWAY` in `.env`, where choosing it takes deliberate effort.
+
+And since this is now selectable, an unset or misspelled value no longer falls
+through to the fake gateway in silence: **in production it throws.** A broken
+checkout is bad; a silently free one is worse, and would not be noticed until
+the takings were counted.
 
 ## Taking money before the Safaricom paybill exists
 

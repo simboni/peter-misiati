@@ -1,0 +1,490 @@
+diff --git a/app/Filament/Pages/PaymentMethods.php b/app/Filament/Pages/PaymentMethods.php
+new file mode 100644
+index 0000000..4c9cbb3
+--- /dev/null
++++ b/app/Filament/Pages/PaymentMethods.php
+@@ -0,0 +1,173 @@
++<?php
++
++namespace App\Filament\Pages;
++
++use App\Models\AuditLog;
++use App\Models\Setting;
++use App\Support\PaymentSettings;
++use BackedEnum;
++use Filament\Actions\Action;
++use Filament\Forms\Components\Select;
++use Filament\Forms\Components\Toggle;
++use Filament\Notifications\Notification;
++use Filament\Pages\Page;
++use Filament\Schemas\Components\Actions;
++use Filament\Schemas\Components\EmbeddedSchema;
++use Filament\Schemas\Components\Form;
++use Filament\Schemas\Components\Section;
++use Filament\Schemas\Components\Text;
++use Filament\Schemas\Schema;
++use Filament\Support\Icons\Heroicon;
++
++/**
++ * Turning ways of paying on and off, without a deploy.
++ *
++ * What is here and what is not is the whole design. Switches live here;
++ * credentials stay in `.env`. A form that could change where money settles
++ * would make a stolen admin session into a theft, so the gateway can be
++ * selected but never configured from the browser, and `fake` — which issues
++ * real tickets for no money — is not offered at all.
++ *
++ * Super admin only, and every change is written to the audit log with what it
++ * was before.
++ */
++class PaymentMethods extends Page
++{
++    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedCreditCard;
++
++    protected static string|\UnitEnum|null $navigationGroup = 'Sales';
++
++    protected static ?int $navigationSort = 90;
++
++    protected static ?string $title = 'Payment methods';
++
++    protected static ?string $slug = 'payment-methods';
++
++    /** @var array<string, mixed>|null */
++    public ?array $data = [];
++
++    public static function canAccess(): bool
++    {
++        return auth()->user()?->role === 'super_admin';
++    }
++
++    public function mount(): void
++    {
++        $this->form->fill([
++            'gateway' => PaymentSettings::gateway(),
++            'online_enabled' => PaymentSettings::onlineEnabled(),
++            'offline_enabled' => PaymentSettings::offlineEnabled(),
++        ]);
++    }
++
++    public function form(Schema $schema): Schema
++    {
++        return $schema
++            ->components([
++                Section::make('Paying online')
++                    ->description('How buyers pay on the website.')
++                    ->schema([
++                        Toggle::make('online_enabled')
++                            ->label('Accept payments online')
++                            ->helperText('Off: the website still shows events, but checkout is refused and nobody can start a payment. Use it when a gateway is down rather than letting buyers fail one by one.'),
++                        Select::make('gateway')
++                            ->label('Provider')
++                            ->options(PaymentSettings::selectableGateways())
++                            ->required()
++                            ->native(false)
++                            ->helperText('Credentials for each provider live in the server environment, not here.')
++                            // Refuses a provider that would fail on the first
++                            // checkout. Better to be told now than by a buyer.
++                            ->rule(fn (): \Closure => function (string $attribute, $value, \Closure $fail): void {
++                                if (! PaymentSettings::credentialsPresent($value)) {
++                                    $fail('No credentials are configured for that provider. Set them in the server environment first, or nobody will be able to pay.');
++                                }
++                            }),
++                        Text::make(fn (): string => self::statusLine()),
++                    ]),
++
++                Section::make('Paying by hand')
++                    ->description('M-Pesa Pay Bill details shown on an unpaid order.')
++                    ->schema([
++                        Toggle::make('offline_enabled')
++                            ->label('Show Pay Bill details to buyers')
++                            ->helperText(
++                                'Pay Bill '.config('services.offline_payment.paybill')
++                                .', account '.config('services.offline_payment.account')
++                                .'. These payments are NOT matched to an order automatically — the account number identifies the theatre, not the order — so somebody has to reconcile them by hand. Leave this off until you have a process for that.',
++                            ),
++                    ]),
++            ])
++            ->statePath('data');
++    }
++
++    /** A plain sentence about what is actually configured right now. */
++    private static function statusLine(): string
++    {
++        $gateway = PaymentSettings::gateway();
++        $name = PaymentSettings::selectableGateways()[$gateway] ?? $gateway;
++
++        if (! PaymentSettings::credentialsPresent($gateway)) {
++            return "⚠ {$name} is selected but its credentials are missing — checkout will fail.";
++        }
++
++        if (PaymentSettings::isSandbox($gateway)) {
++            return "⚠ {$name} is pointed at its TEST environment. Payments will look successful and no real money will move.";
++        }
++
++        return "✓ {$name} is configured and live.";
++    }
++
++    public function save(): void
++    {
++        $data = $this->form->getState();
++
++        $before = [
++            'gateway' => PaymentSettings::gateway(),
++            'online_enabled' => PaymentSettings::onlineEnabled(),
++            'offline_enabled' => PaymentSettings::offlineEnabled(),
++        ];
++
++        Setting::put(PaymentSettings::KEY_GATEWAY, $data['gateway']);
++        Setting::put(PaymentSettings::KEY_ONLINE_ENABLED, $data['online_enabled'] ? '1' : '0');
++        Setting::put(PaymentSettings::KEY_OFFLINE_ENABLED, $data['offline_enabled'] ? '1' : '0');
++
++        AuditLog::create([
++            'user_id' => auth()->id(),
++            'organiser_id' => auth()->user()?->organiser_id,
++            'action' => 'settings.payment_methods_changed',
++            'subject_type' => Setting::class,
++            'subject_id' => null,
++            'changes' => ['from' => $before, 'to' => [
++                'gateway' => $data['gateway'],
++                'online_enabled' => (bool) $data['online_enabled'],
++                'offline_enabled' => (bool) $data['offline_enabled'],
++            ]],
++        ]);
++
++        Notification::make()
++            ->title('Payment methods updated')
++            ->body($data['online_enabled']
++                ? 'Online checkout is on, through '.(PaymentSettings::selectableGateways()[$data['gateway']] ?? $data['gateway']).'.'
++                : 'Online checkout is OFF — nobody can pay on the website.')
++            ->success()
++            ->send();
++    }
++
++    public function content(Schema $schema): Schema
++    {
++        return $schema->components([
++            Form::make([EmbeddedSchema::make('form')])
++                ->id('form')
++                ->livewireSubmitHandler('save')
++                ->footer([
++                    Actions::make([
++                        Action::make('save')
++                            ->label('Save changes')
++                            ->submit('save')
++                            ->keyBindings(['mod+s']),
++                    ])->key('form-actions'),
++                ]),
++        ]);
++    }
++}
+diff --git a/app/Http/Controllers/OrderController.php b/app/Http/Controllers/OrderController.php
+index a54b87c..0ea50df 100644
+--- a/app/Http/Controllers/OrderController.php
++++ b/app/Http/Controllers/OrderController.php
+@@ -6,6 +6,7 @@
+ use App\Models\Order;
+ use App\Payments\PaymentGateway;
+ use App\Services\Checkout;
++use App\Support\PaymentSettings;
+ use App\Services\TicketQr;
+ use Illuminate\Http\JsonResponse;
+ use Illuminate\Http\RedirectResponse;
+@@ -35,6 +36,15 @@ public function store(Request $request, Checkout $checkout, PaymentGateway $gate
+             return back()->withErrors(['quantities' => 'Select at least one ticket.'])->withInput();
+         }
+ 
++        // Checked BEFORE the order is created, so switching payments off does
++        // not leave a trail of unpaid orders holding seats that only release
++        // when they expire.
++        if (! PaymentSettings::onlineEnabled()) {
++            return back()->withErrors([
++                'quantities' => 'Online payment is temporarily unavailable. Please try again shortly, or buy at the box office.',
++            ])->withInput();
++        }
++
+         try {
+             $order = $checkout->startOrder(
+                 items: $items,
+diff --git a/app/Models/Setting.php b/app/Models/Setting.php
+new file mode 100644
+index 0000000..9624747
+--- /dev/null
++++ b/app/Models/Setting.php
+@@ -0,0 +1,55 @@
++<?php
++
++namespace App\Models;
++
++use Illuminate\Database\Eloquent\Model;
++use Illuminate\Support\Facades\Cache;
++
++/**
++ * A key/value setting, cached so reading one on every checkout costs nothing.
++ *
++ * Reads are cached forever and the cache is dropped on write, rather than
++ * expiring on a timer: a payment switch must take effect the moment it is
++ * flipped, not up to five minutes later.
++ */
++class Setting extends Model
++{
++    protected $primaryKey = 'key';
++
++    protected $keyType = 'string';
++
++    public $incrementing = false;
++
++    protected $guarded = [];
++
++    private const CACHE_PREFIX = 'setting:';
++
++    public static function get(string $key, mixed $default = null): mixed
++    {
++        // A missing table (fresh checkout, migrations not yet run) must not
++        // take the site down — fall back to the default.
++        try {
++            $value = Cache::rememberForever(
++                self::CACHE_PREFIX.$key,
++                fn () => static::query()->find($key)?->value ?? '__null__',
++            );
++        } catch (\Throwable) {
++            return $default;
++        }
++
++        return $value === '__null__' ? $default : $value;
++    }
++
++    public static function put(string $key, mixed $value): void
++    {
++        static::query()->updateOrCreate(['key' => $key], ['value' => $value]);
++        Cache::forget(self::CACHE_PREFIX.$key);
++    }
++
++    public static function bool(string $key, bool $default): bool
++    {
++        $raw = static::get($key);
++
++        return $raw === null ? $default : in_array($raw, ['1', 'true', 'yes'], true);
++    }
++}
+diff --git a/app/Providers/AppServiceProvider.php b/app/Providers/AppServiceProvider.php
+index 9410407..22631aa 100644
+--- a/app/Providers/AppServiceProvider.php
++++ b/app/Providers/AppServiceProvider.php
+@@ -9,6 +9,8 @@
+ use App\Payments\KopoKopoGateway;
+ use App\Payments\MpesaStkGateway;
+ use App\Payments\PaymentGateway;
++use App\Support\PaymentSettings;
++use RuntimeException;
+ use App\Payments\PesapalGateway;
+ use Illuminate\Support\ServiceProvider;
+ 
+@@ -20,11 +22,22 @@ class AppServiceProvider extends ServiceProvider
+     public function register(): void
+     {
+         $this->app->bind(PaymentGateway::class, function () {
+-            return match (config('payments.default')) {
++            // Resolved lazily, per request, so a change made in the admin
++            // takes effect on the next checkout without a restart.
++            $gateway = PaymentSettings::gateway();
++
++            return match ($gateway) {
+                 'pesapal' => new PesapalGateway,
+                 'kopokopo' => new KopoKopoGateway,
+                 'daraja' => new MpesaStkGateway,
+-                default => new FakeGateway,
++                'fake' => self::fakeGateway($gateway),
++                // An unset or misspelled value used to land here silently, and
++                // "here" was the fake gateway — which marks orders paid and
++                // issues real tickets for nothing. In production that is a
++                // free-ticket bug nobody would notice until the takings were
++                // counted. Fail loudly instead: a broken checkout is bad, a
++                // silently free one is worse.
++                default => self::fakeGateway($gateway),
+             };
+         });
+ 
+@@ -42,4 +55,21 @@ public function boot(): void
+     {
+         //
+     }
++
++    /**
++     * The fake gateway confirms orders and issues real tickets without taking
++     * money. It is right for local work and tests, and never right in
++     * production — so in production, refuse rather than sell for free.
++     */
++    private static function fakeGateway(string $requested): PaymentGateway
++    {
++        if (app()->environment('production')) {
++            throw new RuntimeException(
++                "Refusing to use the fake payment gateway in production (PAYMENT_GATEWAY/setting was '{$requested}'). "
++                .'Choose a real provider under Sales → Payment methods, or set PAYMENT_GATEWAY in the environment.',
++            );
++        }
++
++        return new FakeGateway;
++    }
+ }
+diff --git a/app/Support/PaymentSettings.php b/app/Support/PaymentSettings.php
+new file mode 100644
+index 0000000..54066ad
+--- /dev/null
++++ b/app/Support/PaymentSettings.php
+@@ -0,0 +1,106 @@
++<?php
++
++namespace App\Support;
++
++use App\Models\Setting;
++
++/**
++ * Which ways of paying are switched on, and which gateway serves them.
++ *
++ * Every value falls back to config, which falls back to the environment, so an
++ * install that has never opened the settings page behaves exactly as before.
++ * The office changes the switches; the credentials stay in `.env`.
++ *
++ * The gateway identifiers are the same ones config/payments.php has always
++ * used — this only moves *which* one is chosen out of a deploy and into the
++ * admin.
++ */
++class PaymentSettings
++{
++    public const KEY_GATEWAY = 'payments.gateway';
++
++    public const KEY_ONLINE_ENABLED = 'payments.online_enabled';
++
++    public const KEY_OFFLINE_ENABLED = 'payments.offline_enabled';
++
++    /**
++     * Gateways the admin may choose.
++     *
++     * `fake` is absent on purpose. It confirms orders and issues real tickets
++     * without taking a shilling, which is invaluable in testing and
++     * catastrophic in production — and a dropdown is exactly how it would get
++     * selected by accident. It remains available through PAYMENT_GATEWAY in
++     * `.env`, where choosing it takes deliberate effort.
++     *
++     * @return array<string, string>
++     */
++    public static function selectableGateways(): array
++    {
++        return [
++            'kopokopo' => 'Kopo Kopo — M-Pesa STK push',
++            'pesapal' => 'Pesapal — M-Pesa and cards',
++            'daraja' => 'Safaricom Daraja — direct M-Pesa',
++        ];
++    }
++
++    /** The gateway online checkout uses. */
++    public static function gateway(): string
++    {
++        $chosen = Setting::get(self::KEY_GATEWAY);
++
++        // An unknown or unselectable value (including a stale 'fake' left in
++        // the table) falls back to config rather than being honoured.
++        return array_key_exists((string) $chosen, self::selectableGateways())
++            ? (string) $chosen
++            : (string) config('payments.default');
++    }
++
++    /** Whether buyers can pay online at all. */
++    public static function onlineEnabled(): bool
++    {
++        return Setting::bool(self::KEY_ONLINE_ENABLED, true);
++    }
++
++    /** Whether the Pay Bill panel shows on an unpaid order. */
++    public static function offlineEnabled(): bool
++    {
++        return Setting::bool(
++            self::KEY_OFFLINE_ENABLED,
++            (bool) config('services.offline_payment.enabled'),
++        );
++    }
++
++    /**
++     * Has the chosen gateway got what it needs to work?
++     *
++     * Used to refuse switching to a gateway that would fail on the first
++     * checkout, and to say so on the settings page rather than leaving
++     * somebody to discover it through a customer.
++     */
++    public static function credentialsPresent(string $gateway): bool
++    {
++        return match ($gateway) {
++            'kopokopo' => filled(config('services.kopokopo.client_id'))
++                && filled(config('services.kopokopo.client_secret'))
++                && filled(config('services.kopokopo.api_key'))
++                && filled(config('services.kopokopo.till_number')),
++            'pesapal' => filled(config('services.pesapal.consumer_key'))
++                && filled(config('services.pesapal.consumer_secret')),
++            'daraja' => filled(config('services.daraja.consumer_key'))
++                && filled(config('services.daraja.consumer_secret'))
++                && filled(config('services.daraja.passkey')),
++            default => false,
++        };
++    }
++
++    /** True when the gateway is pointed at a test environment. */
++    public static function isSandbox(string $gateway): bool
++    {
++        return match ($gateway) {
++            'kopokopo' => str_contains((string) config('services.kopokopo.base_url'), 'sandbox'),
++            'pesapal' => str_contains((string) config('services.pesapal.base_url'), 'cybqa'),
++            'daraja' => str_contains((string) config('services.daraja.base_url'), 'sandbox'),
++            default => false,
++        };
++    }
++}
+diff --git a/database/migrations/2026_10_07_000001_create_settings_table.php b/database/migrations/2026_10_07_000001_create_settings_table.php
+new file mode 100644
+index 0000000..7499937
+--- /dev/null
++++ b/database/migrations/2026_10_07_000001_create_settings_table.php
+@@ -0,0 +1,31 @@
++<?php
++
++use Illuminate\Database\Migrations\Migration;
++use Illuminate\Database\Schema\Blueprint;
++use Illuminate\Support\Facades\Schema;
++
++/**
++ * Operational settings the office can change without a deploy.
++ *
++ * Deliberately a narrow key/value store rather than a column per setting:
++ * what belongs here is a handful of switches, and every one of them has a
++ * safe default in config, so a missing row is never a broken install.
++ *
++ * Secrets stay in the environment. Nothing in this table is a credential.
++ */
++return new class extends Migration
++{
++    public function up(): void
++    {
++        Schema::create('settings', function (Blueprint $table) {
++            $table->string('key')->primary();
++            $table->text('value')->nullable();
++            $table->timestamps();
++        });
++    }
++
++    public function down(): void
++    {
++        Schema::dropIfExists('settings');
++    }
++};
+diff --git a/resources/views/orders/show.blade.php b/resources/views/orders/show.blade.php
+index f4eae4e..7b42fe1 100644
+--- a/resources/views/orders/show.blade.php
++++ b/resources/views/orders/show.blade.php
+@@ -15,7 +15,7 @@
+             Your seats are held for {{ \App\Services\Checkout::HOLD_MINUTES }} minutes.
+         </div>
+ 
+-        @if (config('services.offline_payment.enabled'))
++        @if (\App\Support\PaymentSettings::offlineEnabled())
+             {{-- The prompt does not always arrive: a handset can be off the
+                  network, or the push can simply be missed. Without a second
+                  route the buyer abandons the order and the seats go back. --}}
