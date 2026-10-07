@@ -1,0 +1,72 @@
+# 64theatre on the Contabo box — demo / client-review deployment.
+#
+# This is the STAGING shape from the repo's render.yaml: one container
+# (nginx + PHP-FPM), SQLite on a volume, demo content seeded on boot, and the
+# fake payment gateway so checkouts complete without Daraja keys. That is what
+# you want before the domain and M-Pesa credentials exist.
+#
+# For go-live, see "Upgrading to production" in the README — Postgres, Redis,
+# a queue worker and PAYMENT_GATEWAY=daraja.
+#
+# Ports: none published. edge-caddy owns 80/443 and proxies to 64theatre:8080.
+#
+#   cd /srv/64theatre && docker compose up -d --build
+
+name: 64theatre
+
+services:
+  app:
+    build:
+      context: ./repo
+    image: 64theatre:local
+    container_name: 64theatre
+    restart: unless-stopped
+    environment:
+      APP_NAME: 64theatre
+      APP_ENV: staging
+      APP_DEBUG: "false"
+      # Must stay stable — it encrypts sessions and cookies. If it changes,
+      # everyone is logged out.
+      APP_KEY: ${APP_KEY:?set in .env}
+      # Must match the public URL exactly: ticket QR codes and emailed links
+      # are built from it.
+      APP_URL: ${APP_URL:?set in .env}
+
+      DB_CONNECTION: sqlite
+      # Inside the mounted volume, so the database survives rebuilds.
+      DB_DATABASE: /var/www/html/storage/app/database.sqlite
+
+      # Seeds the demo production + admin user. Idempotent; set false for real data.
+      SEED_ON_BOOT: ${SEED_ON_BOOT:-true}
+      # `fake` completes checkouts instantly for demos. `daraja` for real money.
+      PAYMENT_GATEWAY: ${PAYMENT_GATEWAY:-fake}
+
+      SESSION_DRIVER: file
+      CACHE_STORE: file
+      QUEUE_CONNECTION: sync      # jobs run inline — no worker container needed
+      MAIL_MAILER: log            # tickets remain visible on the order page
+      SMS_ENABLED: "false"
+      LOG_CHANNEL: stderr
+    expose:
+      - "8080"
+    volumes:
+      # The SQLite database and uploaded posters. Everything else in storage/
+      # (caches, compiled views, logs) is rebuilt on boot and stays ephemeral.
+      - 64theatre-storage:/var/www/html/storage/app
+    networks:
+      - edge
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/up || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+volumes:
+  64theatre-storage:
+
+networks:
+  # Owned by the `edge` project in /srv/edge — we only join it.
+  edge:
+    external: true
