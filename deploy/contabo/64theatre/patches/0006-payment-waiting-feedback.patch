@@ -1,19 +1,25 @@
 diff --git a/resources/views/events/show.blade.php b/resources/views/events/show.blade.php
-index ad1b7cb..2a40aeb 100644
+index ad1b7cb..84415f8 100644
 --- a/resources/views/events/show.blade.php
 +++ b/resources/views/events/show.blade.php
-@@ -50,6 +50,18 @@
+@@ -50,6 +50,24 @@
      .stepper button:hover{border-color:var(--lamp); color:var(--lamp-bright)}
      .stepper input.qty{width:52px; text-align:center; border:none; background:transparent; font-weight:800; font-size:1.05rem; color:var(--bone)}
      .stepper input.qty::-webkit-outer-spin-button,.stepper input.qty::-webkit-inner-spin-button{-webkit-appearance:none; margin:0}
 +    /* Reaching Kopo Kopo and Safaricom takes a few seconds, and until the
 +       prompt lands on the handset the page looks like nothing happened —
 +       which is when people press Pay again. */
-+    .pay-btn[disabled]{opacity:.85; cursor:progress}
-+    .pay-busy{display:inline-flex; align-items:center; gap:.55em}
++    .pay-btn[disabled]{opacity:1; cursor:progress}
++    /* `:not([hidden])` is load-bearing. A bare `.pay-busy{display:inline-flex}`
++       is an author rule and so beats the browser's `[hidden]{display:none}`,
++       which meant the busy state rendered from page load and the `hidden`
++       attribute did nothing at all. */
++    .pay-busy:not([hidden]){display:inline-flex; align-items:center; gap:.6em; justify-content:center}
++    .pay-label[hidden],.pay-busy[hidden]{display:none}
 +    .spinner{
-+        width:1em; height:1em; border-radius:50%;
-+        border:2px solid currentColor; border-top-color:transparent;
++        width:1.05em; height:1.05em; border-radius:50%;
++        border:2.5px solid rgba(255,255,255,.35);
++        border-top-color:#fff;
 +        animation:spin .7s linear infinite; flex:none;
 +    }
 +    @keyframes spin{to{transform:rotate(360deg)}}
@@ -21,7 +27,7 @@ index ad1b7cb..2a40aeb 100644
      .stepper input.qty{-moz-appearance:textfield; appearance:textfield}
  
      .paybox{
-@@ -141,7 +153,10 @@
+@@ -141,7 +159,10 @@
                          <label for="promo_code">Promo code (optional)</label>
                          <input id="promo_code" name="promo_code" type="text" value="{{ old('promo_code') }}">
                      </div>
@@ -33,7 +39,7 @@ index ad1b7cb..2a40aeb 100644
                      <p class="safe">Secured checkout · seats held for 15 minutes while you pay</p>
                  </div>
              </form>
-@@ -150,6 +165,20 @@
+@@ -150,6 +171,20 @@
  </div>
  
  <script>
