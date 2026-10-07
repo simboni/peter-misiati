@@ -31,18 +31,19 @@ cd /srv/64theatre
 cp env.example .env && chmod 600 .env
 ```
 
-Build first (the image is needed to generate a key):
+Set a real `APP_KEY` **before** building — compose validates it even for a
+build, and Laravel's key is just `base64:` plus 32 random bytes, so no image
+is needed to make one:
+
+```bash
+sed -i "s|^APP_KEY=.*|APP_KEY=base64:$(openssl rand -base64 32)|" /srv/64theatre/.env
+grep -c '^APP_KEY=base64:' /srv/64theatre/.env    # must print 1
+```
+
+Then build:
 
 ```bash
 docker compose -f /srv/64theatre/compose.yml build
-```
-
-Then put a real `APP_KEY` into `.env`:
-
-```bash
-KEY=$(docker run --rm 64theatre:local php artisan key:generate --show)
-sed -i "s|^APP_KEY=.*|APP_KEY=${KEY}|" /srv/64theatre/.env
-grep -c '^APP_KEY=base64:' /srv/64theatre/.env    # must print 1
 ```
 
 `APP_URL` is already set to the sslip.io hostname for this server. Start it:
