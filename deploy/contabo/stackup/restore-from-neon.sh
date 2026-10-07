@@ -83,7 +83,11 @@ if diff -u "$DUMP_HOST_DIR/counts-neon-$STAMP.txt" "$DUMP_HOST_DIR/counts-local-
   echo
   echo "Next: restart the API, then verify through edge-caddy:"
   echo "  docker compose -f $DIR/compose.yml restart api"
-  echo "  docker exec edge-caddy wget -qO- http://stackup-api:3000/ | head -20"
+  echo "  docker exec edge-caddy wget -qO- http://stackup-api:3000/health"
+  # The Accept header is required: the API serves the exported HTML only to
+  # requests that ask for text/html, so that page routes cannot shadow API
+  # routes. Without it this prints nothing and looks like a broken deploy.
+  echo "  docker exec edge-caddy wget -qO- --header='Accept: text/html' http://stackup-api:3000/ | head -20"
 else
   echo
   echo "MISMATCH — lines starting '-' are Neon, '+' are local."

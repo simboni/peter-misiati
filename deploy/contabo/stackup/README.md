@@ -122,10 +122,31 @@ docker compose -f /srv/stackup/compose.yml restart api
 ## 4 · Verify before publishing
 
 ```bash
-docker exec edge-caddy wget -qO- http://stackup-api:3000/ | head -20
+# The API and the database.
+docker exec edge-caddy wget -qO- http://stackup-api:3000/health
+# → {"status":"ok","db":true}
+
+# The web app. The Accept header is REQUIRED, not decoration — see below.
+docker exec edge-caddy wget -qO- --header='Accept: text/html' \
+  http://stackup-api:3000/ | head -20
 ```
 
-That should print the web app's HTML. If it does, the whole path works.
+The first prints JSON; `"db":true` means the API reached PostgreSQL. The
+second prints the web app's HTML. If both do, the whole path works.
+
+> **Why the Accept header.** The API serves the exported HTML only to requests
+> that ask for `text/html` (or to a link-preview crawler). That is deliberate:
+> the web page routes and the API routes share names — `/teams` the page and
+> `/teams` the API — so an extensionless `.html` fallback would shadow every
+> API route. Browsers send `Accept: text/html`; `wget`, `curl` and Node's
+> `fetch` send `*/*` and get a 404 from the router instead.
+>
+> Without the header this step prints nothing, which reads exactly like a
+> failed deployment. It isn't. The same mistake in `compose.yml`'s healthcheck
+> is what reported `stackup-api` unhealthy for a day while it was serving
+> correctly — `docker ps` said `(unhealthy)`, a browser would have said fine.
+> If the container shows unhealthy, run the two commands above before
+> assuming anything is actually broken.
 
 ## 5 · Publish
 

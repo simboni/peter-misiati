@@ -63,12 +63,36 @@ services:
       - internal     # to reach the database
       - edge         # so edge-caddy can reach it
     mem_limit: 1g
+    # Probing `/` here was wrong, and reported this container unhealthy for a
+    # day while it was serving perfectly. The API deliberately serves the
+    # exported HTML only to requests that ask for it — `Accept: text/html` or
+    # a link-preview crawler — because the web page routes and the API routes
+    # share names (/teams the page vs /teams the API) and an extensionless
+    # .html fallback would shadow the API. Node's fetch sends `Accept: */*`,
+    # so it fell through to the router, matched nothing, and got a 404.
+    #
+    # So ask three questions the honest way:
+    #   /health with db:true   the process is up AND can reach PostgreSQL
+    #                          (/health answers 200 even when the database is
+    #                          down — by design, so failures surface as data —
+    #                          which is exactly why the status code alone is
+    #                          not enough)
+    #   / with Accept:text/html  the web export is really in the image
+    #                          (an empty out/ is how smp-developers.com went
+    #                          down: the build "succeeded", the site didn't)
     healthcheck:
       test:
         - CMD
         - node
         - -e
-        - "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+        - |
+          const base = 'http://127.0.0.1:3000';
+          Promise.all([
+            fetch(base + '/health').then(r => r.json()),
+            fetch(base + '/', { headers: { accept: 'text/html' } }),
+          ])
+            .then(([h, w]) => process.exit(h.status === 'ok' && h.db && w.ok ? 0 : 1))
+            .catch(() => process.exit(1));
       interval: 30s
       timeout: 10s
       retries: 5

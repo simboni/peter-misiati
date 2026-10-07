@@ -42,7 +42,13 @@ git clone --depth 1 <repo> /srv/<app>/repo
 docker compose -f /srv/<app>/compose.yml up -d --build
 
 # 4. Prove it works BEFORE touching anything shared.
-docker exec edge-caddy wget -qO- http://<app>:<port>/ | head -20
+#    Prefer the app's own health endpoint if it has one — /up, /health,
+#    /api/health. And send an Accept header: wget and curl ask for */*, and an
+#    app that serves HTML only to browsers answers 404 to that. A silent `/`
+#    probe is then indistinguishable from a broken deploy. It cost a day on
+#    StackUp.
+docker exec edge-caddy wget -qO- --header='Accept: text/html' \
+  http://<app>:<port>/ | head -20
 
 # 5. Publish: a NEW site file, validate, reload.
 cat > /srv/edge/sites/<app>.caddy <<'EOF'
