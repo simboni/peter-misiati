@@ -148,40 +148,12 @@ second prints the web app's HTML. If both do, the whole path works.
 > If the container shows unhealthy, run the two commands above before
 > assuming anything is actually broken.
 
-## 5 · Publish
+## 5 · DNS — before publishing, not after
 
-```bash
-cat > /srv/edge/sites/stackup.caddy <<'EOF'
-# stackup.co.ke — StackUp (API + web served by one container)
-
-www.stackup.co.ke {
-	redir https://stackup.co.ke{uri} permanent
-}
-
-stackup.co.ke {
-	reverse_proxy stackup-api:3000 {
-		# Server-Sent Events: never buffer, never time out the stream.
-		flush_interval -1
-	}
-}
-EOF
-
-docker exec edge-caddy caddy validate --config /etc/caddy/Caddyfile
-```
-
-`flush_interval -1` is **not optional** — StackUp's realtime bus is SSE, and a
-buffering proxy breaks live updates and presence.
-
-Only when validate passes:
-
-```bash
-docker exec edge-caddy caddy reload --config /etc/caddy/Caddyfile
-```
-
-## 6 · DNS
-
-Point the domain at the box **before** the reload so the certificate issues on
-the first try.
+Caddy asks Let's Encrypt for a certificate on the **first request** for a
+hostname, and failed validations are rate-limited. So wrong DNS at reload time
+does not merely fail; it spends attempts you then have to wait out. This step
+comes first for that reason.
 
 ```bash
 dig +short NS stackup.co.ke      # find the managing panel
@@ -197,7 +169,45 @@ previous host are what made smp-developers.com flap.
 
 ```bash
 dig +short A stackup.co.ke            # only 169.58.127.122
-curl -I https://stackup.co.ke
+```
+
+## 6 · Publish
+
+```bash
+cd /srv/smp-portfolio/repo && git pull
+bash deploy/contabo/stackup/publish.sh
+```
+
+It creates exactly one file, `/srv/edge/sites/stackup.caddy`, and reloads
+Caddy. It never edits another site's file, never touches `/srv/edge/Caddyfile`,
+and never restarts `edge-caddy` — a restart drops every site on the box at
+once, where a reload is a graceful config swap that drops no connections.
+
+Before it writes anything it refuses to continue unless the API answers
+`/health` with `db:true`, the web export really serves HTML, `stackup.co.ke`
+resolves to this box, and the database has users in it — an empty StackUp
+served publicly is worse than one that is briefly unreachable, and Neon is
+still the rollback. Pass `--allow-empty` if publishing empty is deliberate.
+
+Afterwards it checks two things that are easy to get wrong:
+
+- **Is the file actually in force?** If `/srv/edge/Caddyfile` imports site
+  files one by one rather than globbing `sites/`, a new file is inert — and
+  every step before this would still have reported success.
+- **Did anything else move?** It probes every hostname Caddy was serving
+  before and after. If one that answered has stopped, it removes the file,
+  reloads, and tells you, without asking.
+
+`bash publish.sh --unpublish` reverses it.
+
+> The hostname list comes from `caddy adapt`, not from grepping the Caddyfile.
+> On this box `/srv/edge/Caddyfile` contains only `import` lines, so grepping
+> it finds zero hostnames, and a before/after check built that way passes
+> vacuously while looking rigorous. That is how riziki-pos turned out to be
+> unprotected by an earlier version of this safety net.
+
+```bash
+curl -sI https://stackup.co.ke | head -3
 ```
 
 ## 7 · Back it up — before you retire anything
