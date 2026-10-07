@@ -19,14 +19,20 @@ export const profile = {
   role: "Software Engineer · Web Developer · Tech Consultant",
   /** Short second line used in the header/footer logo lockup. */
   logoTagline: "SMP Developers",
-  /** The 5-second value proposition. */
+  /** The 5-second value proposition. Also the site's meta description.
+   *  Kept to what a buyer can purchase: the youth-empowerment and
+   *  financial-literacy work is real and it lives on /about, but in the hero
+   *  it competes with the sentence that has to answer "can you build my
+   *  system?" before the visitor leaves. */
   valueProp:
-    "I'm a software engineer, social entrepreneur and tech consultant building software that drives real impact — microfinance systems, ERP platforms, e-learning tools and modern websites — while empowering youth through technology and financial education.",
+    "I design and build the business systems organisations run on \u2014 microfinance and SACCO platforms, ERP, inventory and point of sale, M-Pesa payments, websites and mobile apps. Nairobi and Bungoma, Kenya, and remote.",
   /** A slightly longer hero support line. */
   tagline:
     "Software engineer and tech consultant from Kenya. I design and build custom software, websites and mobile apps — and help organisations put technology to work.",
   location: "Nairobi & Bungoma, Kenya",
-  availability: "Available for freelance & consulting",
+  /** The hero status line. "Available for freelance" reads as looking for
+   *  work; the green dot already says "open now", so this says what is open. */
+  availability: "Taking on new projects \u00b7 Kenya & remote",
   email: "info@smp-developers.com",
   phone: "+254 706 289 514",
   whatsapp: "254706289514",
@@ -38,6 +44,15 @@ export const profile = {
     x: "",
     email: "info@smp-developers.com",
   },
+  /** Answers "what kind of software?" directly under the headline. A visitor
+   *  who cannot tell within one screen whether this is for them leaves. */
+  offers: [
+    "Business systems",
+    "SACCO & microfinance",
+    "M-Pesa integrations",
+    "Websites & portals",
+    "Mobile apps",
+  ],
   /** Quick "by the numbers" stats. */
   stats: [
     { value: 10, suffix: "+", label: "Years in tech" },

@@ -1,7 +1,9 @@
+import Link from "next/link";
 import {
   profile,
   about,
   skills,
+  services,
   experience,
   testimonials,
 } from "@/lib/portfolio";
@@ -20,6 +22,8 @@ import {
   MailIcon,
   DownloadIcon,
   CheckIcon,
+  WhatsAppIcon,
+  ArrowRightIcon,
 } from "@/components/icons";
 
 export default function HomePage() {
@@ -46,12 +50,37 @@ export default function HomePage() {
               {profile.valueProp}
             </p>
 
+            {/* "What kind of software?" is the first question the headline
+                provokes. Answer it here, above the fold, rather than making
+                the visitor infer it from fifteen project cards. */}
+            {/* Chips rather than dot-separated text: the separator belongs
+                between items, but when the line wraps it lands at the start of
+                the next one. Chips also match the stack and project cards. */}
+            <ul className="mt-6 flex flex-wrap gap-1.5">
+              {profile.offers.map((offer) => (
+                <li key={offer}>
+                  <Chip>{offer}</Chip>
+                </li>
+              ))}
+            </ul>
+
             <div className="mt-10 flex flex-wrap gap-3">
-              <Button href="/work" variant="gold" size="lg" withArrow>
+              <Button href="/contact" variant="gold" size="lg" withArrow>
+                Start a project
+              </Button>
+              <Button href="/work" variant="outline" size="lg">
                 View my work
               </Button>
-              <Button href="/contact" variant="outline" size="lg">
-                Get in touch
+              {/* In Kenya this is the channel people actually reply on, and it
+                  was only reachable from /contact. */}
+              <Button
+                href={`https://wa.me/${profile.whatsapp}`}
+                variant="outline"
+                size="lg"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <WhatsAppIcon className="h-5 w-5" /> WhatsApp
               </Button>
             </div>
 
@@ -103,6 +132,42 @@ export default function HomePage() {
 
       {/* ===================== WORKED-WITH LOGO WALL ==================== */}
       <ClientLogos />
+
+      {/* ========================== WHAT I BUILD ======================= */}
+      {/* Before the work, not after it. A buyer scanning fifteen projects is
+          doing the categorising this section should have done for them — and
+          "do you build the thing I need?" is the question that decides whether
+          they read on or close the tab. The technology stack stays further
+          down: it answers a question only another engineer is asking. */}
+      <Section id="services">
+        <SectionHeading
+          eyebrow="what I build"
+          title="Systems for organisations that have outgrown spreadsheets"
+          intro="Six things I'm hired for. Every one of them is on this site with a case study behind it."
+        />
+        <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {services.map((service, i) => (
+            <Reveal key={service.title} delay={i * 50}>
+              <Link
+                href={service.href}
+                className="group/svc flex h-full flex-col rounded-xl border border-ink-600 bg-ink-800 p-5 transition-colors hover:border-green-400/40"
+              >
+                <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-green-400/10 text-green-400">
+                  <ServiceIcon name={service.icon} className="h-5 w-5" />
+                </span>
+                <h3 className="mt-4 font-display font-semibold text-mist-100">
+                  {service.title}
+                </h3>
+                <p className="mt-2 text-sm leading-relaxed text-mist-400">{service.blurb}</p>
+                <span className="mt-4 inline-flex items-center gap-1.5 text-sm text-green-400 opacity-0 transition-opacity group-hover/svc:opacity-100">
+                  See the work
+                  <ArrowRightIcon className="h-4 w-4" />
+                </span>
+              </Link>
+            </Reveal>
+          ))}
+        </div>
+      </Section>
 
       {/* ========================= WORK INDEX ========================== */}
       <Section id="work">
@@ -237,14 +302,25 @@ export default function HomePage() {
         <div className="container-page py-24 text-center">
           <Eyebrow>Let&rsquo;s build</Eyebrow>
           <h2 className="mx-auto mt-4 max-w-2xl font-display text-3xl font-bold leading-tight tracking-tight text-mist-100 text-balance sm:text-4xl">
-            Have a project in mind? Let&rsquo;s ship it.
+            Got a process you&rsquo;d like to stop doing by hand?
           </h2>
           <p className="mx-auto mt-4 max-w-xl text-mist-400">
-            A new product, a rescue mission, or a role on your team — I&rsquo;d love to hear about it.
+            Tell me what you&rsquo;re trying to solve &mdash; the spreadsheet, the paper file, the
+            reconciliation that eats a day a week. I&rsquo;ll tell you what it would take to
+            replace it.
           </p>
           <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
             <Button href="/contact" variant="gold" size="lg" withArrow>
-              start a conversation
+              start a project
+            </Button>
+            <Button
+              href={`https://wa.me/${profile.whatsapp}`}
+              variant="outline"
+              size="lg"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <WhatsAppIcon className="h-5 w-5" /> WhatsApp
             </Button>
             <Button href={`mailto:${profile.email}`} variant="outline" size="lg">
               <MailIcon className="h-5 w-5" /> {profile.email}
