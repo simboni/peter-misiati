@@ -205,6 +205,7 @@ git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0002-venue-cr
 git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0003-kopokopo-and-offline-payment.patch
 git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0004-admin-ticket-authority.patch
 git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0005-payment-methods-admin.patch
+git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0006-payment-waiting-feedback.patch
 cd /srv/64theatre && docker compose up -d --build
 ```
 
@@ -218,6 +219,7 @@ cd /srv/64theatre && docker compose up -d --build
 | `0003-kopokopo-and-offline-payment` | M-Pesa via Kopo Kopo, so tickets sell before the Safaricom paybill exists; plus Pay Bill details for buyers whose prompt never arrives |
 | `0004-admin-ticket-authority` | A Tickets screen (there was none), void/reinstate, email + WhatsApp resend, and a payment-method choice when marking an order paid |
 | `0005-payment-methods-admin` | **Sales → Payment methods**: switch online payments and the Pay Bill panel on or off, and choose the provider, without a deploy |
+| `0006-payment-waiting-feedback` | A spinner while the STK prompt is sent, a locked Pay button, and a live waiting state on the order page |
 
 `0002` fixes a **go-live blocker**, not a convenience. Venues are created only
 inside `demoSeason()` in `database/seeders/DatabaseSeeder.php`, which runs
@@ -367,6 +369,26 @@ there is nowhere to put a reference. The buyer is told to keep the M-Pesa
 confirmation SMS and quote their order number at the box office. Budget for
 someone matching those by hand, or keep the panel off until you have a process
 for it.
+
+## While the buyer waits
+
+Reaching Kopo Kopo and Safaricom takes a few seconds, and until the prompt
+lands on the handset the page looks like nothing happened. `0006` fills that
+silence:
+
+- The **Pay button locks on submit** and becomes a spinner reading "Sending
+  prompt to your phone…". That also closes a real bug: nothing prevented a
+  second press, and two presses created two orders, held two sets of seats and
+  sent two STK prompts.
+- The **order page shows a pulsing "Waiting for your payment…"** naming the
+  number the prompt went to, and says the page updates on its own — it already
+  polled and reloaded itself, but silently, so a buyer who had already paid sat
+  looking at a still screen wondering whether to pay again.
+- After **25 seconds** a second line offers the Pay Bill fallback. Delayed on
+  purpose: shown immediately it reads as "this is broken" before the prompt has
+  had a fair chance to arrive.
+
+Both respect `prefers-reduced-motion`.
 
 ## Email (Brevo)
 

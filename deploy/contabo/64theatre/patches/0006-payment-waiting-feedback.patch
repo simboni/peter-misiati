@@ -1,0 +1,110 @@
+diff --git a/resources/views/events/show.blade.php b/resources/views/events/show.blade.php
+index ad1b7cb..2a40aeb 100644
+--- a/resources/views/events/show.blade.php
++++ b/resources/views/events/show.blade.php
+@@ -50,6 +50,18 @@
+     .stepper button:hover{border-color:var(--lamp); color:var(--lamp-bright)}
+     .stepper input.qty{width:52px; text-align:center; border:none; background:transparent; font-weight:800; font-size:1.05rem; color:var(--bone)}
+     .stepper input.qty::-webkit-outer-spin-button,.stepper input.qty::-webkit-inner-spin-button{-webkit-appearance:none; margin:0}
++    /* Reaching Kopo Kopo and Safaricom takes a few seconds, and until the
++       prompt lands on the handset the page looks like nothing happened —
++       which is when people press Pay again. */
++    .pay-btn[disabled]{opacity:.85; cursor:progress}
++    .pay-busy{display:inline-flex; align-items:center; gap:.55em}
++    .spinner{
++        width:1em; height:1em; border-radius:50%;
++        border:2px solid currentColor; border-top-color:transparent;
++        animation:spin .7s linear infinite; flex:none;
++    }
++    @keyframes spin{to{transform:rotate(360deg)}}
++    @media (prefers-reduced-motion:reduce){ .spinner{animation-duration:2.4s} }
+     .stepper input.qty{-moz-appearance:textfield; appearance:textfield}
+ 
+     .paybox{
+@@ -141,7 +153,10 @@
+                         <label for="promo_code">Promo code (optional)</label>
+                         <input id="promo_code" name="promo_code" type="text" value="{{ old('promo_code') }}">
+                     </div>
+-                    <button class="btn" type="submit">Pay — M-Pesa or Card</button>
++                    <button class="btn pay-btn" type="submit">
++                        <span class="pay-label">Pay — M-Pesa or Card</span>
++                        <span class="pay-busy" hidden><span class="spinner" aria-hidden="true"></span>Sending prompt to your phone…</span>
++                    </button>
+                     <p class="safe">Secured checkout · seats held for 15 minutes while you pay</p>
+                 </div>
+             </form>
+@@ -150,6 +165,20 @@
+ </div>
+ 
+ <script>
++    // Pressing Pay twice would create two orders, hold two sets of seats and
++    // send two STK prompts, so the button locks on the first submit.
++    document.querySelectorAll('form.booking').forEach(function (form) {
++        form.addEventListener('submit', function () {
++            const btn = form.querySelector('.pay-btn');
++            if (!btn || btn.disabled) return;
++            btn.disabled = true;
++            const label = btn.querySelector('.pay-label');
++            const busy = btn.querySelector('.pay-busy');
++            if (label) label.hidden = true;
++            if (busy) busy.hidden = false;
++        });
++    });
++
+     document.querySelectorAll('.stepper').forEach(function (el) {
+         const input = el.querySelector('input');
+         el.querySelectorAll('button').forEach(function (btn) {
+diff --git a/resources/views/orders/show.blade.php b/resources/views/orders/show.blade.php
+index 7b42fe1..c3cadac 100644
+--- a/resources/views/orders/show.blade.php
++++ b/resources/views/orders/show.blade.php
+@@ -9,11 +9,46 @@
+     @if (session('payment_error'))<div class="err">{{ session('payment_error') }}</div>@endif
+ 
+     @if ($order->status === 'awaiting_payment')
++        <style>
++            .waiting{display:flex; gap:12px; align-items:flex-start}
++            .pulse{
++                width:14px; height:14px; border-radius:50%; flex:none; margin-top:4px;
++                background:#C8A24A; animation:pulse 1.4s ease-in-out infinite;
++            }
++            @keyframes pulse{
++                0%,100%{opacity:1; transform:scale(1)}
++                50%{opacity:.35; transform:scale(.75)}
++            }
++            @media (prefers-reduced-motion:reduce){ .pulse{animation:none} }
++            .held{font-size:.9em; opacity:.8; margin:8px 0 0}
++        </style>
++        {{-- The page polls every few seconds and reloads itself on payment.
++             Without a visible sign of that, a buyer who has already paid sits
++             looking at a still screen wondering whether to pay again. --}}
+         <div class="note">
+-            <strong>Check your phone.</strong> Complete your payment with M-Pesa or card for
+-            {{ $order->customer->phone }} — enter your PIN to complete payment.
+-            Your seats are held for {{ \App\Services\Checkout::HOLD_MINUTES }} minutes.
++            <div class="waiting">
++                <span class="pulse" aria-hidden="true"></span>
++                <div>
++                    <strong>Waiting for your payment…</strong>
++                    A prompt has been sent to <strong>{{ $order->customer->phone }}</strong>.
++                    Unlock your phone and enter your M-Pesa PIN.
++                    <p class="held">This page updates on its own — keep it open. Seats are held for
++                        {{ \App\Services\Checkout::HOLD_MINUTES }} minutes.</p>
++                    <p class="held" id="nudge" hidden>
++                        No prompt yet? It can take up to a minute on a busy network. If nothing
++                        arrives, use the Pay Bill details below.
++                    </p>
++                </div>
++            </div>
+         </div>
++        <script>
++            // Surfaced only after 25 seconds: shown immediately it would read
++            // as "this is broken" before the prompt has had a fair chance.
++            setTimeout(function () {
++                const n = document.getElementById('nudge');
++                if (n) n.hidden = false;
++            }, 25000);
++        </script>
+ 
+         @if (\App\Support\PaymentSettings::offlineEnabled())
+             {{-- The prompt does not always arrive: a handset can be off the
