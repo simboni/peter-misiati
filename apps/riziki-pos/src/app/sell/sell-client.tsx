@@ -42,6 +42,7 @@ import { subscribeOnline, readOnline, assumeOnline } from "@/lib/online";
 import { quickAddCustomerAction } from "@/app/customers/actions";
 import type { PaperWidth, Receipt, ReceiptLine } from "@/lib/escpos";
 import { ThermalPrint } from "@/components/thermal-print";
+import { cartDiscount, lineCents } from "@/lib/cart-money";
 import { PdfShareButton } from "@/components/pdf-share-button";
 import { receiptToPdf } from "@/lib/pdf";
 
@@ -499,7 +500,17 @@ function receiptFromQueued(
       if (l.itemId === undefined) return null;
       const item = byId.get(l.itemId);
       if (!item) return null;
-      const weighed = item.basis === "unit";
+      /*
+        A SIZE IS NOT A RATE, offline either.
+
+        This asked the item whether it was weighed and stopped there, so a
+        bundle of a per-kilo chemical was treated as a rate and multiplied by
+        its own weight: a 25 g bundle sold for 120 came out as 3. The item's
+        basis says how the SHELF is priced; `bundleId` says this line was sold
+        as a size, and a size is a price for the whole thing.
+      */
+      const bundled = l.bundleId !== null && l.bundleId !== undefined;
+      const weighed = item.basis === "unit" && !bundled;
       const at = (price: number) =>
         weighed ? Math.round((price * l.qtyMilli) / 1000) : price * l.units;
       const amount = at(l.unitPriceCents);
@@ -510,7 +521,14 @@ function receiptFromQueued(
       // Only when the shop prints discounts at all. Off, the slip a queued sale
       // hands the customer says what they paid and nothing to compare it with —
       // the same paper the till prints once the sale has gone through.
-      const listCents = printer.showDiscounts ? listPrice(item) : 0;
+      /*
+        And no comparison at all for a size, because there is nothing here to
+        compare against. A queued line carries the price that was charged and
+        not the one on the shelf, and the shelf's per-kilo rate is the wrong
+        answer — it is what invented a 2,880 discount on a 230 shilling sale.
+        Better to print what the customer paid and nothing beside it.
+      */
+      const listCents = printer.showDiscounts && !bundled ? listPrice(item) : 0;
       const discountCents = listCents > 0 ? Math.max(0, at(listCents) - amount) : 0;
       return {
         name: item.name,
@@ -742,14 +760,7 @@ function lineKey(line: Pick<CartLine, "itemId" | "bundleId" | "mixKey">): string
 }
 
 /** What one cart line comes to, whichever of the three ways it is priced. */
-function lineCents(item: SellItem | null, line: CartLine): number {
-  // A bundle is a price for the whole size — not a rate, however it is weighed.
-  // A mixed product sold by the size is the same shape and has no item at all.
-  if (line.bundleId !== null) return line.priceCents * line.units;
-  if (!item) return line.priceCents * line.units;
-  if (item.basis === "unit") return Math.round((line.priceCents * line.qtyMilli) / 1000);
-  return line.priceCents * line.units;
-}
+
 
 // ------------------------------------------------------------------- screen
 
@@ -962,10 +973,9 @@ export default function SellClient({
   const lines = cart
     .map((l) => ({ line: l, item: l.mixKey ? null : (byId.get(l.itemId) ?? null) }))
     .filter((x) => x.item !== null || Boolean(x.line.mixKey));
-  const totalCents = lines.reduce((s, x) => s + lineCents(x.item, x.line), 0);
   /*
-    What the bill would have been at today's asking price, and what has been
-    knocked off it.
+    The bill, what it would have been at today's asking price, and what has
+    been knocked off it.
 
     Haggling is normal here, so this is not a warning — it is the number the
     attendant is agreeing to out loud, shown before they take the money rather
@@ -973,18 +983,7 @@ export default function SellClient({
     is snapshotted onto the sale and totalled on the receipt, so what the
     counter sees here is what the customer is handed.
   */
-  const atListCents = lines.reduce(
-    (s, x) =>
-      s +
-      lineCents(x.item, {
-        ...x.line,
-        // A mixed product's asking price is the bundle's own; there is no shelf
-        // rate behind it to have been discounted from.
-        priceCents: x.item ? listPrice(x.item) : x.line.priceCents,
-      }),
-    0,
-  );
-  const discountCents = Math.max(0, atListCents - totalCents);
+  const { totalCents, atListCents, discountCents } = cartDiscount(lines);
   // Lines, not units: a weighed line is one scoop however heavy it is, and
   // "3 items" beside a cart of three lines is the count anyone would check.
   const unitCount = cart.length;
