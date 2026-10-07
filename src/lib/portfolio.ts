@@ -259,7 +259,7 @@ export const projects: Project[] = [
     type: "Product",
     year: "2026",
     role: "Product design & full-stack engineering",
-    stack: ["NestJS", "PostgreSQL", "Next.js 15", "React 19", "TypeScript", "Capacitor", "Fly.io"],
+    stack: ["NestJS", "PostgreSQL", "Next.js 15", "React 19", "TypeScript", "Capacitor", "Docker"],
     tags: ["Web App", "SaaS", "Product"],
     featured: true,
     flagship: true,
@@ -270,7 +270,7 @@ export const projects: Project[] = [
     logo: "/logos/stackup.svg",
     logoBg: "#ffffff",
     category: "Web Apps",
-    links: { live: "https://www.stackup.co.ke", code: "https://github.com/simboni/smp-planning" },
+    links: { live: "https://stackup.co.ke", code: "https://github.com/simboni/smp-planning" },
     problem:
       "Teams juggle tasks, docs, goals and reporting across half a dozen tools. The all-in-one option (ClickUp) is powerful but closed and pricey. I wanted a clean, open, self-hostable alternative that a team can own — without giving up multi-tenancy, real-time collaboration or security.",
     approach:
@@ -279,7 +279,7 @@ export const projects: Project[] = [
       "NestJS 11 API over raw SQL (pg); Next.js 15 + React 19 web (static export); Capacitor Android app — one pnpm monorepo, shared types.",
       "PostgreSQL 16 multi-tenancy via fail-closed Row-Level-Security: the app role is NOBYPASSRLS, every workspace table FORCEs RLS, no workspace context denies every query.",
       "Argon2id passwords with two-stage JWTs (identity → workspace-scoped access) and rotating refresh tokens; append-only audit log.",
-      "A CI gate asserts cross-workspace isolation on every push; deployed on Fly.io.",
+      "A CI gate asserts cross-workspace isolation on every push; self-hosted on a single VPS \u2014 one container serves the API and the web export from the same origin, behind Caddy.",
     ],
     highlights: [
       "Security-first multi-tenancy — tenant isolation enforced in the database, not just the app, and proven by a CI gate.",
