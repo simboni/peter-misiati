@@ -113,7 +113,37 @@ docker exec edge-caddy caddy validate --config /etc/caddy/Caddyfile \
 > `APP_URL`, so tickets issued under the sslip.io name would point at the old
 > hostname. Fine while it's a demo; not fine once money is involved.
 
+## Admin patches
+
+Applied in order, against a clean checkout of `simboni/64theatre-platform`:
+
+```bash
+cd /srv/64theatre/repo
+git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0001-event-centred-admin.patch
+git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0002-venue-create-inline.patch
+cd /srv/64theatre && docker compose up -d --build
+```
+
+| Patch | What it does |
+|---|---|
+| `0001-event-centred-admin` | One-step event creation: a three-step wizard that takes performances and ticket prices with the event, performance names instead of row ids, and ticket categories edited from inside the performance |
+| `0002-venue-create-inline` | Add and correct venues from the venue dropdown itself |
+
+`0002` fixes a **go-live blocker**, not a convenience. Venues are created only
+inside `demoSeason()` in `database/seeders/DatabaseSeeder.php`, which runs
+under `local` and `staging` and *not* under `production` — and no admin screen
+creates one. Switching to `APP_ENV=production` (the first line of the section
+below) therefore leaves zero venues and no way to add any; since a performance
+requires a venue, no event can be created at all. Verified by migrating and
+seeding a fresh database with `APP_ENV=production`: **0 venues**.
+
+The staging box hides this completely, because the demo season has already
+planted three.
+
 ## Upgrading to production
+
+Apply `0002` **before** this section, or the first thing a production install
+does is refuse to create an event.
 
 The demo config is deliberately not the live config. For real ticket sales the
 repo's `DEPLOY.md` calls for:

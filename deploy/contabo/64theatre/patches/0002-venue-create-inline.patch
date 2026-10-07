@@ -1,0 +1,226 @@
+diff --git a/app/Filament/Forms/Components/VenuePicker.php b/app/Filament/Forms/Components/VenuePicker.php
+new file mode 100644
+index 0000000..35cf224
+--- /dev/null
++++ b/app/Filament/Forms/Components/VenuePicker.php
+@@ -0,0 +1,134 @@
++<?php
++
++namespace App\Filament\Forms\Components;
++
++use App\Models\Organiser;
++use App\Models\Venue;
++use Filament\Forms\Components\Select;
++use Filament\Forms\Components\Textarea;
++use Filament\Forms\Components\TextInput;
++
++/**
++ * The venue field, with the ability to add and correct venues in place.
++ *
++ * Venues were only ever created by the demo seeder, which runs under
++ * `local` and `staging` and not under `production`, and no admin screen
++ * creates one. A real install therefore started with an empty venue list and
++ * no way to fill it — and because a performance requires a venue, no event
++ * could be created at all. The demo venues on the staging box disguised this
++ * completely.
++ *
++ * Adding a Venues item to the sidebar would have fixed it too, but venues are
++ * not something anyone sets out to manage: you think about them while
++ * scheduling a performance, which is exactly where this puts them. It also
++ * keeps the navigation as short as it was deliberately made.
++ */
++final class VenuePicker
++{
++    public static function make(string $name = 'venue_id'): Select
++    {
++        return Select::make($name)
++            ->label('Venue')
++            ->placeholder('Choose a venue — or add one')
++            ->options(fn (): array => Venue::query()
++                ->orderBy('name')
++                ->get()
++                ->mapWithKeys(fn (Venue $v): array => [$v->getKey() => self::label($v)])
++                ->all())
++            ->searchable()
++            ->required()
++            ->helperText('No venue listed? Use + to add one.')
++
++            // ---------------------------------------------------------- add --
++            ->createOptionForm(self::fields())
++            ->createOptionModalHeading('Add a venue')
++            ->createOptionUsing(function (array $data): int {
++                // firstOrCreate, not create: the same hall typed twice would
++                // otherwise sit in the dropdown twice, and nothing in the
++                // schema prevents that.
++                return Venue::firstOrCreate(
++                    [
++                        'organiser_id' => self::organiserId(),
++                        'name' => trim($data['name']),
++                        'town' => trim($data['town']),
++                    ],
++                    [
++                        'capacity' => $data['capacity'] ?? null,
++                        'directions' => $data['directions'] ?? null,
++                        'map_url' => $data['map_url'] ?? null,
++                    ],
++                )->getKey();
++            })
++
++            // --------------------------------------------------------- amend --
++            // A venue added mid-schedule is typed in a hurry. Being able to
++            // fix the capacity or add directions afterwards, without leaving
++            // the form, is what stops it staying wrong.
++            ->editOptionForm(self::fields())
++            ->editOptionModalHeading('Edit venue')
++            ->fillEditOptionActionFormUsing(function (Select $component): ?array {
++                $venue = Venue::find($component->getState());
++
++                return $venue?->only(['name', 'town', 'capacity', 'directions', 'map_url']);
++            })
++            ->updateOptionUsing(function (array $data, Select $component): void {
++                Venue::whereKey($component->getState())->update([
++                    'name' => trim($data['name']),
++                    'town' => trim($data['town']),
++                    'capacity' => $data['capacity'] ?? null,
++                    'directions' => $data['directions'] ?? null,
++                    'map_url' => $data['map_url'] ?? null,
++                ]);
++            });
++    }
++
++    /** Town alongside the name, because "Town Hall" alone is not a place. */
++    private static function label(Venue $venue): string
++    {
++        return filled($venue->town)
++            ? "{$venue->name} — {$venue->town}"
++            : $venue->name;
++    }
++
++    /**
++     * `venues.organiser_id` is NOT NULL, so one has to be chosen. The signed-in
++     * administrator's own organiser is the right answer; the first organiser is
++     * the fallback for a user record without one.
++     */
++    private static function organiserId(): int
++    {
++        return auth()->user()?->organiser_id
++            ?? Organiser::query()->orderBy('id')->value('id');
++    }
++
++    /** @return array<int, \Filament\Forms\Components\Component> */
++    private static function fields(): array
++    {
++        return [
++            TextInput::make('name')
++                ->label('Venue name')
++                ->placeholder('Eldoret Town Hall')
++                ->required()
++                ->maxLength(120),
++            TextInput::make('town')
++                ->label('Town')
++                ->placeholder('Eldoret')
++                ->required()
++                ->maxLength(80),
++            TextInput::make('capacity')
++                ->label('Capacity')
++                ->numeric()
++                ->minValue(1)
++                ->helperText('Optional. Seats available — it does not cap ticket sales.'),
++            Textarea::make('directions')
++                ->label('Directions')
++                ->rows(3)
++                ->helperText('Optional. Shown to ticket holders.'),
++            TextInput::make('map_url')
++                ->label('Map link')
++                ->url()
++                ->placeholder('https://maps.google.com/…')
++                ->helperText('Optional.'),
++        ];
++    }
++}
+diff --git a/app/Filament/Resources/Events/Pages/CreateEvent.php b/app/Filament/Resources/Events/Pages/CreateEvent.php
+index a4f50a2..f8a8def 100644
+--- a/app/Filament/Resources/Events/Pages/CreateEvent.php
++++ b/app/Filament/Resources/Events/Pages/CreateEvent.php
+@@ -2,12 +2,11 @@
+ 
+ namespace App\Filament\Resources\Events\Pages;
+ 
++use App\Filament\Forms\Components\VenuePicker;
+ use App\Filament\Resources\Events\EventResource;
+ use App\Filament\Resources\Events\Schemas\EventForm;
+-use App\Models\Venue;
+ use Filament\Forms\Components\DateTimePicker;
+ use Filament\Forms\Components\Repeater;
+-use Filament\Forms\Components\Select;
+ use Filament\Forms\Components\TextInput;
+ use Filament\Forms\Components\Toggle;
+ use Filament\Resources\Pages\CreateRecord;
+@@ -57,14 +56,7 @@ public function getSteps(): array
+                         ->defaultItems(1)
+                         ->minItems(1)
+                         ->schema([
+-                            Select::make('venue_id')
+-                                ->label('Venue')
+-                                ->options(fn (): array => Venue::query()
+-                                    ->orderBy('name')
+-                                    ->pluck('name', 'id')
+-                                    ->all())
+-                                ->searchable()
+-                                ->required(),
++                            VenuePicker::make(),
+                             DateTimePicker::make('starts_at')
+                                 ->label('Starts at')
+                                 ->seconds(false)
+diff --git a/app/Filament/Resources/Events/RelationManagers/PerformancesRelationManager.php b/app/Filament/Resources/Events/RelationManagers/PerformancesRelationManager.php
+index 364e0d4..81ff9a0 100644
+--- a/app/Filament/Resources/Events/RelationManagers/PerformancesRelationManager.php
++++ b/app/Filament/Resources/Events/RelationManagers/PerformancesRelationManager.php
+@@ -2,7 +2,7 @@
+ 
+ namespace App\Filament\Resources\Events\RelationManagers;
+ 
+-use App\Models\Venue;
++use App\Filament\Forms\Components\VenuePicker;
+ use Filament\Actions\CreateAction;
+ use Filament\Actions\DeleteAction;
+ use Filament\Actions\EditAction;
+@@ -27,14 +27,7 @@ class PerformancesRelationManager extends RelationManager
+     public function form(Schema $schema): Schema
+     {
+         return $schema->components([
+-            Select::make('venue_id')
+-                ->label('Venue')
+-                ->options(fn (): array => Venue::query()
+-                    ->orderBy('name')
+-                    ->pluck('name', 'id')
+-                    ->all())
+-                ->searchable()
+-                ->required(),
++            VenuePicker::make(),
+             DateTimePicker::make('starts_at')
+                 ->label('Starts at')
+                 ->seconds(false)
+diff --git a/app/Filament/Resources/Performances/Schemas/PerformanceForm.php b/app/Filament/Resources/Performances/Schemas/PerformanceForm.php
+index 20afec6..b7f74c5 100644
+--- a/app/Filament/Resources/Performances/Schemas/PerformanceForm.php
++++ b/app/Filament/Resources/Performances/Schemas/PerformanceForm.php
+@@ -2,6 +2,7 @@
+ 
+ namespace App\Filament\Resources\Performances\Schemas;
+ 
++use App\Filament\Forms\Components\VenuePicker;
+ use Filament\Forms\Components\DateTimePicker;
+ use Filament\Forms\Components\Select;
+ use Filament\Forms\Components\TextInput;
+@@ -16,9 +17,7 @@ public static function configure(Schema $schema): Schema
+                 Select::make('event_id')
+                     ->relationship('event', 'title')
+                     ->required(),
+-                Select::make('venue_id')
+-                    ->relationship('venue', 'name')
+-                    ->required(),
++                VenuePicker::make(),
+                 DateTimePicker::make('starts_at')
+                     ->required(),
+                 DateTimePicker::make('doors_open_at'),
