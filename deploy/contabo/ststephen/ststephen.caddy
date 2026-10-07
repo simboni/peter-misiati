@@ -1,0 +1,36 @@
+# St Stephen's EMS — publishes through edge-caddy.
+#
+# Install as a NEW file, never by editing another:
+#   cp ststephen.caddy /srv/edge/sites/stephens.caddy
+#
+# It deliberately keeps the hostname the previous deployment already used, so
+# no DNS change is needed and no new Let's Encrypt certificate is requested —
+# the existing one keeps working and the switch is invisible from outside.
+#
+# Swap in the school's real domain later: change the line below, then
+# `caddy validate` and `caddy reload`. Point the DNS first.
+
+stephens.169-58-127-122.sslip.io {
+	reverse_proxy ststephen-ems:3000 {
+		# Next.js streams HTML as Suspense boundaries resolve; without this
+		# Caddy buffers and the dashboard appears to hang.
+		flush_interval -1
+	}
+
+	header {
+		# A system holding 525 children's records has no business in a search
+		# index.
+		X-Robots-Tag "noindex, nofollow, noarchive"
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "same-origin"
+		-Server
+	}
+
+	# Photographs and the school logo are uploaded through forms.
+	request_body {
+		max_size 10MB
+	}
+
+	encode zstd gzip
+}
