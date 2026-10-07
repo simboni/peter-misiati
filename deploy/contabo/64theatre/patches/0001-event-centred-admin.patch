@@ -1,0 +1,551 @@
+diff --git a/app/Filament/Resources/Events/EventResource.php b/app/Filament/Resources/Events/EventResource.php
+index 0d552cf..1701e52 100644
+--- a/app/Filament/Resources/Events/EventResource.php
++++ b/app/Filament/Resources/Events/EventResource.php
+@@ -5,6 +5,7 @@
+ use App\Filament\Resources\Events\Pages\CreateEvent;
+ use App\Filament\Resources\Events\Pages\EditEvent;
+ use App\Filament\Resources\Events\Pages\ListEvents;
++use App\Filament\Resources\Events\RelationManagers\PerformancesRelationManager;
+ use App\Filament\Resources\Events\Schemas\EventForm;
+ use App\Filament\Resources\Events\Tables\EventsTable;
+ use App\Models\Event;
+@@ -35,7 +36,7 @@ public static function table(Table $table): Table
+     public static function getRelations(): array
+     {
+         return [
+-            //
++            PerformancesRelationManager::class,
+         ];
+     }
+ 
+diff --git a/app/Filament/Resources/Events/Pages/CreateEvent.php b/app/Filament/Resources/Events/Pages/CreateEvent.php
+index 96d8a8b..a4f50a2 100644
+--- a/app/Filament/Resources/Events/Pages/CreateEvent.php
++++ b/app/Filament/Resources/Events/Pages/CreateEvent.php
+@@ -3,9 +3,158 @@
+ namespace App\Filament\Resources\Events\Pages;
+ 
+ use App\Filament\Resources\Events\EventResource;
++use App\Filament\Resources\Events\Schemas\EventForm;
++use App\Models\Venue;
++use Filament\Forms\Components\DateTimePicker;
++use Filament\Forms\Components\Repeater;
++use Filament\Forms\Components\Select;
++use Filament\Forms\Components\TextInput;
++use Filament\Forms\Components\Toggle;
+ use Filament\Resources\Pages\CreateRecord;
++use Filament\Schemas\Components\Wizard\Step;
+ 
++/**
++ * Putting a show on sale is one flow, not three screens.
++ *
++ * The database keeps prices on the performance — so a 3 PM matinee can be
++ * priced differently from the 7 PM show — but nobody wants to create an
++ * event, then hunt for Performances, then hunt for Ticket Types. This wizard
++ * collects all three in one pass:
++ *
++ *   1. Event details
++ *   2. Dates & venue     — one row per performance
++ *   3. Tickets & prices  — the price list, created for EVERY performance above
++ *
++ * Entering the price list once is the point: a matinee and an evening show
++ * almost always share prices. A single performance can still be re-priced
++ * afterwards from the Ticket Types screen.
++ */
+ class CreateEvent extends CreateRecord
+ {
++    use CreateRecord\Concerns\HasWizard;
++
+     protected static string $resource = EventResource::class;
++
++    /** Lifted out of the form data before the Event row is written. */
++    protected array $performanceRows = [];
++
++    protected array $ticketTypeRows = [];
++
++    public function getSteps(): array
++    {
++        return [
++            Step::make('Event details')
++                ->description('What the show is')
++                ->schema(EventForm::components()),
++
++            Step::make('Dates & venue')
++                ->description('When and where it plays')
++                ->schema([
++                    Repeater::make('performances')
++                        ->label('Performances')
++                        ->helperText('One row per showing. "Sat 3 PM" and "Sat 7 PM" are two performances of the same event.')
++                        ->addActionLabel('Add another performance')
++                        ->defaultItems(1)
++                        ->minItems(1)
++                        ->schema([
++                            Select::make('venue_id')
++                                ->label('Venue')
++                                ->options(fn (): array => Venue::query()
++                                    ->orderBy('name')
++                                    ->pluck('name', 'id')
++                                    ->all())
++                                ->searchable()
++                                ->required(),
++                            DateTimePicker::make('starts_at')
++                                ->label('Starts at')
++                                ->seconds(false)
++                                ->required(),
++                            DateTimePicker::make('doors_open_at')
++                                ->label('Doors open')
++                                ->seconds(false)
++                                ->helperText('Optional.'),
++                        ])
++                        ->columns(3)
++                        ->columnSpanFull(),
++                ]),
++
++            Step::make('Tickets & prices')
++                ->description('What people pay')
++                ->schema([
++                    Repeater::make('ticket_types')
++                        ->label('Ticket categories')
++                        ->helperText('Created for every performance above. Adjust an individual performance later from Ticket Types.')
++                        ->addActionLabel('Add another category')
++                        ->defaultItems(1)
++                        ->minItems(1)
++                        ->schema([
++                            TextInput::make('name')
++                                ->label('Category')
++                                ->placeholder('Regular, VIP, Student…')
++                                ->datalist(['Regular', 'VIP', 'Student', 'Early Bird', 'Group', 'Comp'])
++                                ->required()
++                                ->maxLength(60),
++                            TextInput::make('price_kes')
++                                ->label('Price (KES)')
++                                ->numeric()
++                                ->minValue(0)
++                                ->required()
++                                ->helperText('In shillings — 1500 means KES 1,500. Use 0 for free or complimentary.'),
++                            TextInput::make('quantity_total')
++                                ->label('How many exist')
++                                ->numeric()
++                                ->minValue(1)
++                                ->required()
++                                ->helperText('One pool shared by online and gate sales, so overselling is impossible.'),
++                            TextInput::make('max_per_order')
++                                ->label('Max per order')
++                                ->numeric()
++                                ->minValue(1)
++                                ->helperText('Optional.'),
++                            Toggle::make('requires_id_at_gate')
++                                ->label('Requires ID at the gate')
++                                ->helperText('For student or concession prices.'),
++                        ])
++                        ->columns(2)
++                        ->columnSpanFull(),
++                ]),
++        ];
++    }
++
++    protected function mutateFormDataBeforeCreate(array $data): array
++    {
++        $this->performanceRows = $data['performances'] ?? [];
++        $this->ticketTypeRows = $data['ticket_types'] ?? [];
++
++        // Neither is a column on events — they become child rows in afterCreate().
++        unset($data['performances'], $data['ticket_types']);
++
++        return $data;
++    }
++
++    protected function afterCreate(): void
++    {
++        foreach ($this->performanceRows as $performanceRow) {
++            $performance = $this->record->performances()->create([
++                'venue_id' => $performanceRow['venue_id'],
++                'starts_at' => $performanceRow['starts_at'],
++                'doors_open_at' => $performanceRow['doors_open_at'] ?? null,
++                'status' => 'scheduled',
++            ]);
++
++            foreach ($this->ticketTypeRows as $ticketTypeRow) {
++                $performance->ticketTypes()->create([
++                    'name' => $ticketTypeRow['name'],
++                    // Stored as integer cents; the form collects shillings.
++                    'price_cents' => (int) round(((float) $ticketTypeRow['price_kes']) * 100),
++                    'quantity_total' => (int) $ticketTypeRow['quantity_total'],
++                    'quantity_sold' => 0,
++                    'max_per_order' => filled($ticketTypeRow['max_per_order'] ?? null)
++                        ? (int) $ticketTypeRow['max_per_order']
++                        : null,
++                    'requires_id_at_gate' => (bool) ($ticketTypeRow['requires_id_at_gate'] ?? false),
++                ]);
++            }
++        }
++    }
+ }
+diff --git a/app/Filament/Resources/Events/RelationManagers/PerformancesRelationManager.php b/app/Filament/Resources/Events/RelationManagers/PerformancesRelationManager.php
+new file mode 100644
+index 0000000..364e0d4
+--- /dev/null
++++ b/app/Filament/Resources/Events/RelationManagers/PerformancesRelationManager.php
+@@ -0,0 +1,85 @@
++<?php
++
++namespace App\Filament\Resources\Events\RelationManagers;
++
++use App\Models\Venue;
++use Filament\Actions\CreateAction;
++use Filament\Actions\DeleteAction;
++use Filament\Actions\EditAction;
++use Filament\Forms\Components\DateTimePicker;
++use Filament\Forms\Components\Select;
++use Filament\Resources\RelationManagers\RelationManager;
++use Filament\Schemas\Schema;
++use Filament\Tables\Columns\TextColumn;
++use Filament\Tables\Table;
++
++/**
++ * Performances live inside their event, not in a sidebar of their own —
++ * you look for "the Saturday show" by opening the show, not by browsing a
++ * flat list of every performance the theatre has ever run.
++ */
++class PerformancesRelationManager extends RelationManager
++{
++    protected static string $relationship = 'performances';
++
++    protected static ?string $title = 'Performances';
++
++    public function form(Schema $schema): Schema
++    {
++        return $schema->components([
++            Select::make('venue_id')
++                ->label('Venue')
++                ->options(fn (): array => Venue::query()
++                    ->orderBy('name')
++                    ->pluck('name', 'id')
++                    ->all())
++                ->searchable()
++                ->required(),
++            DateTimePicker::make('starts_at')
++                ->label('Starts at')
++                ->seconds(false)
++                ->required(),
++            DateTimePicker::make('doors_open_at')
++                ->label('Doors open')
++                ->seconds(false),
++            Select::make('status')
++                ->options([
++                    'scheduled' => 'Scheduled',
++                    'on_sale' => 'On sale',
++                    'sold_out' => 'Sold out',
++                    'cancelled' => 'Cancelled',
++                    'completed' => 'Completed',
++                ])
++                ->default('scheduled')
++                ->required(),
++        ]);
++    }
++
++    public function table(Table $table): Table
++    {
++        return $table
++            ->recordTitleAttribute('starts_at')
++            ->columns([
++                TextColumn::make('starts_at')
++                    ->label('Starts')
++                    ->dateTime('D j M Y · g:i A')
++                    ->sortable(),
++                TextColumn::make('venue.name')
++                    ->label('Venue'),
++                TextColumn::make('status')
++                    ->badge(),
++                TextColumn::make('ticket_types_count')
++                    ->label('Ticket categories')
++                    ->counts('ticketTypes'),
++            ])
++            ->defaultSort('starts_at')
++            ->headerActions([
++                CreateAction::make()
++                    ->label('Add performance'),
++            ])
++            ->recordActions([
++                EditAction::make(),
++                DeleteAction::make(),
++            ]);
++    }
++}
+diff --git a/app/Filament/Resources/Events/Schemas/EventForm.php b/app/Filament/Resources/Events/Schemas/EventForm.php
+index b90c728..319f97f 100644
+--- a/app/Filament/Resources/Events/Schemas/EventForm.php
++++ b/app/Filament/Resources/Events/Schemas/EventForm.php
+@@ -14,8 +14,18 @@ class EventForm
+ {
+     public static function configure(Schema $schema): Schema
+     {
+-        return $schema
+-            ->components([
++        return $schema->components(self::components());
++    }
++
++    /**
++     * The event's own fields, shared by the edit form and by step 1 of the
++     * create wizard (Pages\CreateEvent) so the two can never drift apart.
++     *
++     * @return array<int, mixed>
++     */
++    public static function components(): array
++    {
++        return [
+                 TextInput::make('title')
+                     ->required()
+                     ->maxLength(120)
+@@ -73,6 +83,6 @@ public static function configure(Schema $schema): Schema
+                     ->label('Free event (RSVP only)'),
+                 Toggle::make('is_private')
+                     ->label('Private (link-only, hidden from listings)'),
+-            ]);
++        ];
+     }
+ }
+diff --git a/app/Filament/Resources/Performances/PerformanceResource.php b/app/Filament/Resources/Performances/PerformanceResource.php
+index 57a6d97..3b3470c 100644
+--- a/app/Filament/Resources/Performances/PerformanceResource.php
++++ b/app/Filament/Resources/Performances/PerformanceResource.php
+@@ -5,6 +5,7 @@
+ use App\Filament\Resources\Performances\Pages\CreatePerformance;
+ use App\Filament\Resources\Performances\Pages\EditPerformance;
+ use App\Filament\Resources\Performances\Pages\ListPerformances;
++use App\Filament\Resources\Performances\RelationManagers\TicketTypesRelationManager;
+ use App\Filament\Resources\Performances\Schemas\PerformanceForm;
+ use App\Filament\Resources\Performances\Tables\PerformancesTable;
+ use App\Models\Performance;
+@@ -35,10 +36,19 @@ public static function table(Table $table): Table
+     public static function getRelations(): array
+     {
+         return [
+-            //
++            TicketTypesRelationManager::class,
+         ];
+     }
+ 
++    /**
++     * Reached from inside an event, not from the sidebar — a flat list of
++     * every performance the theatre has ever run is not how anyone looks.
++     */
++    public static function shouldRegisterNavigation(): bool
++    {
++        return false;
++    }
++
+     public static function getPages(): array
+     {
+         return [
+diff --git a/app/Filament/Resources/Performances/RelationManagers/TicketTypesRelationManager.php b/app/Filament/Resources/Performances/RelationManagers/TicketTypesRelationManager.php
+new file mode 100644
+index 0000000..f96b428
+--- /dev/null
++++ b/app/Filament/Resources/Performances/RelationManagers/TicketTypesRelationManager.php
+@@ -0,0 +1,103 @@
++<?php
++
++namespace App\Filament\Resources\Performances\RelationManagers;
++
++use Filament\Actions\CreateAction;
++use Filament\Actions\DeleteAction;
++use Filament\Actions\EditAction;
++use Filament\Forms\Components\DateTimePicker;
++use Filament\Forms\Components\TextInput;
++use Filament\Forms\Components\Toggle;
++use Filament\Resources\RelationManagers\RelationManager;
++use Filament\Schemas\Schema;
++use Filament\Tables\Columns\IconColumn;
++use Filament\Tables\Columns\TextColumn;
++use Filament\Tables\Table;
++
++/**
++ * Prices belong to a performance, so they are edited from inside one.
++ *
++ * Money is stored as integer cents but entered and shown in shillings —
++ * typing 1500 here means KES 1,500, not fifteen shillings.
++ */
++class TicketTypesRelationManager extends RelationManager
++{
++    protected static string $relationship = 'ticketTypes';
++
++    protected static ?string $title = 'Tickets & prices';
++
++    public function form(Schema $schema): Schema
++    {
++        return $schema->components([
++            TextInput::make('name')
++                ->label('Category')
++                ->placeholder('Regular, VIP, Student…')
++                ->datalist(['Regular', 'VIP', 'Student', 'Early Bird', 'Group', 'Comp'])
++                ->required()
++                ->maxLength(60),
++            TextInput::make('price_cents')
++                ->label('Price (KES)')
++                ->numeric()
++                ->minValue(0)
++                ->required()
++                ->helperText('In shillings. Use 0 for free or complimentary.')
++                ->formatStateUsing(fn (?int $state): ?float => $state === null ? null : $state / 100)
++                ->dehydrateStateUsing(fn ($state): int => (int) round(((float) $state) * 100)),
++            TextInput::make('quantity_total')
++                ->label('How many exist')
++                ->numeric()
++                ->minValue(1)
++                ->required()
++                ->helperText('One pool shared by online and gate sales.'),
++            TextInput::make('max_per_order')
++                ->label('Max per order')
++                ->numeric()
++                ->minValue(1),
++            DateTimePicker::make('sales_start_at')
++                ->label('Sales open')
++                ->seconds(false),
++            DateTimePicker::make('sales_end_at')
++                ->label('Sales close')
++                ->seconds(false),
++            Toggle::make('requires_id_at_gate')
++                ->label('Requires ID at the gate'),
++        ]);
++    }
++
++    public function table(Table $table): Table
++    {
++        return $table
++            ->recordTitleAttribute('name')
++            ->columns([
++                TextColumn::make('name')
++                    ->label('Category'),
++                TextColumn::make('price_cents')
++                    ->label('Price')
++                    ->money('KES', divideBy: 100)
++                    ->sortable(),
++                TextColumn::make('quantity_total')
++                    ->label('Total')
++                    ->numeric(),
++                TextColumn::make('quantity_sold')
++                    ->label('Sold')
++                    ->numeric(),
++                // The number that actually gets asked about at the box office.
++                TextColumn::make('remaining')
++                    ->label('Remaining')
++                    ->state(fn ($record): int => $record->remaining())
++                    ->badge()
++                    ->color(fn (int $state): string => $state > 0 ? 'success' : 'danger'),
++                IconColumn::make('requires_id_at_gate')
++                    ->label('ID required')
++                    ->boolean(),
++            ])
++            ->headerActions([
++                CreateAction::make()
++                    ->label('Add category'),
++            ])
++            ->recordActions([
++                EditAction::make(),
++                DeleteAction::make(),
++            ]);
++    }
++}
+diff --git a/app/Filament/Resources/TicketTypes/Schemas/TicketTypeForm.php b/app/Filament/Resources/TicketTypes/Schemas/TicketTypeForm.php
+index 66cebf7..e55dacb 100644
+--- a/app/Filament/Resources/TicketTypes/Schemas/TicketTypeForm.php
++++ b/app/Filament/Resources/TicketTypes/Schemas/TicketTypeForm.php
+@@ -2,6 +2,7 @@
+ 
+ namespace App\Filament\Resources\TicketTypes\Schemas;
+ 
++use App\Models\Performance;
+ use Filament\Forms\Components\DateTimePicker;
+ use Filament\Forms\Components\Select;
+ use Filament\Forms\Components\TextInput;
+@@ -15,20 +16,37 @@ public static function configure(Schema $schema): Schema
+         return $schema
+             ->components([
+                 Select::make('performance_id')
++                    ->label('Performance')
++                    // The scaffold displayed the primary key. Show the event,
++                    // date and venue instead — Performance::getLabelAttribute().
+                     ->relationship('performance', 'id')
++                    ->getOptionLabelFromRecordUsing(
++                        fn (Performance $record): string => $record->label,
++                    )
++                    ->searchable()
++                    ->preload()
+                     ->required(),
+                 TextInput::make('name')
+                     ->required(),
+                 TextInput::make('price_cents')
++                    ->label('Price (KES)')
+                     ->required()
+-                    ->numeric(),
++                    ->numeric()
++                    ->minValue(0)
++                    ->helperText('In shillings. Stored internally as cents.')
++                    ->formatStateUsing(fn (?int $state): ?float => $state === null ? null : $state / 100)
++                    ->dehydrateStateUsing(fn ($state): int => (int) round(((float) $state) * 100)),
+                 TextInput::make('quantity_total')
+                     ->required()
+                     ->numeric(),
+                 TextInput::make('quantity_sold')
+-                    ->required()
++                    // Maintained by the sales pipeline. Typing over it would
++                    // break the shared stock pool that prevents overselling.
+                     ->numeric()
+-                    ->default(0),
++                    ->default(0)
++                    ->disabled()
++                    ->dehydrated(false)
++                    ->helperText('Set by the system as tickets sell.'),
+                 TextInput::make('max_per_order')
+                     ->numeric(),
+                 DateTimePicker::make('sales_start_at'),
+diff --git a/app/Filament/Resources/TicketTypes/TicketTypeResource.php b/app/Filament/Resources/TicketTypes/TicketTypeResource.php
+index abf8be7..02b42b7 100644
+--- a/app/Filament/Resources/TicketTypes/TicketTypeResource.php
++++ b/app/Filament/Resources/TicketTypes/TicketTypeResource.php
+@@ -39,6 +39,15 @@ public static function getRelations(): array
+         ];
+     }
+ 
++    /**
++     * Prices are edited inside the performance they belong to, so this
++     * resource stays reachable by URL but off the sidebar.
++     */
++    public static function shouldRegisterNavigation(): bool
++    {
++        return false;
++    }
++
+     public static function getPages(): array
+     {
+         return [
+diff --git a/app/Models/Performance.php b/app/Models/Performance.php
+index de2e953..df47a90 100644
+--- a/app/Models/Performance.php
++++ b/app/Models/Performance.php
+@@ -28,6 +28,23 @@ public function venue(): BelongsTo
+         return $this->belongsTo(Venue::class);
+     }
+ 
++    /**
++     * A human label for admin dropdowns and tables:
++     * "Macbeth — Sat 10 Oct 2026 · 7:00 PM — Eldoret Theatre".
++     * Performances are only distinguishable by event, time and venue, so the
++     * primary key tells a person nothing.
++     */
++    public function getLabelAttribute(): string
++    {
++        $event = $this->event?->title ?? 'Untitled event';
++        $when = $this->starts_at?->format('D j M Y · g:i A') ?? 'date TBC';
++        $venue = $this->venue?->name;
++
++        return $venue
++            ? "{$event} — {$when} — {$venue}"
++            : "{$event} — {$when}";
++    }
++
+     public function ticketTypes(): HasMany
+     {
+         return $this->hasMany(TicketType::class);
