@@ -206,6 +206,7 @@ git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0003-kopokopo
 git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0004-admin-ticket-authority.patch
 git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0005-payment-methods-admin.patch
 git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0006-payment-waiting-feedback.patch
+git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0007-prices-on-the-event-screen.patch
 cd /srv/64theatre && docker compose up -d --build
 ```
 
@@ -220,6 +221,7 @@ cd /srv/64theatre && docker compose up -d --build
 | `0004-admin-ticket-authority` | A Tickets screen (there was none), void/reinstate, email + WhatsApp resend, and a payment-method choice when marking an order paid |
 | `0005-payment-methods-admin` | **Sales → Payment methods**: switch online payments and the Pay Bill panel on or off, and choose the provider, without a deploy |
 | `0006-payment-waiting-feedback` | A spinner while the STK prompt is sent, a locked Pay button, and a live waiting state on the order page |
+| `0007-prices-on-the-event-screen` | Ticket categories and prices editable from **Edit event**, which previously had no route to an amount |
 
 `0002` fixes a **go-live blocker**, not a convenience. Venues are created only
 inside `demoSeason()` in `database/seeders/DatabaseSeeder.php`, which runs
@@ -231,6 +233,23 @@ seeding a fresh database with `APP_ENV=production`: **0 venues**.
 
 The staging box hides this completely, because the demo season has already
 planted three.
+
+## Setting prices
+
+**Events → edit an event → Performances → Add / edit a performance.** Venue,
+times, status and **Tickets & prices** are one form.
+
+`0001` put prices in the creation wizard, but editing afterwards was a dead
+end: prices live on `TicketTypesRelationManager`, which hangs off the
+Performances resource, and that resource is hidden from navigation. From Edit
+event there was no route to an amount at all — a performance could be
+scheduled with nothing on sale and no way to fix it without a URL typed by
+hand.
+
+Prices are entered in **shillings** and stored as integer cents. The form field
+`price_kes` exists only in the form: a fill hook divides on load, create and
+save hooks multiply back and drop the display field before it reaches the
+model. Verified both directions, including 250.50 → 25050 → 250.5.
 
 ## What the admin can do with tickets
 

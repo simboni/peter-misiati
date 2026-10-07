@@ -1,0 +1,103 @@
+diff --git a/app/Filament/Resources/Events/RelationManagers/PerformancesRelationManager.php b/app/Filament/Resources/Events/RelationManagers/PerformancesRelationManager.php
+index 81ff9a0..e9c7ad1 100644
+--- a/app/Filament/Resources/Events/RelationManagers/PerformancesRelationManager.php
++++ b/app/Filament/Resources/Events/RelationManagers/PerformancesRelationManager.php
+@@ -7,6 +7,9 @@
+ use Filament\Actions\DeleteAction;
+ use Filament\Actions\EditAction;
+ use Filament\Forms\Components\DateTimePicker;
++use Filament\Forms\Components\Repeater;
++use Filament\Forms\Components\TextInput;
++use Filament\Forms\Components\Toggle;
+ use Filament\Forms\Components\Select;
+ use Filament\Resources\RelationManagers\RelationManager;
+ use Filament\Schemas\Schema;
+@@ -45,9 +48,74 @@ public function form(Schema $schema): Schema
+                 ])
+                 ->default('scheduled')
+                 ->required(),
++
++            // Prices belong here. They were only reachable through the
++            // Performances resource, which is hidden from navigation — so from
++            // Edit event there was no route to an amount at all, and a
++            // performance could be scheduled with nothing on sale.
++            Repeater::make('ticketTypes')
++                ->relationship()
++                ->label('Tickets & prices')
++                ->helperText('At least one category, or nothing can be sold for this performance.')
++                ->addActionLabel('Add a category')
++                ->defaultItems(1)
++                ->minItems(1)
++                ->itemLabel(fn (array $state): ?string => filled($state['name'] ?? null)
++                    ? $state['name'].(filled($state['price_kes'] ?? null) ? ' — KES '.number_format((float) $state['price_kes']) : '')
++                    : null)
++                ->collapsible()
++                ->schema([
++                    TextInput::make('name')
++                        ->label('Category')
++                        ->placeholder('Regular, VIP, Student…')
++                        ->datalist(['Regular', 'VIP', 'Student', 'Early Bird', 'Group', 'Comp'])
++                        ->required()
++                        ->maxLength(60),
++                    // Stored as integer cents, entered in shillings. Typing
++                    // 1500 means KES 1,500, not fifteen shillings.
++                    TextInput::make('price_kes')
++                        ->label('Price (KES)')
++                        ->numeric()
++                        ->minValue(0)
++                        ->required()
++                        ->helperText('Use 0 for free or complimentary.')
++                        ->live(onBlur: true),
++                    TextInput::make('quantity_total')
++                        ->label('How many exist')
++                        ->numeric()
++                        ->minValue(1)
++                        ->required()
++                        ->helperText('One pool shared by online and gate sales.'),
++                    TextInput::make('max_per_order')
++                        ->label('Max per order')
++                        ->numeric()
++                        ->minValue(1),
++                    Toggle::make('requires_id_at_gate')
++                        ->label('Requires ID at the gate'),
++                ])
++                ->columns(2)
++                // price_kes exists only in the form; price_cents is the
++                // column. Fill converts one way on load, the create/save
++                // mutators convert back and drop the display field before it
++                // ever reaches the model.
++                ->mutateRelationshipDataBeforeFillUsing(fn (array $data): array => [
++                    ...$data,
++                    'price_kes' => ($data['price_cents'] ?? 0) / 100,
++                ])
++                ->mutateRelationshipDataBeforeCreateUsing(fn (array $data): array => self::withPriceCents($data))
++                ->mutateRelationshipDataBeforeSaveUsing(fn (array $data): array => self::withPriceCents($data)),
+         ]);
+     }
+ 
++    /** Shillings in the form become integer cents in the column. */
++    private static function withPriceCents(array $data): array
++    {
++        $data['price_cents'] = (int) round(((float) ($data['price_kes'] ?? 0)) * 100);
++        unset($data['price_kes']);
++
++        return $data;
++    }
++
+     public function table(Table $table): Table
+     {
+         return $table
+@@ -68,10 +136,11 @@ public function table(Table $table): Table
+             ->defaultSort('starts_at')
+             ->headerActions([
+                 CreateAction::make()
+-                    ->label('Add performance'),
++                    ->label('Add performance')
++                    ->modalWidth('4xl'),
+             ])
+             ->recordActions([
+-                EditAction::make(),
++                EditAction::make()->modalWidth('4xl'),
+                 DeleteAction::make(),
+             ]);
+     }
