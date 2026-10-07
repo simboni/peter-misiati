@@ -175,7 +175,7 @@ index 0000000..f5d1798
 +    }
 +}
 diff --git a/resources/views/events/show.blade.php b/resources/views/events/show.blade.php
-index 84415f8..7d67a9a 100644
+index 84415f8..d04d0f5 100644
 --- a/resources/views/events/show.blade.php
 +++ b/resources/views/events/show.blade.php
 @@ -53,6 +53,24 @@
@@ -386,6 +386,17 @@ index 84415f8..7d67a9a 100644
      // Pressing Pay twice would create two orders, hold two sets of seats and
      // send two STK prompts, so the button locks on the first submit.
      document.querySelectorAll('form.booking').forEach(function (form) {
+@@ -193,6 +327,10 @@
+                 const next = Math.max(0, Math.min(max, (parseInt(input.value, 10) || 0) + parseInt(btn.dataset.d, 10)));
+                 input.value = next;
+                 el.closest('.trow').classList.toggle('active', next > 0);
++                // Setting .value in code does NOT fire `input`, so the running
++                // total and the Continue button never saw the change and the
++                // step could not be left. Announce it.
++                input.dispatchEvent(new Event('input', { bubbles: true }));
+             });
+         });
+     });
 diff --git a/resources/views/orders/print.blade.php b/resources/views/orders/print.blade.php
 index 2d3efb4..57d04c1 100644
 --- a/resources/views/orders/print.blade.php
