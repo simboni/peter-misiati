@@ -210,6 +210,7 @@ git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0007-prices-o
 git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0008-seamless-checkout.patch
 git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0009-door-menu-and-verify.patch
 git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0010-gate-mpesa-prompt.patch
+git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0011-delete-a-ticket.patch
 cd /srv/64theatre && docker compose up -d --build
 ```
 
@@ -228,6 +229,7 @@ cd /srv/64theatre && docker compose up -d --build
 | `0008-seamless-checkout` | Three-step checkout, a canonical phone number, resuming an unpaid order instead of duplicating it, and a ticket that does not break on a phone |
 | `0009-door-menu-and-verify` | A **Door** menu reaching the scanner and box office, plus verifying a ticket from the office |
 | `0010-gate-mpesa-prompt` | The box office can push an M-Pesa prompt to a walk-up customer's phone instead of only taking cash |
+| `0011-delete-a-ticket` | Deleting a ticket, singly or in bulk, returning the seat to stock and refusing anything already scanned |
 
 `0002` fixes a **go-live blocker**, not a convenience. Venues are created only
 inside `demoSeason()` in `database/seeders/DatabaseSeeder.php`, which runs
@@ -285,6 +287,30 @@ pre-prints gate stock against a ticket type's inventory. Tickets are
 deliberately not created from the Tickets screen: both real routes hold
 inventory against the ticket type, and minting one by hand would oversell the
 house.
+
+### Deleting a ticket
+
+Super admin only, on **Sales → Tickets**, singly or by selecting several.
+
+**Void and delete are different things and the difference matters.** Void keeps
+the record and stops the ticket working — that is what a real sold ticket
+needs. Delete erases it, and is right for a test sale or something created by
+mistake.
+
+Two things delete has to get right, which is why it was not simply a button:
+
+- **The seat goes back on sale.** `quantity_sold` is incremented when a ticket
+  is sold and nothing decrements it on delete, so a naive delete would leave
+  the seat counted as sold for ever — the house reading full with an empty
+  chair. Verified: `quantity_sold` 5 → 4, remaining 245 → 246.
+- **A scanned ticket is refused.** `checkins.ticket_id` is a constrained
+  foreign key, so deleting a ticket somebody came in on fails at the database
+  with an integrity-constraint error. Confirmed by scanning a ticket and trying:
+  `SQLSTATE[23000] FOREIGN KEY constraint failed`. It is also evidence that a
+  person walked through the door. The action checks first and says so, and the
+  bulk action skips them and reports how many.
+
+Every delete is written to the audit log with the short code.
 
 ### Sending tickets
 

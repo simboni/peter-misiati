@@ -1,0 +1,137 @@
+diff --git a/app/Filament/Resources/Tickets/Tables/TicketsTable.php b/app/Filament/Resources/Tickets/Tables/TicketsTable.php
+index 1382cd2..db88c0e 100644
+--- a/app/Filament/Resources/Tickets/Tables/TicketsTable.php
++++ b/app/Filament/Resources/Tickets/Tables/TicketsTable.php
+@@ -5,14 +5,18 @@
+ use App\Models\AuditLog;
+ use App\Models\Performance;
+ use App\Models\Ticket;
++use App\Models\TicketType;
+ use App\Support\TicketShare;
+ use Filament\Actions\Action;
++use Filament\Actions\BulkAction;
+ use Filament\Actions\ViewAction;
+ use Filament\Forms\Components\Textarea;
+ use Filament\Notifications\Notification;
+ use Filament\Tables\Columns\TextColumn;
+ use Filament\Tables\Filters\SelectFilter;
+ use Filament\Tables\Table;
++use Illuminate\Database\Eloquent\Collection;
++use Illuminate\Support\Facades\DB;
+ 
+ class TicketsTable
+ {
+@@ -155,7 +159,112 @@ public static function configure(Table $table): Table
+                             ->success()
+                             ->send();
+                     }),
++
++                // Deleting a ticket is not the same as voiding one, and the
++                // difference matters. Void keeps the record and stops the
++                // ticket working; delete erases it. Only the second is right
++                // for something created by mistake or a test sale, and only
++                // the first is right for a real one that must not be used.
++                Action::make('delete')
++                    ->label('Delete')
++                    ->icon('heroicon-o-trash')
++                    ->color('danger')
++                    ->visible(fn (Ticket $record): bool => auth()->user()?->role === 'super_admin')
++                    ->requiresConfirmation()
++                    ->modalHeading('Delete this ticket permanently?')
++                    ->modalDescription('The record is erased and the seat goes back on sale. To stop a real ticket working while keeping the record, use Void instead.')
++                    ->modalSubmitActionLabel('Delete it')
++                    ->action(function (Ticket $record): void {
++                        // A scanned ticket is referenced by a checkin row with
++                        // a foreign key, so the delete would fail at the
++                        // database. It is also evidence that somebody came in.
++                        if ($record->checkin()->exists()) {
++                            Notification::make()
++                                ->title('This ticket has been scanned')
++                                ->body('Somebody came in on it, so the record stays. Void it if it must not be used again.')
++                                ->danger()
++                                ->send();
++
++                            return;
++                        }
++
++                        $code = $record->short_code;
++                        $typeId = $record->ticket_type_id;
++                        $orgId = $record->order?->organiser_id;
++
++                        DB::transaction(function () use ($record, $typeId): void {
++                            // Without this the seat stays counted as sold for
++                            // ever: the house reads full with an empty chair.
++                            TicketType::whereKey($typeId)
++                                ->where('quantity_sold', '>', 0)
++                                ->decrement('quantity_sold');
++
++                            $record->delete();
++                        });
++
++                        AuditLog::create([
++                            'user_id' => auth()->id(),
++                            'organiser_id' => $orgId,
++                            'action' => 'ticket.deleted',
++                            'subject_type' => Ticket::class,
++                            'subject_id' => null,
++                            'changes' => ['short_code' => $code, 'ticket_type_id' => $typeId],
++                        ]);
++
++                        Notification::make()
++                            ->title("Ticket {$code} deleted")
++                            ->body('The seat is back on sale.')
++                            ->success()
++                            ->send();
++                    }),
+             ])
+-            ->toolbarActions([]);
++            ->toolbarActions([
++                // For clearing test sales, where doing it one at a time is the
++                // reason people give up and leave the rubbish in.
++                BulkAction::make('deleteTickets')
++                    ->label('Delete selected')
++                    ->icon('heroicon-o-trash')
++                    ->color('danger')
++                    ->visible(fn (): bool => auth()->user()?->role === 'super_admin')
++                    ->requiresConfirmation()
++                    ->modalHeading('Delete the selected tickets?')
++                    ->modalDescription('Scanned tickets are skipped — somebody came in on those. Seats go back on sale.')
++                    ->deselectRecordsAfterCompletion()
++                    ->action(function (Collection $records): void {
++                        $deleted = 0;
++                        $skipped = 0;
++
++                        foreach ($records as $ticket) {
++                            if ($ticket->checkin()->exists()) {
++                                $skipped++;
++
++                                continue;
++                            }
++
++                            DB::transaction(function () use ($ticket): void {
++                                TicketType::whereKey($ticket->ticket_type_id)
++                                    ->where('quantity_sold', '>', 0)
++                                    ->decrement('quantity_sold');
++                                $ticket->delete();
++                            });
++                            $deleted++;
++                        }
++
++                        AuditLog::create([
++                            'user_id' => auth()->id(),
++                            'organiser_id' => auth()->user()?->organiser_id,
++                            'action' => 'ticket.bulk_deleted',
++                            'subject_type' => Ticket::class,
++                            'subject_id' => null,
++                            'changes' => ['deleted' => $deleted, 'skipped_scanned' => $skipped],
++                        ]);
++
++                        Notification::make()
++                            ->title("{$deleted} ticket(s) deleted")
++                            ->body($skipped ? "{$skipped} skipped — already scanned." : 'Seats are back on sale.')
++                            ->success()
++                            ->send();
++                    }),
++            ]);
+     }
+ }
