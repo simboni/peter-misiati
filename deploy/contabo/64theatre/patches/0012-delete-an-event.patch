@@ -1,0 +1,241 @@
+diff --git a/app/Filament/Resources/Events/Pages/EditEvent.php b/app/Filament/Resources/Events/Pages/EditEvent.php
+index 871c090..68e4d47 100644
+--- a/app/Filament/Resources/Events/Pages/EditEvent.php
++++ b/app/Filament/Resources/Events/Pages/EditEvent.php
+@@ -3,7 +3,13 @@
+ namespace App\Filament\Resources\Events\Pages;
+ 
+ use App\Filament\Resources\Events\EventResource;
++use App\Models\AuditLog;
++use App\Models\Event;
++use App\Support\EventRemoval;
++use Filament\Actions\Action;
+ use Filament\Actions\DeleteAction;
++use Filament\Forms\Components\TextInput;
++use Filament\Notifications\Notification;
+ use Filament\Resources\Pages\EditRecord;
+ 
+ class EditEvent extends EditRecord
+@@ -13,7 +19,105 @@ class EditEvent extends EditRecord
+     protected function getHeaderActions(): array
+     {
+         return [
+-            DeleteAction::make(),
++            // Plain delete, offered only when nothing has been sold.
++            // Performances and ticket types cascade, so it is safe.
++            DeleteAction::make()
++                ->visible(fn (Event $record): bool => EventRemoval::isClean($record)),
++
++            // What happened before: Filament called delete, the database
++            // refused with a foreign-key violation, and the operator saw
++            // "error while loading page" — true, useless, and
++            // indistinguishable from the app being broken. Say what is in the
++            // way and what to do instead.
++            Action::make('cannotDelete')
++                ->label('Delete')
++                ->icon('heroicon-o-trash')
++                ->color('gray')
++                ->visible(fn (Event $record): bool => ! EventRemoval::isClean($record))
++                ->modalHeading('This event cannot be deleted')
++                ->modalDescription(fn (Event $record): string => EventRemoval::blockedReason($record)
++                    .' Deleting it would destroy the record of money people paid, so the database refuses.'
++                    .' Cancel the event instead — it disappears from the website and keeps its history.'
++                    .' If this is demo or test data, use “Erase event and all sales”.')
++                ->modalSubmitAction(false)
++                ->modalCancelActionLabel('Close'),
++
++            // The right answer for a real show that is not happening.
++            Action::make('cancelEvent')
++                ->label('Cancel event')
++                ->icon('heroicon-o-x-circle')
++                ->color('warning')
++                ->visible(fn (Event $record): bool => $record->status !== 'cancelled')
++                ->requiresConfirmation()
++                ->modalHeading('Cancel this event?')
++                ->modalDescription('It stops appearing on the website and nothing more can be sold. Tickets already issued keep their records, so refunds can still be reconciled.')
++                ->action(function (Event $record): void {
++                    $record->update(['status' => 'cancelled']);
++
++                    AuditLog::create([
++                        'user_id' => auth()->id(),
++                        'organiser_id' => $record->organiser_id,
++                        'action' => 'event.cancelled',
++                        'subject_type' => Event::class,
++                        'subject_id' => $record->id,
++                        'changes' => ['title' => $record->title],
++                    ]);
++
++                    Notification::make()->title('Event cancelled')->success()->send();
++                }),
++
++            // For clearing demo and test shows. Typing the title is the
++            // safeguard: this erases orders, payments and ledger entries, and
++            // there is no undo.
++            Action::make('purgeEvent')
++                ->label('Erase event and all sales')
++                ->icon('heroicon-o-fire')
++                ->color('danger')
++                ->visible(fn (Event $record): bool => ! EventRemoval::isClean($record)
++                    && auth()->user()?->role === 'super_admin')
++                ->modalHeading('Erase this event and everything sold for it')
++                ->modalDescription(fn (Event $record): string => EventRemoval::blockedReason($record)
++                    .' All of it will be deleted permanently — orders, payments and ledger entries included.'
++                    .' Money already taken through M-Pesa is NOT refunded by this, and once the records are gone'
++                    .' it cannot be reconciled. Use this for demo data, not for a show that sold real tickets.')
++                ->schema([
++                    TextInput::make('confirm')
++                        ->label('Type the event title to confirm')
++                        ->required()
++                        ->helperText(fn (Event $record): string => $record->title),
++                ])
++                ->action(function (Event $record, array $data): void {
++                    if (trim($data['confirm']) !== $record->title) {
++                        Notification::make()
++                            ->title('Title did not match')
++                            ->body('Nothing was deleted.')
++                            ->danger()
++                            ->send();
++
++                        return;
++                    }
++
++                    $title = $record->title;
++                    $organiserId = $record->organiser_id;
++                    $removed = EventRemoval::purge($record);
++
++                    AuditLog::create([
++                        'user_id' => auth()->id(),
++                        'organiser_id' => $organiserId,
++                        'action' => 'event.purged',
++                        'subject_type' => Event::class,
++                        'subject_id' => null,
++                        'changes' => ['title' => $title, 'removed' => $removed],
++                    ]);
++
++                    Notification::make()
++                        ->title("“{$title}” erased")
++                        ->body(collect($removed)->map(fn ($n, $k): string => "{$n} ".str_replace('_', ' ', $k))->implode(', ') ?: 'Nothing else was attached.')
++                        ->success()
++                        ->send();
++
++                    $this->redirect(EventResource::getUrl('index'));
++                }),
+         ];
+     }
+ }
+diff --git a/app/Support/EventRemoval.php b/app/Support/EventRemoval.php
+new file mode 100644
+index 0000000..d1e5149
+--- /dev/null
++++ b/app/Support/EventRemoval.php
+@@ -0,0 +1,110 @@
++<?php
++
++namespace App\Support;
++
++use App\Models\Event;
++use App\Models\Order;
++use App\Models\Ticket;
++use Illuminate\Support\Facades\DB;
++
++/**
++ * What stands between an event and its deletion, and how to clear it.
++ *
++ * `performances.event_id` and `ticket_types.performance_id` cascade, so an
++ * event with nothing sold deletes cleanly. Orders, tickets and check-ins do
++ * NOT cascade — deliberately, because a show people have paid for should not
++ * vanish because somebody clicked the wrong row. The database refuses with a
++ * foreign-key violation, which Filament surfaces as "error while loading
++ * page": true, unhelpful, and indistinguishable from a bug.
++ *
++ * So: count what is in the way, say so plainly, and offer the two honest
++ * answers — cancel a real show, or erase a test one on purpose.
++ */
++class EventRemoval
++{
++    /** @return array{performances:int, orders:int, paid_orders:int, tickets:int, checkins:int} */
++    public static function census(Event $event): array
++    {
++        $performanceIds = $event->performances()->pluck('id');
++
++        return [
++            'performances' => $performanceIds->count(),
++            'orders' => Order::whereIn('performance_id', $performanceIds)->count(),
++            'paid_orders' => Order::whereIn('performance_id', $performanceIds)->where('status', 'paid')->count(),
++            'tickets' => Ticket::whereIn('performance_id', $performanceIds)->count(),
++            'checkins' => DB::table('checkins')->whereIn('performance_id', $performanceIds)->count(),
++        ];
++    }
++
++    /** Nothing sold, so the cascades can do their work. */
++    public static function isClean(Event $event): bool
++    {
++        $c = self::census($event);
++
++        return $c['orders'] === 0 && $c['tickets'] === 0 && $c['checkins'] === 0;
++    }
++
++    /** A sentence an operator can act on, rather than a constraint violation. */
++    public static function blockedReason(Event $event): ?string
++    {
++        $c = self::census($event);
++
++        if (self::isClean($event)) {
++            return null;
++        }
++
++        $parts = [];
++        if ($c['orders']) {
++            $parts[] = $c['orders'].' order'.($c['orders'] === 1 ? '' : 's')
++                .($c['paid_orders'] ? " ({$c['paid_orders']} paid)" : '');
++        }
++        if ($c['tickets']) {
++            $parts[] = $c['tickets'].' issued ticket'.($c['tickets'] === 1 ? '' : 's');
++        }
++        if ($c['checkins']) {
++            $parts[] = $c['checkins'].' check-in'.($c['checkins'] === 1 ? '' : 's');
++        }
++
++        return 'This event has '.implode(', ', $parts).'.';
++    }
++
++    /**
++     * Erase the event and everything hanging off it, in dependency order.
++     *
++     * For demo and test data. Not for a show that sold real tickets: the money
++     * stays in M-Pesa whatever this does to the records, and deleting the
++     * records is how a reconciliation becomes impossible. Cancel those.
++     *
++     * @return array<string, int> what was removed
++     */
++    public static function purge(Event $event): array
++    {
++        return DB::transaction(function () use ($event): array {
++            $performanceIds = $event->performances()->pluck('id');
++            $orderIds = Order::whereIn('performance_id', $performanceIds)->pluck('id');
++
++            // Children first, or each delete trips the next constraint.
++            $removed = [
++                'checkins' => DB::table('checkins')->whereIn('performance_id', $performanceIds)->delete(),
++                'tickets' => Ticket::whereIn('performance_id', $performanceIds)->delete(),
++            ];
++
++            if ($orderIds->isNotEmpty()) {
++                // The ledger references orders and payments, so it goes before
++                // either of them.
++                $removed['ledger_entries'] = DB::table('ledger_entries')->whereIn('order_id', $orderIds)->delete();
++                $removed['payments'] = DB::table('payments')->whereIn('order_id', $orderIds)->delete();
++                $removed['order_items'] = DB::table('order_items')->whereIn('order_id', $orderIds)->delete();
++                $removed['orders'] = Order::whereIn('id', $orderIds)->delete();
++            }
++
++            // Promo codes point at the event and do not cascade.
++            DB::table('promo_codes')->where('event_id', $event->id)->update(['event_id' => null]);
++
++            // performances and ticket_types cascade from here.
++            $event->delete();
++
++            return array_filter($removed);
++        });
++    }
++}

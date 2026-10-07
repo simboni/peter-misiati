@@ -211,6 +211,7 @@ git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0008-seamless
 git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0009-door-menu-and-verify.patch
 git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0010-gate-mpesa-prompt.patch
 git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0011-delete-a-ticket.patch
+git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0012-delete-an-event.patch
 cd /srv/64theatre && docker compose up -d --build
 ```
 
@@ -230,6 +231,7 @@ cd /srv/64theatre && docker compose up -d --build
 | `0009-door-menu-and-verify` | A **Door** menu reaching the scanner and box office, plus verifying a ticket from the office |
 | `0010-gate-mpesa-prompt` | The box office can push an M-Pesa prompt to a walk-up customer's phone instead of only taking cash |
 | `0011-delete-a-ticket` | Deleting a ticket, singly or in bulk, returning the seat to stock and refusing anything already scanned |
+| `0012-delete-an-event` | Deleting an event: says why it is blocked instead of erroring, offers Cancel, and can erase demo shows outright |
 
 `0002` fixes a **go-live blocker**, not a convenience. Venues are created only
 inside `demoSeason()` in `database/seeders/DatabaseSeeder.php`, which runs
@@ -287,6 +289,36 @@ pre-prints gate stock against a ticket type's inventory. Tickets are
 deliberately not created from the Tickets screen: both real routes hold
 inventory against the ticket type, and minting one by hand would oversell the
 house.
+
+### Deleting an event
+
+Deleting an event that had sold anything failed with **"error while loading
+page"** — true, useless, and indistinguishable from the app being broken.
+
+The cause is the schema, and it is correct. `performances.event_id` and
+`ticket_types.performance_id` cascade, but `orders.performance_id`,
+`tickets.performance_id` and `checkins.performance_id` do **not** — a show
+people paid for should not vanish because somebody clicked the wrong row. The
+database refuses with `SQLSTATE[23000] FOREIGN KEY constraint failed`, and
+nothing turned that into a sentence.
+
+**Edit event** now offers whichever applies:
+
+| | |
+|---|---|
+| **Delete** | Only when nothing is sold. Performances and ticket types cascade. |
+| **Delete** (greyed) | Explains what is in the way — "This event has 4 orders (2 paid), 2 issued tickets, 1 check-in." |
+| **Cancel event** | The right answer for a real show that is not happening: off the website, history kept, refunds still reconcilable. |
+| **Erase event and all sales** | Super admin only. Deletes orders, payments, ledger entries and tickets in dependency order. |
+
+The erase action requires the event title to be typed, and says plainly that
+money taken through M-Pesa is **not** refunded by it and cannot be reconciled
+once the records are gone. It is for demo data, not for a show that sold real
+tickets.
+
+Verified both: a clean event deleted with its cascades (performances 7 → 6,
+types 16 → 13), and a blocked one purged 1 check-in, 2 tickets, 4 ledger
+entries, 3 payments, 4 order items and 4 orders before removing itself.
 
 ### Deleting a ticket
 
