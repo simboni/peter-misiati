@@ -67,11 +67,22 @@ served_hosts() {
   }' | sort -u
 }
 
+# Ask the way a visitor's browser asks.
+#
+# Without `Accept: text/html` this reported StackUp as 404 on a deployment
+# that was serving perfectly — the same trap as the healthcheck and the README
+# verification step, in the one place left that still had it. This API serves
+# the web export only to requests asking for text/html, so that page routes
+# cannot shadow API routes, and curl's default `*/*` falls through to the
+# router and takes a 404. The question here is "does a visitor get a page", so
+# send what a visitor sends.
+#
 # curl already prints 000 when it cannot connect, so do NOT add a `|| echo 000`
 # fallback — on failure you get "000" twice and every comparison below breaks.
 probe() {
   local c
-  c=$(curl -sS -o /dev/null -m 15 -w '%{http_code}' "https://$1/" 2>/dev/null) || true
+  c=$(curl -sS -o /dev/null -m 15 -H 'Accept: text/html' \
+        -w '%{http_code}' "https://$1/" 2>/dev/null) || true
   echo "${c:-000}"
 }
 
