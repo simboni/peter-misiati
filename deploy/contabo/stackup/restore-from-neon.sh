@@ -18,7 +18,13 @@
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
+# Where the DEPLOYMENT lives — .env and the compose file. This script is
+# normally run straight from the repo checkout, where neither exists, so fall
+# back to /srv/stackup rather than failing with a confusing "no .env".
 DIR="$(cd "$(dirname "$0")" && pwd)"
+if [ ! -f "$DIR/.env" ] || [ ! -f "$DIR/compose.yml" ]; then
+  DIR="${STACKUP_DIR:-/srv/stackup}"
+fi
 COMPOSE="docker compose -f $DIR/compose.yml"
 DUMP_HOST_DIR="${DUMP_DIR:-/srv/stackup/dumps}"
 STAMP="$(date -u +%Y%m%d-%H%M%S)"
@@ -26,7 +32,8 @@ DUMP="stackup-neon-$STAMP.dump"
 PG_IMAGE="postgres:16-alpine"
 
 : "${NEON_URL:?Set NEON_URL to the Neon OWNER connection string}"
-[ -f "$DIR/.env" ] || { echo "ERROR: $DIR/.env not found."; exit 1; }
+[ -f "$DIR/.env" ] || { echo "ERROR: $DIR/.env not found. Set STACKUP_DIR to the deployment directory."; exit 1; }
+[ -f "$DIR/compose.yml" ] || { echo "ERROR: $DIR/compose.yml not found. Set STACKUP_DIR to the deployment directory."; exit 1; }
 # shellcheck disable=SC1091
 set -a; . "$DIR/.env"; set +a
 : "${STACKUP_MIGRATOR_PASSWORD:?missing in .env}"
@@ -45,7 +52,35 @@ mkdir -p "$DUMP_HOST_DIR"
 echo "==> 1/5  Reading row counts from Neon (read-only)"
 docker run --rm "$PG_IMAGE" psql -d "$NEON_URL" -At -c "$COUNT_SQL" \
   > "$DUMP_HOST_DIR/counts-neon-$STAMP.txt"
-echo "    $(wc -l < "$DUMP_HOST_DIR/counts-neon-$STAMP.txt") tables on Neon"
+NEON_TABLES=$(wc -l < "$DUMP_HOST_DIR/counts-neon-$STAMP.txt")
+NEON_ROWS=$(awk '{s += $NF} END {print s + 0}' "$DUMP_HOST_DIR/counts-neon-$STAMP.txt")
+# Judge "is there anything to move" on real data only. schema_migrations is
+# bookkeeping and is already populated locally by migrate.sh, so counting it
+# would make a database holding nothing but applied-migration rows look full.
+NEON_DATA_ROWS=$(awk '$1 != "schema_migrations" {s += $NF} END {print s + 0}' \
+  "$DUMP_HOST_DIR/counts-neon-$STAMP.txt")
+echo "    $NEON_TABLES tables, $NEON_ROWS rows ($NEON_DATA_ROWS excluding migration bookkeeping)"
+# Show what is actually there, not just how many tables exist. Whether this is
+# a product with users in it or an empty schema changes what to do next, and a
+# bare table count answers neither.
+awk '$NF != 0 {printf "      %-34s %s\n", $1, $NF}' "$DUMP_HOST_DIR/counts-neon-$STAMP.txt" \
+  | sort -k2 -n -r | head -20
+
+if [ "$NEON_DATA_ROWS" = "0" ]; then
+  echo
+  echo "Neon holds no data — there is nothing to move, and no reason to dump"
+  echo "and restore. The container database is already in the same state."
+  echo
+  echo "Publish it as an empty instance:"
+  echo "  bash deploy/contabo/stackup/publish.sh --allow-empty"
+  exit 0
+fi
+
+if [ "${COUNTS_ONLY:-}" = "1" ]; then
+  echo
+  echo "COUNTS_ONLY=1 — read Neon and stopped. Nothing was dumped or written."
+  exit 0
+fi
 
 echo "==> 2/5  Checking the target is empty"
 EXISTING=$($COMPOSE exec -T -e PGPASSWORD="$STACKUP_MIGRATOR_PASSWORD" db \
