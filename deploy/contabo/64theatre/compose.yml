@@ -23,7 +23,10 @@ services:
     restart: unless-stopped
     environment:
       APP_NAME: 64theatre
-      APP_ENV: staging
+      # `staging` re-seeds the demo season on every boot. Switch to
+      # `production` in .env when the client's real shows go in — the admin
+      # user and organiser are still seeded, only demo content stops.
+      APP_ENV: ${APP_ENV:-staging}
       APP_DEBUG: "false"
       # Must stay stable — it encrypts sessions and cookies. If it changes,
       # everyone is logged out.
