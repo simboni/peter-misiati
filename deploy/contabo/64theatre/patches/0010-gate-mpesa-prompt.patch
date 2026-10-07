@@ -1,0 +1,192 @@
+diff --git a/app/Http/Controllers/Gate/GateSellController.php b/app/Http/Controllers/Gate/GateSellController.php
+index 4caeef3..2ae9cdf 100644
+--- a/app/Http/Controllers/Gate/GateSellController.php
++++ b/app/Http/Controllers/Gate/GateSellController.php
+@@ -9,6 +9,9 @@
+ use App\Models\TicketBatch;
+ use App\Services\BoxOffice;
+ use App\Services\Checkout;
++use Illuminate\Support\Facades\Log;
++use App\Support\Phone;
++use App\Payments\PaymentGateway;
+ use App\Services\TicketQr;
+ use Illuminate\Http\RedirectResponse;
+ use Illuminate\Http\Request;
+@@ -36,10 +39,18 @@ public function index(Request $request): View
+             ? $selected->batches()->with('ticketType')->latest()->get()
+             : collect();
+ 
++        // An order whose prompt has been sent and is still being paid. The
++        // view polls it, so the operator sees the money land rather than
++        // guessing from the customer's face.
++        $awaiting = $request->query('awaiting')
++            ? \App\Models\Order::where('uuid', $request->query('awaiting'))->first()
++            : null;
++
+         return view('gate.sell', [
+             'performances' => $performances,
+             'selected' => $selected,
+             'batches' => $batches,
++            'awaiting' => $awaiting,
+         ]);
+     }
+ 
+@@ -78,6 +89,7 @@ public function sellNew(Request $request, Checkout $checkout): RedirectResponse
+             'quantities.*' => ['integer', 'min:0', 'max:20'],
+             'phone' => ['required', 'regex:/^(?:\+?254|0)?(7|1)\d{8}$/'],
+             'email' => ['nullable', 'email'],
++            'method' => ['required', 'in:cash,mpesa'],
+         ]);
+ 
+         $items = collect($validated['quantities'])->filter(fn ($q) => $q > 0)->map(fn ($q) => (int) $q)->all();
+@@ -97,6 +109,27 @@ public function sellNew(Request $request, Checkout $checkout): RedirectResponse
+             return back()->withErrors(['quantities' => $e->getMessage()])->withInput();
+         }
+ 
++        // M-Pesa: push the prompt to the customer's handset and wait. The
++        // operator must NOT mark this paid — the webhook does, when the money
++        // actually lands. Taking the operator's word for it is how a gate
++        // lets people in for free.
++        if ($validated['method'] === 'mpesa' && $order->status === 'awaiting_payment') {
++            try {
++                app(PaymentGateway::class)->initiate($order, $validated['phone']);
++            } catch (\Throwable $e) {
++                Log::error('gate.stk_failed', ['order' => $order->uuid, 'error' => $e->getMessage()]);
++
++                return redirect()
++                    ->route('gate.sell', ['performance' => $validated['performance'], 'awaiting' => $order->uuid])
++                    ->withErrors(['phone' => 'Could not send the prompt. Try again, or take cash and record it as cash.']);
++            }
++
++            return redirect()
++                ->route('gate.sell', ['performance' => $validated['performance'], 'awaiting' => $order->uuid])
++                ->with('prompted', 'Prompt sent to '.Phone::forHumans($validated['phone'])
++                    .' for KES '.number_format($order->total_cents / 100).'.');
++        }
++
+         if ($order->status === 'awaiting_payment') {
+             $payment = Payment::create([
+                 'order_id' => $order->id,
+diff --git a/resources/views/gate/sell.blade.php b/resources/views/gate/sell.blade.php
+index cbd66a2..dcb3d29 100644
+--- a/resources/views/gate/sell.blade.php
++++ b/resources/views/gate/sell.blade.php
+@@ -12,6 +12,20 @@
+     .stockbar div{background:var(--velvet); border:1px solid var(--line); border-radius:12px; padding:12px 8px; text-align:center}
+     .stockbar b{display:block; font-family:Georgia,serif; font-size:1.5rem; color:var(--lamp-bright); font-variant-numeric:tabular-nums}
+     .stockbar span{font-size:.62rem; letter-spacing:.14em; text-transform:uppercase; color:var(--dim)}
++    .paymethods{display:grid; grid-template-columns:1fr 1fr; gap:10px}
++    .pm{display:flex; align-items:center; gap:10px; padding:12px; border:1px solid var(--line);
++        border-radius:12px; cursor:pointer}
++    .pm:has(input:checked){border-color:var(--lamp); background:rgba(232,163,61,.08)}
++    .pm span{display:flex; flex-direction:column; line-height:1.3}
++    .pm small{opacity:.7; font-size:.72rem}
++    .waitbox{border:1px solid var(--lamp); border-radius:14px; padding:16px; margin:0 0 18px;
++             background:rgba(232,163,61,.07)}
++    .waitbox.paid{border-color:#5BA85B; background:rgba(91,168,91,.10)}
++    .waitrow{display:flex; gap:12px; align-items:flex-start}
++    .dot{width:12px; height:12px; border-radius:50%; background:var(--lamp); flex:none; margin-top:5px;
++         animation:gpulse 1.4s ease-in-out infinite}
++    @keyframes gpulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.7)}}
++    @media (prefers-reduced-motion:reduce){.dot{animation:none}}
+     .batchrow{display:flex; justify-content:space-between; align-items:center; gap:10px; padding:11px 4px; border-top:1px solid var(--line); font-size:.85rem}
+     .batchrow .mono{font-size:.72rem}
+     textarea.codes{width:100%; min-height:86px; background:var(--velvet); border:1px solid var(--line); border-radius:10px;
+@@ -83,6 +97,32 @@
+             <button class="btn" style="width:100%" type="submit">Activate &amp; record sale</button>
+         </form>
+ 
++        @if (!empty($awaiting) && $awaiting->status === 'awaiting_payment')
++            <div class="waitbox" id="waitbox" data-poll="{{ route('orders.status', $awaiting->uuid) }}"
++                 data-print="{{ route('orders.print', $awaiting->uuid) }}">
++                <div class="waitrow">
++                    <span class="dot"></span>
++                    <div>
++                        <strong>Waiting for payment — KES {{ number_format($awaiting->total_cents / 100) }}</strong>
++                        <p class="meta" style="margin:4px 0 0">
++                            Prompt sent to {{ \App\Support\Phone::forHumans($awaiting->customer?->phone) }}.
++                            Ask them to enter their M-Pesa PIN. This updates itself.
++                        </p>
++                    </div>
++                </div>
++                <p class="meta" style="margin:10px 0 0">
++                    Tickets are issued only when the money arrives. If the prompt fails,
++                    take cash and record it as a cash sale instead.
++                </p>
++            </div>
++        @elseif (!empty($awaiting) && $awaiting->status === 'paid')
++            <div class="waitbox paid">
++                <strong>Paid — {{ $awaiting->tickets()->count() }} ticket(s) issued.</strong>
++                <a class="btn" style="width:auto;display:inline-block;margin-top:10px;text-decoration:none"
++                   href="{{ route('orders.print', $awaiting->uuid) }}" target="_blank" rel="noopener">Print tickets →</a>
++            </div>
++        @endif
++
+         <h2 class="sec">Sell new e-ticket (walk-up)</h2>
+         <form method="POST" action="{{ route('gate.sell.new') }}">
+             @csrf
+@@ -104,7 +144,28 @@
+                 <label for="email">Buyer email (optional — tickets emailed)</label>
+                 <input id="email" name="email" type="email" value="{{ old('email') }}">
+             </div>
+-            <button class="btn" style="width:100%" type="submit">Sell — cash received</button>
++            {{-- How the customer is paying. Cash is unchanged; M-Pesa pushes a
++                 prompt to their handset and waits for the money to actually
++                 arrive. The operator never marks an M-Pesa sale paid — the
++                 webhook does — because taking the operator's word for it is
++                 how a gate ends up letting people in for free. --}}
++            <div class="field">
++                <label>How are they paying?</label>
++                <div class="paymethods">
++                    <label class="pm">
++                        <input type="radio" name="method" value="mpesa" checked>
++                        <span><strong>M-Pesa</strong><small>Prompt their phone</small></span>
++                    </label>
++                    <label class="pm">
++                        <input type="radio" name="method" value="cash">
++                        <span><strong>Cash</strong><small>Taken at the desk</small></span>
++                    </label>
++                </div>
++            </div>
++            <button class="btn" style="width:100%" type="submit">
++                <span class="m-label">Send prompt</span>
++                <span class="c-label" hidden>Sell — cash received</span>
++            </button>
+         </form>
+ 
+         @if ($batches->isNotEmpty())
+@@ -120,3 +181,34 @@
+     @endif
+ </div>
+ @endsection
++
++<script>
++    // Swap the button wording with the method, so the operator reads what the
++    // press will actually do rather than remembering which radio is on.
++    document.querySelectorAll('input[name="method"]').forEach(function (r) {
++        r.addEventListener('change', function () {
++            const form = r.closest('form');
++            const mpesa = form.querySelector('input[name="method"][value="mpesa"]').checked;
++            form.querySelector('.m-label').hidden = !mpesa;
++            form.querySelector('.c-label').hidden = mpesa;
++        });
++    });
++
++    // Poll the order the prompt was sent for. The endpoint is the same one the
++    // buyer's own page uses, so there is one definition of "paid".
++    (function () {
++        const box = document.getElementById('waitbox');
++        if (!box) return;
++        let tries = 0;
++        (function poll() {
++            if (tries++ > 100) return;               // ~5 minutes, then stop
++            fetch(box.dataset.poll, { headers: { 'Accept': 'application/json' } })
++                .then(function (r) { return r.json(); })
++                .then(function (d) {
++                    if (d.status === 'paid') { location.reload(); return; }
++                    setTimeout(poll, 3000);
++                })
++                .catch(function () { setTimeout(poll, 5000); });
++        })();
++    })();
++</script>

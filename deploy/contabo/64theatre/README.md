@@ -209,6 +209,7 @@ git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0006-payment-
 git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0007-prices-on-the-event-screen.patch
 git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0008-seamless-checkout.patch
 git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0009-door-menu-and-verify.patch
+git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0010-gate-mpesa-prompt.patch
 cd /srv/64theatre && docker compose up -d --build
 ```
 
@@ -226,6 +227,7 @@ cd /srv/64theatre && docker compose up -d --build
 | `0007-prices-on-the-event-screen` | Ticket categories and prices editable from **Edit event**, which previously had no route to an amount |
 | `0008-seamless-checkout` | Three-step checkout, a canonical phone number, resuming an unpaid order instead of duplicating it, and a ticket that does not break on a phone |
 | `0009-door-menu-and-verify` | A **Door** menu reaching the scanner and box office, plus verifying a ticket from the office |
+| `0010-gate-mpesa-prompt` | The box office can push an M-Pesa prompt to a walk-up customer's phone instead of only taking cash |
 
 `0002` fixes a **go-live blocker**, not a convenience. Venues are created only
 inside `demoSeason()` in `database/seeders/DatabaseSeeder.php`, which runs
@@ -409,6 +411,33 @@ is worked alongside the office rather than instead of it.
 | **Scanner** | `/gate` — the phone-at-the-door QR scanner |
 | **Box office** | `/gate/sell` — selling printed stock and new tickets |
 | **Door stats** | `/gate/stats` — what has come through |
+
+### Selling at the gate
+
+**Door → Box office → Sell new e-ticket (walk-up)** now asks how the customer
+is paying:
+
+- **M-Pesa** — pushes the STK prompt to their handset and waits
+- **Cash** — unchanged: taken at the desk, tickets issued immediately
+
+Before this the box office could only take cash. `sellNew` hardcoded
+`'gateway' => 'cash'` and confirmed the order on the spot, so a walk-up who
+wanted to pay by phone had to be sent to the website.
+
+**The operator never marks an M-Pesa sale paid.** The order stays
+`awaiting_payment` with zero tickets until the Kopo Kopo webhook says the money
+arrived. That is deliberate: a button the operator can press to issue a ticket
+is a button that lets people in for free, and at a busy door nobody is checking
+whether the payment really completed.
+
+The screen shows a live "Waiting for payment — KES X" panel naming the number
+the prompt went to, polling the same `orders.status` endpoint the buyer's own
+page uses, so there is one definition of paid. When the money lands the panel
+turns green and offers **Print tickets**.
+
+If the prompt cannot be sent at all, it says so and tells the operator to take
+cash and record it as cash — rather than leaving them staring at a screen that
+will never change.
 
 ### Verifying from the office
 
