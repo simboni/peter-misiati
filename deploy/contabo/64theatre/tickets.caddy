@@ -1,0 +1,46 @@
+# 64theatre ticketing — tickets.64theatre.art
+#
+# Install as a NEW file. Never edit /srv/edge/Caddyfile (it only `import`s
+# this directory) and never another app's site file:
+#
+#   cp tickets.caddy /srv/edge/sites/64theatre.caddy
+#   docker exec edge-caddy caddy validate --config /etc/caddy/Caddyfile \
+#     && docker exec edge-caddy caddy reload --config /etc/caddy/Caddyfile
+#
+# POINT THE DNS FIRST. Caddy asks Let's Encrypt for a certificate the moment
+# this config loads, and Let's Encrypt rate-limits *failed* validations. Reload
+# before `tickets.64theatre.art` resolves to 169.58.127.122 and you are locked
+# out of retrying for hours — which is exactly what happened to stackup.co.ke.
+#
+#   dig +short tickets.64theatre.art      # must print 169.58.127.122
+#
+# One subdomain per product, because streaming and film are coming and they
+# will not be this application:
+#
+#   tickets.64theatre.art   this app — ticketing and the box office
+#   64theatre.art / www     the public site (not deployed yet)
+#   watch. / stream.        streaming (later)
+#
+# Keeping ticketing off the apex means the main site can be built, moved or
+# replaced later without touching a system that is taking money.
+
+tickets.64theatre.art {
+	reverse_proxy 64theatre:8080
+
+	header {
+		# A box office and an admin panel live here. Search engines have no
+		# business indexing order pages or ticket QR links.
+		X-Robots-Tag "noindex, nofollow"
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "same-origin"
+		-Server
+	}
+
+	# Event posters are uploaded through the admin.
+	request_body {
+		max_size 20MB
+	}
+
+	encode zstd gzip
+}

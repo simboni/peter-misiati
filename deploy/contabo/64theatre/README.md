@@ -1,16 +1,19 @@
-# 64theatre on the Contabo box — no domain required
+# 64theatre on the Contabo box
 
-You don't need a domain to get real HTTPS. `sslip.io` is free wildcard DNS that
-maps any IP to a hostname, and Caddy fetches a genuine Let's Encrypt certificate
-for it. This is the repo's own "Route 0" approach, applied to your server:
+Live at **https://tickets.64theatre.art** — see "The domain" below for the
+subdomain layout and the switch-over, which must be done DNS-first.
+
+Before the domain existed this ran on `sslip.io` free wildcard DNS, which maps
+any IP to a hostname and gets a genuine Let's Encrypt certificate with no
+registrar at all:
 
 ```
 https://64theatre.169-58-127-122.sslip.io
 ```
 
-Real certificate, stable URL, no tunnel — so the PWA, the offline gate scanner
-and add-to-home-screen all behave exactly as they will in production. When the
-domain arrives you change two lines and reload.
+That is still the right answer for the next app that has no domain yet — real
+certificate, stable URL, no tunnel, so the PWA, the offline gate scanner and
+add-to-home-screen all behave as they will in production.
 
 **Shape:** one container (nginx + PHP-FPM), SQLite on a volume, demo content
 seeded on boot, fake payment gateway. **~250 MB RAM**, capped at 512 MB. No
@@ -46,7 +49,8 @@ Then build:
 docker compose -f /srv/64theatre/compose.yml build
 ```
 
-`APP_URL` is already set to the sslip.io hostname for this server. Start it:
+`APP_URL` in `env.example` is already `https://tickets.64theatre.art`. It must
+match the Caddy hostname exactly — https, no trailing slash. Start it:
 
 ```bash
 docker compose -f /srv/64theatre/compose.yml up -d
@@ -69,15 +73,13 @@ docker exec edge-caddy wget -qO- http://64theatre:8080/up
 
 ## Publish
 
+The domain exists now, so publish the real hostname — `tickets.caddy` in this
+directory, and **point the DNS first**. The full sequence is under "The domain"
+below; do not skip the `dig` check.
+
 ```bash
-cat > /srv/edge/sites/64theatre.caddy <<'EOF'
-# 64theatre — ticketing platform (temporary sslip.io host until the domain exists)
-
-64theatre.169-58-127-122.sslip.io {
-	reverse_proxy 64theatre:8080
-}
-EOF
-
+cp /srv/smp-portfolio/repo/deploy/contabo/64theatre/tickets.caddy \
+   /srv/edge/sites/64theatre.caddy
 docker exec edge-caddy caddy validate --config /etc/caddy/Caddyfile
 ```
 
@@ -85,33 +87,112 @@ Only on `Valid configuration`:
 
 ```bash
 docker exec edge-caddy caddy reload --config /etc/caddy/Caddyfile
-curl -I https://64theatre.169-58-127-122.sslip.io
+curl -sI https://tickets.64theatre.art/ | head -3
 ```
 
-No DNS work needed — `sslip.io` already resolves that name to `169.58.127.122`.
+For an app with no domain yet, an `sslip.io` name needs no DNS work at all —
+`<name>.169-58-127-122.sslip.io` already resolves to this box.
 
 The admin login comes from the demo seeder; `ADMIN-GUIDE.md` in the app repo has
 the credentials and the walkthrough to hand the client.
 
 ---
 
-## When the domain arrives
+## The domain — tickets.64theatre.art
 
-Three changes, then reload:
+The domain is `64theatre.art`, and ticketing lives on **`tickets.64theatre.art`**,
+not the apex. Streaming and film are coming and will not be this application;
+keeping ticketing on its own subdomain means the public site can be built,
+moved or replaced later without touching a system that is taking money.
 
-1. Point the domain's `A` record at `169.58.127.122`.
-2. In `/srv/64theatre/.env`, set `APP_URL=https://<the-domain>`.
-3. In `/srv/edge/sites/64theatre.caddy`, replace the sslip.io hostname.
+| Host | Serves |
+|---|---|
+| `tickets.64theatre.art` | this app — ticketing, orders, box office, admin |
+| `64theatre.art`, `www.` | the public site (not deployed yet) |
+| `watch.` / `stream.` | streaming (later) |
+
+### 1. DNS first — this order matters
+
+```
+A   tickets   169.58.127.122
+```
+
+Then wait for it, and do not skip this:
+
+```bash
+dig +short tickets.64theatre.art      # must print 169.58.127.122
+```
+
+Caddy asks Let's Encrypt for a certificate the instant the config loads, and
+Let's Encrypt rate-limits **failed** validations. Reload before the record
+resolves and you are locked out of retrying for hours — which is exactly what
+happened to `stackup.co.ke`.
+
+### 2. Point the app at it
+
+In `/srv/64theatre/.env`:
+
+```env
+APP_URL=https://tickets.64theatre.art
+```
 
 ```bash
 docker compose -f /srv/64theatre/compose.yml up -d
+```
+
+> **What this does and does not affect.** `APP_URL` builds the absolute links
+> in ticket emails (`route('orders.print', …)`) and the `callback_url` sent to
+> the payment gateway. It does **not** appear in ticket QR codes: the payload
+> is `64T1.<uuid>.<performance-id>.<expires>.<sig>`, an opaque signed string
+> with no URL in it (`app/Services/TicketQr.php`). Tickets already issued keep
+> scanning after the move. An earlier version of this README claimed otherwise.
+
+### 3. Publish the hostname
+
+```bash
+cp /srv/smp-portfolio/repo/deploy/contabo/64theatre/tickets.caddy \
+   /srv/edge/sites/64theatre.caddy
 docker exec edge-caddy caddy validate --config /etc/caddy/Caddyfile \
   && docker exec edge-caddy caddy reload --config /etc/caddy/Caddyfile
 ```
 
-> **Do this before selling real tickets.** Ticket QR codes are generated from
-> `APP_URL`, so tickets issued under the sslip.io name would point at the old
-> hostname. Fine while it's a demo; not fine once money is involved.
+Validate first — an invalid config applies nothing. Reload, never `restart`:
+restarting edge-caddy drops every site on the box at once.
+
+Watch the certificate arrive:
+
+```bash
+docker logs -f edge-caddy        # "certificate obtained successfully"
+curl -sI https://tickets.64theatre.art/ | head -3
+```
+
+### 4. Re-point anything that calls back
+
+Anything holding the old sslip.io URL now points nowhere useful:
+
+- **Kopo Kopo dashboard** → webhook `https://tickets.64theatre.art/webhooks/kopokopo`
+- **Pesapal**, if used → the IPN is registered through the API, so re-register it
+- `BRAND_WEBSITE` in `.env` → the **public site**, not this host. A ticket
+  should send someone to `64theatre.art`, not back to the box office. Leave it
+  blank until that site exists; blank prints nothing.
+
+### Optional: catch the apex before the main site exists
+
+Until `64theatre.art` has a site, someone typing it gets nothing. If you would
+rather send them to the box office, add a **separate** file — never edit the
+ticketing one:
+
+```bash
+cat > /srv/edge/sites/64theatre-apex.caddy <<'EOF'
+64theatre.art, www.64theatre.art {
+	redir https://tickets.64theatre.art{uri} 302
+}
+EOF
+```
+
+`302`, not `301`: a permanent redirect is cached by browsers and would fight
+you the day the real site goes up. Both names need `A` records first, and
+delete the file when the public site is ready.
 
 ## Admin patches
 

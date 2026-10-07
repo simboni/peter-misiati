@@ -41,8 +41,31 @@ services:
 
       # Seeds the demo production + admin user. Idempotent; set false for real data.
       SEED_ON_BOOT: ${SEED_ON_BOOT:-true}
-      # `fake` completes checkouts instantly for demos. `daraja` for real money.
+      # `fake` completes checkouts instantly for demos. `kopokopo` sells through
+      # an aggregator today; `daraja` once Safaricom approves 64 Theatre's own
+      # paybill. See "Taking money" in the README.
       PAYMENT_GATEWAY: ${PAYMENT_GATEWAY:-fake}
+
+      # Kopo Kopo. Absent, the gateway reads null credentials and every
+      # checkout fails at the OAuth call — so these must be passed through
+      # even though they are blank until the client's account is live.
+      KOPOKOPO_BASE_URL: ${KOPOKOPO_BASE_URL:-https://sandbox.kopokopo.com}
+      KOPOKOPO_CLIENT_ID: ${KOPOKOPO_CLIENT_ID:-}
+      KOPOKOPO_CLIENT_SECRET: ${KOPOKOPO_CLIENT_SECRET:-}
+      # Signs incoming webhooks. NOT the client secret.
+      KOPOKOPO_API_KEY: ${KOPOKOPO_API_KEY:-}
+      KOPOKOPO_TILL_NUMBER: ${KOPOKOPO_TILL_NUMBER:-}
+
+      # Pay Bill details shown to a buyer whose STK prompt never arrived.
+      OFFLINE_PAYMENT_ENABLED: ${OFFLINE_PAYMENT_ENABLED:-true}
+      OFFLINE_PAYMENT_PAYBILL: ${OFFLINE_PAYMENT_PAYBILL:-542542}
+      OFFLINE_PAYMENT_ACCOUNT: ${OFFLINE_PAYMENT_ACCOUNT:-064064}
+      OFFLINE_PAYMENT_BANK: ${OFFLINE_PAYMENT_BANK:-I&M Bank}
+
+      # Printed on tickets and in emails. Set it to the public site, which is
+      # not necessarily this app's own host.
+      BRAND_WEBSITE: ${BRAND_WEBSITE:-}
+      BRAND_INSTAGRAM: ${BRAND_INSTAGRAM:-@64theatre}
 
       SESSION_DRIVER: file
       CACHE_STORE: file
