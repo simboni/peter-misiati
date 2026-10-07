@@ -207,6 +207,7 @@ git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0004-admin-ti
 git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0005-payment-methods-admin.patch
 git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0006-payment-waiting-feedback.patch
 git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0007-prices-on-the-event-screen.patch
+git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0008-seamless-checkout.patch
 cd /srv/64theatre && docker compose up -d --build
 ```
 
@@ -222,6 +223,7 @@ cd /srv/64theatre && docker compose up -d --build
 | `0005-payment-methods-admin` | **Sales → Payment methods**: switch online payments and the Pay Bill panel on or off, and choose the provider, without a deploy |
 | `0006-payment-waiting-feedback` | A spinner while the STK prompt is sent, a locked Pay button, and a live waiting state on the order page |
 | `0007-prices-on-the-event-screen` | Ticket categories and prices editable from **Edit event**, which previously had no route to an amount |
+| `0008-seamless-checkout` | Three-step checkout, a canonical phone number, resuming an unpaid order instead of duplicating it, and a ticket that does not break on a phone |
 
 `0002` fixes a **go-live blocker**, not a convenience. Venues are created only
 inside `demoSeason()` in `database/seeders/DatabaseSeeder.php`, which runs
@@ -388,6 +390,67 @@ there is nowhere to put a reference. The buyer is told to keep the M-Pesa
 confirmation SMS and quote their order number at the box office. Budget for
 someone matching those by hand, or keep the panel off until you have a process
 for it.
+
+## Buying a ticket
+
+Checkout is three steps: **Tickets → Details → Confirm and pay**. It was one
+screen carrying every ticket category, four form fields and a Pay button at
+once. Stepping it is only about how much is visible — the form posts exactly as
+before, and with JavaScript off every step is revealed, so it degrades to the
+single long form it used to be.
+
+Only two fields are required: the M-Pesa number the prompt goes to, and the
+email the tickets go to. Name and promo code sit behind a disclosure, because
+most buyers have neither and every visible field is another reason to stop. The
+last screen has nothing to fill in — before money moves, a screen should be
+read, not worked through.
+
+### Paying twice
+
+A buyer who started paying, lost the page and came back used to create a second
+order and a second STK prompt. If the first one then completed, they paid twice
+for the same show.
+
+Now, before an order is created, an unexpired unpaid order for the same phone
+and the same performance sends them back to the one they already have. Scoped
+to the performance, because buying for a different night is genuinely a new
+order.
+
+That only works because the phone number is now canonical.
+
+### One buyer, one phone number
+
+`Customer::firstOrCreate(['phone' => …])` stored the number exactly as typed,
+so `0712345678`, `+254712345678` and `254 712 345 678` were **three different
+customers** for one person — tickets split between them, "My tickets" finding
+only one, and no reliable way to ask whether a buyer already had an order.
+
+`App\Support\Phone` normalises to `2547XXXXXXXX` at both customer-creating
+sites and in the lookup. Verified across six input formats.
+
+### Accounts
+
+There are none, and there should not be. The phone number is the identity, it
+is the thing M-Pesa confirms against, and an account is friction in front of a
+purchase. A returning buyer uses **My tickets** with their phone number.
+
+> **One thing to decide.** That lookup takes a phone number and returns the
+> orders and ticket short codes for it; the ticket code is optional. A short
+> code is what admits someone at the gate, so anyone who knows a buyer's phone
+> number can read their tickets. Requiring the code, or sending a one-time
+> code, would close it. Flagged rather than changed, because requiring the code
+> also means a buyer who lost it cannot self-serve.
+
+### The ticket on a phone
+
+The ticket was built as a 1fr + 208px stub. At 360px the stub took more than
+half the width, and the masthead's absolutely positioned "ADMIT ONE" band and
+language badge printed straight over the event title.
+
+It now stacks below 560px: title full width, facts wrapped, stub underneath,
+QR up from 118px to **190px** — easier to scan off a screen, which is how most
+people will present it. Verified at 360px in a real browser: zero horizontal
+overflow, title 312px wide, stub below the body, nothing overlapping.
 
 ## While the buyer waits
 

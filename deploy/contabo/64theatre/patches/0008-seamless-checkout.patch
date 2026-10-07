@@ -1,0 +1,452 @@
+diff --git a/app/Http/Controllers/OrderController.php b/app/Http/Controllers/OrderController.php
+index 0ea50df..7805df1 100644
+--- a/app/Http/Controllers/OrderController.php
++++ b/app/Http/Controllers/OrderController.php
+@@ -7,6 +7,8 @@
+ use App\Payments\PaymentGateway;
+ use App\Services\Checkout;
+ use App\Support\PaymentSettings;
++use App\Support\Phone;
++use App\Models\TicketType;
+ use App\Services\TicketQr;
+ use Illuminate\Http\JsonResponse;
+ use Illuminate\Http\RedirectResponse;
+@@ -45,6 +47,16 @@ public function store(Request $request, Checkout $checkout, PaymentGateway $gate
+             ])->withInput();
+         }
+ 
++        // Somebody who started paying, lost the page and came back would
++        // otherwise create a second order and a second STK prompt — and if
++        // the first one completed late, pay twice for the same show. Send
++        // them back to the order they already have instead.
++        if ($pending = $this->pendingOrderFor($validated['phone'], array_key_first($items))) {
++            return redirect()
++                ->route('orders.show', $pending->uuid)
++                ->with('resumed', true);
++        }
++
+         try {
+             $order = $checkout->startOrder(
+                 items: $items,
+@@ -110,6 +122,31 @@ public function status(string $uuid): JsonResponse
+         ]);
+     }
+ 
++    /**
++     * An unexpired, unpaid order this buyer already has for this performance.
++     *
++     * Matched on the canonical phone, so it still finds the order when they
++     * type the number differently the second time. Scoped to the performance:
++     * buying for a different night is a genuinely new order.
++     */
++    private function pendingOrderFor(string $phone, int|string|null $ticketTypeId): ?Order
++    {
++        $performanceId = TicketType::whereKey($ticketTypeId)->value('performance_id');
++        $canonical = Phone::normaliseOrKeep($phone);
++
++        if (! $performanceId || ! $canonical) {
++            return null;
++        }
++
++        return Order::query()
++            ->where('performance_id', $performanceId)
++            ->where('status', 'awaiting_payment')
++            ->where('expires_at', '>', now())
++            ->whereHas('customer', fn ($q) => $q->where('phone', $canonical))
++            ->latest('id')
++            ->first();
++    }
++
+     public function lookupForm(): View
+     {
+         return view('orders.lookup', ['orders' => null]);
+@@ -122,7 +159,11 @@ public function lookup(Request $request): View
+             'code' => ['nullable', 'string', 'max:40'],
+         ]);
+ 
+-        $orders = Order::whereHas('customer', fn ($q) => $q->where('phone', $validated['phone']))
++        // Normalised, or a buyer who typed 0712… at checkout and +254712…
++        // here would be told they have no tickets.
++        $canonical = Phone::normaliseOrKeep($validated['phone']);
++
++        $orders = Order::whereHas('customer', fn ($q) => $q->where('phone', $canonical))
+             ->when($validated['code'] ?? null, function ($q, $code) {
+                 $q->where(function ($q) use ($code) {
+                     $q->where('uuid', $code)
+diff --git a/app/Services/Checkout.php b/app/Services/Checkout.php
+index f5b6f96..b239bd9 100644
+--- a/app/Services/Checkout.php
++++ b/app/Services/Checkout.php
+@@ -5,6 +5,7 @@
+ use App\Exceptions\SoldOutException;
+ use App\Jobs\DeliverTickets;
+ use App\Models\Customer;
++use App\Support\Phone;
+ use App\Models\Order;
+ use App\Models\Organiser;
+ use App\Models\Payment;
+@@ -55,7 +56,9 @@ public function startOrder(array $items, string $phone, ?string $name = null, st
+             $total = $promo ? $this->discounted($subtotal, $promo) : $subtotal;
+ 
+             $customer = Customer::firstOrCreate(
+-                ['phone' => $phone],
++                // Canonical form, or the same buyer typing 0712… and +254712…
++                // becomes two customers with their tickets split between them.
++                ['phone' => Phone::normaliseOrKeep($phone)],
+                 ['name' => $name, 'marketing_consent' => $marketingConsent, 'consent_at' => $marketingConsent ? now() : null],
+             );
+ 
+@@ -112,7 +115,7 @@ public function startDonation(int $amountCents, string $phone, ?string $name = n
+     {
+         return DB::transaction(function () use ($amountCents, $phone, $name, $email, $message, $marketingConsent) {
+             $customer = Customer::firstOrCreate(
+-                ['phone' => $phone],
++                ['phone' => Phone::normaliseOrKeep($phone)],
+                 ['name' => $name, 'marketing_consent' => $marketingConsent, 'consent_at' => $marketingConsent ? now() : null],
+             );
+ 
+diff --git a/app/Support/Phone.php b/app/Support/Phone.php
+new file mode 100644
+index 0000000..f5d1798
+--- /dev/null
++++ b/app/Support/Phone.php
+@@ -0,0 +1,63 @@
++<?php
++
++namespace App\Support;
++
++/**
++ * One canonical form for a Kenyan mobile number: 2547XXXXXXXX / 2541XXXXXXXX.
++ *
++ * Customers are identified by phone — `Customer::firstOrCreate(['phone' => …])`
++ * — and the number arrived from the form exactly as typed. So one person
++ * entering 0712345678 today and +254 712 345 678 tomorrow became two
++ * customers, with their tickets split between them and neither lookup finding
++ * both. It also meant nothing could reliably ask "does this buyer already have
++ * an order for this show?", which is what stops somebody paying twice.
++ *
++ * Stored without the leading `+`: that is the form the tickets table and the
++ * SMS sender already use, so it matches what is on the box office's screen.
++ */
++class Phone
++{
++    /** Canonical digits, or null if it is not a Kenyan mobile. */
++    public static function normalise(?string $phone): ?string
++    {
++        $digits = preg_replace('/\D/', '', (string) $phone);
++
++        if ($digits === '') {
++            return null;
++        }
++
++        if (str_starts_with($digits, '0')) {
++            $digits = '254'.substr($digits, 1);
++        } elseif (str_starts_with($digits, '7') || str_starts_with($digits, '1')) {
++            $digits = '254'.$digits;
++        }
++
++        return preg_match('/^254[71]\d{8}$/', $digits) ? $digits : null;
++    }
++
++    /**
++     * Normalise, or hand back the original.
++     *
++     * For paths that must not reject a number outright — a box-office sale to
++     * someone with a foreign phone, say. Better a record under an odd format
++     * than no record of who holds the ticket.
++     */
++    public static function normaliseOrKeep(?string $phone): ?string
++    {
++        return self::normalise($phone) ?? (filled($phone) ? trim((string) $phone) : null);
++    }
++
++    /** 2547XXXXXXXX → 0712 345 678, for reading back to a customer. */
++    public static function forHumans(?string $phone): string
++    {
++        $n = self::normalise($phone);
++
++        if ($n === null) {
++            return (string) $phone;
++        }
++
++        $local = '0'.substr($n, 3);
++
++        return substr($local, 0, 4).' '.substr($local, 4, 3).' '.substr($local, 7);
++    }
++}
+diff --git a/resources/views/events/show.blade.php b/resources/views/events/show.blade.php
+index 84415f8..7d67a9a 100644
+--- a/resources/views/events/show.blade.php
++++ b/resources/views/events/show.blade.php
+@@ -53,6 +53,24 @@
+     /* Reaching Kopo Kopo and Safaricom takes a few seconds, and until the
+        prompt lands on the handset the page looks like nothing happened —
+        which is when people press Pay again. */
++    /* Step indicator and the running total. */
++    .steps{display:flex; gap:8px; list-style:none; padding:0; margin:0 0 16px; font-size:.76rem;
++           letter-spacing:.08em; text-transform:uppercase}
++    .steps li{flex:1; padding-bottom:7px; border-bottom:2px solid var(--line); opacity:.45}
++    .steps li.on{opacity:1; border-bottom-color:var(--lamp)}
++    .running{display:flex; justify-content:space-between; align-items:baseline;
++             margin:18px 0 14px; padding-top:14px; border-top:1px solid var(--line)}
++    .running .run-total{font-size:1.25rem; font-weight:800}
++    .step-next,.step-back{width:100%; margin-top:10px}
++    .step-next[disabled]{opacity:.4; cursor:not-allowed}
++    .extras{margin:6px 0 4px}
++    .extras summary{cursor:pointer; font-size:.9rem; opacity:.8; padding:6px 0}
++    .hint{display:block; margin-top:5px; font-size:.8rem; opacity:.65}
++    .review{margin:0 0 18px}
++    .review dt{float:left; clear:left; opacity:.8}
++    .review dd{text-align:right; margin:0 0 9px}
++    .review .grand{font-weight:800; font-size:1.1rem; border-top:1px solid var(--line);
++                   padding-top:10px; margin-top:4px; opacity:1}
+     .pay-btn[disabled]{opacity:1; cursor:progress}
+     /* `:not([hidden])` is load-bearing. A bare `.pay-busy{display:inline-flex}`
+        is an author rule and so beats the browser's `[hidden]{display:none}`,
+@@ -114,9 +132,14 @@
+ 
+             <form method="POST" action="{{ route('orders.store') }}" class="booking">
+                 @csrf
++                {{-- Step 1 — tickets only. --}}
++                <div class="step" data-step="1">
++                <ol class="steps" aria-hidden="true">
++                    <li class="on">Tickets</li><li>Details</li><li>Pay</li>
++                </ol>
+                 <div class="ticket-rows">
+                     @foreach ($performance->ticketTypes as $type)
+-                        <div class="trow">
++                        <div class="trow" data-price="{{ (int) ($type->price_cents / 100) }}">
+                             <div class="tname">{{ $type->name }}
+                                 @if ($type->requires_id_at_gate)<small>ID required at the gate</small>@endif
+                                 <small class="tleft-inline">
+@@ -139,31 +162,59 @@
+                         </div>
+                     @endforeach
+                 </div>
++                    <p class="running"><span>Total</span> <strong class="run-total">KES 0</strong></p>
++                    <button class="btn step-next" type="button" data-goto="2" disabled>Continue</button>
++                </div>
+ 
+-                <div class="paybox">
+-                    <h3>Your details</h3>
+-                    <p class="sub">Pay securely with M-Pesa or card. Tickets are emailed instantly and sent to your phone.</p>
+-                    <div class="field">
+-                        <label for="phone">Phone number</label>
+-                        <input id="phone" name="phone" type="tel" placeholder="07XX XXX XXX" value="{{ old('phone') }}" required>
+-                    </div>
++                {{-- Step 2 — who it is for. Two required fields, nothing else
++                     visible: the promo code is behind a disclosure because most
++                     buyers do not have one and every field on screen is one
++                     more reason to stop. --}}
++                <div class="paybox step" data-step="2" hidden>
++                    <h3>Who are the tickets for?</h3>
+                     <div class="field">
+-                        <label for="email">Email (your tickets are sent here)</label>
+-                        <input id="email" name="email" type="email" value="{{ old('email') }}" required>
++                        <label for="phone-{{ $performance->id }}">M-Pesa phone number</label>
++                        <input id="phone-{{ $performance->id }}" name="phone" type="tel" inputmode="tel"
++                               autocomplete="tel" placeholder="07XX XXX XXX"
++                               value="{{ old('phone') }}" required>
++                        <small class="hint">The payment prompt goes to this number.</small>
+                     </div>
+                     <div class="field">
+-                        <label for="name">Name (optional — appears on the ticket)</label>
+-                        <input id="name" name="name" type="text" value="{{ old('name') }}">
+-                    </div>
+-                    <div class="field">
+-                        <label for="promo_code">Promo code (optional)</label>
+-                        <input id="promo_code" name="promo_code" type="text" value="{{ old('promo_code') }}">
++                        <label for="email-{{ $performance->id }}">Email</label>
++                        <input id="email-{{ $performance->id }}" name="email" type="email"
++                               inputmode="email" autocomplete="email"
++                               value="{{ old('email') }}" required>
++                        <small class="hint">Your tickets are sent here.</small>
+                     </div>
++                    <details class="extras">
++                        <summary>Add a name or promo code</summary>
++                        <div class="field">
++                            <label for="name-{{ $performance->id }}">Name on the ticket</label>
++                            <input id="name-{{ $performance->id }}" name="name" type="text"
++                                   autocomplete="name" value="{{ old('name') }}">
++                        </div>
++                        <div class="field">
++                            <label for="promo-{{ $performance->id }}">Promo code</label>
++                            <input id="promo-{{ $performance->id }}" name="promo_code" type="text"
++                                   value="{{ old('promo_code') }}">
++                        </div>
++                    </details>
++                    <button class="btn step-next" type="button" data-goto="3">Review order</button>
++                    <button class="btn ghost step-back" type="button" data-goto="1">Back</button>
++                </div>
++
++                {{-- Step 3 — one last look, then pay. Nothing to fill in here:
++                     the final screen before money moves should be read, not
++                     worked through. --}}
++                <div class="paybox step" data-step="3" hidden>
++                    <h3>Confirm and pay</h3>
++                    <dl class="review"></dl>
+                     <button class="btn pay-btn" type="submit">
+-                        <span class="pay-label">Pay — M-Pesa or Card</span>
++                        <span class="pay-label">Pay <span class="pay-total"></span></span>
+                         <span class="pay-busy" hidden><span class="spinner" aria-hidden="true"></span>Sending prompt to your phone…</span>
+                     </button>
+-                    <p class="safe">Secured checkout · seats held for 15 minutes while you pay</p>
++                    <button class="btn ghost step-back" type="button" data-goto="2">Back</button>
++                    <p class="safe">Seats held for {{ \App\Services\Checkout::HOLD_MINUTES }} minutes · you approve the amount on your phone</p>
+                 </div>
+             </form>
+         </div>
+@@ -171,6 +222,89 @@
+ </div>
+ 
+ <script>
++    // Three steps, client-side. The form posts exactly as before — stepping is
++    // only about how much is on screen at once, so checkout still works with
++    // JavaScript off: every step is revealed and the page behaves as the
++    // single long form it used to be.
++    document.querySelectorAll('form.booking').forEach(function (form) {
++        const steps = form.querySelectorAll('.step');
++        const crumbs = form.querySelectorAll('.steps li');
++        if (!steps.length) return;
++
++        steps.forEach(function (s) { s.hidden = s.dataset.step !== '1'; });
++
++        function show(n) {
++            steps.forEach(function (s) { s.hidden = s.dataset.step !== String(n); });
++            crumbs.forEach(function (li, i) { li.classList.toggle('on', i < n); });
++            if (n === 3) buildReview();
++            const head = form.closest('.perf');
++            if (head) head.scrollIntoView({ behavior: 'smooth', block: 'start' });
++        }
++
++        function money(n) { return 'KES ' + n.toLocaleString('en-KE'); }
++
++        function lines() {
++            const out = [];
++            form.querySelectorAll('.trow').forEach(function (row) {
++                const input = row.querySelector('input.qty');
++                const qty = parseInt(input && input.value, 10) || 0;
++                if (qty < 1) return;
++                const price = parseInt(row.dataset.price || '0', 10);
++                const name = (row.querySelector('.tname') || {}).firstChild;
++                out.push({
++                    name: (name ? name.textContent : 'Ticket').trim(),
++                    qty: qty,
++                    subtotal: qty * price,
++                });
++            });
++            return out;
++        }
++
++        function total() { return lines().reduce(function (s, l) { return s + l.subtotal; }, 0); }
++
++        function refresh() {
++            const t = total();
++            const el = form.querySelector('.run-total');
++            if (el) el.textContent = money(t);
++            const next = form.querySelector('.step[data-step="1"] .step-next');
++            if (next) next.disabled = lines().length === 0;
++        }
++
++        function buildReview() {
++            const dl = form.querySelector('.review');
++            if (!dl) return;
++            dl.innerHTML = '';
++            lines().forEach(function (l) {
++                dl.insertAdjacentHTML('beforeend',
++                    '<dt>' + l.qty + ' × ' + l.name + '</dt><dd>' + money(l.subtotal) + '</dd>');
++            });
++            const phone = form.querySelector('[name="phone"]');
++            const email = form.querySelector('[name="email"]');
++            if (phone && phone.value) dl.insertAdjacentHTML('beforeend', '<dt>Prompt to</dt><dd>' + phone.value + '</dd>');
++            if (email && email.value) dl.insertAdjacentHTML('beforeend', '<dt>Tickets to</dt><dd>' + email.value + '</dd>');
++            dl.insertAdjacentHTML('beforeend', '<dt class="grand">Total</dt><dd class="grand">' + money(total()) + '</dd>');
++            const pt = form.querySelector('.pay-total');
++            if (pt) pt.textContent = money(total());
++        }
++
++        form.addEventListener('input', refresh);
++        form.addEventListener('click', function (e) {
++            const btn = e.target.closest('.step-next, .step-back');
++            if (!btn || !form.contains(btn)) return;
++            const to = parseInt(btn.dataset.goto, 10);
++            // Going forward validates the step being left; going back never
++            // does, or a half-filled form traps someone on it.
++            if (btn.classList.contains('step-next') && to > 2) {
++                const current = form.querySelector('.step[data-step="2"]');
++                const invalid = current && current.querySelector(':invalid');
++                if (invalid) { invalid.reportValidity(); return; }
++            }
++            show(to);
++        });
++
++        refresh();
++    });
++
+     // Pressing Pay twice would create two orders, hold two sets of seats and
+     // send two STK prompts, so the button locks on the first submit.
+     document.querySelectorAll('form.booking').forEach(function (form) {
+diff --git a/resources/views/orders/print.blade.php b/resources/views/orders/print.blade.php
+index 2d3efb4..57d04c1 100644
+--- a/resources/views/orders/print.blade.php
++++ b/resources/views/orders/print.blade.php
+@@ -91,6 +91,46 @@
+         .one{font-size:.54rem; color:var(--muted); line-height:1.45}
+ 
+         .foot{font-size:.66rem; color:#8A7570; text-align:center; margin-top:4px}
++        /* ── on a phone the ticket stacks ──────────────────────────────
++           Most people never print: they show this screen at the gate. The
++           desktop layout is a 1fr + 208px stub, so at 360px the stub took more
++           than half the width and the masthead's absolutely-positioned
++           "ADMIT ONE" band and language badge sat straight on top of the event
++           title. Stacking gives the title the full width and puts the QR
++           underneath, bigger — which is also easier to scan off a screen. */
++        @media (max-width:560px){
++            .sheet{padding:0 8px}
++            /* The print button stops competing with the tickets themselves. */
++            .bar{padding:10px 14px; gap:10px}
++            .bar button{font-size:.74rem; padding:7px 12px; white-space:nowrap}
++            .bar .brand{font-size:.92rem; line-height:1.25}
++            .ticket{grid-template-columns:1fr; grid-template-rows:auto auto auto}
++            /* The die-cut notches sit on a vertical perforation that no longer
++               exists once stacked. */
++            .ticket::before,.ticket::after{display:none}
++            .band{grid-column:1; padding:14px 16px 13px}
++            /* Decorative, and it overlapped the title. "Valid for one entry
++               only" is still printed on the stub. */
++            .admit-band{display:none}
++            .lang{position:static; display:inline-block; margin:0 0 7px; right:auto; top:auto}
++            .title{font-size:1.35rem}
++            .main{grid-column:1; grid-row:2; padding:16px 16px 0}
++            .facts{flex-wrap:wrap; gap:4px 0}
++            .fact{padding-right:14px; margin-right:14px}
++            .holder-row{flex-wrap:wrap; gap:10px 20px}
++            /* A 11.5rem watermark on a 360px screen is just a smear. */
++            .wm{display:none}
++            .promo{margin:auto -16px 0; padding:9px 16px; flex-direction:column; align-items:flex-start; gap:4px}
++            .promo .handles{text-align:left}
++            .stub{
++                grid-column:1; grid-row:3; padding:16px 16px 18px;
++                border-left:none; border-top:2px dashed #D9C7B8;
++            }
++            /* Bigger, because this is now the thing being scanned. */
++            .qr svg{width:190px; height:190px}
++            .code{font-size:1.25rem; letter-spacing:4px}
++        }
++
+         @media print{
+             body{background:#fff}
+             .bar{display:none}
+@@ -101,8 +141,11 @@
+     </style>
+ </head>
+ <body>
++{{-- Printing is the exception, not the point: most people show this screen
++     at the gate. So the bar says the tickets are ready, and printing is an
++     option offered rather than an instruction given. --}}
+ <div class="bar">
+-    <span class="brand">64<span>THEATRE</span> — Print your tickets</span>
++    <span class="brand">64<span>THEATRE</span> — <span class="bar-msg">your tickets</span></span>
+     <button onclick="window.print()">Print / Save as PDF</button>
+ </div>
+ <div class="sheet">
