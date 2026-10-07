@@ -70,7 +70,22 @@ services:
       SESSION_DRIVER: file
       CACHE_STORE: file
       QUEUE_CONNECTION: sync      # jobs run inline — no worker container needed
-      MAIL_MAILER: log            # tickets remain visible on the order page
+
+      # Email. `log` writes ticket emails to the container log and delivers
+      # them to NOBODY — fine for a demo, silent failure once real tickets are
+      # sold. Set MAIL_MAILER=smtp in .env with the Brevo values below.
+      MAIL_MAILER: ${MAIL_MAILER:-log}
+      MAIL_HOST: ${MAIL_HOST:-smtp-relay.brevo.com}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      # Laravel 13 reads MAIL_SCHEME, not MAIL_ENCRYPTION. `smtp` on 587 uses
+      # STARTTLS; port 465 would need `smtps`.
+      MAIL_SCHEME: ${MAIL_SCHEME:-smtp}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      # Must be a sender Brevo has authenticated, or it rejects the message.
+      MAIL_FROM_ADDRESS: ${MAIL_FROM_ADDRESS:-tickets@64theatre.art}
+      MAIL_FROM_NAME: ${MAIL_FROM_NAME:-64theatre}
+
       SMS_ENABLED: "false"
       LOG_CHANNEL: stderr
     expose:

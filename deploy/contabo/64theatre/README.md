@@ -368,6 +368,61 @@ confirmation SMS and quote their order number at the box office. Budget for
 someone matching those by hand, or keep the panel off until you have a process
 for it.
 
+## Email (Brevo)
+
+`compose.yml` shipped with `MAIL_MAILER: log` hardcoded, which writes ticket
+emails to the container log and delivers them to **nobody** — the job runs,
+the mail "sends", the buyer gets nothing. That is fine for a demo and a silent
+failure the moment real tickets are sold.
+
+In `/srv/64theatre/.env`:
+
+```env
+MAIL_MAILER=smtp
+MAIL_HOST=smtp-relay.brevo.com
+MAIL_PORT=587
+MAIL_SCHEME=smtp
+MAIL_USERNAME=<Brevo SMTP login>
+MAIL_PASSWORD=<Brevo SMTP key, xsmtpsib-…>
+MAIL_FROM_ADDRESS=tickets@64theatre.art
+MAIL_FROM_NAME=64theatre
+```
+
+```bash
+docker compose -f /srv/64theatre/compose.yml up -d
+```
+
+Three things that bite:
+
+- **`MAIL_SCHEME`, not `MAIL_ENCRYPTION`.** Laravel 13 renamed it
+  (`config/mail.php:42`). The old name is read by nothing and fails silently.
+  `smtp` on port 587 negotiates STARTTLS; port 465 needs `smtps`.
+- **The SMTP key is not the API key.** Brevo's SMTP key is `xsmtpsib-…`; the
+  API v3 key is `xkeysib-…` and will not authenticate over SMTP.
+- **`MAIL_FROM_ADDRESS` must be a sender Brevo has authenticated** for the
+  domain, or Brevo rejects the message outright.
+
+### Test it before a customer does
+
+```bash
+docker compose -f /srv/64theatre/compose.yml exec app php artisan tinker --execute='
+Illuminate\Support\Facades\Mail::raw("64theatre SMTP test", function ($m) {
+    $m->to("you@example.com")->subject("64theatre — SMTP test");
+});
+echo "sent via ", config("mail.default"), " as ", config("mail.from.address"), PHP_EOL;'
+```
+
+An authentication failure throws immediately and names the reason. Silence
+plus a delivered email means it works.
+
+### The daily cap
+
+Brevo's free plan allows **300 emails a day across the whole account**. If
+64 Theatre shares an account with another product, they share that ceiling,
+and Brevo stops sending rather than queueing — a buyer simply gets no ticket.
+A show selling a few hundred tickets wants either its own account or a paid
+plan.
+
 ## Upgrading to production
 
 Apply `0002` **before** this section, or the first thing a production install
