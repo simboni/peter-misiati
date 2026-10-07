@@ -25,10 +25,10 @@ mkdir -p /srv/64theatre
 git clone --depth 1 https://github.com/simboni/64theatre-platform /srv/64theatre/repo
 
 cd /srv/smp-portfolio/repo && git pull
-cp deploy/contabo/64theatre/compose.yml deploy/contabo/64theatre/.env.example /srv/64theatre/
+cp deploy/contabo/64theatre/compose.yml deploy/contabo/64theatre/env.example /srv/64theatre/
 
 cd /srv/64theatre
-cp .env.example .env && chmod 600 .env
+cp env.example .env && chmod 600 .env
 ```
 
 Build first (the image is needed to generate a key):

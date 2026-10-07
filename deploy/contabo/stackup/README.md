@@ -31,9 +31,9 @@ Expected cost on the box: **~400 MB RAM idle**, capped at 1.75 GB. You have
 mkdir -p /srv/stackup
 git clone --depth 1 https://github.com/simboni/smp-planning /srv/stackup/repo
 
-cp /srv/smp-portfolio/repo/deploy/contabo/stackup/{compose.yml,init-db.sh,.env.example} /srv/stackup/
+cp /srv/smp-portfolio/repo/deploy/contabo/stackup/{compose.yml,init-db.sh,env.example} /srv/stackup/
 cd /srv/stackup
-cp .env.example .env && chmod 600 .env
+cp env.example .env && chmod 600 .env
 ```
 
 Fill in `.env` — four secrets. Generate each one:
