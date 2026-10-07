@@ -1,0 +1,494 @@
+diff --git a/.env.example b/.env.example
+index 1d2c13c..bbef981 100644
+--- a/.env.example
++++ b/.env.example
+@@ -79,7 +79,8 @@ AT_USERNAME=sandbox
+ AT_API_KEY=
+ AT_SENDER_ID=
+ 
+-# Payment gateway: daraja | fake (fake auto-selected outside production)
++# Payment gateway: kopokopo | pesapal | daraja | fake
++# (fake auto-selected outside production)
+ PAYMENT_GATEWAY=
+ 
+ # Ticket delivery: email is the launch channel (free). SMS costs ~KES 0.8/msg —
+@@ -90,6 +91,24 @@ SMS_ENABLED=false
+ BRAND_WEBSITE=
+ BRAND_INSTAGRAM=@64theatre
+ 
++# Kopo Kopo — M-Pesa STK Push through an aggregator, so tickets can be sold
++# before 64 Theatre's own Safaricom paybill is approved. Production base URL is
++# https://api.kopokopo.com — leaving the sandbox URL with live keys fails auth.
++# KOPOKOPO_API_KEY signs incoming webhooks and is NOT the client secret.
++KOPOKOPO_BASE_URL=https://sandbox.kopokopo.com
++KOPOKOPO_CLIENT_ID=
++KOPOKOPO_CLIENT_SECRET=
++KOPOKOPO_API_KEY=
++KOPOKOPO_TILL_NUMBER=
++
++# Paying by hand — shown to a buyer whose STK prompt never arrived. Published
++# numbers, not secrets. The account number identifies 64 Theatre, not the
++# order, so a Pay Bill payment is reconciled by hand.
++OFFLINE_PAYMENT_ENABLED=true
++OFFLINE_PAYMENT_PAYBILL=542542
++OFFLINE_PAYMENT_ACCOUNT=064064
++OFFLINE_PAYMENT_BANK="I&M Bank"
++
+ # Pesapal (M-Pesa + Visa/Mastercard, one integration). Sandbox base by default.
+ PESAPAL_BASE_URL=https://cybqa.pesapal.com/pesapalv3
+ PESAPAL_CONSUMER_KEY=
+diff --git a/app/Http/Controllers/Webhooks/KopoKopoCallbackController.php b/app/Http/Controllers/Webhooks/KopoKopoCallbackController.php
+new file mode 100644
+index 0000000..1514812
+--- /dev/null
++++ b/app/Http/Controllers/Webhooks/KopoKopoCallbackController.php
+@@ -0,0 +1,54 @@
++<?php
++
++namespace App\Http\Controllers\Webhooks;
++
++use App\Http\Controllers\Controller;
++use App\Payments\KopoKopoGateway;
++use Illuminate\Http\JsonResponse;
++use Illuminate\Http\Request;
++use Illuminate\Support\Facades\Log;
++
++/**
++ * Kopo Kopo posts the STK-push result here.
++ *
++ * This endpoint is public and unauthenticated, so anyone who learns the URL
++ * can post to it. The HMAC signature is the only thing standing between that
++ * and a stranger marking their own order paid, which is why it is checked
++ * before the body is parsed, let alone acted on.
++ *
++ * The signature covers the RAW request body. `$request->all()` would give us
++ * decoded JSON, and re-encoding it changes the bytes and therefore the hash,
++ * so the raw content is read first and handed on only once it verifies.
++ */
++class KopoKopoCallbackController extends Controller
++{
++    public function __invoke(Request $request, KopoKopoGateway $gateway): JsonResponse
++    {
++        $raw = $request->getContent();
++
++        if (! KopoKopoGateway::signatureIsValid($raw, $request->header('X-KopoKopo-Signature'))) {
++            // Deliberately terse, and logged without the body: an attacker
++            // probing this should learn nothing about what we expected.
++            Log::channel('single')->warning('kopokopo.callback.bad_signature', [
++                'ip' => $request->ip(),
++            ]);
++
++            return response()->json(['status' => 'rejected'], 401);
++        }
++
++        $payload = json_decode($raw, true);
++
++        if (! is_array($payload)) {
++            return response()->json(['status' => 'bad request'], 400);
++        }
++
++        Log::channel('single')->info('kopokopo.callback', $payload);
++
++        $gateway->handleCallback($payload);
++
++        // Always 200 once the signature is good, even for an order we cannot
++        // place: anything else makes Kopo Kopo retry a delivery that will
++        // never succeed.
++        return response()->json(['status' => 'ok']);
++    }
++}
+diff --git a/app/Payments/KopoKopoGateway.php b/app/Payments/KopoKopoGateway.php
+new file mode 100644
+index 0000000..582f5cd
+--- /dev/null
++++ b/app/Payments/KopoKopoGateway.php
+@@ -0,0 +1,262 @@
++<?php
++
++namespace App\Payments;
++
++use App\Models\Order;
++use App\Models\Payment;
++use App\Services\Checkout;
++use Illuminate\Support\Facades\Cache;
++use Illuminate\Support\Facades\Http;
++use RuntimeException;
++
++/**
++ * Kopo Kopo — M-Pesa STK Push through an aggregator.
++ *
++ * Why this exists: Safaricom's own Daraja needs a paybill in 64 Theatre's
++ * name, and that approval takes weeks. Kopo Kopo sells through its own till
++ * today and settles to the client's account, so tickets can go on sale now.
++ * When the Safaricom shortcode lands, PAYMENT_GATEWAY=daraja and nothing else
++ * in the application changes — that is what the PaymentGateway seam is for.
++ *
++ * The flow, which is the same one the billing platform uses:
++ *   OAuth    POST {base}/oauth/token                   client_credentials
++ *   STK      POST {base}/api/v1/incoming_payments      201 + Location header
++ *   Status   GET  {location}                           data.attributes.status
++ *   Webhook  POST our callback, signed X-KopoKopo-Signature
++ *            = HMAC-SHA256(raw body, API key)
++ *
++ * Two things differ from Daraja and both have bitten people before:
++ *   · Success is 201 with the handle in the `Location` HEADER, not the body.
++ *   · The webhook is signed with the API key, which is a different secret
++ *     from the client secret.
++ */
++class KopoKopoGateway implements PaymentGateway
++{
++    /** Recorded in gateway_payload, since `gateway` itself says 'aggregator'. */
++    private const PROVIDER = 'kopokopo';
++
++    /** The enum value Kopo Kopo payments are stored under. */
++    private const GATEWAY = 'aggregator';
++
++    public function initiate(Order $order, string $payerPhone): Payment
++    {
++        $phone = $this->normalisePhone($payerPhone);
++
++        if ($phone === null) {
++            throw new RuntimeException("Not a Kenyan mobile number: {$payerPhone}");
++        }
++
++        $response = Http::withToken($this->accessToken())
++            ->acceptJson()
++            ->post($this->base().'/api/v1/incoming_payments', [
++                'payment_channel' => 'M-PESA STK Push',
++                'till_number' => config('services.kopokopo.till_number'),
++                'subscriber' => [
++                    'first_name' => $this->firstName($order),
++                    'last_name' => $this->lastName($order),
++                    'phone_number' => $phone,
++                ],
++                // Kopo Kopo takes whole shillings as a string; we store cents.
++                'amount' => [
++                    'currency' => 'KES',
++                    'value' => (string) intdiv($order->total_cents, 100),
++                ],
++                // Comes back on the webhook, and is how we find the order
++                // without trusting anything the caller sent.
++                'metadata' => ['order_uuid' => $order->uuid],
++                '_links' => ['callback_url' => route('webhooks.kopokopo')],
++            ])->throw();
++
++        // 201 Created; the payment's handle is the Location header, not body.
++        $location = $response->header('Location');
++
++        return Payment::create([
++            'order_id' => $order->id,
++            // `payments.gateway` is an enum: mpesa_stk | cash | bank_transfer
++            // | card | aggregator. Kopo Kopo is an aggregator, exactly as
++            // Pesapal is, so it uses the value that already exists. Adding
++            // 'kopokopo' would mean an enum migration, and on SQLite that
++            // rebuilds a table holding real payment records — a bad trade for
++            // a label. The provider is recorded in the payload instead.
++            'gateway' => self::GATEWAY,
++            'gateway_ref' => $location ?: null,
++            'payer_phone' => $phone,
++            'amount_cents' => $order->total_cents,
++            'status' => 'initiated',
++            'gateway_payload' => [
++                'provider' => self::PROVIDER,
++                'location' => $location,
++                'body' => $response->json(),
++            ],
++        ]);
++    }
++
++    public function authorizationUrl(Payment $payment): ?string
++    {
++        return null; // inline — the buyer approves on their handset
++    }
++
++    /**
++     * Settle from a webhook body. The signature is verified in the controller,
++     * before this is called — nothing here may act on an unverified payload.
++     */
++    public function handleCallback(array $payload): ?Payment
++    {
++        $attributes = data_get($payload, 'data.attributes', $payload);
++        $orderUuid = data_get($attributes, 'metadata.order_uuid');
++        $reference = data_get($attributes, 'event.resource.reference');
++
++        $payment = $this->locatePayment($orderUuid, data_get($payload, 'data.id'));
++
++        if (! $payment || $payment->status !== 'initiated') {
++            return $payment; // unknown, or already settled — idempotent
++        }
++
++        $status = $this->normaliseStatus((string) data_get($attributes, 'status', ''));
++
++        if ($status === 'success') {
++            $payment->update([
++                // The M-Pesa receipt the buyer can quote; far more use at the
++                // gate than our own internal handle.
++                'gateway_ref' => $reference ?: $payment->gateway_ref,
++                'gateway_payload' => $payload,
++            ]);
++
++            app(Checkout::class)->confirm($payment->order, $payment);
++        } elseif ($status === 'failed') {
++            $payment->update(['status' => 'failed', 'gateway_payload' => $payload]);
++        }
++        // 'pending' is a progress ping — leave it initiated and wait.
++
++        return $payment->refresh();
++    }
++
++    /**
++     * Verify a webhook signature: HMAC-SHA256 of the RAW body under the API
++     * key. Raw, because re-encoding decoded JSON changes bytes and the hash
++     * with them.
++     */
++    public static function signatureIsValid(string $rawBody, ?string $signature): bool
++    {
++        $apiKey = config('services.kopokopo.api_key');
++
++        if (blank($signature) || blank($apiKey)) {
++            return false;
++        }
++
++        return hash_equals(hash_hmac('sha256', $rawBody, $apiKey), strtolower($signature));
++    }
++
++    /**
++     * Ask Kopo Kopo directly what happened. The webhook is the primary path;
++     * this covers the case where it never arrived — which on a box with one
++     * public IP and no retry queue is not rare.
++     */
++    public function pollStatus(Payment $payment): ?string
++    {
++        $location = $payment->gateway_ref;
++
++        if (blank($location) || ! str_starts_with($location, 'http')) {
++            return null;
++        }
++
++        $response = Http::withToken($this->accessToken())->acceptJson()->get($location);
++
++        if (! $response->successful()) {
++            return null;
++        }
++
++        return $this->normaliseStatus((string) $response->json('data.attributes.status', ''));
++    }
++
++    /** Kopo Kopo's status vocabulary is wider than ours. */
++    private function normaliseStatus(string $raw): string
++    {
++        return match (strtolower($raw)) {
++            'received', 'success', 'successful', 'completed', 'settled' => 'success',
++            'failed', 'cancelled', 'canceled', 'error', 'declined' => 'failed',
++            default => 'pending',
++        };
++    }
++
++    private function locatePayment(?string $orderUuid, ?string $resourceId): ?Payment
++    {
++        if (filled($orderUuid)) {
++            $order = Order::where('uuid', $orderUuid)->first();
++
++            if ($order) {
++                // The order's most recent unsettled attempt. Safe even if an
++                // earlier Pesapal attempt shares the 'aggregator' value: this
++                // webhook was signed with our Kopo Kopo key, so it is a real
++                // Kopo Kopo event, and it is settling the live attempt.
++                return $order->payments()
++                    ->where('gateway', self::GATEWAY)
++                    ->where('status', 'initiated')
++                    ->latest('id')
++                    ->first();
++            }
++        }
++
++        // Fall back to the resource id embedded in the Location we stored.
++        return filled($resourceId)
++            ? Payment::where('gateway', self::GATEWAY)
++                ->where('gateway_ref', 'like', '%'.$resourceId)
++                ->first()
++            : null;
++    }
++
++    private function accessToken(): string
++    {
++        // Kopo Kopo's tokens last an hour; 50 minutes leaves room for clock
++        // drift without a round trip on every checkout.
++        return Cache::remember('kopokopo.access_token', 3000, function (): string {
++            $token = Http::asForm()
++                ->acceptJson()
++                ->post($this->base().'/oauth/token', [
++                    'client_id' => config('services.kopokopo.client_id'),
++                    'client_secret' => config('services.kopokopo.client_secret'),
++                    'grant_type' => 'client_credentials',
++                ])->throw()->json('access_token');
++
++            if (blank($token)) {
++                throw new RuntimeException('Kopo Kopo returned no access token.');
++            }
++
++            return $token;
++        });
++    }
++
++    private function base(): string
++    {
++        return rtrim((string) config('services.kopokopo.base_url'), '/');
++    }
++
++    /** 07XX / 01XX / 2547XX / +2547XX → +2547XXXXXXXX. Null if it is not one. */
++    private function normalisePhone(string $phone): ?string
++    {
++        $digits = preg_replace('/\D/', '', $phone);
++
++        if (str_starts_with($digits, '0')) {
++            $digits = '254'.substr($digits, 1);
++        } elseif (str_starts_with($digits, '7') || str_starts_with($digits, '1')) {
++            $digits = '254'.$digits;
++        }
++
++        // Kopo Kopo wants E.164 with the plus; Daraja wants it without.
++        return preg_match('/^254[71]\d{8}$/', $digits) ? '+'.$digits : null;
++    }
++
++    private function firstName(Order $order): string
++    {
++        $name = trim((string) ($order->customer->name ?? ''));
++
++        return $name === '' ? 'Customer' : (explode(' ', $name)[0]);
++    }
++
++    private function lastName(Order $order): string
++    {
++        $parts = preg_split('/\s+/', trim((string) ($order->customer->name ?? '')));
++
++        return count($parts) > 1 ? end($parts) : '';
++    }
++}
+diff --git a/app/Providers/AppServiceProvider.php b/app/Providers/AppServiceProvider.php
+index a46e308..9410407 100644
+--- a/app/Providers/AppServiceProvider.php
++++ b/app/Providers/AppServiceProvider.php
+@@ -6,6 +6,7 @@
+ use App\Messaging\LogSms;
+ use App\Messaging\SmsSender;
+ use App\Payments\FakeGateway;
++use App\Payments\KopoKopoGateway;
+ use App\Payments\MpesaStkGateway;
+ use App\Payments\PaymentGateway;
+ use App\Payments\PesapalGateway;
+@@ -21,6 +22,7 @@ public function register(): void
+         $this->app->bind(PaymentGateway::class, function () {
+             return match (config('payments.default')) {
+                 'pesapal' => new PesapalGateway,
++                'kopokopo' => new KopoKopoGateway,
+                 'daraja' => new MpesaStkGateway,
+                 default => new FakeGateway,
+             };
+diff --git a/config/services.php b/config/services.php
+index 1a90e17..e6d183d 100644
+--- a/config/services.php
++++ b/config/services.php
+@@ -42,6 +42,34 @@
+         ],
+     ],
+ 
++    /*
++     * Kopo Kopo — M-Pesa STK Push through an aggregator, so tickets can be
++     * sold before 64 Theatre's own Safaricom paybill is approved. Switch
++     * PAYMENT_GATEWAY to 'daraja' when it is; nothing else changes.
++     */
++    'kopokopo' => [
++        'base_url' => rtrim(env('KOPOKOPO_BASE_URL', 'https://sandbox.kopokopo.com'), '/'),
++        'client_id' => env('KOPOKOPO_CLIENT_ID'),
++        'client_secret' => env('KOPOKOPO_CLIENT_SECRET'),
++        // Signs incoming webhooks (HMAC-SHA256 over the raw body). A different
++        // secret from the client secret — mixing them up fails every callback.
++        'api_key' => env('KOPOKOPO_API_KEY'),
++        'till_number' => env('KOPOKOPO_TILL_NUMBER'),
++    ],
++
++    /*
++     * Paying by hand, for a buyer whose STK prompt never arrived and for the
++     * box office. Published numbers, not secrets. The account number is what
++     * identifies 64 Theatre to Kopo Kopo — it is not per-order, so a Pay Bill
++     * payment has to be reconciled by hand.
++     */
++    'offline_payment' => [
++        'enabled' => env('OFFLINE_PAYMENT_ENABLED', true),
++        'paybill' => env('OFFLINE_PAYMENT_PAYBILL', '542542'),
++        'account' => env('OFFLINE_PAYMENT_ACCOUNT', '064064'),
++        'bank' => env('OFFLINE_PAYMENT_BANK', 'I&M Bank'),
++    ],
++
+     'pesapal' => [
+         // One integration for M-Pesa + Airtel + Visa/Mastercard.
+         'base_url' => env('PESAPAL_BASE_URL', 'https://cybqa.pesapal.com/pesapalv3'), // sandbox; live: https://pay.pesapal.com/v3
+diff --git a/resources/views/orders/show.blade.php b/resources/views/orders/show.blade.php
+index 412a87b..f4eae4e 100644
+--- a/resources/views/orders/show.blade.php
++++ b/resources/views/orders/show.blade.php
+@@ -14,6 +14,39 @@
+             {{ $order->customer->phone }} — enter your PIN to complete payment.
+             Your seats are held for {{ \App\Services\Checkout::HOLD_MINUTES }} minutes.
+         </div>
++
++        @if (config('services.offline_payment.enabled'))
++            {{-- The prompt does not always arrive: a handset can be off the
++                 network, or the push can simply be missed. Without a second
++                 route the buyer abandons the order and the seats go back. --}}
++            <div class="note" style="background:#FFF8E6;border-color:#E8D9A8">
++                <strong>No prompt on your phone?</strong> Pay by M-Pesa instead:
++                <dl style="margin:10px 0 0">
++                    <dt style="display:inline">Go to</dt>
++                    <dd style="display:inline;margin:0">M-Pesa → Lipa na M-Pesa → <strong>Pay Bill</strong></dd><br>
++                    <dt style="display:inline">Business number</dt>
++                    <dd style="display:inline;margin:0"><strong style="font-family:monospace;font-size:1.1em;letter-spacing:1px">{{ config('services.offline_payment.paybill') }}</strong>
++                        @if (config('services.offline_payment.bank'))
++                            <span style="opacity:.7">({{ config('services.offline_payment.bank') }})</span>
++                        @endif
++                    </dd><br>
++                    <dt style="display:inline">Account number</dt>
++                    <dd style="display:inline;margin:0"><strong style="font-family:monospace;font-size:1.1em;letter-spacing:1px">{{ config('services.offline_payment.account') }}</strong></dd><br>
++                    <dt style="display:inline">Amount</dt>
++                    <dd style="display:inline;margin:0"><strong>KES {{ number_format($order->total_cents / 100) }}</strong></dd>
++                </dl>
++                <p style="margin:10px 0 0;font-size:.92em">
++                    {{-- The account number names 64 Theatre, not this order, so
++                         there is nowhere to put a reference. Say so plainly
++                         rather than let someone pay and wait for tickets that
++                         cannot be matched to them automatically. --}}
++                    A Pay Bill payment is <strong>not matched to your order automatically</strong>.
++                    Keep the M-Pesa confirmation SMS and show it at the gate, or send the
++                    confirmation code to the box office quoting order
++                    <strong style="font-family:monospace">{{ strtoupper(substr($order->uuid, 0, 8)) }}</strong>.
++                </p>
++            </div>
++        @endif
+     @elseif ($order->status === 'paid')
+         <div class="note" style="background:#E6F4E6;border-color:#B9DDB9">
+             <strong>Payment received!</strong> Your tickets have been sent by SMS to {{ $order->customer->phone }}.
+diff --git a/routes/web.php b/routes/web.php
+index f2f8bff..dca7b09 100644
+--- a/routes/web.php
++++ b/routes/web.php
+@@ -7,6 +7,7 @@
+ use App\Http\Controllers\Gate\GateSellController;
+ use App\Http\Controllers\OrderController;
+ use App\Http\Controllers\Webhooks\DarajaCallbackController;
++use App\Http\Controllers\Webhooks\KopoKopoCallbackController;
+ use App\Http\Controllers\Webhooks\PesapalCallbackController;
+ use Illuminate\Support\Facades\Route;
+ 
+@@ -26,6 +27,11 @@
+ Route::post('/webhooks/daraja', DarajaCallbackController::class)
+     ->name('webhooks.daraja');
+ 
++// Kopo Kopo (M-Pesa via aggregator). Signed with HMAC-SHA256 over the raw
++// body and verified in the controller, so it needs no CSRF token and no auth.
++Route::post('/webhooks/kopokopo', KopoKopoCallbackController::class)
++    ->name('webhooks.kopokopo');
++
+ // Pesapal (M-Pesa + cards): buyer return URL and server-to-server IPN (both GET).
+ Route::get('/payments/pesapal/callback', [PesapalCallbackController::class, 'callback'])
+     ->name('payments.pesapal.callback');
