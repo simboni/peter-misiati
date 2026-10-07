@@ -1,0 +1,671 @@
+diff --git a/app/Filament/Resources/Orders/Schemas/OrderInfolist.php b/app/Filament/Resources/Orders/Schemas/OrderInfolist.php
+index 0825ed0..06224ac 100644
+--- a/app/Filament/Resources/Orders/Schemas/OrderInfolist.php
++++ b/app/Filament/Resources/Orders/Schemas/OrderInfolist.php
+@@ -2,6 +2,8 @@
+ 
+ namespace App\Filament\Resources\Orders\Schemas;
+ 
++use App\Models\Order;
++use App\Support\TicketShare;
+ use Filament\Infolists\Components\TextEntry;
+ use Filament\Schemas\Schema;
+ 
+@@ -18,14 +20,39 @@ public static function configure(Schema $schema): Schema
+                 TextEntry::make('customer.name')
+                     ->label('Customer')
+                     ->placeholder('-'),
+-                TextEntry::make('performance.id')
+-                    ->label('Performance'),
++                TextEntry::make('customer.phone')
++                    ->label('Phone')
++                    ->placeholder('-'),
++                TextEntry::make('customer.email')
++                    ->label('Email')
++                    ->placeholder('-'),
++                // Was performance.id — a bare row number told nobody which
++                // show this was. Performance::getLabelAttribute() reads
++                // "event — date — venue".
++                TextEntry::make('performance.label')
++                    ->label('Performance')
++                    ->placeholder('-'),
++                // Money is stored in cents; printing the raw integer read as
++                // a hundredfold overcharge.
+                 TextEntry::make('subtotal_cents')
+-                    ->numeric(),
++                    ->label('Subtotal')
++                    ->money('KES', divideBy: 100),
+                 TextEntry::make('fees_cents')
+-                    ->numeric(),
++                    ->label('Fees')
++                    ->money('KES', divideBy: 100),
+                 TextEntry::make('total_cents')
+-                    ->numeric(),
++                    ->label('Total')
++                    ->money('KES', divideBy: 100)
++                    ->weight('bold'),
++                TextEntry::make('tickets_count')
++                    ->label('Tickets issued')
++                    ->state(fn (Order $record): int => $record->tickets()->count())
++                    ->badge(),
++                TextEntry::make('ticket_page')
++                    ->label('Buyer\'s ticket page')
++                    ->state(fn (Order $record): string => TicketShare::url($record))
++                    ->url(fn (Order $record): string => TicketShare::url($record), shouldOpenInNewTab: true)
++                    ->helperText('The link emailed to the buyer — QR codes and print view.'),
+                 TextEntry::make('promo_code')
+                     ->placeholder('-'),
+                 TextEntry::make('channel'),
+diff --git a/app/Filament/Resources/Orders/Tables/OrdersTable.php b/app/Filament/Resources/Orders/Tables/OrdersTable.php
+index 0af3661..989c26c 100644
+--- a/app/Filament/Resources/Orders/Tables/OrdersTable.php
++++ b/app/Filament/Resources/Orders/Tables/OrdersTable.php
+@@ -5,12 +5,18 @@
+ use App\Models\AuditLog;
+ use App\Models\Order;
+ use App\Models\Payment;
++use App\Mail\TicketsIssued;
+ use App\Services\Checkout;
++use App\Support\TicketShare;
+ use Filament\Actions\Action;
+ use Filament\Actions\ViewAction;
++use Filament\Forms\Components\Select;
++use Filament\Forms\Components\TextInput;
++use Filament\Notifications\Notification;
+ use Filament\Tables\Columns\TextColumn;
+ use Filament\Tables\Filters\SelectFilter;
+ use Filament\Tables\Table;
++use Illuminate\Support\Facades\Mail;
+ 
+ class OrdersTable
+ {
+@@ -74,13 +80,36 @@ public static function configure(Table $table): Table
+                     ->color('success')
+                     ->visible(fn (Order $record): bool => $record->status === 'awaiting_payment'
+                         && in_array(auth()->user()?->role, ['super_admin', 'finance'], true))
+-                    ->requiresConfirmation()
+-                    ->modalDescription('Confirms receipt of payment outside M-Pesa (bank transfer / cash), issues the tickets and posts to the ledger.')
+-                    ->action(function (Order $record): void {
++                    ->modalHeading('Confirm payment received')
++                    ->modalDescription('Issues the tickets and posts to the ledger. Record how the money actually arrived — the ledger and the daily reconciliation depend on it.')
++                    ->modalSubmitActionLabel('Confirm and issue tickets')
++                    ->schema([
++                        Select::make('gateway')
++                            ->label('Payment method')
++                            ->options([
++                                'mpesa_stk' => 'M-Pesa (Pay Bill or till)',
++                                'cash' => 'Cash at the box office',
++                                'bank_transfer' => 'Bank transfer',
++                                'card' => 'Card',
++                            ])
++                            ->default('mpesa_stk')
++                            ->required()
++                            ->native(false),
++                        TextInput::make('reference')
++                            ->label('Reference')
++                            ->placeholder('M-Pesa code, e.g. SJK1234567')
++                            ->maxLength(60)
++                            ->helperText('The M-Pesa confirmation code, bank reference or receipt number. Leave blank for cash and one is generated.'),
++                    ])
++                    ->action(function (Order $record, array $data): void {
++                        $reference = trim((string) ($data['reference'] ?? ''));
++
+                         $payment = Payment::create([
+                             'order_id' => $record->id,
+-                            'gateway' => 'bank_transfer',
+-                            'gateway_ref' => 'MANUAL-'.strtoupper(uniqid()),
++                            'gateway' => $data['gateway'],
++                            // A generated reference is marked MANUAL so it is
++                            // never mistaken for something a gateway returned.
++                            'gateway_ref' => $reference !== '' ? strtoupper($reference) : 'MANUAL-'.strtoupper(uniqid()),
+                             'payer_phone' => $record->customer?->phone,
+                             'amount_cents' => $record->total_cents,
+                             'status' => 'initiated',
+@@ -94,9 +123,79 @@ public static function configure(Table $table): Table
+                             'action' => 'order.manually_marked_paid',
+                             'subject_type' => Order::class,
+                             'subject_id' => $record->id,
+-                            'changes' => ['payment_id' => $payment->id, 'amount_cents' => $record->total_cents],
++                            'changes' => [
++                                'payment_id' => $payment->id,
++                                'amount_cents' => $record->total_cents,
++                                'gateway' => $data['gateway'],
++                                'reference' => $payment->gateway_ref,
++                            ],
++                        ]);
++
++                        Notification::make()
++                            ->title('Payment recorded — tickets issued')
++                            ->body('Use Email tickets or WhatsApp to send them.')
++                            ->success()
++                            ->send();
++                    }),
++
++                // Tickets go out automatically on payment, but only to an
++                // email address — and a box-office or Pay Bill buyer often has
++                // none on file. This resends to an address typed at the
++                // counter, and saves it so the next send needs no typing.
++                Action::make('emailTickets')
++                    ->label('Email tickets')
++                    ->icon('heroicon-o-envelope')
++                    ->visible(fn (Order $record): bool => $record->status === 'paid'
++                        && $record->tickets()->exists())
++                    ->schema([
++                        TextInput::make('email')
++                            ->label('Send to')
++                            ->email()
++                            ->required()
++                            ->default(fn (Order $record): ?string => $record->customer?->email)
++                            ->helperText('Saved to the customer, so you only type it once.'),
++                    ])
++                    ->action(function (Order $record, array $data): void {
++                        $email = trim($data['email']);
++
++                        if ($record->customer && $record->customer->email !== $email) {
++                            $record->customer->update(['email' => $email]);
++                        }
++
++                        Mail::to($email)->send(new TicketsIssued(
++                            $record->load(['tickets.ticketType', 'performance.event', 'performance.venue', 'customer']),
++                        ));
++
++                        AuditLog::create([
++                            'user_id' => auth()->id(),
++                            'organiser_id' => $record->organiser_id,
++                            'action' => 'order.tickets_emailed',
++                            'subject_type' => Order::class,
++                            'subject_id' => $record->id,
++                            'changes' => ['to' => $email],
+                         ]);
++
++                        Notification::make()
++                            ->title('Tickets sent to '.$email)
++                            ->success()
++                            ->send();
+                     }),
++
++                // Opens the buyer's chat in the operator's own WhatsApp with
++                // the message ready to send. A server-side send would need the
++                // Business API, an approved template and a per-message fee;
++                // this costs nothing and arrives from a number the customer
++                // recognises. Hidden when the number is not a Kenyan mobile,
++                // because wa.me opens an empty chooser for a bad number and
++                // that looks like it worked.
++                Action::make('whatsappTickets')
++                    ->label('WhatsApp')
++                    ->icon('heroicon-o-chat-bubble-left-right')
++                    ->color('success')
++                    ->visible(fn (Order $record): bool => $record->status === 'paid'
++                        && $record->tickets()->exists()
++                        && TicketShare::whatsAppUrl($record) !== null)
++                    ->url(fn (Order $record): ?string => TicketShare::whatsAppUrl($record), shouldOpenInNewTab: true),
+             ])
+             ->toolbarActions([]);
+     }
+diff --git a/app/Filament/Resources/Tickets/Pages/ListTickets.php b/app/Filament/Resources/Tickets/Pages/ListTickets.php
+new file mode 100644
+index 0000000..956e799
+--- /dev/null
++++ b/app/Filament/Resources/Tickets/Pages/ListTickets.php
+@@ -0,0 +1,16 @@
++<?php
++
++namespace App\Filament\Resources\Tickets\Pages;
++
++use App\Filament\Resources\Tickets\TicketResource;
++use Filament\Resources\Pages\ListRecords;
++
++class ListTickets extends ListRecords
++{
++    protected static string $resource = TicketResource::class;
++
++    protected function getHeaderActions(): array
++    {
++        return [];
++    }
++}
+diff --git a/app/Filament/Resources/Tickets/Pages/ViewTicket.php b/app/Filament/Resources/Tickets/Pages/ViewTicket.php
+new file mode 100644
+index 0000000..9b10b99
+--- /dev/null
++++ b/app/Filament/Resources/Tickets/Pages/ViewTicket.php
+@@ -0,0 +1,11 @@
++<?php
++
++namespace App\Filament\Resources\Tickets\Pages;
++
++use App\Filament\Resources\Tickets\TicketResource;
++use Filament\Resources\Pages\ViewRecord;
++
++class ViewTicket extends ViewRecord
++{
++    protected static string $resource = TicketResource::class;
++}
+diff --git a/app/Filament/Resources/Tickets/Schemas/TicketInfolist.php b/app/Filament/Resources/Tickets/Schemas/TicketInfolist.php
+new file mode 100644
+index 0000000..5ae00e4
+--- /dev/null
++++ b/app/Filament/Resources/Tickets/Schemas/TicketInfolist.php
+@@ -0,0 +1,88 @@
++<?php
++
++namespace App\Filament\Resources\Tickets\Schemas;
++
++use App\Models\Ticket;
++use App\Services\TicketQr;
++use App\Support\TicketShare;
++use Filament\Infolists\Components\TextEntry;
++use Filament\Schemas\Components\Section;
++use Filament\Schemas\Schema;
++use Illuminate\Support\HtmlString;
++
++class TicketInfolist
++{
++    public static function configure(Schema $schema): Schema
++    {
++        return $schema
++            ->components([
++                Section::make('Ticket')
++                    ->schema([
++                        TextEntry::make('short_code')
++                            ->label('Code')
++                            ->fontFamily('mono')
++                            ->weight('bold')
++                            ->size('lg')
++                            ->copyable()
++                            ->helperText('The manual fallback when a QR will not scan.'),
++                        TextEntry::make('status')
++                            ->badge()
++                            ->color(fn (string $state): string => match ($state) {
++                                'issued' => 'success',
++                                'redeemed' => 'info',
++                                'void' => 'danger',
++                                'refunded' => 'warning',
++                                default => 'gray',
++                            }),
++                        TextEntry::make('redeemed_at')
++                            ->label('Used at the gate')
++                            ->dateTime('D j M Y, g:i A')
++                            ->placeholder('Not yet used'),
++                    ])
++                    ->columns(3),
++
++                Section::make('Who it is for')
++                    ->schema([
++                        TextEntry::make('holder_name')->label('Holder')->placeholder('—'),
++                        TextEntry::make('holder_phone')->label('Phone')->placeholder('—'),
++                        TextEntry::make('order.customer.email')->label('Email')->placeholder('—'),
++                    ])
++                    ->columns(3),
++
++                Section::make('What it admits to')
++                    ->schema([
++                        TextEntry::make('performance.event.title')->label('Event'),
++                        TextEntry::make('performance.starts_at')
++                            ->label('Performance')
++                            ->dateTime('D j M Y, g:i A'),
++                        TextEntry::make('performance.venue.name')->label('Venue')->placeholder('—'),
++                        TextEntry::make('ticketType.name')->label('Category')->badge()->color('gray'),
++                        TextEntry::make('ticketType.price_cents')
++                            ->label('Face value')
++                            ->money('KES', divideBy: 100),
++                        TextEntry::make('order.uuid')
++                            ->label('Order')
++                            ->formatStateUsing(fn (?string $state): string => $state ? strtoupper(substr($state, 0, 8)) : '—')
++                            ->url(fn (Ticket $record): ?string => $record->order
++                                ? TicketShare::url($record->order)
++                                : null, shouldOpenInNewTab: true)
++                            ->helperText('Opens the buyer\'s own ticket page.'),
++                    ])
++                    ->columns(3),
++
++                Section::make('QR code')
++                    ->description('The same signed code the gate scanner reads. Hold a phone up to the screen to test it.')
++                    ->schema([
++                        TextEntry::make('qr')
++                            ->hiddenLabel()
++                            // The payload is signed, so a QR rendered here is
++                            // a working ticket — which is exactly the point
++                            // when someone needs one re-shown at the counter.
++                            ->state(fn (Ticket $record): HtmlString => new HtmlString(
++                                '<div style="max-width:220px">'.app(TicketQr::class)->svg($record).'</div>',
++                            ))
++                            ->html(),
++                    ]),
++            ]);
++    }
++}
+diff --git a/app/Filament/Resources/Tickets/Tables/TicketsTable.php b/app/Filament/Resources/Tickets/Tables/TicketsTable.php
+new file mode 100644
+index 0000000..1382cd2
+--- /dev/null
++++ b/app/Filament/Resources/Tickets/Tables/TicketsTable.php
+@@ -0,0 +1,161 @@
++<?php
++
++namespace App\Filament\Resources\Tickets\Tables;
++
++use App\Models\AuditLog;
++use App\Models\Performance;
++use App\Models\Ticket;
++use App\Support\TicketShare;
++use Filament\Actions\Action;
++use Filament\Actions\ViewAction;
++use Filament\Forms\Components\Textarea;
++use Filament\Notifications\Notification;
++use Filament\Tables\Columns\TextColumn;
++use Filament\Tables\Filters\SelectFilter;
++use Filament\Tables\Table;
++
++class TicketsTable
++{
++    public static function configure(Table $table): Table
++    {
++        return $table
++            ->defaultSort('created_at', 'desc')
++            ->columns([
++                TextColumn::make('short_code')
++                    ->label('Code')
++                    // The thing someone reads aloud over the phone, so it is
++                    // first, monospaced and copyable in one tap.
++                    ->fontFamily('mono')
++                    ->weight('bold')
++                    ->copyable()
++                    ->searchable(),
++                TextColumn::make('holder_name')
++                    ->label('Holder')
++                    ->description(fn (Ticket $record): ?string => $record->holder_phone)
++                    ->searchable(['holder_name', 'holder_phone'])
++                    ->placeholder('—'),
++                TextColumn::make('performance.event.title')
++                    ->label('Event')
++                    ->description(fn (Ticket $record): ?string => $record->performance?->starts_at?->format('D j M Y, g:i A'))
++                    ->wrap(),
++                TextColumn::make('ticketType.name')
++                    ->label('Category')
++                    ->badge()
++                    ->color('gray'),
++                TextColumn::make('status')
++                    ->badge()
++                    ->color(fn (string $state): string => match ($state) {
++                        'issued' => 'success',
++                        'redeemed' => 'info',
++                        'void' => 'danger',
++                        'refunded' => 'warning',
++                        default => 'gray',
++                    }),
++                TextColumn::make('redeemed_at')
++                    ->label('Used at')
++                    ->dateTime('D j M, g:i A')
++                    ->placeholder('—')
++                    ->toggleable(),
++                TextColumn::make('order.uuid')
++                    ->label('Order')
++                    ->formatStateUsing(fn (?string $state): string => $state ? strtoupper(substr($state, 0, 8)) : '—')
++                    ->toggleable(isToggledHiddenByDefault: true),
++            ])
++            ->filters([
++                SelectFilter::make('status')->options([
++                    'issued' => 'Issued (valid)',
++                    'redeemed' => 'Redeemed (used)',
++                    'void' => 'Void',
++                    'refunded' => 'Refunded',
++                ]),
++                SelectFilter::make('performance_id')
++                    ->label('Performance')
++                    ->options(fn (): array => Performance::with('event')
++                        ->orderByDesc('starts_at')
++                        ->limit(100)
++                        ->get()
++                        ->mapWithKeys(fn (Performance $p): array => [$p->getKey() => $p->label])
++                        ->all())
++                    ->searchable(),
++            ])
++            ->recordActions([
++                ViewAction::make(),
++
++                // Shares the order page, which carries the QR and the print
++                // view — the whole ticket, not a pointer to one.
++                Action::make('whatsapp')
++                    ->label('WhatsApp')
++                    ->icon('heroicon-o-chat-bubble-left-right')
++                    ->color('success')
++                    ->visible(fn (Ticket $record): bool => $record->order !== null
++                        && TicketShare::whatsAppUrl($record->order) !== null)
++                    ->url(fn (Ticket $record): ?string => TicketShare::whatsAppUrl($record->order), shouldOpenInNewTab: true),
++
++                // Kills a ticket without touching the order or the money. For
++                // a duplicate, a mis-send, or a code that has leaked. The gate
++                // refuses a void ticket on the next scan.
++                Action::make('void')
++                    ->label('Void')
++                    ->icon('heroicon-o-x-circle')
++                    ->color('danger')
++                    ->visible(fn (Ticket $record): bool => $record->status === 'issued'
++                        && in_array(auth()->user()?->role, ['super_admin', 'finance'], true))
++                    ->requiresConfirmation()
++                    ->modalHeading('Void this ticket?')
++                    ->modalDescription('It stops working at the gate immediately. The order and any payment are untouched — refund separately if money is owed.')
++                    ->schema([
++                        Textarea::make('reason')
++                            ->label('Reason')
++                            ->required()
++                            ->rows(2)
++                            ->helperText('Recorded in the audit log.'),
++                    ])
++                    ->action(function (Ticket $record, array $data): void {
++                        $record->update(['status' => 'void']);
++
++                        AuditLog::create([
++                            'user_id' => auth()->id(),
++                            'organiser_id' => $record->order?->organiser_id,
++                            'action' => 'ticket.voided',
++                            'subject_type' => Ticket::class,
++                            'subject_id' => $record->id,
++                            'changes' => ['short_code' => $record->short_code, 'reason' => $data['reason']],
++                        ]);
++
++                        Notification::make()
++                            ->title("Ticket {$record->short_code} voided")
++                            ->success()
++                            ->send();
++                    }),
++
++                // Undoes a void. Deliberately not available for a redeemed
++                // ticket: that one has already walked through the door, and
++                // reinstating it would let the same seat in twice.
++                Action::make('reinstate')
++                    ->label('Reinstate')
++                    ->icon('heroicon-o-arrow-uturn-left')
++                    ->visible(fn (Ticket $record): bool => $record->status === 'void'
++                        && in_array(auth()->user()?->role, ['super_admin', 'finance'], true))
++                    ->requiresConfirmation()
++                    ->modalDescription('Makes this ticket valid at the gate again.')
++                    ->action(function (Ticket $record): void {
++                        $record->update(['status' => 'issued']);
++
++                        AuditLog::create([
++                            'user_id' => auth()->id(),
++                            'organiser_id' => $record->order?->organiser_id,
++                            'action' => 'ticket.reinstated',
++                            'subject_type' => Ticket::class,
++                            'subject_id' => $record->id,
++                            'changes' => ['short_code' => $record->short_code],
++                        ]);
++
++                        Notification::make()
++                            ->title("Ticket {$record->short_code} reinstated")
++                            ->success()
++                            ->send();
++                    }),
++            ])
++            ->toolbarActions([]);
++    }
++}
+diff --git a/app/Filament/Resources/Tickets/TicketResource.php b/app/Filament/Resources/Tickets/TicketResource.php
+new file mode 100644
+index 0000000..f55cd54
+--- /dev/null
++++ b/app/Filament/Resources/Tickets/TicketResource.php
+@@ -0,0 +1,70 @@
++<?php
++
++namespace App\Filament\Resources\Tickets;
++
++use App\Filament\Resources\Tickets\Pages\ListTickets;
++use App\Filament\Resources\Tickets\Pages\ViewTicket;
++use App\Filament\Resources\Tickets\Schemas\TicketInfolist;
++use App\Filament\Resources\Tickets\Tables\TicketsTable;
++use App\Models\Ticket;
++use BackedEnum;
++use Filament\Resources\Resource;
++use Filament\Schemas\Schema;
++use Filament\Support\Icons\Heroicon;
++use Filament\Tables\Table;
++
++/**
++ * Every issued ticket, searchable and accountable.
++ *
++ * Until now nothing in the admin showed a ticket. Tickets were created by
++ * Checkout::confirm and by pre-printed batches, delivered by email, and then
++ * invisible — so "has this person actually got a ticket?", "has this code been
++ * used?" and "that one is a duplicate, kill it" had no answer anywhere in the
++ * admin. The gate app could scan a code; the office could not look one up.
++ *
++ * Tickets are never created here. They come from a paid order or a printed
++ * batch, both of which hold inventory against the ticket type, and minting one
++ * by hand would oversell the house. What this gives is sight of them, and the
++ * authority to void and reinstate.
++ */
++class TicketResource extends Resource
++{
++    protected static ?string $model = Ticket::class;
++
++    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedTicket;
++
++    protected static string|\UnitEnum|null $navigationGroup = 'Sales';
++
++    protected static ?int $navigationSort = 20;
++
++    protected static ?string $recordTitleAttribute = 'short_code';
++
++    /** Found by the code on the ticket, or by who is holding it. */
++    public static function getGloballySearchableAttributes(): array
++    {
++        return ['short_code', 'holder_name', 'holder_phone'];
++    }
++
++    public static function canCreate(): bool
++    {
++        return false;
++    }
++
++    public static function infolist(Schema $schema): Schema
++    {
++        return TicketInfolist::configure($schema);
++    }
++
++    public static function table(Table $table): Table
++    {
++        return TicketsTable::configure($table);
++    }
++
++    public static function getPages(): array
++    {
++        return [
++            'index' => ListTickets::route('/'),
++            'view' => ViewTicket::route('/{record}'),
++        ];
++    }
++}
+diff --git a/app/Support/TicketShare.php b/app/Support/TicketShare.php
+new file mode 100644
+index 0000000..f2ca2a3
+--- /dev/null
++++ b/app/Support/TicketShare.php
+@@ -0,0 +1,85 @@
++<?php
++
++namespace App\Support;
++
++use App\Models\Order;
++
++/**
++ * Sharing a paid order's tickets by hand.
++ *
++ * Tickets are delivered automatically on payment (DeliverTickets), but that
++ * only works when the buyer has an email address on file. A box-office or
++ * Pay Bill sale often has nothing but a phone number, and emails bounce or go
++ * to spam. So the admin needs to be able to send the tickets again, to an
++ * address or number typed at the counter.
++ *
++ * The thing shared is the order page — the same public, unguessable URL the
++ * confirmation SMS already sends. It carries the QR codes and the print view,
++ * so it is the whole ticket, not a pointer to one.
++ */
++class TicketShare
++{
++    /** The public order page — capability URL, unguessable by UUID. */
++    public static function url(Order $order): string
++    {
++        return route('orders.show', $order->uuid);
++    }
++
++    /** The message body, shared by WhatsApp and used as the email preamble. */
++    public static function message(Order $order): string
++    {
++        $order->loadMissing(['tickets', 'performance.event', 'performance.venue', 'customer']);
++
++        $name = trim((string) ($order->customer->name ?? ''));
++        $greeting = $name !== '' ? "Hello {$name}," : 'Hello,';
++        $count = $order->tickets->count();
++        $event = $order->performance?->event?->title ?? 'your event';
++        $when = $order->performance?->starts_at?->format('D j M Y, g:i A');
++        $venue = $order->performance?->venue?->name;
++
++        $where = $venue ? " at {$venue}" : '';
++        $date = $when ? " on {$when}" : '';
++
++        return "{$greeting} here "
++            .($count === 1 ? 'is your ticket' : "are your {$count} tickets")
++            ." for {$event}{$date}{$where}.\n\n"
++            .self::url($order)
++            ."\n\nOpen the link and show the QR code at the gate. "
++            .'Screenshots work — you do not need data at the door.';
++    }
++
++    /**
++     * A wa.me link that opens the buyer's chat with the message ready to send.
++     *
++     * Deliberately not a server-side send: that needs the WhatsApp Business
++     * API, an approved template and a per-message fee. This costs nothing and
++     * the message goes from the box office's own WhatsApp, which is also what
++     * the customer expects to see.
++     *
++     * Returns null when the number is not a Kenyan mobile — wa.me silently
++     * opens an empty chooser for a malformed number, which looks like it
++     * worked and is worse than an absent button.
++     */
++    public static function whatsAppUrl(Order $order): ?string
++    {
++        $phone = self::msisdn($order->customer?->phone);
++
++        return $phone === null
++            ? null
++            : 'https://wa.me/'.$phone.'?text='.rawurlencode(self::message($order));
++    }
++
++    /** 07XX / 01XX / +2547XX → 2547XXXXXXXX, which is what wa.me wants. */
++    public static function msisdn(?string $phone): ?string
++    {
++        $digits = preg_replace('/\D/', '', (string) $phone);
++
++        if (str_starts_with($digits, '0')) {
++            $digits = '254'.substr($digits, 1);
++        } elseif (str_starts_with($digits, '7') || str_starts_with($digits, '1')) {
++            $digits = '254'.$digits;
++        }
++
++        return preg_match('/^254[71]\d{8}$/', $digits) ? $digits : null;
++    }
++}

@@ -203,6 +203,7 @@ cd /srv/64theatre/repo
 git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0001-event-centred-admin.patch
 git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0002-venue-create-inline.patch
 git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0003-kopokopo-and-offline-payment.patch
+git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0004-admin-ticket-authority.patch
 cd /srv/64theatre && docker compose up -d --build
 ```
 
@@ -211,6 +212,7 @@ cd /srv/64theatre && docker compose up -d --build
 | `0001-event-centred-admin` | One-step event creation: a three-step wizard that takes performances and ticket prices with the event, performance names instead of row ids, and ticket categories edited from inside the performance |
 | `0002-venue-create-inline` | Add and correct venues from the venue dropdown itself |
 | `0003-kopokopo-and-offline-payment` | M-Pesa via Kopo Kopo, so tickets sell before the Safaricom paybill exists; plus Pay Bill details for buyers whose prompt never arrives |
+| `0004-admin-ticket-authority` | A Tickets screen (there was none), void/reinstate, email + WhatsApp resend, and a payment-method choice when marking an order paid |
 
 `0002` fixes a **go-live blocker**, not a convenience. Venues are created only
 inside `demoSeason()` in `database/seeders/DatabaseSeeder.php`, which runs
@@ -222,6 +224,66 @@ seeding a fresh database with `APP_ENV=production`: **0 venues**.
 
 The staging box hides this completely, because the demo season has already
 planted three.
+
+## What the admin can do with tickets
+
+Before `0004` the admin had **no Tickets screen at all**. Tickets were created
+by a paid order or a printed batch, emailed, and then invisible: "has this
+person actually got a ticket?", "has this code been used?" and "that one is a
+duplicate, kill it" had no answer anywhere in the office. The gate app could
+scan a code; nobody could look one up.
+
+**Sales → Tickets** now lists every issued ticket, searchable by short code,
+holder name or phone — including from the global search bar, so a code read
+over the phone goes straight to the ticket.
+
+| Need | Where |
+|---|---|
+| Find a ticket by its code | Sales → Tickets, or the search bar |
+| See whether it has been used | `status` column; `redeemed` means it went through the gate |
+| Show the QR again at the counter | Open the ticket — it renders the live signed QR |
+| Kill a duplicate or leaked code | **Void** (reason required, audited) |
+| Undo that | **Reinstate** — not offered for a redeemed ticket, which has already walked through the door |
+| Re-send tickets by email | Orders → **Email tickets**; the address is saved to the customer |
+| Send by WhatsApp | Orders or Tickets → **WhatsApp** |
+| Record a payment taken outside M-Pesa | Orders → **Mark paid**, now with a method and reference |
+
+**Generating** tickets is **Sales → Ticket batches** — `BoxOffice::createBatch()`
+pre-prints gate stock against a ticket type's inventory. Tickets are
+deliberately not created from the Tickets screen: both real routes hold
+inventory against the ticket type, and minting one by hand would oversell the
+house.
+
+### Sending tickets
+
+Email is the default and goes automatically on payment — but only when the
+buyer has an email address, and a box-office or Pay Bill buyer often has none.
+**Email tickets** takes an address at the counter and saves it to the customer,
+so it is typed once.
+
+**WhatsApp** opens the buyer's chat in the operator's own WhatsApp with the
+message ready to send. A server-side send would need the WhatsApp Business API,
+an approved template and a per-message fee; this costs nothing and arrives from
+a number the customer recognises. The button is hidden when the stored number
+is not a Kenyan mobile, because `wa.me` opens an empty chooser for a malformed
+number and that looks like it worked.
+
+What is shared is the buyer's own order page — the same unguessable URL the
+confirmation SMS already sends, carrying the QR codes and the print view. It is
+the whole ticket, not a pointer to one.
+
+### Payment method
+
+**Mark paid** previously recorded every manual payment as `bank_transfer`,
+whatever had actually happened. It now asks for the method (M-Pesa, cash, bank
+transfer, card) and a reference — the M-Pesa code, bank reference or receipt
+number — both of which go to the ledger and the audit log. A blank reference
+generates one prefixed `MANUAL-`, so it can never be mistaken for something a
+gateway returned.
+
+> The **gateway** that online buyers use is still `PAYMENT_GATEWAY` in `.env`,
+> not an admin setting. Switching where money goes from a web form would be a
+> serious hazard, and it is the same for Pesapal and Daraja.
 
 ## Taking money before the Safaricom paybill exists
 
