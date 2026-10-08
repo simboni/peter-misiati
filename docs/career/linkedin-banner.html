@@ -1,0 +1,75 @@
+<!doctype html><html><head><meta charset="utf-8">
+<style>
+@font-face{font-family:Space;src:url(fonts/space-grotesk-latin-700-normal.woff2)format('woff2');font-weight:700}
+@font-face{font-family:Space;src:url(fonts/space-grotesk-latin-500-normal.woff2)format('woff2');font-weight:500}
+@font-face{font-family:Inter;src:url(fonts/inter-latin-400-normal.woff2)format('woff2');font-weight:400}
+@font-face{font-family:Inter;src:url(fonts/inter-latin-600-normal.woff2)format('woff2');font-weight:600}
+@font-face{font-family:Mono;src:url(fonts/jetbrains-mono-latin-500-normal.woff2)format('woff2');font-weight:500}
+
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1584px;height:396px;overflow:hidden}
+
+/* The portfolio's own dark palette, token for token. */
+body{
+  --bg:#0a0f0c; --card:#101712; --accent:#2ee88a; --head:#e9f1ec; --body:#93a89c;
+  width:1584px;height:396px;position:relative;background:var(--bg);
+  font-family:Inter,'Liberation Sans',sans-serif;color:var(--body);
+}
+body.midnight{--bg:#060b16;--card:#0d1523;--accent:#3fb2ff;--head:#e9eff6;--body:#93a4ba}
+
+/* Faint engineering grid — the texture of a schematic, not a stock photo. */
+.grid{position:absolute;inset:0;
+  background-image:linear-gradient(rgba(255,255,255,.028) 1px,transparent 1px),
+                   linear-gradient(90deg,rgba(255,255,255,.028) 1px,transparent 1px);
+  background-size:44px 44px}
+/* Accent glow, placed right so it never sits under the avatar. */
+.glow{position:absolute;right:-120px;top:-180px;width:780px;height:780px;border-radius:50%;
+  background:radial-gradient(circle,color-mix(in srgb,var(--accent) 22%,transparent) 0%,transparent 62%)}
+.glow2{position:absolute;left:380px;bottom:-260px;width:560px;height:560px;border-radius:50%;
+  background:radial-gradient(circle,color-mix(in srgb,var(--accent) 9%,transparent) 0%,transparent 65%)}
+
+/* LinkedIn drops the avatar over the lower left. Nothing goes here. */
+.safe{position:absolute;left:0;top:0;width:300px;height:396px}
+
+.wrap{position:absolute;left:316px;top:0;right:64px;height:396px;
+  display:flex;flex-direction:column;justify-content:center;gap:0}
+
+/* Kicker and URL share one line, both vertically inside the strip LinkedIn
+   keeps on a phone. A footer pinned to the bottom edge gets cropped away. */
+.kicker{display:flex;justify-content:space-between;align-items:baseline;gap:24px;
+  font-family:Mono,monospace;font-weight:500;font-size:15px;letter-spacing:.22em;
+  text-transform:uppercase;color:var(--accent);margin-bottom:14px}
+.kicker .site{letter-spacing:.02em;text-transform:none;color:var(--body)}
+h1{font-family:Space,sans-serif;font-weight:700;font-size:57px;line-height:1.04;
+  color:var(--head);letter-spacing:-1.2px}
+.role{font-family:Space,sans-serif;font-weight:500;font-size:21px;color:var(--body);
+  margin-top:11px;letter-spacing:.1px}
+.rule{width:62px;height:3px;background:var(--accent);border-radius:2px;margin:19px 0 17px}
+
+.chips{display:flex;gap:9px;flex-wrap:wrap}
+.chip{font-size:14px;font-weight:600;color:var(--head);background:var(--card);
+  border:1px solid rgba(255,255,255,.085);border-radius:999px;padding:7px 15px;white-space:nowrap}
+.chip b{color:var(--accent);font-weight:600}
+
+.foot{position:absolute;right:64px;bottom:30px;text-align:right;
+  font-family:Mono,monospace;font-weight:500;font-size:15px;color:var(--body);letter-spacing:.02em}
+.foot .site{color:var(--accent)}
+</style></head>
+<body class="THEME">
+  <div class="grid"></div><div class="glow"></div><div class="glow2"></div>
+  <div class="safe"></div>
+
+  <div class="wrap">
+    <div class="kicker"><span>Nairobi &amp; Bungoma, Kenya &nbsp;·&nbsp; Remote</span><span class="site">smp-developers.com</span></div>
+    <h1>Simboni Misiati Peter</h1>
+    <div class="role">Software Engineer &nbsp;·&nbsp; Web Developer &nbsp;·&nbsp; Tech Consultant</div>
+    <div class="rule"></div>
+    <div class="chips">
+      <span class="chip">M-Pesa &amp; <b>payments</b></span>
+      <span class="chip">Multi-tenant <b>SaaS</b></span>
+      <span class="chip">ERP &amp; <b>microfinance</b></span>
+      <span class="chip">Next.js · NestJS · <b>PostgreSQL</b></span>
+      <span class="chip"><b>MSc</b> Software Engineering</span>
+    </div>
+  </div>
+</body></html>
