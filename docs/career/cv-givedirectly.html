@@ -1,0 +1,193 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<title>Simboni Misiati Peter — Senior Software Engineer</title>
+<style>
+  @page { size: A4; margin: 11mm 12mm; }
+  *{margin:0;padding:0;box-sizing:border-box}
+  :root{--ink:#121a16;--body:#2f3a34;--muted:#5d6b63;--accent:#0a7d4f;--line:#d8e0da;--chip:#eef4f0}
+  body{font-family:'DejaVu Sans','Liberation Sans',Arial,Helvetica,sans-serif;color:var(--body);font-size:9.3pt;line-height:1.36}
+  a{color:var(--accent);text-decoration:none}
+  h1{font-size:20pt;color:var(--ink);letter-spacing:-.3px;line-height:1.1}
+  .role{font-size:11pt;color:var(--accent);font-weight:700;margin-top:3px}
+  .contact{margin-top:7px;font-size:8.9pt;color:var(--muted);line-height:1.6}
+  .contact b{color:var(--ink);font-weight:600}
+  header{border-bottom:2px solid var(--accent);padding-bottom:9px}
+  h2{font-size:9.1pt;text-transform:uppercase;letter-spacing:1.3px;color:var(--accent);
+     margin:10px 0 5px;padding-bottom:3px;border-bottom:1px solid var(--line);font-weight:700}
+  p.sum{text-align:justify}
+  .sk{display:grid;grid-template-columns:120px 1fr;gap:3px 10px;font-size:9.2pt}
+  .sk dt{color:var(--ink);font-weight:700}
+  .job{margin-bottom:7px;page-break-inside:avoid}
+  .jh{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+  .jt{color:var(--ink);font-weight:700;font-size:10pt}
+  .jc{color:var(--accent);font-weight:600}
+  .jd{color:var(--muted);font-size:8.7pt;white-space:nowrap}
+  ul{margin:3px 0 0 15px}
+  li{margin-bottom:1.5px}
+  .proj{margin-bottom:6.5px;page-break-inside:avoid}
+  .pt{color:var(--ink);font-weight:700}
+  .plink{font-size:8.6pt}
+  .meta{color:var(--muted);font-size:8.5pt;font-style:italic}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:0 22px}
+  .ed{margin-bottom:6px}
+  .ed b{color:var(--ink)}
+  .ed span{display:block;color:var(--muted);font-size:8.7pt}
+  .avail{background:var(--chip);border-left:3px solid var(--accent);padding:7px 11px;font-size:9.2pt}
+  .avail b{color:var(--ink)}
+</style></head>
+<body>
+
+<header>
+  <h1>Simboni Misiati Peter</h1>
+  <div class="role">Senior Software Engineer &mdash; Payments, Mobile Money &amp; Systems for Low-Connectivity Field Work</div>
+  <div class="contact">
+    <b>Email:</b> info@smp-developers.com &nbsp;·&nbsp; <b>Phone / WhatsApp:</b> +254 706 289 514 &nbsp;·&nbsp;
+    <b>Code:</b> github.com/simboni &nbsp;·&nbsp; <b>Portfolio:</b> <a href="https://smp-developers.com">smp-developers.com</a><br>
+    <b>Location:</b> Nairobi, Kenya &mdash; EAT / UTC+3. Full overlap with East Africa and with US-Eastern mornings; available for 8am ET meetings. &nbsp;·&nbsp;
+    <b>English:</b> professional working proficiency (C1) &nbsp;·&nbsp; <b>Swahili:</b> native
+  </div>
+</header>
+
+<h2>Profile</h2>
+<p class="sum">Full-stack engineer, 10+ years and 100+ delivered systems, working from Nairobi. Most of what
+I build moves money or records that somebody depends on: M-Pesa collections and receipting, double-entry
+ledgers, school fee accounts, microfinance and ERP tooling. I treat money as integer cents and assert it in
+tests, because a rounding error in a ledger is not a cosmetic bug. I design for the conditions the software
+actually meets — intermittent connectivity, shared servers, staff on a phone rather than a laptop — and I ship
+end to end, from schema and API through deployment, monitoring and the runbook the operator reads at
+one in the morning. MSc in Software Engineering. I have built almost exclusively for Kenyan
+organisations: rural schools, small traders, NGOs and community programmes.</p>
+
+<h2>What I would bring to this role</h2>
+<ul>
+  <li><b>Mobile money in production, in Kenya.</b> M-Pesa Daraja STK Push collection with automatic
+      receipting, per-vendor credentials encrypted at rest, and Kopo Kopo subscription billing — the same
+      rails GiveDirectly uses to reach recipients.</li>
+  <li><b>Correctness-first money handling.</b> Integer KES cents, VAT in basis points, double-entry ledgers
+      recording every transaction for reconciliation, with the arithmetic unit-tested rather than assumed.</li>
+  <li><b>Systems that keep working when the network does not.</b> HMAC-signed tickets that verify offline;
+      offline-first PWAs with sync on reconnect; database constraints that make an action idempotent so a
+      retry on a bad line cannot double-pay or double-redeem.</li>
+  <li><b>Deployment that cannot take the neighbours down.</b> My most recent release joined a new service to
+      a server already running a live point-of-sale and nineteen other containers: config validated inside the
+      running proxy, applied by graceful reload, every existing site probed before and after, automatic
+      rollback if any of them regressed.</li>
+  <li><b>Security by construction.</b> Fail-closed PostgreSQL Row-Level Security with the application role set
+      <i>NOBYPASSRLS</i>, two-stage scoped JWTs, Argon2id, append-only audit logs — and a CI gate that asserts
+      cross-tenant isolation on every push, so the guarantee is tested rather than documented.</li>
+  <li><b>Proximity to the people served.</b> My clients are a rural school in Bungoma County, a chemicals
+      trader, community organisations and NGOs. I have spent ten years building for users on cheap Android
+      phones and patchy data, which is the environment, not an edge case.</li>
+</ul>
+
+<h2>Technical Skills</h2>
+<dl class="sk">
+  <dt>Backend &amp; APIs</dt><dd>NestJS 11, Node.js, Laravel 12 / PHP 8.4, Python / Django, REST APIs, raw SQL, server actions, cron &amp; background jobs</dd>
+  <dt>Languages</dt><dd>TypeScript (strict), PHP 8.4, Python, JavaScript, SQL — object-oriented service design with dependency injection (NestJS, Laravel)</dd>
+  <dt>Databases</dt><dd>PostgreSQL 16 (Row-Level Security, migrations, query tuning), MySQL, SQLite / Cloudflare D1, Redis, Prisma &amp; Drizzle ORM, Supabase</dd>
+  <dt>Payments</dt><dd>M-Pesa Daraja STK Push, Kopo Kopo, subscriptions &amp; auto-receipting, double-entry ledgers, VAT/tax logic, reconciliation</dd>
+  <dt>Cloud &amp; DevOps</dt><dd>Docker &amp; Compose, Caddy, systemd, Fly.io, Cloudflare Workers/Pages, Railway, Render, Vercel; provisioning scripts, nightly backups, zero-downtime config reload</dd>
+  <dt>Testing &amp; CI</dt><dd>Unit-tested domain logic, GitHub Actions, CI security gates, automated accessibility audits (axe / WCAG 2.2) and end-to-end smoke tests with Playwright</dd>
+  <dt>Architecture</dt><dd>Multi-tenant SaaS, modular monoliths, serverless (Cloudflare Workers), monorepos with shared types, PWAs, offline-first sync, event/audit trails</dd>
+  <dt>Frontend</dt><dd>React 19, Next.js 15/16 (App Router, Server Actions, static export), Tailwind CSS v4, Livewire, responsive and mobile-first UI</dd>
+</dl>
+
+<h2>Selected Systems</h2>
+
+<div class="proj">
+  <span class="pt">TallyPay</span> &mdash; multi-tenant billing &amp; payments SaaS
+  <span class="plink">· tallypay.co.ke</span>
+  <div class="meta">Next.js 16 (Server Actions) · Cloudflare Workers / D1 · Drizzle ORM · better-auth · M-Pesa Daraja</div>
+  <ul>
+    <li>Built the full money cycle — quotation → invoice (deposit, balance, 16% VAT) → receipt — with isolated per-business workspaces and a cross-tenant admin console.</li>
+    <li>Correct by design: money as integer KES cents and VAT in basis points, unit-tested; every query scoped through <i>requireOrg()</i> so a missing tenant context fails closed.</li>
+    <li>M-Pesa STK Push collection with automatic receipting; per-vendor API credentials encrypted at rest; PDF documents and transactional email on a serverless runtime.</li>
+  </ul>
+</div>
+
+<div class="proj">
+  <span class="pt">64 Theatre</span> &mdash; ticketing platform with offline gate scanning
+  <span class="plink">· tickets.64theatre.art</span>
+  <div class="meta">Laravel 12 · PHP 8.4 · PostgreSQL 16 · Redis 7 · Livewire · Filament · M-Pesa Daraja</div>
+  <ul>
+    <li>Online sales with M-Pesa STK checkout and SMS/email delivery, on a modular Laravel monolith.</li>
+    <li><b>Offline-first gate scanner:</b> HMAC-signed QR tickets verify with no internet at the door; database constraints guarantee each ticket redeems exactly once even under concurrent scans.</li>
+    <li>Double-entry money ledger recording every sale, so takings reconcile against the gate.</li>
+  </ul>
+</div>
+
+<div class="proj">
+  <span class="pt">StackUp</span> &mdash; multi-tenant work-management SaaS (own product)
+  <span class="plink">· stackup.co.ke · github.com/simboni/smp-planning</span>
+  <div class="meta">NestJS 11 · PostgreSQL 16 · Next.js 15 · React 19 · TypeScript · Capacitor · Fly.io</div>
+  <ul>
+    <li>Fail-closed multi-tenancy: the application role is <i>NOBYPASSRLS</i>, every workspace table FORCEs Row-Level Security, and a missing workspace context denies every query.</li>
+    <li>Argon2id passwords, two-stage JWTs (identity → workspace-scoped access), rotating refresh tokens, append-only audit log — with a <b>CI gate asserting cross-workspace isolation on every push</b>.</li>
+    <li>One pnpm monorepo with shared types serving three clients: REST API, web app and a Capacitor Android build.</li>
+  </ul>
+</div>
+
+<div class="proj">
+  <span class="pt">School management platform</span> &mdash; for a rural school in Bungoma County
+  <div class="meta">Next.js 16 · Prisma · PostgreSQL 16 · Docker Compose · Caddy · GitHub Actions</div>
+  <ul>
+    <li>Fees, invoicing and receipting; attendance; examinations; payroll; transport and boarding; role-based permissions and an audit trail — serving a school of 525 learners.</li>
+    <li><b>Bulk enrolment from the registers schools actually keep:</b> tolerant CSV/KNEC import with fuzzy column matching, a dry-run preview showing the outcome of every row before anything is written, and duplicate detection on admission number, national UPI and name-within-class so re-running a file never doubles the roll.</li>
+    <li>Deployed onto a shared VPS alongside a live point-of-sale and nineteen other containers, with a release script that validates configuration inside the running reverse proxy, applies it by graceful reload, probes every co-tenant site before and after, and rolls itself back automatically on any regression.</li>
+    <li>CI runs an automated accessibility audit (axe, WCAG 2.1/2.2 AA) over every page in both themes at two viewport widths; it has caught functional defects, not only accessibility ones.</li>
+  </ul>
+</div>
+
+<div class="proj">
+  <span class="pt">Naveedex</span> &mdash; trading-journal SaaS <span class="plink">· naveedex.com</span>
+  &nbsp;|&nbsp; <span class="pt">Riziki POS</span> &mdash; point of sale for a chemicals trader
+  <div class="meta">Next.js · TypeScript · Supabase · Vercel · Kopo Kopo &nbsp;|&nbsp; Next.js · SQLite · Docker</div>
+  <ul>
+    <li>Authentication, subscription payments, scheduled jobs, admin tooling, analytics and one-click PDF/Excel export; in-shop point-of-sale running in production daily.</li>
+  </ul>
+</div>
+
+<h2>Experience</h2>
+
+<div class="job">
+  <div class="jh"><span><span class="jt">Full-Stack Developer</span> — <span class="jc">Freelance &amp; Contract</span></span><span class="jd">2015 – Present</span></div>
+  <div class="meta">Independent — clients across Kenya and remote</div>
+  <ul>
+    <li>Delivered 100+ projects for 20+ clients: SaaS products, fintech and payment systems, ERP and microfinance platforms, ticketing, e-learning and web applications.</li>
+    <li>Own the entire lifecycle: requirements and data modelling, API and schema design, implementation, testing, deployment, monitoring, documentation and handover.</li>
+    <li>Integrate third-party systems end to end — mobile money (M-Pesa Daraja, Kopo Kopo), SMS gateways, transactional email, PDF generation, scheduled jobs.</li>
+    <li>Work directly with non-technical operators — shopkeepers, school bursars, event staff — translating how they actually work into software they can run without me.</li>
+  </ul>
+</div>
+
+<div class="job">
+  <div class="jh"><span><span class="jt">Founder &amp; Senior Developer</span> — <span class="jc">SMP Developers</span></span><span class="jd">2023 – Present</span></div>
+  <div class="meta">Nairobi, Kenya</div>
+  <ul>
+    <li>Lead architecture and development of web platforms, systems and mobile apps; coordinate collaborators and review their code to hold quality and schedule.</li>
+    <li>Build StackUp as an in-house SaaS product alongside client engagements.</li>
+  </ul>
+</div>
+
+<div class="job">
+  <div class="jh"><span><span class="jt">Chairman &amp; Director</span> — <span class="jc">SMP Eventures Ltd</span></span><span class="jd">2015 – Present</span></div>
+  <ul>
+    <li>Lead a multi-disciplinary team turning client and internal product ideas into delivered software.</li>
+  </ul>
+</div>
+
+<h2>Education</h2>
+<div class="two">
+  <div class="ed"><b>MSc, Software Engineering</b>
+    <span>Jomo Kenyatta University of Agriculture &amp; Technology (JKUAT) · 2023 – 2025</span></div>
+  <div class="ed"><b>Programming Certificate — Software &amp; App Development</b>
+    <span>JKUAT · Git, JavaScript, iOS, Android, PHP, Laravel, Python, Django · 2024 – Present</span></div>
+</div>
+
+<div class="avail">
+  <b>Availability and location.</b> Based in Nairobi (EAT / UTC+3) with reliable high-speed internet — a full
+  working-day overlap with East Africa and with US-Eastern mornings, including regular 8am ET meetings.
+  Able to travel for team retreats and field visits. Comfortable owning features end to end from a written
+  brief, and equally comfortable saying when a brief is wrong.
+</div>
+
+</body></html>
