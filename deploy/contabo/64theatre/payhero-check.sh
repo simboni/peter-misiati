@@ -184,8 +184,14 @@ fi
 
 bold "SENDING A REAL $TEST_AMOUNT KES PROMPT TO $TEST_PHONE"
 REF="payhero-check-$(date -u +%s)"
-code=$(req POST "api/v2/payments" "$(printf '{"amount":%s,"phone_number":"%s","channel_id":%s,"provider":"m-pesa","external_reference":"%s","callback_url":"https://tickets.64theatre.art/webhooks/payhero"}' \
-  "$TEST_AMOUNT" "$TEST_PHONE" "$CHAN" "$REF")")
+# Overridable, because this probe now serves more than one app and each has
+# its own callback path. The default is the theatre's; a callback that lands
+# somewhere harmless is fine for a name or wallet test, since the reference is
+# synthetic and matches no order either way.
+CB=${CALLBACK_URL:-https://tickets.64theatre.art/webhooks/payhero}
+echo "  callback: $CB"
+code=$(req POST "api/v2/payments" "$(printf '{"amount":%s,"phone_number":"%s","channel_id":%s,"provider":"m-pesa","external_reference":"%s","callback_url":"%s"}' \
+  "$TEST_AMOUNT" "$TEST_PHONE" "$CHAN" "$REF" "$CB")")
 printf '  HTTP %s\n  ' "$code"; show
 
 # HTTP 200 with success:false is a refusal wearing a success code — the exact
