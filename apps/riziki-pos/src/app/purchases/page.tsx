@@ -219,9 +219,16 @@ export default async function PurchasesPage(props: {
   const last30 = purchases.filter(
     (p) => now - new Date(p.at.replace(" ", "T") + "Z").getTime() < 30 * 86_400_000,
   );
-  // An undone delivery is still on the list, so it is still counted as a
-  // delivery here; it is not money the shop spent, so it is not in the total.
+  /*
+    An undone delivery is not money the shop spent, so it is out of the total.
+
+    The count under it has to say so, or the tile reads as a contradiction: the
+    shilling figure is one delivery's worth while the line beneath it claims
+    three. The undone ones are named rather than quietly dropped, because they
+    are still on the list underneath and would otherwise look uncounted.
+  */
   const spent30 = last30.reduce((s, p) => s + (p.voided_at ? 0 : p.total_cents), 0);
+  const undone30 = last30.filter((p) => p.voided_at).length;
 
   return (
     <div>
@@ -255,7 +262,10 @@ export default async function PurchasesPage(props: {
         <Stat
           label="Spent, last 30 days"
           value={formatKes(spent30)}
-          detail={`${last30.length} ${last30.length === 1 ? "delivery" : "deliveries"}`}
+          detail={
+            `${last30.length} ${last30.length === 1 ? "delivery" : "deliveries"}` +
+            (undone30 ? `, ${undone30} undone` : "")
+          }
         />
         {/* The tile counts the list; the table below counts the list plus the
             hidden. Saying so here stops "2 on the list" reading as a
@@ -473,8 +483,11 @@ export default async function PurchasesPage(props: {
                     */}
                     {undone ? null : (
                       <details className="relative">
-                        <summary className="mt-1 inline-flex min-h-11 cursor-pointer list-none items-center text-[11px] font-bold text-muted hover:text-bad xl:min-h-8">
-                          Undo this delivery
+                        {/* The marker matches "Correct what it cost" above it:
+                            without one the words read as a label rather than
+                            something that can be pressed. */}
+                        <summary className="inline-flex min-h-11 cursor-pointer list-none items-center gap-1 text-[11px] font-bold text-muted hover:text-bad xl:min-h-8">
+                          <span aria-hidden>▸</span> Undo this delivery
                         </summary>
                         <form
                           action={voidPurchaseAction}
