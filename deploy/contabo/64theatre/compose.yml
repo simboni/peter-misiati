@@ -84,6 +84,10 @@ services:
       PAYHERO_CHANNEL_ID: ${PAYHERO_CHANNEL_ID:-}
       PAYHERO_WEBHOOK_SECRET: ${PAYHERO_WEBHOOK_SECRET:-}
       PAYHERO_STATUS_PATH: ${PAYHERO_STATUS_PATH:-api/v2/transaction-status}
+      # The business name the buyer sees on the M-Pesa prompt. It belongs to
+      # the collecting paybill, not to us, so checkout names it in advance —
+      # an unexplained company name is what makes a careful buyer cancel.
+      PAYHERO_DISPLAY_NAME: ${PAYHERO_DISPLAY_NAME:-}
       # sold. Set MAIL_MAILER=smtp in .env with the Brevo values below.
       MAIL_MAILER: ${MAIL_MAILER:-log}
       MAIL_HOST: ${MAIL_HOST:-smtp-relay.brevo.com}

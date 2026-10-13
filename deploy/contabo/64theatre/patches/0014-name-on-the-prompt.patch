@@ -1,0 +1,112 @@
+diff --git a/app/Support/PaymentSettings.php b/app/Support/PaymentSettings.php
+index 030b48c..5810822 100644
+--- a/app/Support/PaymentSettings.php
++++ b/app/Support/PaymentSettings.php
+@@ -99,6 +99,25 @@ public static function credentialsPresent(string $gateway): bool
+         };
+     }
+ 
++    /**
++     * The name the buyer will see on the M-Pesa prompt, when it is not ours.
++     *
++     * Returns null unless the live gateway is one that collects through
++     * somebody else's paybill AND a name has been configured — so the
++     * reassurance appears only where it is actually needed, and never says
++     * something we have not been told is true.
++     */
++    public static function promptName(): ?string
++    {
++        if (self::gateway() !== 'payhero') {
++            return null;
++        }
++
++        $name = trim((string) config('services.payhero.display_name'));
++
++        return $name === '' ? null : $name;
++    }
++
+     /** True when the gateway is pointed at a test environment. */
+     public static function isSandbox(string $gateway): bool
+     {
+diff --git a/config/services.php b/config/services.php
+index 4e02ec4..65f7974 100644
+--- a/config/services.php
++++ b/config/services.php
+@@ -87,6 +87,19 @@
+         'channel_id' => env('PAYHERO_CHANNEL_ID'),
+         'webhook_secret' => env('PAYHERO_WEBHOOK_SECRET'),
+         'status_path' => env('PAYHERO_STATUS_PATH', 'api/v2/transaction-status'),
++        /*
++         * The business name the M-Pesa prompt shows the buyer.
++         *
++         * It is the name registered against the COLLECTING paybill, which
++         * belongs to the bank, not to 64 Theatre — so buyers see something
++         * they did not expect. Telling them in advance is the difference
++         * between "that's the payment partner" and "this looks like a scam",
++         * and a cancelled prompt is a lost sale.
++         *
++         * Config, not a hard-coded string, so that if PayHero re-registers
++         * the trading name this is one env edit rather than a patch.
++         */
++        'display_name' => env('PAYHERO_DISPLAY_NAME'),
+     ],
+ 
+     'offline_payment' => [
+diff --git a/resources/views/events/show.blade.php b/resources/views/events/show.blade.php
+index d04d0f5..08a9a3a 100644
+--- a/resources/views/events/show.blade.php
++++ b/resources/views/events/show.blade.php
+@@ -178,6 +178,13 @@
+                                autocomplete="tel" placeholder="07XX XXX XXX"
+                                value="{{ old('phone') }}" required>
+                         <small class="hint">The payment prompt goes to this number.</small>
++                        @if ($promptName = \App\Support\PaymentSettings::promptName())
++                            {{-- Named here, before they commit. The prompt carries the
++                                 bank paybill's registered name, not ours, and an
++                                 unexplained company name is what makes a careful buyer
++                                 cancel. --}}
++                            <small class="hint">It will show as <strong>{{ $promptName }}</strong> — our payment partner.</small>
++                        @endif
+                     </div>
+                     <div class="field">
+                         <label for="email-{{ $performance->id }}">Email</label>
+@@ -215,6 +222,9 @@
+                     </button>
+                     <button class="btn ghost step-back" type="button" data-goto="2">Back</button>
+                     <p class="safe">Seats held for {{ \App\Services\Checkout::HOLD_MINUTES }} minutes · you approve the amount on your phone</p>
++                    @if ($promptName = \App\Support\PaymentSettings::promptName())
++                        <p class="safe">The request comes from <strong>{{ $promptName }}</strong>, who collect for 64 Theatre.</p>
++                    @endif
+                 </div>
+             </form>
+         </div>
+diff --git a/resources/views/gate/sell.blade.php b/resources/views/gate/sell.blade.php
+index dcb3d29..5ec0899 100644
+--- a/resources/views/gate/sell.blade.php
++++ b/resources/views/gate/sell.blade.php
+@@ -107,6 +107,10 @@
+                         <p class="meta" style="margin:4px 0 0">
+                             Prompt sent to {{ \App\Support\Phone::forHumans($awaiting->customer?->phone) }}.
+                             Ask them to enter their M-Pesa PIN. This updates itself.
++                            @if ($promptName = \App\Support\PaymentSettings::promptName())
++                                <br>They will see <strong>{{ $promptName }}</strong> — tell them before
++                                they look, or they will think it is the wrong till.
++                            @endif
+                         </p>
+                     </div>
+                 </div>
+diff --git a/resources/views/orders/show.blade.php b/resources/views/orders/show.blade.php
+index c3cadac..7285c97 100644
+--- a/resources/views/orders/show.blade.php
++++ b/resources/views/orders/show.blade.php
+@@ -32,6 +32,10 @@
+                     <strong>Waiting for your payment…</strong>
+                     A prompt has been sent to <strong>{{ $order->customer->phone }}</strong>.
+                     Unlock your phone and enter your M-Pesa PIN.
++                    @if ($promptName = \App\Support\PaymentSettings::promptName())
++                        <br>It appears as <strong>{{ $promptName }}</strong> — that is our payment
++                        partner, and the money reaches 64 Theatre.
++                    @endif
+                     <p class="held">This page updates on its own — keep it open. Seats are held for
+                         {{ \App\Services\Checkout::HOLD_MINUTES }} minutes.</p>
+                     <p class="held" id="nudge" hidden>
