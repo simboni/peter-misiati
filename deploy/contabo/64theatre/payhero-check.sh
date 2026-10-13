@@ -103,30 +103,41 @@ if [ -f /tmp/ph-api_v2_wallets.json ]; then
 import json,sys
 try: d=json.load(open(sys.argv[1]))
 except Exception: print("  (not JSON)"); raise SystemExit
-def find(o,*keys):
-    if isinstance(o,dict):
-        for k,v in o.items():
-            if k.lower().replace("_","") in keys and isinstance(v,(int,float)): return v
-            r=find(v,*keys)
-            if r is not None: return r
-    elif isinstance(o,list):
-        for v in o:
-            r=find(v,*keys)
-            if r is not None: return r
-    return None
-svc=find(d,"servicewalletbalance","servicebalance","servicewallet")
-pay=find(d,"paymentwalletbalance","paymentbalance","paymentwallet")
-print("  service wallet: %s" % ("KES %.2f" % svc if svc is not None else "could not read"))
-print("  payment wallet: %s" % ("KES %.2f" % pay if pay is not None else "n/a (settles direct to bank)"))
-if svc is None:
-    # The shape is undocumented and the key guesses missed. Print the body
-    # rather than shrug: the number is in there, it is not a secret, and
-    # seeing it is what fixes the parser.
+
+# Shape confirmed against a live account: each wallet is an object tagged
+# wallet_type, holding available_balance — NOT a flat *_balance key, which is
+# what the first guess looked for and why this read "could not read".
+rows = d if isinstance(d, list) else (d.get("data") or d.get("wallets") or [d])
+if isinstance(rows, dict): rows = [rows]
+
+seen = {}
+for w in rows:
+    if isinstance(w, dict) and w.get("wallet_type"):
+        seen[w["wallet_type"]] = w
+
+for kind, label in (("service_wallet", "service wallet"), ("payment_wallet", "payment wallet")):
+    w = seen.get(kind)
+    if not w:
+        print("  %-15s %s" % (label+":", "not returned"))
+        continue
+    bal = w.get("available_balance")
+    st = w.get("wallet_status") or ""
+    print("  %-15s %s %s" % (
+        label+":",
+        ("KES %s" % bal) if bal is not None else "balance not reported",
+        ("· status %s" % st) if st else ""))
+
+svc = (seen.get("service_wallet") or {}).get("available_balance")
+status = (seen.get("service_wallet") or {}).get("wallet_status")
+
+if status and str(status).upper() != "ACTIVE":
     print()
-    print("  Could not find the balance by key. Raw response:")
-    raw = json.dumps(d)
-    print("  " + (raw[:800] + (" …" if len(raw) > 800 else "")))
-if svc is not None and svc < 20:
+    print("  !  The service wallet is %s, not ACTIVE." % status)
+    print("     A balance that is not yet usable spends like an empty one:")
+    print("     every prompt is refused while everything else looks healthy.")
+    print("     Ask PayHero what clears it before relying on this in a show.")
+
+if svc is not None and isinstance(svc, (int, float)) and svc < 20:
     print()
     print("  !  LOW. Prompts will start failing, and the failure looks like a")
     print("     network problem rather than an empty wallet. Top up in the")
