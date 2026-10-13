@@ -92,6 +92,45 @@ else
   exit 1
 fi
 
+bold "SERVICE WALLET  (this is what sends the prompts)"
+# PayHero charges each STK request against a prepaid SERVICE wallet, which is
+# NOT the money being collected. When it empties, every prompt is refused while
+# the credentials, the channel and the callback all still look perfect — so it
+# reads as a flaky network and costs a day of blaming Safaricom.
+if [ -f /tmp/ph-api_v2_wallets.json ]; then
+  if command -v python3 >/dev/null; then
+    python3 - /tmp/ph-api_v2_wallets.json <<'PY'
+import json,sys
+try: d=json.load(open(sys.argv[1]))
+except Exception: print("  (not JSON)"); raise SystemExit
+def find(o,*keys):
+    if isinstance(o,dict):
+        for k,v in o.items():
+            if k.lower().replace("_","") in keys and isinstance(v,(int,float)): return v
+            r=find(v,*keys)
+            if r is not None: return r
+    elif isinstance(o,list):
+        for v in o:
+            r=find(v,*keys)
+            if r is not None: return r
+    return None
+svc=find(d,"servicewalletbalance","servicebalance","servicewallet")
+pay=find(d,"paymentwalletbalance","paymentbalance","paymentwallet")
+print("  service wallet: %s" % ("KES %.2f" % svc if svc is not None else "could not read"))
+print("  payment wallet: %s" % ("KES %.2f" % pay if pay is not None else "n/a (settles direct to bank)"))
+if svc is not None and svc < 20:
+    print()
+    print("  !  LOW. Prompts will start failing, and the failure looks like a")
+    print("     network problem rather than an empty wallet. Top up in the")
+    print("     PayHero dashboard before going on sale.")
+PY
+  else
+    head -c 400 /tmp/ph-api_v2_wallets.json; echo
+  fi
+else
+  warn "The wallets endpoint did not answer — read the balance off the dashboard."
+fi
+
 bold "PAYMENT CHANNELS  (which one is the bank?)"
 for f in /tmp/ph-api_v2_payment_channels.json /tmp/ph-api_v2_channels.json; do
   [ -f "$f" ] || continue

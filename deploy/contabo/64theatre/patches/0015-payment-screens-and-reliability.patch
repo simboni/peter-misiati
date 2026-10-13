@@ -1,0 +1,519 @@
+diff --git a/app/Http/Controllers/OrderController.php b/app/Http/Controllers/OrderController.php
+index 7805df1..5c5b944 100644
+--- a/app/Http/Controllers/OrderController.php
++++ b/app/Http/Controllers/OrderController.php
+@@ -13,6 +13,7 @@
+ use Illuminate\Http\JsonResponse;
+ use Illuminate\Http\RedirectResponse;
+ use Illuminate\Http\Request;
++use Illuminate\Support\Facades\Cache;
+ use Illuminate\Support\Facades\Log;
+ use Illuminate\View\View;
+ 
+@@ -76,7 +77,7 @@ public function store(Request $request, Checkout $checkout, PaymentGateway $gate
+                 Log::error('payment.initiate_failed', ['order' => $order->uuid, 'error' => $e->getMessage()]);
+ 
+                 return redirect()->route('orders.show', $order->uuid)
+-                    ->with('payment_error', 'We could not start your payment. Please try again shortly.');
++                    ->with('payment_error', $this->buyerFacingReason($e));
+             }
+ 
+             // Redirect gateways (Pesapal) send the buyer to a hosted page to
+@@ -115,13 +116,114 @@ public function print(string $uuid): View
+         return view('orders.print', ['order' => $order, 'qrs' => $qrs]);
+     }
+ 
+-    public function status(string $uuid): JsonResponse
++    /**
++     * Where the buyer's page finds out what happened.
++     *
++     * It used to read the order row and nothing else, so the page could only
++     * move when a callback arrived. A late or lost callback left somebody
++     * watching a spinner for a payment that had already succeeded — which is
++     * how people pay twice.
++     *
++     * Now it asks the gateway directly once the prompt has had a few seconds.
++     * A lock keeps concurrent polls (two tabs, a phone and a laptop) to one
++     * upstream call, and the poll only runs while something is actually
++     * pending, so a settled order costs a single row read as before.
++     */
++    public function status(string $uuid, PaymentGateway $gateway): JsonResponse
+     {
++        $order = Order::where('uuid', $uuid)->firstOrFail();
++
++        if ($order->status === 'awaiting_payment' && method_exists($gateway, 'pollStatus')) {
++            $payment = $order->payments()->where('status', 'initiated')->latest('id')->first();
++
++            // Below ~6s the gateway almost always answers "pending" and the
++            // call is wasted; the buyer has not finished typing a PIN yet.
++            if ($payment && $payment->created_at->diffInSeconds(now()) >= 6) {
++                try {
++                    $lock = Cache::lock('order-poll:'.$payment->id, 10);
++
++                    if ($lock->get()) {
++                        try {
++                            $result = $gateway->pollStatus($payment);
++
++                            if ($result === 'success') {
++                                app(Checkout::class)->confirm($payment->order, $payment);
++                                $order->refresh();
++                            } elseif ($result === 'failed') {
++                                $payment->update(['status' => 'failed']);
++                            }
++                        } finally {
++                            $lock->release();
++                        }
++                    }
++                } catch (\Throwable $e) {
++                    // A gateway that is down must not take the buyer's page
++                    // with it: fall back to the stored status.
++                    Log::warning('order.status.poll_failed', [
++                        'order' => $order->uuid, 'error' => $e->getMessage(),
++                    ]);
++                }
++            }
++        }
++
++        $latest = $order->payments()->latest('id')->first();
++
+         return response()->json([
+-            'status' => Order::where('uuid', $uuid)->firstOrFail()->status,
++            'status' => $order->status,
++            'payment' => $latest?->status,
+         ]);
+     }
+ 
++    /**
++     * Send the prompt again for an order already waiting.
++     *
++     * Without this the only way out of a prompt that never arrived was to
++     * start the order over, which releases the seats and makes the buyer
++     * re-enter everything — so most people simply left.
++     */
++    public function retry(string $uuid, PaymentGateway $gateway): RedirectResponse
++    {
++        $order = Order::where('uuid', $uuid)->with('customer')->firstOrFail();
++
++        if ($order->status !== 'awaiting_payment') {
++            return redirect()->route('orders.show', $order->uuid);
++        }
++
++        // Abandon the previous attempt first, or its callback could arrive
++        // later and confirm an order the buyer has since paid for twice.
++        $order->payments()->where('status', 'initiated')->update(['status' => 'failed']);
++
++        try {
++            $gateway->initiate($order, (string) $order->customer?->phone);
++        } catch (\Throwable $e) {
++            Log::error('payment.retry_failed', ['order' => $order->uuid, 'error' => $e->getMessage()]);
++
++            return redirect()->route('orders.show', $order->uuid)
++                ->with('payment_error', $this->buyerFacingReason($e));
++        }
++
++        return redirect()->route('orders.show', $order->uuid);
++    }
++
++    /**
++     * What to tell the buyer when a payment will not start.
++     *
++     * "Please try again shortly" is the right answer for a network blip and
++     * the wrong one for a wrong number — it sends somebody to retry a thing
++     * that cannot work. Anything that is our problem stays vague on purpose:
++     * the operator needs the detail, the customer needs an instruction.
++     */
++    private function buyerFacingReason(\Throwable $e): string
++    {
++        $m = strtolower($e->getMessage());
++
++        return match (true) {
++            str_contains($m, 'not a kenyan mobile number') => 'That phone number does not look like a Kenyan M-Pesa number. Check it and try again.',
++            str_contains($m, 'insufficient') || str_contains($m, 'wallet') || str_contains($m, 'balance') => 'We cannot take card or M-Pesa payments this minute. Use the Pay Bill details below, or try again shortly.',
++            default => 'We could not start your payment. Try again, or use the Pay Bill details below.',
++        };
++    }
++
+     /**
+      * An unexpired, unpaid order this buyer already has for this performance.
+      *
+diff --git a/app/Payments/PayHeroGateway.php b/app/Payments/PayHeroGateway.php
+index a849b28..0808881 100644
+--- a/app/Payments/PayHeroGateway.php
++++ b/app/Payments/PayHeroGateway.php
+@@ -93,6 +93,11 @@ public function initiate(Order $order, string $payerPhone): Payment
+             (string) config('services.payhero.password'),
+         )
+             ->acceptJson()
++            // Without a timeout a slow PayHero holds the checkout request
++            // open until PHP gives up, and the buyer stares at a white page
++            // with no idea whether they are about to be charged.
++            ->timeout(20)
++            ->connectTimeout(8)
+             ->post($this->base().'/api/v2/payments', [
+                 // Whole shillings; we store cents.
+                 'amount' => intdiv($order->total_cents, 100),
+@@ -119,8 +124,21 @@ public function initiate(Order $order, string $payerPhone): Payment
+                 'order' => $order->uuid,
+                 'http' => $response->status(),
+                 'body' => $body,
++                'service_wallet' => $this->serviceWalletBalance(),
+             ]);
+ 
++            // The one refusal an operator can actually fix, and the one that
++            // looks exactly like a flaky network from the outside: PayHero
++            // charges each STK request against a prepaid SERVICE wallet, and
++            // an empty one refuses every prompt. Name it, or somebody spends
++            // a day blaming Safaricom.
++            if (preg_match('/insufficient|balance|wallet|top ?up/i', (string) $reason)) {
++                throw new RuntimeException(
++                    'PayHero service wallet is empty or too low to send the prompt. '
++                    ."Top it up in the PayHero dashboard. (PayHero said: {$reason})"
++                );
++            }
++
+             throw new RuntimeException("PayHero refused the payment request: {$reason}");
+         }
+ 
+@@ -339,6 +357,43 @@ private function locatePayment(?string $orderUuid, mixed $reference): ?Payment
+             ->first();
+     }
+ 
++    /**
++     * The prepaid balance PayHero spends to send prompts.
++     *
++     * Distinct from the money being collected: this one pays the per-request
++     * fee, and when it runs out every STK request is refused while
++     * everything else looks healthy. Returned for logs and for the admin, so
++     * the first sign of trouble is not a customer who cannot pay.
++     *
++     * Never throws — it is called from error paths.
++     */
++    public function serviceWalletBalance(): ?float
++    {
++        try {
++            $response = Http::withBasicAuth(
++                (string) config('services.payhero.username'),
++                (string) config('services.payhero.password'),
++            )->acceptJson()->timeout(8)->get($this->base().'/api/v2/wallets');
++
++            if (! $response->successful()) {
++                return null;
++            }
++
++            $json = $response->json();
++
++            // Shape is not documented; accept the forms seen in the wild and
++            // in the callback body (ServiceWalletBalance).
++            $value = data_get($json, 'service_wallet_balance')
++                ?? data_get($json, 'ServiceWalletBalance')
++                ?? data_get($json, 'service_balance')
++                ?? data_get($json, 'data.service_wallet_balance');
++
++            return is_numeric($value) ? (float) $value : null;
++        } catch (\Throwable) {
++            return null;
++        }
++    }
++
+     private function base(): string
+     {
+         return rtrim((string) config('services.payhero.base_url'), '/');
+diff --git a/resources/views/orders/show.blade.php b/resources/views/orders/show.blade.php
+index 7285c97..ef282da 100644
+--- a/resources/views/orders/show.blade.php
++++ b/resources/views/orders/show.blade.php
+@@ -6,90 +6,211 @@
+ <div class="wrap" style="padding-top:40px">
+     <h2 class="sec">Your order</h2>
+ 
+-    @if (session('payment_error'))<div class="err">{{ session('payment_error') }}</div>@endif
++    @php
++        // Did a prompt actually go out? The page used to say "a prompt has been
++        // sent" purely because the order was awaiting payment — so when the STK
++        // request failed, the buyer was told to watch for something that was
++        // never coming, with the error banner contradicting it directly above.
++        $attempt = $order->payments()->where('status', 'initiated')->latest('id')->first();
++        $failed = (bool) session('payment_error');
++        $promptName = \App\Support\PaymentSettings::promptName();
++        $amount = number_format($order->total_cents / 100);
++    @endphp
+ 
+     @if ($order->status === 'awaiting_payment')
+         <style>
+-            .waiting{display:flex; gap:12px; align-items:flex-start}
+-            .pulse{
+-                width:14px; height:14px; border-radius:50%; flex:none; margin-top:4px;
+-                background:#C8A24A; animation:pulse 1.4s ease-in-out infinite;
+-            }
+-            @keyframes pulse{
+-                0%,100%{opacity:1; transform:scale(1)}
+-                50%{opacity:.35; transform:scale(.75)}
+-            }
+-            @media (prefers-reduced-motion:reduce){ .pulse{animation:none} }
+-            .held{font-size:.9em; opacity:.8; margin:8px 0 0}
++            .ps{text-align:center; padding:34px 20px 30px; border:1px solid var(--line);
++                border-radius:18px; background:linear-gradient(180deg,var(--velvet),var(--velvet-2));
++                margin:18px 0}
++            .ps-art{position:relative; width:92px; height:92px; margin:0 auto 20px}
++            .ps-ring{position:absolute; inset:0; border-radius:50%;
++                border:2px solid var(--lamp); opacity:.55; animation:psring 2s ease-out infinite}
++            .ps-ring:nth-child(2){animation-delay:1s}
++            @keyframes psring{0%{transform:scale(.62); opacity:.75} 100%{transform:scale(1.18); opacity:0}}
++            .ps-core{position:absolute; inset:14px; border-radius:50%; display:grid; place-items:center;
++                background:rgba(232,163,61,.14); border:1px solid rgba(232,163,61,.4)}
++            .ps-core svg{width:30px; height:30px; stroke:var(--lamp-bright); fill:none; stroke-width:1.7}
++            .ps-head{font-size:1.45rem; margin:0 0 6px; color:var(--bone); letter-spacing:-.01em}
++            .ps-sub{margin:0; color:var(--dim); font-size:.96rem}
++            .ps-chip{display:inline-block; margin-top:14px; padding:5px 12px; border-radius:999px;
++                font-size:.74rem; letter-spacing:.08em; text-transform:uppercase;
++                color:var(--dim); border:1px solid var(--line); background:rgba(246,238,227,.04)}
++            .ps-bar{height:3px; border-radius:3px; background:rgba(246,238,227,.1);
++                margin:22px auto 0; max-width:280px; overflow:hidden}
++            .ps-bar i{display:block; height:100%; width:0; border-radius:3px;
++                background:linear-gradient(90deg,var(--lamp),var(--lamp-bright))}
++            .ps-acts{display:flex; gap:10px; justify-content:center; flex-wrap:wrap; margin-top:20px}
++            .ps-acts .btn{width:auto; display:inline-flex; text-decoration:none}
++            [hidden]{display:none !important}
++
++            /* Failure wears crimson, not amber: the difference has to be
++               readable at a glance on a phone held at arm's length. */
++            .ps[data-state="failed"] .ps-ring{display:none}
++            .ps[data-state="failed"] .ps-core{background:rgba(199,64,54,.16); border-color:rgba(224,97,88,.5)}
++            .ps[data-state="failed"] .ps-core svg{stroke:#F4B9B2}
++            .ps[data-state="paid"] .ps-ring{display:none}
++            .ps[data-state="paid"] .ps-core{background:rgba(62,143,94,.18); border-color:rgba(98,190,132,.55)}
++            .ps[data-state="paid"] .ps-core svg{stroke:#8FDCA8}
++            @media (prefers-reduced-motion:reduce){ .ps-ring{animation:none; opacity:.3} .ps-bar i{transition:none} }
+         </style>
+-        {{-- The page polls every few seconds and reloads itself on payment.
+-             Without a visible sign of that, a buyer who has already paid sits
+-             looking at a still screen wondering whether to pay again. --}}
+-        <div class="note">
+-            <div class="waiting">
+-                <span class="pulse" aria-hidden="true"></span>
+-                <div>
+-                    <strong>Waiting for your payment…</strong>
+-                    A prompt has been sent to <strong>{{ $order->customer->phone }}</strong>.
+-                    Unlock your phone and enter your M-Pesa PIN.
+-                    @if ($promptName = \App\Support\PaymentSettings::promptName())
+-                        <br>It appears as <strong>{{ $promptName }}</strong> — that is our payment
+-                        partner, and the money reaches 64 Theatre.
+-                    @endif
+-                    <p class="held">This page updates on its own — keep it open. Seats are held for
+-                        {{ \App\Services\Checkout::HOLD_MINUTES }} minutes.</p>
+-                    <p class="held" id="nudge" hidden>
+-                        No prompt yet? It can take up to a minute on a busy network. If nothing
+-                        arrives, use the Pay Bill details below.
+-                    </p>
+-                </div>
++
++        <div class="ps" id="ps" data-state="{{ $failed || ! $attempt ? 'failed' : 'prompted' }}"
++             data-poll="{{ route('orders.status', $order->uuid) }}"
++             data-retry="{{ route('orders.retry', $order->uuid) }}">
++            <div class="ps-art">
++                <span class="ps-ring" aria-hidden="true"></span>
++                <span class="ps-ring" aria-hidden="true"></span>
++                <span class="ps-core" aria-hidden="true">
++                    {{-- Which icon shows is decided HERE, not only in the
++                         script. A failed state is rendered by the server after
++                         a redirect, and leaving the swap to JS put a calm phone
++                         glyph above the words "payment didn't start". --}}
++                    <svg viewBox="0 0 24 24" class="i-phone" @if($failed || ! $attempt) hidden @endif stroke-linecap="round" stroke-linejoin="round">
++                        <rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M10.5 18.5h3"/>
++                    </svg>
++                    <svg viewBox="0 0 24 24" class="i-warn" @if(! ($failed || ! $attempt)) hidden @endif stroke-linecap="round" stroke-linejoin="round">
++                        <path d="M12 8v5"/><path d="M12 16.5v.01"/><circle cx="12" cy="12" r="9"/>
++                    </svg>
++                    <svg viewBox="0 0 24 24" class="i-tick" hidden stroke-linecap="round" stroke-linejoin="round">
++                        <path d="M5 12.5l4.5 4.5L19 7.5"/>
++                    </svg>
++                </span>
++            </div>
++
++            <h3 class="ps-head" id="ps-head">{{ $failed || ! $attempt ? 'Payment didn’t start' : 'Check your phone' }}</h3>
++            <p class="ps-sub" id="ps-sub">
++                @if ($failed || ! $attempt)
++                    {{ session('payment_error') ?: 'No prompt was sent.' }}
++                @else
++                    Enter your M-Pesa PIN · KES {{ $amount }}
++                @endif
++            </p>
++
++            @if ($promptName)
++                {{-- The partner name, as a quiet badge rather than a sentence.
++                     It has to be recognisable when the prompt lands, not read. --}}
++                <span class="ps-chip" id="ps-chip" @if($failed || ! $attempt) hidden @endif>{{ $promptName }}</span>
++            @endif
++
++            <div class="ps-bar" id="ps-bar" @if($failed || ! $attempt) hidden @endif><i></i></div>
++
++            <div class="ps-acts" id="ps-acts" @if(! ($failed || ! $attempt)) hidden @endif>
++                <form method="POST" action="{{ route('orders.retry', $order->uuid) }}" style="display:inline">
++                    @csrf
++                    <button class="btn" type="submit">Send the prompt again</button>
++                </form>
++                @if (\App\Support\PaymentSettings::offlineEnabled())
++                    <button class="btn ghost" type="button" data-act="paybill">Pay Bill instead</button>
++                @endif
+             </div>
+         </div>
+-        <script>
+-            // Surfaced only after 25 seconds: shown immediately it would read
+-            // as "this is broken" before the prompt has had a fair chance.
+-            setTimeout(function () {
+-                const n = document.getElementById('nudge');
+-                if (n) n.hidden = false;
+-            }, 25000);
+-        </script>
+ 
+         @if (\App\Support\PaymentSettings::offlineEnabled())
+-            {{-- The prompt does not always arrive: a handset can be off the
+-                 network, or the push can simply be missed. Without a second
+-                 route the buyer abandons the order and the seats go back. --}}
+-            <div class="note" style="background:#FFF8E6;border-color:#E8D9A8">
+-                <strong>No prompt on your phone?</strong> Pay by M-Pesa instead:
+-                <dl style="margin:10px 0 0">
+-                    <dt style="display:inline">Go to</dt>
+-                    <dd style="display:inline;margin:0">M-Pesa → Lipa na M-Pesa → <strong>Pay Bill</strong></dd><br>
+-                    <dt style="display:inline">Business number</dt>
+-                    <dd style="display:inline;margin:0"><strong style="font-family:monospace;font-size:1.1em;letter-spacing:1px">{{ config('services.offline_payment.paybill') }}</strong>
+-                        @if (config('services.offline_payment.bank'))
+-                            <span style="opacity:.7">({{ config('services.offline_payment.bank') }})</span>
+-                        @endif
+-                    </dd><br>
+-                    <dt style="display:inline">Account number</dt>
+-                    <dd style="display:inline;margin:0"><strong style="font-family:monospace;font-size:1.1em;letter-spacing:1px">{{ config('services.offline_payment.account') }}</strong></dd><br>
+-                    <dt style="display:inline">Amount</dt>
+-                    <dd style="display:inline;margin:0"><strong>KES {{ number_format($order->total_cents / 100) }}</strong></dd>
++            {{-- Hidden until the prompt has had a fair chance. Shown from the
++                 start it reads as "the thing you are waiting for will not
++                 work", and people take the slower path by default. --}}
++            <div class="note" id="paybill" hidden style="background:rgba(246,238,227,.05)">
++                <strong>Pay Bill</strong>
++                <dl style="margin:10px 0 0; display:grid; grid-template-columns:auto 1fr; gap:4px 14px">
++                    <dt style="color:var(--dim)">Business</dt>
++                    <dd style="margin:0"><strong style="font-family:monospace;font-size:1.1em;letter-spacing:1px">{{ config('services.offline_payment.paybill') }}</strong></dd>
++                    <dt style="color:var(--dim)">Account</dt>
++                    <dd style="margin:0"><strong style="font-family:monospace;font-size:1.1em;letter-spacing:1px">{{ config('services.offline_payment.account') }}</strong></dd>
++                    <dt style="color:var(--dim)">Amount</dt>
++                    <dd style="margin:0"><strong>KES {{ $amount }}</strong></dd>
+                 </dl>
+-                <p style="margin:10px 0 0;font-size:.92em">
+-                    {{-- The account number names 64 Theatre, not this order, so
+-                         there is nowhere to put a reference. Say so plainly
+-                         rather than let someone pay and wait for tickets that
+-                         cannot be matched to them automatically. --}}
+-                    A Pay Bill payment is <strong>not matched to your order automatically</strong>.
+-                    Keep the M-Pesa confirmation SMS and show it at the gate, or send the
+-                    confirmation code to the box office quoting order
+-                    <strong style="font-family:monospace">{{ strtoupper(substr($order->uuid, 0, 8)) }}</strong>.
++                <p style="margin:10px 0 0;font-size:.88em;color:var(--dim)">
++                    Not matched automatically — keep the SMS, or quote
++                    <strong style="font-family:monospace;color:var(--bone)">{{ strtoupper(substr($order->uuid, 0, 8)) }}</strong> at the box office.
+                 </p>
+             </div>
+         @endif
++
++        <script>
++        (function () {
++            const ps = document.getElementById('ps');
++            if (!ps) return;
++            const head = document.getElementById('ps-head'),
++                  sub  = document.getElementById('ps-sub'),
++                  bar  = document.querySelector('#ps-bar i'),
++                  acts = document.getElementById('ps-acts'),
++                  chip = document.getElementById('ps-chip'),
++                  barw = document.getElementById('ps-bar'),
++                  pay  = document.getElementById('paybill'),
++                  icon = {
++                      phone: ps.querySelector('.i-phone'),
++                      warn:  ps.querySelector('.i-warn'),
++                      tick:  ps.querySelector('.i-tick'),
++                  };
++
++            document.querySelectorAll('[data-act="paybill"]').forEach(b =>
++                b.addEventListener('click', () => { if (pay) { pay.hidden = false; pay.scrollIntoView({behavior:'smooth', block:'nearest'}); } }));
++
++            if (ps.dataset.state === 'failed') return;
++
++            // A filling bar, not a countdown. A number ticking towards zero
++            // invites the buyer to give up when it gets there; M-Pesa prompts
++            // routinely arrive late and still succeed.
++            const WINDOW = 60000;
++            const started = Date.now();
++            (function tick() {
++                const pct = Math.min(100, (Date.now() - started) / WINDOW * 100);
++                if (bar) bar.style.width = pct + '%';
++                if (pct < 100) requestAnimationFrame(tick);
++            })();
++
++            // Softened at 20s, not declared broken: the honest state is
++            // "still going", and saying so keeps people from paying twice.
++            setTimeout(() => {
++                if (ps.dataset.state !== 'prompted') return;
++                head.textContent = 'Still waiting';
++                sub.textContent  = 'Prompts can take a minute on a busy network.';
++                if (acts) acts.hidden = false;
++            }, 20000);
++
++            function paid() {
++                ps.dataset.state = 'paid';
++                icon.phone.hidden = true; icon.warn.hidden = true; icon.tick.hidden = false;
++                head.textContent = 'Paid';
++                sub.textContent  = 'Fetching your tickets…';
++                if (chip) chip.hidden = true;
++                if (barw) barw.hidden = true;
++                if (acts) acts.hidden = true;
++                if (pay)  pay.hidden = true;
++                setTimeout(() => location.reload(), 900);
++            }
++
++            function failed(msg) {
++                ps.dataset.state = 'failed';
++                icon.phone.hidden = true; icon.tick.hidden = true; icon.warn.hidden = false;
++                head.textContent = 'Payment not completed';
++                sub.textContent  = msg || 'The prompt was cancelled or timed out.';
++                if (chip) chip.hidden = true;
++                if (barw) barw.hidden = true;
++                if (acts) acts.hidden = false;
++            }
++
++            // Backs off rather than hammering: the status route now asks
++            // PayHero directly, so every poll is an upstream call.
++            let wait = 2500;
++            (function poll() {
++                setTimeout(() => {
++                    fetch(ps.dataset.poll, {headers: {'Accept': 'application/json'}})
++                        .then(r => r.json())
++                        .then(d => {
++                            if (d.status === 'paid') return paid();
++                            if (d.status === 'cancelled' || d.payment === 'failed') return failed(d.reason);
++                            wait = Math.min(wait + 900, 6000);
++                            poll();
++                        })
++                        .catch(() => { wait = Math.min(wait + 1500, 8000); poll(); });
++                }, wait);
++            })();
++        })();
++        </script>
++
+     @elseif ($order->status === 'paid')
+-        <div class="note" style="background:#E6F4E6;border-color:#B9DDB9">
+-            <strong>Payment received!</strong> Your tickets have been sent by SMS to {{ $order->customer->phone }}.
+-        </div>
++        <div class="note ok-note"><strong>Paid.</strong> Tickets below — also sent to {{ $order->customer->phone }}.</div>
+     @endif
+ 
+     @if ($order->status === 'paid' && $order->tickets->isNotEmpty())
+diff --git a/routes/web.php b/routes/web.php
+index ce7d376..31f86e1 100644
+--- a/routes/web.php
++++ b/routes/web.php
+@@ -17,6 +17,7 @@
+ Route::post('/orders', [OrderController::class, 'store'])->name('orders.store');
+ Route::get('/orders/{uuid}', [OrderController::class, 'show'])->name('orders.show');
+ Route::get('/orders/{uuid}/status', [OrderController::class, 'status'])->name('orders.status');
++Route::post('/orders/{uuid}/retry', [OrderController::class, 'retry'])->name('orders.retry');
+ Route::get('/orders/{uuid}/print', [OrderController::class, 'print'])->name('orders.print');
+ Route::get('/my-tickets', [OrderController::class, 'lookupForm'])->name('orders.lookup.form');
+ Route::post('/my-tickets', [OrderController::class, 'lookup'])->name('orders.lookup');
