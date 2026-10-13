@@ -118,6 +118,14 @@ svc=find(d,"servicewalletbalance","servicebalance","servicewallet")
 pay=find(d,"paymentwalletbalance","paymentbalance","paymentwallet")
 print("  service wallet: %s" % ("KES %.2f" % svc if svc is not None else "could not read"))
 print("  payment wallet: %s" % ("KES %.2f" % pay if pay is not None else "n/a (settles direct to bank)"))
+if svc is None:
+    # The shape is undocumented and the key guesses missed. Print the body
+    # rather than shrug: the number is in there, it is not a secret, and
+    # seeing it is what fixes the parser.
+    print()
+    print("  Could not find the balance by key. Raw response:")
+    raw = json.dumps(d)
+    print("  " + (raw[:800] + (" …" if len(raw) > 800 else "")))
 if svc is not None and svc < 20:
     print()
     print("  !  LOW. Prompts will start failing, and the failure looks like a")
