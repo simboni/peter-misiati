@@ -2,7 +2,9 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { currentUser, can } from "@/lib/auth";
 import { checkBooks, type Severity } from "@/lib/health";
+import { setAside } from "@/lib/dismissals";
 import { Alert, Card, Chip, Empty, PageTitle } from "@/components/ui";
+import { SetAside, BringBack } from "./set-aside";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +27,18 @@ export const dynamic = "force-dynamic";
  * and might be a genuine sample. Every row says what was seen and what to do,
  * and links to the screen where it can be put right — none of it is fixed from
  * here, because a list that can change the books is a list nobody dares run.
+ *
+ * THE ONE BUTTON THAT ACTS. Every row here is worked out afresh from the shop's
+ * figures, so fixing the thing makes the row vanish on the next load and there
+ * has never been anything to tick off. What that leaves out is the judgement a
+ * check cannot make: the delivery note says the drum really was 5 kg, the price
+ * really is right. Those rows never go, and a list carrying four of them that
+ * will never clear is a list the shop stops reading — which costs more than the
+ * rows are worth.
+ *
+ * So "I have corrected this" sets a row aside, and sets aside only what it then
+ * said. The figures move, the row comes back. It changes nothing in the books;
+ * it changes what this screen shows, which is the whole of its power.
  */
 
 const TONE: Record<Severity, "bad" | "warn" | "neutral"> = {
@@ -55,6 +69,7 @@ export default async function CheckPage() {
   }
 
   const { findings, counts, checked } = checkBooks();
+  const aside = setAside();
 
   return (
     <div>
@@ -130,6 +145,8 @@ export default async function CheckPage() {
                   </Link>
                 </p>
               ) : null}
+
+              <SetAside keyName={f.id} said={f.detail} />
             </li>
           ))}
         </ul>
@@ -174,6 +191,39 @@ export default async function CheckPage() {
           </a>
         </div>
       </div>
+
+      {/*
+        What has been set aside, and never fewer words than that.
+
+        A dismissal that cannot be seen is a dismissal nobody can argue with, and
+        six months later "the check says we are fine" would mean "the check says
+        we are fine except for the eleven things somebody waved away in March".
+        So they are listed, with what each one said, when, and one tap to put it
+        back on the list.
+      */}
+      {aside.length ? (
+        <details className="mt-5 rounded-2xl bg-white p-4 shadow-card ring-1 ring-ink/5">
+          <summary className="cursor-pointer text-sm font-bold text-brand-deep">
+            {aside.length} set aside
+            <span className="ml-1.5 font-semibold text-muted">
+              — corrected, or judged to be right as they are
+            </span>
+          </summary>
+          <ul className="mt-3 space-y-2.5">
+            {aside.map((d) => (
+              <li key={d.key} className="border-t border-line pt-2.5 first:border-t-0 first:pt-0">
+                <p className="text-[13px] leading-snug text-muted">{d.said}</p>
+                <div className="mt-1.5 flex flex-wrap items-center gap-2.5">
+                  <span className="text-[11px] font-semibold text-muted">
+                    Set aside {d.at.slice(0, 10)}
+                  </span>
+                  <BringBack keyName={d.key} />
+                </div>
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
 
       <p className="mt-4 text-xs text-muted">
         Run this after a week of deliveries, or whenever a figure looks wrong. A cost price entered

@@ -57,6 +57,7 @@ import {
 import {
   periodRange,
   describeRange,
+  PERIOD_LABEL,
   booksStart,
   clampRange,
   dailyProfit,
@@ -74,7 +75,7 @@ import {
   type Period,
   type ProductProfit,
 } from "@/lib/reports";
-import { dashboard, change, topCustomers, type Grain } from "@/lib/dashboard";
+import { dashboard, change, topCustomers, attentionDetail, type Grain } from "@/lib/dashboard";
 import {
   PageTitle,
   Card,
@@ -89,11 +90,20 @@ import {
 } from "@/components/ui";
 import { SalesChart } from "./sales-chart";
 import { PeriodPicker } from "./period-picker";
+import { SetAside } from "../check/set-aside";
+import { activeDismissals, isDismissed } from "@/lib/dismissals";
 import { ExportBar } from "./export-bar";
 import { Tile, TrendChart, SplitBar, RankRow } from "./dash-parts";
 import { Fold } from "@/components/fold";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * The periods worth a chip beside the profit list: today, this week, this
+ * month. "A specific date" is the page's own picker, which does it properly
+ * with two date boxes, so this links back to it rather than half-copying it.
+ */
+const EARNS_PERIODS = ["today", "week", "month"] as const;
 
 const GRAINS: Grain[] = ["day", "week", "month"];
 const GRAIN_LABEL: Record<Grain, string> = { day: "Daily", week: "Weekly", month: "Monthly" };
@@ -272,12 +282,37 @@ export default async function ReportsPage(props: {
     check all nine things every time. Each entry is a fact with an amount and a
     link to the screen that fixes it — never "review your stock levels".
   */
-  const watch: Array<{ tone: "bad" | "warn" | "neutral"; href?: string; body: ReactNode }> = [];
+  const canFix = can(user, "cost");
+  const detail = attentionDetail(range);
+  /*
+    Each row carries three more things than it used to.
+
+    `key` so the owner can set it aside — the dashboard's rows are worked out
+    afresh like the books check's, and the same judgement calls apply: a price
+    he has decided is right, a short count he knows is a delivery not yet typed.
+
+    `said` is the sentence the dismissal is tied to. Figures move, the row
+    returns.
+
+    `items` is what the count is actually made of. "6 items show below zero" is
+    a fact and a dead end; the six names are the work.
+  */
+  const watch: Array<{
+    tone: "bad" | "warn" | "neutral";
+    href?: string;
+    key: string;
+    said: string;
+    items?: Array<{ id: number; name: string; said: string }>;
+    body: ReactNode;
+  }> = [];
 
   if (d.summary.uncostedSalesCents > 0) {
     watch.push({
       tone: "bad",
       href: "/purchases",
+      key: "attention:uncosted-sales",
+      said: `${formatKes(d.summary.uncostedSalesCents)} of sales with no cost price`,
+      items: detail.uncostedSales,
       body: (
         <>
           <strong>{formatKes(d.summary.uncostedSalesCents)} of these sales have no cost price</strong>{" "}
@@ -291,6 +326,13 @@ export default async function ReportsPage(props: {
     watch.push({
       tone: "bad",
       href: `${hrefWith({ open: "all" })}#earns`,
+      key: "attention:below-cost",
+      said: `${losers.length} sold below cost: ${losers.map((p) => p.name).join(", ")}`,
+      items: losers.map((p) => ({
+        id: p.item_id ?? 0,
+        name: p.name,
+        said: `${formatKes(p.profit_cents)} on the period`,
+      })),
       body: (
         <>
           <strong>
@@ -305,7 +347,10 @@ export default async function ReportsPage(props: {
   if (d.shelf.owedCount > 0) {
     watch.push({
       tone: "bad",
-      href: "/stock",
+      href: "/stock?state=owed",
+      key: "attention:below-zero",
+      said: `${d.shelf.owedCount} below zero: ${detail.owed.map((o) => o.name).join(", ")}`,
+      items: detail.owed,
       body: (
         <>
           <strong>
@@ -320,6 +365,13 @@ export default async function ReportsPage(props: {
     watch.push({
       tone: d.debtors.oldestDays >= 30 ? "bad" : "warn",
       href: "/wholesale/debts",
+      key: "attention:debtors",
+      said: `${formatKes(d.debtors.totalCents)} owed by ${d.debtors.customerCount}`,
+      items: d.debtors.top.map((c) => ({
+        id: c.id,
+        name: c.name,
+        said: `${formatKes(c.owedCents)}, oldest ${c.oldestDays} ${c.oldestDays === 1 ? "day" : "days"}`,
+      })),
       body: (
         <>
           <strong>{formatKes(d.debtors.totalCents)} owed by {d.debtors.customerCount}</strong>{" "}
@@ -332,7 +384,10 @@ export default async function ReportsPage(props: {
   if (d.shelf.lowCount > 0) {
     watch.push({
       tone: "warn",
-      href: "/stock",
+      href: "/stock?state=reorder",
+      key: "attention:low-stock",
+      said: `${d.shelf.lowCount} at or under the reorder level`,
+      items: detail.low,
       body: (
         <>
           <strong>
@@ -348,6 +403,9 @@ export default async function ReportsPage(props: {
     watch.push({
       tone: "warn",
       href: "/items",
+      key: "attention:shelf-uncosted",
+      said: `${d.shelf.uncostedCount} on the shelf with no cost price`,
+      items: detail.uncosted,
       body: (
         <>
           <strong>
@@ -366,6 +424,8 @@ export default async function ReportsPage(props: {
     watch.push({
       tone: "warn",
       href: `${hrefWith({ open: "all" })}#discounts`,
+      key: "attention:below-floor",
+      said: `${discounts.belowFloorLines} lines under the minimum price`,
       body: (
         <>
           <strong>
@@ -381,6 +441,9 @@ export default async function ReportsPage(props: {
     watch.push({
       tone: "neutral",
       href: `${hrefWith({ open: "all" })}#leaks`,
+      key: "attention:dead-stock",
+      said: `${formatKes(deadValue)} not moved in 60 days across ${dead.length}`,
+      items: dead.map((x) => ({ id: x.id, name: x.name, said: formatKes(x.value_cents) })),
       body: (
         <>
           <strong>{formatKes(deadValue)} has not moved in 60 days</strong> — cash sitting on the
@@ -389,11 +452,14 @@ export default async function ReportsPage(props: {
       ),
     });
   }
+  const dismissedRows = activeDismissals();
   const lastShrink = shrink.find((s) => s.value_cents < 0);
   if (lastShrink) {
     watch.push({
       tone: "neutral",
       href: `${hrefWith({ open: "all" })}#leaks`,
+      key: "attention:shrink",
+      said: `${formatKes(Math.abs(lastShrink.value_cents))} short at the ${lastShrink.ym} count`,
       body: (
         <>
           <strong>{formatKes(Math.abs(lastShrink.value_cents))} short at the last count</strong> —{" "}
@@ -458,6 +524,12 @@ export default async function ReportsPage(props: {
         : "nothing dead, nothing short",
     export: "PDF, spreadsheets and a full backup",
   };
+
+  /*
+    And the ones already answered. Same rule as the books check: a row is hidden
+    only while it goes on saying exactly what it said when it was set aside.
+  */
+  const shown = watch.filter((w) => !isDismissed(dismissedRows, w.key, w.said));
 
   return (
     <div>
@@ -624,10 +696,18 @@ export default async function ReportsPage(props: {
       {/* --------------------------------------------------- attention */}
 
       <SectionLabel>Needs your attention</SectionLabel>
-      {watch.length ? (
+      {shown.length ? (
         <Card className="!py-2">
-          {watch.map((w, i) => (
-            <WatchRow key={i} tone={w.tone} href={w.href}>
+          {shown.map((w) => (
+            <WatchRow
+              key={w.key}
+              tone={w.tone}
+              href={w.href}
+              rowKey={w.key}
+              said={w.said}
+              items={w.items}
+              canSetAside={canFix}
+            >
               {w.body}
             </WatchRow>
           ))}
@@ -861,6 +941,48 @@ export default async function ReportsPage(props: {
         defaultOpen
         force={openAll}
       >
+        {/*
+          The period, said and changeable where the figures are.
+
+          It was always changeable — the picker at the top of the page governs
+          every number on it, this panel included. But the picker is a long way
+          up, and somebody reading a profit-per-product list two screens down had
+          no way of knowing which days it covered, let alone that he could change
+          it without losing his place. These are the same parameter and the same
+          page; they just come back to this panel.
+        */}
+        <div className="no-print mb-2.5 flex flex-wrap items-center gap-x-2 gap-y-1.5">
+          <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted">
+            {describeRange(range)}
+          </span>
+          <span className="flex flex-wrap gap-1">
+            {EARNS_PERIODS.map((p) => (
+              <Link
+                key={p}
+                href={`${hrefWith({ period: p, from: undefined, to: undefined })}#earns`}
+                aria-current={period === p ? "true" : undefined}
+                className={`flex min-h-8 items-center rounded-full px-2.5 text-[11px] font-bold ${
+                  period === p
+                    ? "bg-brand text-white"
+                    : "bg-wash text-muted ring-1 ring-inset ring-line hover:text-ink"
+                }`}
+              >
+                {PERIOD_LABEL[p]}
+              </Link>
+            ))}
+            <Link
+              href="#top"
+              className={`flex min-h-8 items-center rounded-full px-2.5 text-[11px] font-bold ${
+                period === "custom"
+                  ? "bg-brand text-white"
+                  : "bg-wash text-muted ring-1 ring-inset ring-line hover:text-ink"
+              }`}
+            >
+              A day, or dates
+            </Link>
+          </span>
+        </div>
+
         <div className="lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-4 xl:gap-x-5">
         <div className="lg:col-span-7 2xl:col-span-8">
           {losers.length ? (
@@ -1363,35 +1485,83 @@ export default async function ReportsPage(props: {
  * One line of the attention list: a word for how bad it is, the fact, and the
  * screen that fixes it.
  */
+/**
+ * One thing that wants doing, and everything needed to do it.
+ *
+ * It used to be a sentence wrapped in a link: a count, and a screen to go and
+ * look on. That is two moves short. "6 items show below zero" does not say
+ * WHICH six, so the first thing anybody did was leave this screen to find out;
+ * and the arrow went to /stock rather than to the short list in question.
+ *
+ * So the row carries its own answer. The names open underneath it, each one
+ * linking to its own screen, and the arrow goes to the filtered list rather
+ * than the whole one. The row only stops being a question when the thing is
+ * done — or when the owner says it is.
+ */
 function WatchRow({
   tone,
   href,
+  rowKey,
+  said,
+  items,
+  canSetAside,
   children,
 }: {
   tone: "bad" | "warn" | "neutral";
   href?: string;
+  rowKey: string;
+  said: string;
+  items?: Array<{ id: number; name: string; said: string }>;
+  canSetAside: boolean;
   children: ReactNode;
 }) {
   const word = tone === "bad" ? "Fix" : tone === "warn" ? "Check" : "Note";
-  const row = (
-    <div className="flex items-start gap-2.5 border-t border-line px-1 py-2.5 first:border-t-0">
-      <span className="shrink-0 pt-0.5">
-        <Chip tone={tone}>{word}</Chip>
-      </span>
-      <span className="min-w-0 flex-1 text-[13px] font-medium leading-snug">{children}</span>
-      {href ? (
-        <span aria-hidden className="shrink-0 pt-0.5 text-[12px] font-bold text-brand">
-          →
+  return (
+    <div className="border-t border-line px-1 py-2.5 first:border-t-0">
+      <div className="flex items-start gap-2.5">
+        <span className="shrink-0 pt-0.5">
+          <Chip tone={tone}>{word}</Chip>
         </span>
+        <span className="min-w-0 flex-1 text-[13px] font-medium leading-snug">{children}</span>
+        {href ? (
+          <Link
+            href={href}
+            aria-label="Open the screen that fixes this"
+            className="shrink-0 pt-0.5 text-[12px] font-bold text-brand hover:underline"
+          >
+            →
+          </Link>
+        ) : null}
+      </div>
+
+      {items && items.length ? (
+        <details className="mt-1.5 pl-[3.1rem]">
+          <summary className="cursor-pointer text-[11px] font-bold text-brand">
+            Which {items.length === 1 ? "one" : `${items.length}`}
+          </summary>
+          <ul className="mt-1.5 space-y-1">
+            {items.map((it) => (
+              <li key={`${it.id}-${it.name}`} className="flex flex-wrap items-baseline gap-x-2">
+                {it.id ? (
+                  <Link href={`/stock/${it.id}`} className="text-[12px] font-bold text-brand hover:underline">
+                    {it.name}
+                  </Link>
+                ) : (
+                  <span className="text-[12px] font-bold">{it.name}</span>
+                )}
+                <span className="text-[11px] text-muted">{it.said}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
+
+      {canSetAside ? (
+        <div className="pl-[3.1rem]">
+          <SetAside keyName={rowKey} said={said} />
+        </div>
       ) : null}
     </div>
-  );
-  return href ? (
-    <Link href={href} className="block hover:bg-wash/60">
-      {row}
-    </Link>
-  ) : (
-    row
   );
 }
 

@@ -28,7 +28,7 @@
  */
 
 import { all, get } from "./db.ts";
-import { businessDate } from "./units.ts";
+import { businessDate, formatKes } from "./units.ts";
 import {
   booksStart,
   clampRange,
@@ -457,4 +457,102 @@ export function dashboard(asked: DateRange, grainHint?: Grain): Dashboard {
 export function change(now: number, before: number): number | null {
   if (before === 0) return null;
   return ((now - before) / Math.abs(before)) * 100;
+}
+
+// ---------------------------------------------------- what is behind a row
+
+/**
+ * The named things behind the counts on the attention panel.
+ *
+ * "6 items show below zero" is a fact and a dead end: it tells the owner there
+ * is work without telling him what the work is, so the next move is always to
+ * go and look somewhere else. These are the lists that make each row answerable
+ * where it stands — which six, which forty-four, which one.
+ *
+ * Loaded with the panel rather than on demand. They are small, bounded queries
+ * against the shelf, and a dropdown that has to fetch is a dropdown that is
+ * empty for a moment on the counter's connection.
+ */
+export interface NamedThing {
+  id: number;
+  name: string;
+  /** The figure that put it on the list, already in words. */
+  said: string;
+}
+
+export interface AttentionDetail {
+  owed: NamedThing[];
+  low: NamedThing[];
+  uncosted: NamedThing[];
+  uncostedSales: NamedThing[];
+}
+
+const qtyWords = (milli: number, unit: string) =>
+  `${(milli / 1000).toLocaleString("en-KE", { maximumFractionDigits: 3 })} ${unit}`;
+
+export function attentionDetail(asked: DateRange): AttentionDetail {
+  const range = clampRange(asked);
+
+  const shelf = all<{
+    id: number;
+    name: string;
+    unit: string;
+    held: number;
+    reorder: number;
+    cost_cents: number;
+  }>(
+    `SELECT i.id, i.name, i.canonical_unit AS unit, i.cost_cents,
+            COALESCE(i.reorder_level_milli, 0) AS reorder,
+            COALESCE((SELECT SUM(m.delta_milli) FROM stock_movements m WHERE m.item_id = i.id), 0) AS held
+       FROM items i
+      WHERE i.active = 1
+      ORDER BY i.name`,
+  );
+
+  const owed = shelf
+    .filter((r) => r.held < 0)
+    .sort((a, b) => a.held - b.held)
+    .map((r) => ({ id: r.id, name: r.name, said: `${qtyWords(-r.held, r.unit)} short` }));
+
+  const low = shelf
+    .filter((r) => r.reorder > 0 && r.held >= 0 && r.held <= r.reorder)
+    .sort((a, b) => a.held / a.reorder - b.held / b.reorder)
+    .map((r) => ({
+      id: r.id,
+      name: r.name,
+      said: `${qtyWords(r.held, r.unit)} left, reorder at ${qtyWords(r.reorder, r.unit)}`,
+    }));
+
+  const uncosted = shelf
+    .filter((r) => r.cost_cents === 0 && r.held > 0)
+    .sort((a, b) => b.held - a.held)
+    .map((r) => ({ id: r.id, name: r.name, said: `${qtyWords(r.held, r.unit)} held, no cost price` }));
+
+  /*
+    And the sales that went out before anything was costed. Grouped by product,
+    because "which goods" is the question — the delivery that fixes one of them
+    fixes every sale of it at once.
+  */
+  const uncostedSales = all<{ id: number; name: string; cents: number; lines: number }>(
+    `SELECT COALESCE(sl.item_id, 0)          AS id,
+            sl.name_snapshot                 AS name,
+            SUM(sl.line_total_cents)         AS cents,
+            COUNT(*)                         AS lines
+       FROM sale_lines sl
+       JOIN sales s ON s.id = sl.sale_id
+      WHERE s.status = 'completed'
+        AND sl.cost_cents = 0
+        AND sl.line_total_cents > 0
+        AND date(s.at, '+3 hours') BETWEEN ? AND ?
+      GROUP BY sl.name_snapshot
+      ORDER BY cents DESC`,
+    range.from,
+    range.to,
+  ).map((r) => ({
+    id: r.id,
+    name: r.name,
+    said: `${formatKes(r.cents)} across ${r.lines} ${r.lines === 1 ? "sale" : "sales"}`,
+  }));
+
+  return { owed, low, uncosted, uncostedSales };
 }

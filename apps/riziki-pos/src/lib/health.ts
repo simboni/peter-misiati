@@ -21,6 +21,7 @@
  */
 
 import { all, get } from "./db.ts";
+import { undismissed, setAsideCount } from "./dismissals.ts";
 import { currentVersion, scaleFormula } from "./production.ts";
 import { stockSource } from "./mixing.ts";
 
@@ -669,6 +670,12 @@ export interface HealthReport {
   counts: Record<Severity, number>;
   /** How many things were looked at, so "nothing found" means something. */
   checked: { items: number; deliveries: number };
+  /**
+   * Answered by the owner and not shown. Counted rather than hidden entirely,
+   * because a screen that says "nothing to fix" while quietly holding eleven
+   * dismissed findings is lying by omission.
+   */
+  setAside: number;
 }
 
 export function checkBooks(): HealthReport {
@@ -731,14 +738,25 @@ export function checkBooks(): HealthReport {
   );
   const final = deduped.filter((f) => !(f.id.startsWith("charged:") && f.item && trapped.has(f.item)));
 
-  final.sort((a, b) => RANK[a.severity] - RANK[b.severity] || a.kind.localeCompare(b.kind));
+  /*
+    And the ones the owner has already answered.
+
+    Dropped last, after the deduplication, so "I have dealt with this" is said
+    about the row somebody actually read rather than about one of the duplicates
+    that never reached the screen. A dismissal holds only while the finding goes
+    on saying the same thing — see `dismissals.ts`.
+  */
+  const shown = undismissed(final);
+
+  shown.sort((a, b) => RANK[a.severity] - RANK[b.severity] || a.kind.localeCompare(b.kind));
 
   const counts: Record<Severity, number> = { high: 0, medium: 0, low: 0 };
-  for (const f of final) counts[f.severity]++;
+  for (const f of shown) counts[f.severity]++;
 
   return {
-    findings: final,
+    findings: shown,
     counts,
+    setAside: setAsideCount(),
     checked: {
       items: get<{ n: number }>(`SELECT COUNT(*) AS n FROM items WHERE active = 1`)?.n ?? 0,
       deliveries: lines.length,

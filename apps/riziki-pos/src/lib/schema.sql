@@ -729,3 +729,46 @@ BEFORE DELETE ON price_changes
 BEGIN
   SELECT RAISE(ABORT, 'price history is append-only: record a new change instead');
 END;
+
+-- ------------------------------------------------------------- dismissals
+
+-- "I have dealt with this" — the owner's answer to something the books check
+-- or the dashboard is still pointing at.
+--
+-- WHY IT IS NOT A SIMPLE HIDE. Nearly everything these screens raise goes away
+-- on its own the moment the underlying figure is put right: they are worked out
+-- from the shop's own data every time the page is opened, not stored. So a row
+-- that will not go away is one of two things, and they want opposite answers. It
+-- may be a correction the owner has made somewhere the check cannot see — a
+-- paper note, a decision that the price is simply right — in which case hiding
+-- it is correct. Or the fix did not take, in which case hiding it buries a real
+-- problem.
+--
+-- The way through is to remember WHAT WAS DISMISSED, not just that something
+-- was. `fingerprint` is a digest of the figures the finding was making its claim
+-- about. Dismissing hides it while those figures stay the same, and the moment
+-- any of them moves — a different amount, one more product, a new delivery —
+-- the fingerprint no longer matches and the finding comes back as what it now
+-- is. An owner cannot accidentally silence tomorrow's problem by answering
+-- today's.
+--
+-- Append-only, like the rest of the ledger: undoing a dismissal writes a new row
+-- with `undone_at` set rather than deleting the first, so "who hid this, and
+-- when" always has an answer.
+CREATE TABLE IF NOT EXISTS dismissals (
+  id          INTEGER PRIMARY KEY,
+  -- Which finding: 'under-cost:19', 'attention:owed-below-zero'. Stable across
+  -- reruns, so the same problem is recognised tomorrow.
+  key         TEXT    NOT NULL,
+  -- A digest of the figures it was claiming. See above.
+  fingerprint TEXT    NOT NULL,
+  -- What it said at the moment it was dismissed, so the audit reads as English
+  -- a year later instead of as a key.
+  said        TEXT    NOT NULL DEFAULT '',
+  at          TEXT    NOT NULL DEFAULT (datetime('now')),
+  user_id     INTEGER REFERENCES users(id),
+  note        TEXT    NOT NULL DEFAULT '',
+  undone_at   TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_dismissals_key ON dismissals(key, undone_at);
