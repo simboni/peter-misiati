@@ -56,17 +56,26 @@ async function addAttendant(formData: FormData): Promise<void> {
 async function updatePin(formData: FormData): Promise<void> {
   "use server";
   const by = await guard();
+  let said = "";
   try {
-    changePin({
+    const done = changePin({
       userId: Number(formData.get("userId")),
       newPin: String(formData.get("newPin") ?? ""),
       currentPin: String(formData.get("currentPin") ?? "") || undefined,
       byUserId: by,
     });
+    // Changing a PIN signs that account out everywhere, which is the point. On
+    // your own, that is this session, so the message is for the owner resetting
+    // somebody else's — the case where nothing on the screen moves.
+    said = done.wasSelf
+      ? "Your PIN is changed. Sign in again with the new one."
+      : `${done.name}'s PIN is changed. They will be asked for the new one next time.`;
   } catch (e) {
     redirectWith(e);
   }
   revalidatePath("/settings");
+  // Outside the try: `redirect` reports itself by throwing.
+  redirect(`/settings?ok=${encodeURIComponent(said)}`);
 }
 
 async function toggleActive(formData: FormData): Promise<void> {
@@ -119,12 +128,14 @@ async function savePermissions(formData: FormData) {
   "use server";
 
   const owner = await requireOwner();
+  let said = "";
   try {
-    setPermissions({
+    const saved = setPermissions({
       userId: Number(formData.get("userId")),
       permissions: formData.getAll("permission").map(String),
       byUserId: owner.id,
     });
+    said = permissionsSaid(saved.name, saved.permissions);
   } catch (e) {
     redirectWith(e);
   }
@@ -132,6 +143,16 @@ async function savePermissions(formData: FormData) {
   // Their menu is drawn from this, and the shop runs on one phone that may
   // already be open on the till.
   revalidatePath("/", "layout");
+  /*
+    Saving used to be silent, and a silent save on this form is indistinguishable
+    from a dead button: the only thing a successful save changes on the screen is
+    that the boxes stay exactly where the owner put them. An owner pressed it,
+    saw nothing move, and reported it as broken.
+
+    Outside the try on purpose — `redirect` reports itself by throwing, and a
+    catch around it would swallow it and report a save that worked as a failure.
+  */
+  redirect(`/settings?ok=${encodeURIComponent(said)}`);
 }
 
 async function saveOversell(formData: FormData): Promise<void> {
@@ -186,10 +207,29 @@ function redirectWith(e: unknown): never {
   redirect(`/settings?err=${encodeURIComponent(message)}`);
 }
 
+/**
+ * Say in words what somebody may now do.
+ *
+ * At module scope rather than beside the action that uses it: an action
+ * carries its closure across the wire, and a function cannot be serialised, so
+ * a helper declared inside one takes the whole action down on the first click.
+ */
+function permissionsSaid(name: string, keys: readonly string[]): string {
+  if (!keys.length) return `${name} may now sell and nothing more.`;
+  const labels = keys
+    .map((k) => PERMISSIONS.find((p) => p.key === k)?.label.toLowerCase() ?? k)
+    .sort();
+  const list =
+    labels.length === 1
+      ? labels[0]
+      : `${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1]}`;
+  return `${name} may now see and do: ${list}.`;
+}
+
 export default async function SettingsPage(props: {
-  searchParams: Promise<{ err?: string }>;
+  searchParams: Promise<{ err?: string; ok?: string }>;
 }) {
-  const { err } = await props.searchParams;
+  const { err, ok } = await props.searchParams;
   const me = await currentUser();
   if (!me) {
     return <Alert tone="bad">Please sign in.</Alert>;
@@ -237,6 +277,14 @@ export default async function SettingsPage(props: {
       {err ? (
         <div className="mb-3">
           <Alert tone="bad">{err}</Alert>
+        </div>
+      ) : null}
+
+      {/* What a save did, in words. The forms on this screen change nothing
+          visible when they work, so without this the buttons read as dead. */}
+      {ok ? (
+        <div className="mb-3">
+          <Alert tone="good">{ok}</Alert>
         </div>
       ) : null}
 

@@ -161,7 +161,7 @@ export function changePin(input: {
   newPin: string;
   currentPin?: string;
   byUserId: number;
-}): void {
+}): { name: string; wasSelf: boolean } {
   checkPin(input.newPin);
 
   const target = get<{ id: number; name: string; pin_hash: string }>(
@@ -192,6 +192,10 @@ export function changePin(input: {
       target.name,
     );
   });
+
+  // Whose PIN, and whether it was the caller's own. A reset that says nothing
+  // leaves the owner unsure whether the attendant can still get in.
+  return { name: target.name, wasSelf: input.userId === input.byUserId };
 }
 
 export function setActive(input: { userId: number; active: boolean; byUserId: number }): void {
@@ -244,7 +248,7 @@ export function setPermissions(input: {
   userId: number;
   permissions: readonly string[];
   byUserId: number;
-}): void {
+}): { name: string; permissions: string[] } {
   const target = get<{ id: number; name: string; role: string }>(
     `SELECT id, name, role FROM users WHERE id = ?`,
     input.userId,
@@ -269,6 +273,11 @@ export function setPermissions(input: {
       `${target.name}: ${value || "nothing beyond selling"}`,
     );
   });
+
+  // Who, and what they hold now. The screen it was saved from has nothing to
+  // show for a successful save — the boxes simply stay where they were put —
+  // so the answer has to be said in words or the button reads as broken.
+  return { name: target.name, permissions: clean };
 }
 
 export function setRole(input: { userId: number; role: "owner" | "staff"; byUserId: number }): void {
