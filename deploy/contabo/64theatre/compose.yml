@@ -73,6 +73,17 @@ services:
 
       # Email. `log` writes ticket emails to the container log and delivers
       # them to NOBODY — fine for a demo, silent failure once real tickets are
+      # PayHero — M-Pesa STK push that settles into the bank account.
+      # These MUST be listed here: Docker passes a container only what the
+      # compose file names, and KOPOKOPO_* being absent from this block is
+      # what made the Kopo Kopo gateway inert while the .env looked correct.
+      PAYHERO_BASE_URL: ${PAYHERO_BASE_URL:-https://backend.payhero.co.ke}
+      PAYHERO_USERNAME: ${PAYHERO_USERNAME:-}
+      PAYHERO_PASSWORD: ${PAYHERO_PASSWORD:-}
+      # The payment channel the money lands in. Point it at the BANK channel.
+      PAYHERO_CHANNEL_ID: ${PAYHERO_CHANNEL_ID:-}
+      PAYHERO_WEBHOOK_SECRET: ${PAYHERO_WEBHOOK_SECRET:-}
+      PAYHERO_STATUS_PATH: ${PAYHERO_STATUS_PATH:-api/v2/transaction-status}
       # sold. Set MAIL_MAILER=smtp in .env with the Brevo values below.
       MAIL_MAILER: ${MAIL_MAILER:-log}
       MAIL_HOST: ${MAIL_HOST:-smtp-relay.brevo.com}

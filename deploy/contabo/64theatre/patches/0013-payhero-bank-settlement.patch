@@ -1,0 +1,550 @@
+diff --git a/app/Http/Controllers/Webhooks/PayHeroCallbackController.php b/app/Http/Controllers/Webhooks/PayHeroCallbackController.php
+new file mode 100644
+index 0000000..c541685
+--- /dev/null
++++ b/app/Http/Controllers/Webhooks/PayHeroCallbackController.php
+@@ -0,0 +1,55 @@
++<?php
++
++namespace App\Http\Controllers\Webhooks;
++
++use App\Http\Controllers\Controller;
++use App\Payments\PayHeroGateway;
++use Illuminate\Http\JsonResponse;
++use Illuminate\Http\Request;
++use Illuminate\Support\Facades\Log;
++
++/**
++ * PayHero posts the result of an STK prompt here.
++ *
++ * Unlike the Kopo Kopo endpoint, a bad or absent signature is NOT rejected.
++ * PayHero's signing is optional and its header is not in the published
++ * reference, so refusing unsigned callbacks would refuse every real one on an
++ * account that does not sign. Instead the body is passed on marked untrusted,
++ * and the gateway confirms with PayHero directly before settling anything.
++ *
++ * That inverts the usual rule for a good reason: here the signature is a
++ * shortcut past a status query, not the thing standing between a stranger and
++ * a free ticket. The status query is.
++ */
++class PayHeroCallbackController extends Controller
++{
++    public function __invoke(Request $request, PayHeroGateway $gateway): JsonResponse
++    {
++        $raw = $request->getContent();
++
++        // The signature covers the RAW body — decoding and re-encoding changes
++        // the bytes and so the hash.
++        $trusted = PayHeroGateway::signatureIsValid(
++            $raw,
++            $request->header('x-payhero-signature'),
++        );
++
++        $payload = json_decode($raw, true);
++
++        if (! is_array($payload)) {
++            return response()->json(['status' => 'bad request'], 400);
++        }
++
++        Log::channel('single')->info('payhero.callback', [
++            'trusted' => $trusted,
++            'ip' => $request->ip(),
++            'payload' => $payload,
++        ]);
++
++        $gateway->handleCallback($payload, $trusted);
++
++        // Always 200, even for an order we cannot place: anything else makes
++        // PayHero retry a delivery that will never succeed.
++        return response()->json(['status' => 'ok']);
++    }
++}
+diff --git a/app/Payments/PayHeroGateway.php b/app/Payments/PayHeroGateway.php
+new file mode 100644
+index 0000000..a849b28
+--- /dev/null
++++ b/app/Payments/PayHeroGateway.php
+@@ -0,0 +1,367 @@
++<?php
++
++namespace App\Payments;
++
++use App\Models\Order;
++use App\Models\Payment;
++use App\Services\Checkout;
++use Illuminate\Support\Facades\Http;
++use Illuminate\Support\Facades\Log;
++use RuntimeException;
++
++/**
++ * PayHero — M-Pesa STK push that settles straight into the bank account.
++ *
++ * WHAT "THROUGH BANK" MEANS HERE, because it is easy to expect the wrong
++ * thing: the buyer's experience is identical to Kopo Kopo — an STK prompt on
++ * their handset, their M-Pesa PIN. PayHero does NOT debit a customer's bank
++ * account. What the bank part buys us is on the other side: a bank-issued
++ * paybill cannot raise an STK prompt by itself, so taking money to a bank
++ * account normally means the customer typing a paybill and account number by
++ * hand. PayHero raises the prompt and settles direct to the registered
++ * account, so takings land in the bank rather than in a till that has to be
++ * swept.
++ *
++ * The flow:
++ *   STK      POST {base}/api/v2/payments        Basic auth, 201 + QUEUED
++ *   Callback POST our callback_url              result of the prompt
++ *   Status   GET  {base}/{status_path}          the authority, see below
++ *
++ * TWO DELIBERATE DIFFERENCES FROM THE KOPO KOPO GATEWAY
++ *
++ * 1. A callback alone never confirms an order. Kopo Kopo signs every webhook
++ *    with a key only it and we hold, so a valid signature is proof. PayHero's
++ *    signing is optional and the header is not in its published reference, so
++ *    an unsigned callback here is just an unauthenticated stranger's POST.
++ *    We treat it as a nudge: it tells us to go and ASK PayHero what happened.
++ *    Confirmation comes from that answer. A forged callback therefore buys an
++ *    attacker a wasted status query and nothing else.
++ *
++ *    When PAYHERO_WEBHOOK_SECRET is set the signature is checked and trusted
++ *    as Kopo Kopo's is, and the status query becomes a fallback rather than
++ *    the gate.
++ *
++ * 2. HTTP 200 is not success. PayHero is reported to answer 200 with
++ *    {"success": false} for a refused request, so the body is checked too.
++ *    `->throw()` alone would have let that through as an accepted payment.
++ *
++ * The endpoint paths and the field names the callback uses are held in config
++ * rather than hard-coded, because PayHero's published reference does not
++ * cover the callback body and we confirmed the rest against third-party
++ * clients. `payhero-check.sh` discovers the real shapes against live
++ * credentials; anything it contradicts is a config edit, not a code change.
++ */
++class PayHeroGateway implements PaymentGateway
++{
++    /** Recorded in gateway_payload, since `gateway` itself says 'aggregator'. */
++    private const PROVIDER = 'payhero';
++
++    /**
++     * The enum value PayHero payments are stored under.
++     *
++     * Same reasoning as Kopo Kopo: `payments.gateway` is an enum of
++     * mpesa_stk | cash | bank_transfer | card | aggregator, and adding a
++     * value means an enum migration that, on SQLite, rebuilds a table holding
++     * real payment records. PayHero is an aggregator. Note it is NOT
++     * 'bank_transfer' — that value means somebody moved money at a bank
++     * counter, and conflating the two would misreport the takings.
++     */
++    private const GATEWAY = 'aggregator';
++
++    public function initiate(Order $order, string $payerPhone): Payment
++    {
++        $phone = $this->normalisePhone($payerPhone);
++
++        if ($phone === null) {
++            throw new RuntimeException("Not a Kenyan mobile number: {$payerPhone}");
++        }
++
++        $channelId = config('services.payhero.channel_id');
++
++        if (blank($channelId)) {
++            // Without this the request is accepted and the money has nowhere
++            // to land. Fail here, where the message is readable.
++            throw new RuntimeException(
++                'PAYHERO_CHANNEL_ID is not set. It is the payment channel the '
++                .'money settles into — find it under Payment Channels in the '
++                .'PayHero dashboard.'
++            );
++        }
++
++        $response = Http::withBasicAuth(
++            (string) config('services.payhero.username'),
++            (string) config('services.payhero.password'),
++        )
++            ->acceptJson()
++            ->post($this->base().'/api/v2/payments', [
++                // Whole shillings; we store cents.
++                'amount' => intdiv($order->total_cents, 100),
++                'phone_number' => $phone,
++                'channel_id' => (int) $channelId,
++                'provider' => 'm-pesa',
++                // Comes back on the callback, and is how we find the order
++                // without trusting anything the caller sent.
++                'external_reference' => $order->uuid,
++                'customer_name' => trim($this->buyerName($order)) ?: null,
++                'callback_url' => route('webhooks.payhero'),
++            ]);
++
++        $body = $response->json();
++
++        // 200 with success:false is a refusal wearing a success code.
++        if (! $response->successful() || data_get($body, 'success') === false) {
++            $reason = data_get($body, 'error_message')
++                ?? data_get($body, 'message')
++                ?? data_get($body, 'error')
++                ?? 'no reason given';
++
++            Log::channel('single')->warning('payhero.initiate.refused', [
++                'order' => $order->uuid,
++                'http' => $response->status(),
++                'body' => $body,
++            ]);
++
++            throw new RuntimeException("PayHero refused the payment request: {$reason}");
++        }
++
++        return Payment::create([
++            'order_id' => $order->id,
++            'gateway' => self::GATEWAY,
++            // What we quote back to PayHero when asking about this payment.
++            'gateway_ref' => data_get($body, 'reference')
++                ?: data_get($body, 'CheckoutRequestID'),
++            'payer_phone' => $phone,
++            'amount_cents' => $order->total_cents,
++            'status' => 'initiated',
++            'gateway_payload' => [
++                'provider' => self::PROVIDER,
++                'channel_id' => (int) $channelId,
++                'checkout_request_id' => data_get($body, 'CheckoutRequestID'),
++                'body' => $body,
++            ],
++        ]);
++    }
++
++    public function authorizationUrl(Payment $payment): ?string
++    {
++        return null; // inline — the buyer approves on their handset
++    }
++
++    /**
++     * Act on a callback. See the class note: unless the body arrived signed,
++     * this treats it only as a prompt to go and ask PayHero what happened.
++     *
++     * @param  array<string, mixed>  $payload
++     * @param  bool  $trusted  true only when an HMAC signature verified
++     */
++    public function handleCallback(array $payload, bool $trusted = false): ?Payment
++    {
++        // PayHero nests the interesting part under `response` in every sample
++        // we have seen, but not in all of them, so accept it flat too.
++        $body = data_get($payload, 'response', $payload);
++
++        $reference = data_get($body, 'ExternalReference')
++            ?? data_get($body, 'external_reference');
++
++        $payment = $this->locatePayment(
++            is_string($reference) ? $reference : null,
++            data_get($body, 'CheckoutRequestID') ?? data_get($body, 'reference'),
++        );
++
++        if (! $payment || $payment->status !== 'initiated') {
++            return $payment; // unknown, or already settled — idempotent
++        }
++
++        $claimed = $this->normaliseStatus(
++            (string) (data_get($body, 'Status') ?? data_get($body, 'status') ?? ''),
++            data_get($body, 'ResultCode'),
++        );
++
++        // An unsigned callback cannot settle an order on its own say-so.
++        if (! $trusted) {
++            $verified = $this->pollStatus($payment);
++
++            if ($verified === null) {
++                // We could not reach PayHero to check. Leaving the payment
++                // `initiated` is the safe failure: the buyer may have paid, so
++                // this needs a human, but issuing tickets on an unverified
++                // stranger's POST is how you give a show away.
++                Log::channel('single')->warning('payhero.callback.unverified', [
++                    'payment' => $payment->id,
++                    'claimed' => $claimed,
++                    'note' => 'status query failed; order left unsettled for review',
++                ]);
++
++                return $payment;
++            }
++
++            $claimed = $verified;
++        }
++
++        if ($claimed === 'success') {
++            $payment->update([
++                // The M-Pesa receipt the buyer can quote — worth more at the
++                // gate than our own handle.
++                'gateway_ref' => data_get($body, 'MpesaReceiptNumber')
++                    ?: $payment->gateway_ref,
++                'gateway_payload' => array_merge(
++                    (array) $payment->gateway_payload,
++                    ['callback' => $payload, 'trusted' => $trusted],
++                ),
++            ]);
++
++            app(Checkout::class)->confirm($payment->order, $payment);
++        } elseif ($claimed === 'failed') {
++            $payment->update([
++                'status' => 'failed',
++                'gateway_payload' => array_merge(
++                    (array) $payment->gateway_payload,
++                    ['callback' => $payload],
++                ),
++            ]);
++        }
++        // 'pending' is a progress ping — leave it initiated and wait.
++
++        return $payment->refresh();
++    }
++
++    /**
++     * Verify a callback signature when PayHero is configured to sign.
++     *
++     * HMAC-SHA256 of the RAW body: re-encoding decoded JSON changes bytes and
++     * the hash with them. Returns false when no secret is configured, which
++     * is what pushes handleCallback down the status-query path.
++     */
++    public static function signatureIsValid(string $rawBody, ?string $signature): bool
++    {
++        $secret = config('services.payhero.webhook_secret');
++
++        if (blank($signature) || blank($secret)) {
++            return false;
++        }
++
++        return hash_equals(
++            hash_hmac('sha256', $rawBody, (string) $secret),
++            strtolower(trim($signature)),
++        );
++    }
++
++    /**
++     * Ask PayHero what actually happened. This is the authority for an
++     * unsigned callback, and the safety net for a callback that never came —
++     * which on one public IP with no retry queue is not rare.
++     *
++     * Returns null when the question could not be asked, which callers must
++     * treat as "unknown", never as "failed".
++     */
++    public function pollStatus(Payment $payment): ?string
++    {
++        $reference = $payment->gateway_ref
++            ?: data_get($payment->gateway_payload, 'checkout_request_id');
++
++        if (blank($reference)) {
++            return null;
++        }
++
++        $response = Http::withBasicAuth(
++            (string) config('services.payhero.username'),
++            (string) config('services.payhero.password'),
++        )
++            ->acceptJson()
++            ->get($this->base().'/'.ltrim((string) config('services.payhero.status_path'), '/'), [
++                'reference' => $reference,
++            ]);
++
++        if (! $response->successful()) {
++            Log::channel('single')->warning('payhero.status.unreachable', [
++                'payment' => $payment->id,
++                'http' => $response->status(),
++            ]);
++
++            return null;
++        }
++
++        $status = data_get($response->json(), 'status')
++            ?? data_get($response->json(), 'Status');
++
++        if (blank($status)) {
++            return null;
++        }
++
++        return $this->normaliseStatus((string) $status, data_get($response->json(), 'ResultCode'));
++    }
++
++    /**
++     * PayHero's status vocabulary is wider than ours, and it also reports
++     * M-Pesa's numeric ResultCode, where 0 means paid and everything else
++     * does not.
++     */
++    private function normaliseStatus(string $raw, mixed $resultCode = null): string
++    {
++        if ($resultCode !== null && $resultCode !== '') {
++            return (string) $resultCode === '0' ? 'success' : 'failed';
++        }
++
++        return match (strtolower(trim($raw))) {
++            'success', 'successful', 'completed', 'paid', 'settled' => 'success',
++            'failed', 'cancelled', 'canceled', 'error', 'declined', 'timeout' => 'failed',
++            default => 'pending',
++        };
++    }
++
++    private function locatePayment(?string $orderUuid, mixed $reference): ?Payment
++    {
++        if (filled($orderUuid)) {
++            $order = Order::where('uuid', $orderUuid)->first();
++
++            if ($order) {
++                $payment = $order->payments()
++                    ->where('gateway', self::GATEWAY)
++                    ->where('status', 'initiated')
++                    ->latest('id')
++                    ->first();
++
++                if ($payment) {
++                    return $payment;
++                }
++            }
++        }
++
++        if (blank($reference)) {
++            return null;
++        }
++
++        // `gateway` is shared with Pesapal and Kopo Kopo, so match on the
++        // reference we stored rather than assuming the latest attempt is ours.
++        return Payment::where('gateway', self::GATEWAY)
++            ->where('gateway_ref', (string) $reference)
++            ->latest('id')
++            ->first();
++    }
++
++    private function base(): string
++    {
++        return rtrim((string) config('services.payhero.base_url'), '/');
++    }
++
++    /** Orders carry the name on the related customer, not on themselves. */
++    private function buyerName(Order $order): string
++    {
++        return (string) ($order->customer->name ?? '');
++    }
++
++    /** 2547XXXXXXXX / 2541XXXXXXXX, the only form PayHero accepts. */
++    private function normalisePhone(string $raw): ?string
++    {
++        $digits = preg_replace('/\D+/', '', $raw) ?? '';
++
++        $digits = match (true) {
++            str_starts_with($digits, '254') => $digits,
++            str_starts_with($digits, '0') => '254'.substr($digits, 1),
++            strlen($digits) === 9 => '254'.$digits,
++            default => $digits,
++        };
++
++        return preg_match('/^254[17]\d{8}$/', $digits) === 1 ? $digits : null;
++    }
++}
+diff --git a/app/Providers/AppServiceProvider.php b/app/Providers/AppServiceProvider.php
+index 22631aa..51507b5 100644
+--- a/app/Providers/AppServiceProvider.php
++++ b/app/Providers/AppServiceProvider.php
+@@ -7,6 +7,7 @@
+ use App\Messaging\SmsSender;
+ use App\Payments\FakeGateway;
+ use App\Payments\KopoKopoGateway;
++use App\Payments\PayHeroGateway;
+ use App\Payments\MpesaStkGateway;
+ use App\Payments\PaymentGateway;
+ use App\Support\PaymentSettings;
+@@ -29,6 +30,7 @@ public function register(): void
+             return match ($gateway) {
+                 'pesapal' => new PesapalGateway,
+                 'kopokopo' => new KopoKopoGateway,
++                'payhero' => new PayHeroGateway,
+                 'daraja' => new MpesaStkGateway,
+                 'fake' => self::fakeGateway($gateway),
+                 // An unset or misspelled value used to land here silently, and
+diff --git a/app/Support/PaymentSettings.php b/app/Support/PaymentSettings.php
+index 54066ad..030b48c 100644
+--- a/app/Support/PaymentSettings.php
++++ b/app/Support/PaymentSettings.php
+@@ -38,6 +38,7 @@ public static function selectableGateways(): array
+     {
+         return [
+             'kopokopo' => 'Kopo Kopo — M-Pesa STK push',
++            'payhero' => 'PayHero — M-Pesa STK push, settles to the bank',
+             'pesapal' => 'Pesapal — M-Pesa and cards',
+             'daraja' => 'Safaricom Daraja — direct M-Pesa',
+         ];
+@@ -84,6 +85,11 @@ public static function credentialsPresent(string $gateway): bool
+                 && filled(config('services.kopokopo.client_secret'))
+                 && filled(config('services.kopokopo.api_key'))
+                 && filled(config('services.kopokopo.till_number')),
++            // channel_id is as load-bearing as the credentials: without it
++            // PayHero accepts the request and the money has nowhere to land.
++            'payhero' => filled(config('services.payhero.username'))
++                && filled(config('services.payhero.password'))
++                && filled(config('services.payhero.channel_id')),
+             'pesapal' => filled(config('services.pesapal.consumer_key'))
+                 && filled(config('services.pesapal.consumer_secret')),
+             'daraja' => filled(config('services.daraja.consumer_key'))
+@@ -98,6 +104,10 @@ public static function isSandbox(string $gateway): bool
+     {
+         return match ($gateway) {
+             'kopokopo' => str_contains((string) config('services.kopokopo.base_url'), 'sandbox'),
++            // PayHero sandbox is an account-level setting with no separate
++            // host, so the URL cannot reveal it. Said plainly rather than
++            // guessed: a wrong "live" badge is worse than no badge.
++            'payhero' => false,
+             'pesapal' => str_contains((string) config('services.pesapal.base_url'), 'cybqa'),
+             'daraja' => str_contains((string) config('services.daraja.base_url'), 'sandbox'),
+             default => false,
+diff --git a/config/services.php b/config/services.php
+index e6d183d..4e02ec4 100644
+--- a/config/services.php
++++ b/config/services.php
+@@ -63,6 +63,32 @@
+      * identifies 64 Theatre to Kopo Kopo — it is not per-order, so a Pay Bill
+      * payment has to be reconciled by hand.
+      */
++    /*
++     * PayHero — M-Pesa STK push that settles into a bank account.
++     *
++     * "Bank" here is the destination, not the payment method: the buyer still
++     * approves an M-Pesa prompt. A bank-issued paybill cannot raise that
++     * prompt itself, which is the gap PayHero fills.
++     *
++     * CHANNEL_ID is the payment channel the money lands in — dashboard ->
++     * Payment Channels. Point it at the bank channel, not a wallet, or the
++     * takings sit in PayHero instead of the bank.
++     *
++     * WEBHOOK_SECRET is optional. Without it a callback cannot settle an
++     * order on its own and the gateway confirms by querying PayHero instead.
++     *
++     * STATUS_PATH is in config because PayHero's published reference does not
++     * document it; payhero-check.sh discovers the real one.
++     */
++    'payhero' => [
++        'base_url' => rtrim(env('PAYHERO_BASE_URL', 'https://backend.payhero.co.ke'), '/'),
++        'username' => env('PAYHERO_USERNAME'),
++        'password' => env('PAYHERO_PASSWORD'),
++        'channel_id' => env('PAYHERO_CHANNEL_ID'),
++        'webhook_secret' => env('PAYHERO_WEBHOOK_SECRET'),
++        'status_path' => env('PAYHERO_STATUS_PATH', 'api/v2/transaction-status'),
++    ],
++
+     'offline_payment' => [
+         'enabled' => env('OFFLINE_PAYMENT_ENABLED', true),
+         'paybill' => env('OFFLINE_PAYMENT_PAYBILL', '542542'),
+diff --git a/routes/web.php b/routes/web.php
+index dca7b09..ce7d376 100644
+--- a/routes/web.php
++++ b/routes/web.php
+@@ -8,6 +8,7 @@
+ use App\Http\Controllers\OrderController;
+ use App\Http\Controllers\Webhooks\DarajaCallbackController;
+ use App\Http\Controllers\Webhooks\KopoKopoCallbackController;
++use App\Http\Controllers\Webhooks\PayHeroCallbackController;
+ use App\Http\Controllers\Webhooks\PesapalCallbackController;
+ use Illuminate\Support\Facades\Route;
+ 
+@@ -32,6 +33,11 @@
+ Route::post('/webhooks/kopokopo', KopoKopoCallbackController::class)
+     ->name('webhooks.kopokopo');
+ 
++// PayHero posts the STK result here. Unsigned callbacks are accepted and
++// then verified against PayHero — see PayHeroCallbackController.
++Route::post('/webhooks/payhero', PayHeroCallbackController::class)
++    ->name('webhooks.payhero');
++
+ // Pesapal (M-Pesa + cards): buyer return URL and server-to-server IPN (both GET).
+ Route::get('/payments/pesapal/callback', [PesapalCallbackController::class, 'callback'])
+     ->name('payments.pesapal.callback');
