@@ -51,14 +51,22 @@ Add only the PayHero settings. Read them out of 64theatre's `.env` rather than
 retyping secrets — it is the same PayHero account, and a subshell keeps the
 values out of this shell and out of history:
 
+A value containing spaces must be quoted in the source file — `set -a` plus
+`.` assigns the first word and tries to run the rest as a command, which is
+how `PAYHERO_DISPLAY_NAME=GLOBE GAIN PIPSPRO` became `GLOBE` and printed
+`GAIN: command not found`. Check 64theatre's file is quoted before copying
+from it.
+
 ```bash
+grep '^PAYHERO_DISPLAY_NAME' /srv/64theatre/.env   # must be quoted if it has spaces
+
 ( set -a; . /srv/64theatre/.env; set +a
   {
     echo "PAYHERO_BASE_URL=${PAYHERO_BASE_URL:-https://backend.payhero.co.ke}"
     echo "PAYHERO_USERNAME=$PAYHERO_USERNAME"
     echo "PAYHERO_PASSWORD=$PAYHERO_PASSWORD"
     echo "PAYHERO_CHANNEL_ID=$PAYHERO_CHANNEL_ID"
-    echo "PAYHERO_DISPLAY_NAME=${PAYHERO_DISPLAY_NAME:-}"
+    echo "PAYHERO_DISPLAY_NAME=\"${PAYHERO_DISPLAY_NAME:-}\""
     echo "PAYHERO_CALLBACK_TOKEN=$(openssl rand -hex 16)"
   } >> /root/fit-generations-gym/.env )
 
