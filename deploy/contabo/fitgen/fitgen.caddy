@@ -1,0 +1,20 @@
+# fitgenerationsgym.com — Fit Generations Gym (Next.js + Postgres)
+#
+# One container serves the site, the member portal and the admin. The database
+# is on a private network and is not reachable from here.
+#
+# Both names must resolve to this box before this is reloaded — www has been
+# pointing at Render, which is why its certificate kept failing.
+
+www.fitgenerationsgym.com {
+	redir https://fitgenerationsgym.com{uri} permanent
+}
+
+fitgenerationsgym.com {
+	reverse_proxy fitgen-web:3000 {
+		# The portal's payment screen polls while an M-Pesa prompt is out,
+		# and PayHero posts its callback here. Neither tolerates a proxy
+		# that buffers or times out early.
+		flush_interval -1
+	}
+}

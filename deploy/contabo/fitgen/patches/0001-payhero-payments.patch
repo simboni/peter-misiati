@@ -1,0 +1,685 @@
+diff --git a/.env.example b/.env.example
+index 61ecb0a..72bb752 100644
+--- a/.env.example
++++ b/.env.example
+@@ -44,3 +44,24 @@ MPESA_CONSUMER_SECRET=
+ MPESA_SHORTCODE=
+ MPESA_PASSKEY=
+ MPESA_CALLBACK_TOKEN=
++
++# --- PayHero (recommended) ---------------------------------------------------
++# STK push that settles straight into the gym's bank account. The member still
++# approves an M-Pesa prompt — "bank" is where the money lands, not how they pay.
++# A bank paybill cannot raise a prompt by itself; that is the gap PayHero fills,
++# and it needs no Safaricom shortcode approval.
++#
++# Leave PAYMENTS_PROVIDER blank to use whichever is configured (PayHero first).
++# USERNAME/PASSWORD are API credentials from the dashboard, NOT the login.
++# CHANNEL_ID is under Payment Channels — use the BANK channel.
++# CALLBACK_TOKEN is a secret path segment; without it anyone who guesses a
++# CheckoutRequestID can mark an invoice paid. Generate: openssl rand -hex 16
++# DISPLAY_NAME is the name shown on the member's prompt — it is the collecting
++# paybill's, not the gym's, so the portal says it in advance.
++PAYMENTS_PROVIDER=
++PAYHERO_BASE_URL=https://backend.payhero.co.ke
++PAYHERO_USERNAME=
++PAYHERO_PASSWORD=
++PAYHERO_CHANNEL_ID=
++PAYHERO_CALLBACK_TOKEN=
++PAYHERO_DISPLAY_NAME=
+diff --git a/docker-compose.behind-proxy.yml b/docker-compose.behind-proxy.yml
+index 5b5a471..0b57699 100644
+--- a/docker-compose.behind-proxy.yml
++++ b/docker-compose.behind-proxy.yml
+@@ -49,6 +49,22 @@ services:
+       MPESA_SHORTCODE: ${MPESA_SHORTCODE:-}
+       MPESA_PASSKEY: ${MPESA_PASSKEY:-}
+       MPESA_CALLBACK_TOKEN: ${MPESA_CALLBACK_TOKEN:-}
++      # PayHero — STK push that settles to the gym's bank account, with no
++      # Safaricom shortcode needed. These MUST be listed here: Docker passes a
++      # container only what the compose file names, and leaving a payment
++      # block out of this list is what made an identical gateway inert on the
++      # theatre deploy while its .env looked perfectly correct.
++      PAYMENTS_PROVIDER: ${PAYMENTS_PROVIDER:-}
++      PAYHERO_BASE_URL: ${PAYHERO_BASE_URL:-https://backend.payhero.co.ke}
++      PAYHERO_USERNAME: ${PAYHERO_USERNAME:-}
++      PAYHERO_PASSWORD: ${PAYHERO_PASSWORD:-}
++      # The payment channel money lands in. Use the BANK channel, or takings
++      # sit in a PayHero wallet instead of the gym's account.
++      PAYHERO_CHANNEL_ID: ${PAYHERO_CHANNEL_ID:-}
++      PAYHERO_CALLBACK_TOKEN: ${PAYHERO_CALLBACK_TOKEN:-}
++      # The business name the member reads on the prompt. It belongs to the
++      # collecting paybill, not the gym, so the portal names it in advance.
++      PAYHERO_DISPLAY_NAME: ${PAYHERO_DISPLAY_NAME:-}
+     depends_on:
+       fitgen-db:
+         condition: service_healthy
+@@ -57,6 +73,10 @@ services:
+       - internal  # reach the database
+     expose:
+       - "3000"
++    # The shared box has no swap, so an uncapped container does not slow the
++    # machine down — the kernel kills whichever process it picks, which may be
++    # another client's database rather than the one that leaked.
++    mem_limit: 1g
+ 
+   fitgen-db:
+     image: postgres:16-alpine
+@@ -70,6 +90,7 @@ services:
+       - pgdata:/var/lib/postgresql/data
+     networks:
+       - internal  # deliberately NOT on edge — nothing else can reach it
++    mem_limit: 512m
+     healthcheck:
+       test: ["CMD-SHELL", "pg_isready -U fitgen"]
+       interval: 10s
+diff --git a/src/app/(portal)/portal/invoices/[id]/page.tsx b/src/app/(portal)/portal/invoices/[id]/page.tsx
+index 808d13f..1e9a2cd 100644
+--- a/src/app/(portal)/portal/invoices/[id]/page.tsx
++++ b/src/app/(portal)/portal/invoices/[id]/page.tsx
+@@ -4,13 +4,14 @@ import { redirect, notFound } from "next/navigation";
+ import { currentUser } from "@/lib/auth/current-user";
+ import { getInvoice } from "@/lib/db/repo";
+ import { memberPayInvoice } from "@/lib/auth/member-actions";
+-import { mpesaConfigured } from "@/lib/services/mpesa";
++import { paymentsConfigured, promptName } from "@/lib/services/payments";
+ import { gym } from "@/lib/gym";
+ import { PageHero } from "@/components/page-hero";
+ import { Section } from "@/components/section";
+ import { Button, Pill } from "@/components/ui";
+ import { SubmitButton } from "@/components/admin/submit-button";
+ import { CheckIcon } from "@/components/icons";
++import { PaymentStage } from "@/components/portal/payment-stage";
+ 
+ export const metadata: Metadata = { title: "Invoice" };
+ export const dynamic = "force-dynamic";
+@@ -70,24 +71,36 @@ export default async function PortalInvoicePage({
+                 <p className="mt-1 text-sm text-white/55">Your membership is active. See you on the floor!</p>
+                 <Button href="/portal" variant="outline" className="mt-5">Back to portal</Button>
+               </div>
+-            ) : mpesaConfigured() ? (
++            ) : paymentsConfigured() ? (
+               <>
+-                {stk === "sent" && (
+-                  <div className="mb-4 rounded-xl border border-lime-500/30 bg-lime-500/[0.08] p-3 text-sm text-lime-300">
+-                    STK push sent — check your phone and enter your M-Pesa PIN. This page updates once payment is confirmed.
+-                  </div>
+-                )}
+-                {stk === "failed" && (
+-                  <div className="mb-4 rounded-xl border border-ember-500/30 bg-ember-500/[0.08] p-3 text-sm text-ember-400">
+-                    We couldn&rsquo;t start the M-Pesa prompt. Please try again.
+-                  </div>
++                {/* Once a prompt is out, the screen is the 64 Theatre payment
++                    stage: four states, few words, and it polls itself so a
++                    member who has already paid is never left guessing. Before
++                    that it is just the button. */}
++                {stk === "sent" || stk === "failed" ? (
++                  <PaymentStage
++                    statusUrl={`/api/portal/invoices/${inv.id}/status`}
++                    amount={money(inv.balance)}
++                    partnerName={promptName()}
++                    initial={stk === "failed" ? "failed" : "prompted"}
++                    initialError={stk === "failed" ? "We could not start the M-Pesa prompt." : null}
++                    retry={
++                      <form action={memberPayInvoice}>
++                        <input type="hidden" name="invoiceId" value={inv.id} />
++                        <SubmitButton className="btn-sheen rounded-full bg-lime-500 px-6 py-2.5 text-sm font-semibold uppercase tracking-wide text-ink-900 hover:bg-lime-400">Send the prompt again</SubmitButton>
++                      </form>
++                    }
++                  />
++                ) : (
++                  <>
++                    <h3 className="font-display text-lg text-white">Pay {money(inv.balance)}</h3>
++                    <p className="mt-1 text-sm text-white/55">Pay with M-Pesa. Your membership activates the moment payment succeeds.</p>
++                    <form action={memberPayInvoice} className="mt-5">
++                      <input type="hidden" name="invoiceId" value={inv.id} />
++                      <SubmitButton className="btn-sheen w-full rounded-full bg-lime-500 py-3 text-sm font-semibold uppercase tracking-wide text-ink-900 hover:bg-lime-400">Pay with M-Pesa</SubmitButton>
++                    </form>
++                  </>
+                 )}
+-                <h3 className="font-display text-lg text-white">Pay {money(inv.balance)}</h3>
+-                <p className="mt-1 text-sm text-white/55">Pay securely with M-Pesa. Your membership activates the moment payment succeeds.</p>
+-                <form action={memberPayInvoice} className="mt-5">
+-                  <input type="hidden" name="invoiceId" value={inv.id} />
+-                  <SubmitButton className="btn-sheen w-full rounded-full bg-lime-500 py-3 text-sm font-semibold uppercase tracking-wide text-ink-900 hover:bg-lime-400">Pay with M-Pesa</SubmitButton>
+-                </form>
+                 <Link href="/portal" className="mt-4 block text-center text-sm text-white/50 hover:text-lime-300">← Back to portal</Link>
+               </>
+             ) : (
+diff --git a/src/app/api/payhero/callback/[[...seg]]/route.ts b/src/app/api/payhero/callback/[[...seg]]/route.ts
+new file mode 100644
+index 0000000..702e771
+--- /dev/null
++++ b/src/app/api/payhero/callback/[[...seg]]/route.ts
+@@ -0,0 +1,57 @@
++import { settleByCheckout } from "@/lib/services/billing";
++
++export const dynamic = "force-dynamic";
++
++/** PayHero posts the result of an STK prompt here.
++ *
++ *  Same shape of defence as the Daraja callback: the URL carries a secret
++ *  path segment (/api/payhero/callback/<PAYHERO_CALLBACK_TOKEN>) and a request
++ *  that does not present it is refused. PayHero's request signing is optional
++ *  and absent from its published reference, so without the token this endpoint
++ *  would settle an invoice for anyone who guessed a CheckoutRequestID.
++ *
++ *  The body nests the interesting part under `response`, and reports M-Pesa's
++ *  numeric ResultCode where 0 means paid. Confirmed against a live payment
++ *  rather than assumed — the field names below are what PayHero actually sent.
++ */
++export async function POST(req: Request, ctx: { params: Promise<{ seg?: string[] }> }) {
++  const expected = process.env.PAYHERO_CALLBACK_TOKEN;
++  if (expected) {
++    const { seg } = await ctx.params;
++    if ((seg?.[0] ?? "") !== expected) {
++      return new Response("Not found", { status: 404 });
++    }
++  }
++
++  let body: unknown;
++  try {
++    body = await req.json();
++  } catch {
++    return Response.json({ status: "ignored" });
++  }
++
++  const r =
++    (body as { response?: Record<string, unknown> })?.response ??
++    (body as Record<string, unknown>);
++
++  const checkoutId = String(r?.CheckoutRequestID ?? r?.reference ?? "");
++  const resultCode = r?.ResultCode;
++  const status = String(r?.Status ?? "").toLowerCase();
++
++  // ResultCode is the authority when present: 0 is paid, anything else is not.
++  // Status is the fallback for a body that omits it.
++  const paid =
++    resultCode !== undefined && resultCode !== null && resultCode !== ""
++      ? Number(resultCode) === 0
++      : status === "success";
++
++  if (checkoutId && paid) {
++    const amount = Number(r?.Amount) || undefined;
++    const receipt = String(r?.MpesaReceiptNumber ?? "");
++    await settleByCheckout(checkoutId, amount, receipt || undefined);
++  }
++
++  // Always 200 once the token is good, even for an invoice we cannot place:
++  // anything else makes PayHero retry a delivery that will never succeed.
++  return Response.json({ status: "ok" });
++}
+diff --git a/src/app/api/portal/invoices/[id]/status/route.ts b/src/app/api/portal/invoices/[id]/status/route.ts
+new file mode 100644
+index 0000000..74c4ec5
+--- /dev/null
++++ b/src/app/api/portal/invoices/[id]/status/route.ts
+@@ -0,0 +1,27 @@
++import { currentUser } from "@/lib/auth/current-user";
++import { getInvoice } from "@/lib/db/repo";
++
++export const dynamic = "force-dynamic";
++
++/** What the member's payment screen polls while a prompt is out.
++ *
++ *  Session-guarded and ownership-checked: an invoice id is short and
++ *  guessable, and without the owner check this would let any signed-in member
++ *  watch anybody's balance. A stranger's id answers 404, not 403 — there is no
++ *  reason to confirm that an invoice exists to someone who cannot see it.
++ */
++export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
++  const session = await currentUser();
++  if (session?.role !== "member") {
++    return new Response("Not found", { status: 404 });
++  }
++
++  const { id } = await ctx.params;
++  const inv = getInvoice(id);
++
++  if (!inv || inv.memberId !== session.sub) {
++    return new Response("Not found", { status: 404 });
++  }
++
++  return Response.json({ status: inv.status, balance: inv.balance });
++}
+diff --git a/src/components/portal/payment-stage.tsx b/src/components/portal/payment-stage.tsx
+new file mode 100644
+index 0000000..3439859
+--- /dev/null
++++ b/src/components/portal/payment-stage.tsx
+@@ -0,0 +1,175 @@
++"use client";
++
++import { useEffect, useRef, useState, type ReactNode } from "react";
++import { useRouter } from "next/navigation";
++
++/* ==========================================================================
++   The payment screen, ported from the 64 Theatre checkout and restyled.
++
++   Four states, few words: Check your phone → Still waiting → Paid, or
++   Payment not completed. The things that matter were learned the hard way
++   over there and are kept deliberately:
++
++   · A bar that FILLS, never a countdown. A number reaching zero invites
++     people to give up on prompts that routinely arrive late and succeed.
++   · The partner's name as a quiet badge. The prompt shows the collecting
++     paybill's registered name, not the gym's, and an unexplained company
++     name is what makes a careful member cancel.
++   · Softened at 20 seconds rather than declared broken — the honest state is
++     "still going", and saying so stops people paying twice.
++   · Polling backs off. Each poll is an upstream call, not just a row read.
++
++   Colours follow this platform, not the theatre: lime for progress and
++   success, ember for failure.
++   ========================================================================== */
++
++type State = "prompted" | "paid" | "failed";
++
++export function PaymentStage({
++  statusUrl,
++  amount,
++  partnerName,
++  initial = "prompted",
++  initialError,
++  retry,
++}: {
++  statusUrl: string;
++  amount: string;
++  partnerName?: string | null;
++  initial?: State;
++  initialError?: string | null;
++  /** The retry form, rendered by the server so the action stays server-side. */
++  retry: ReactNode;
++}) {
++  const router = useRouter();
++  const [state, setState] = useState<State>(initial);
++  const [head, setHead] = useState(initial === "failed" ? "Payment not completed" : "Check your phone");
++  const [sub, setSub] = useState(
++    initial === "failed"
++      ? initialError || "The prompt was cancelled or timed out."
++      : `Enter your M-Pesa PIN · ${amount}`,
++  );
++  const [showActions, setShowActions] = useState(initial === "failed");
++  const [progress, setProgress] = useState(0);
++  const started = useRef(Date.now());
++
++  // Filling bar over a 60s window.
++  useEffect(() => {
++    if (state !== "prompted") return;
++    let raf = 0;
++    const tick = () => {
++      const pct = Math.min(100, ((Date.now() - started.current) / 60_000) * 100);
++      setProgress(pct);
++      if (pct < 100) raf = requestAnimationFrame(tick);
++    };
++    raf = requestAnimationFrame(tick);
++    return () => cancelAnimationFrame(raf);
++  }, [state]);
++
++  // Soften, do not alarm.
++  useEffect(() => {
++    if (state !== "prompted") return;
++    const t = setTimeout(() => {
++      setHead("Still waiting");
++      setSub("Prompts can take a minute on a busy network.");
++      setShowActions(true);
++    }, 20_000);
++    return () => clearTimeout(t);
++  }, [state]);
++
++  // Poll, backing off.
++  useEffect(() => {
++    if (state !== "prompted") return;
++    let cancelled = false;
++    let wait = 2500;
++
++    const run = () => {
++      if (cancelled) return;
++      setTimeout(async () => {
++        if (cancelled) return;
++        try {
++          const r = await fetch(statusUrl, { headers: { Accept: "application/json" }, cache: "no-store" });
++          const d = (await r.json()) as { status?: string };
++          if (cancelled) return;
++          if (d.status === "paid") {
++            setState("paid");
++            setHead("Paid");
++            setSub("Activating your membership…");
++            setTimeout(() => router.refresh(), 900);
++            return;
++          }
++          wait = Math.min(wait + 900, 6000);
++        } catch {
++          wait = Math.min(wait + 1500, 8000);
++        }
++        run();
++      }, wait);
++    };
++
++    run();
++    return () => {
++      cancelled = true;
++    };
++  }, [state, statusUrl, router]);
++
++  const accent =
++    state === "failed"
++      ? { ring: "border-ember-500/50", bg: "bg-ember-500/10", icon: "text-ember-400" }
++      : state === "paid"
++        ? { ring: "border-lime-500/55", bg: "bg-lime-500/15", icon: "text-lime-400" }
++        : { ring: "border-lime-500/45", bg: "bg-lime-500/10", icon: "text-lime-400" };
++
++  return (
++    <div className="rounded-3xl border border-white/10 bg-ink-900 px-6 py-9 text-center">
++      <div className="relative mx-auto mb-6 h-[86px] w-[86px]">
++        {state === "prompted" && (
++          <>
++            <span className="absolute inset-0 animate-ping rounded-full border border-lime-500/40" />
++            <span className="absolute inset-0 rounded-full border border-lime-500/20" />
++          </>
++        )}
++        <span
++          className={`absolute inset-[13px] grid place-items-center rounded-full border ${accent.ring} ${accent.bg}`}
++        >
++          <svg viewBox="0 0 24 24" fill="none" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round"
++               className={`h-7 w-7 ${accent.icon}`} stroke="currentColor" aria-hidden="true">
++            {state === "paid" ? (
++              <path d="M5 12.5l4.5 4.5L19 7.5" />
++            ) : state === "failed" ? (
++              <>
++                <circle cx="12" cy="12" r="9" />
++                <path d="M12 8v5" />
++                <path d="M12 16.5v.01" />
++              </>
++            ) : (
++              <>
++                <rect x="6" y="2.5" width="12" height="19" rx="2.5" />
++                <path d="M10.5 18.5h3" />
++              </>
++            )}
++          </svg>
++        </span>
++      </div>
++
++      <h3 className="font-display text-xl text-white">{head}</h3>
++      <p className="mt-1.5 text-sm text-white/55">{sub}</p>
++
++      {partnerName && state === "prompted" && (
++        <span className="mt-4 inline-block rounded-full border border-white/12 bg-white/[0.04] px-3 py-1 text-[11px] uppercase tracking-[0.09em] text-white/45">
++          {partnerName}
++        </span>
++      )}
++
++      {state === "prompted" && (
++        <div className="mx-auto mt-6 h-[3px] max-w-[280px] overflow-hidden rounded-full bg-white/10">
++          <div
++            className="h-full rounded-full bg-gradient-to-r from-lime-600 to-lime-400 transition-[width] duration-200"
++            style={{ width: `${progress}%` }}
++          />
++        </div>
++      )}
++
++      {showActions && state !== "paid" && <div className="mt-6">{retry}</div>}
++    </div>
++  );
++}
+diff --git a/src/lib/auth/member-actions.ts b/src/lib/auth/member-actions.ts
+index 709efb8..b4e9067 100644
+--- a/src/lib/auth/member-actions.ts
++++ b/src/lib/auth/member-actions.ts
+@@ -7,7 +7,7 @@ import { getDB, saveDB, uid } from "@/lib/db/store";
+ import { getUserByEmail, getUser, currentMembership } from "@/lib/db/repo";
+ import { assignPlan, recordInvoicePayment, setInvoiceCheckout } from "@/lib/services/billing";
+ import { memberEnrollWorkout } from "@/lib/services/programmes";
+-import { mpesaConfigured, stkPush } from "@/lib/services/mpesa";
++import { paymentsConfigured, stkPush } from "@/lib/services/payments";
+ import { hashPassword } from "./password";
+ import { signSession, SESSION_COOKIE, SESSION_MAX_AGE } from "./session";
+ import { currentUser } from "./current-user";
+@@ -100,10 +100,10 @@ export async function memberPayInvoice(formData: FormData) {
+   }
+ 
+   const member = getUser(session!.sub);
+-  // M-Pesa not wired yet → members never self-activate. The admin confirms the
+-  // invoice and onboards them. The UI shows a "coming soon" state, so this is
+-  // just a safety net if the action is somehow invoked.
+-  if (!mpesaConfigured() || !member?.phone) {
++  // No provider configured → members never self-activate. The admin confirms
++  // the invoice and onboards them. The UI shows a "coming soon" state, so this
++  // is just a safety net if the action is somehow invoked.
++  if (!paymentsConfigured() || !member?.phone) {
+     redirect(`/portal/invoices/${invoiceId}?stk=soon`);
+   }
+ 
+@@ -117,5 +117,16 @@ export async function memberPayInvoice(formData: FormData) {
+     revalidatePath("/portal");
+     redirect(`/portal/invoices/${invoiceId}?stk=sent`);
+   }
++
++  // The member gets a neutral message — the reason is usually ours, not
++  // theirs, and "service wallet empty" is not an instruction they can act on.
++  // But it was being discarded entirely, so nobody could act on it: an empty
++  // PayHero wallet refuses every prompt while looking exactly like a flaky
++  // network. Keep it where the operator will find it.
++  console.error("[payments] stk push failed", {
++    invoice: inv!.number,
++    reason: res.error,
++  });
++
+   redirect(`/portal/invoices/${invoiceId}?stk=failed`);
+ }
+diff --git a/src/lib/services/payhero.ts b/src/lib/services/payhero.ts
+new file mode 100644
+index 0000000..2782c5f
+--- /dev/null
++++ b/src/lib/services/payhero.ts
+@@ -0,0 +1,132 @@
++import "server-only";
++
++/* ==========================================================================
++   PayHero — STK push that settles into a bank account.
++
++   WHY THIS EXISTS ALONGSIDE DARAJA. Daraja needs a Safaricom shortcode and
++   passkey in Fit Generations' own name, and that approval takes weeks.
++   PayHero raises the prompt against a bank paybill it already holds and
++   settles direct to the gym's account, so members can pay now. Nothing else
++   in the app changes: this returns the same StkResult, with PayHero's own
++   CheckoutRequestID, so setInvoiceCheckout / settleByCheckout reconcile
++   exactly as they do for Daraja.
++
++     PAYHERO_USERNAME, PAYHERO_PASSWORD   API credentials (NOT the dashboard
++                                          login) — PayHero dashboard → API
++     PAYHERO_CHANNEL_ID                   the payment channel money lands in;
++                                          use the BANK channel, or takings sit
++                                          in a PayHero wallet
++     PAYHERO_CALLBACK_TOKEN               secret path segment on the callback
++                                          URL — the same defence the Daraja
++                                          callback already uses
++     APP_URL                              public https base
++     PAYHERO_DISPLAY_NAME                 what the prompt shows the member
++
++   WHAT WILL SURPRISE YOU. The prompt carries the name registered against the
++   COLLECTING paybill, which belongs to the bank — not "Fit Generations". A
++   member seeing an unfamiliar company cancels, so the portal names it in
++   advance. See promptName().
++   ========================================================================== */
++
++import type { StkResult } from "./mpesa";
++
++export function payheroConfigured(): boolean {
++  return Boolean(
++    process.env.PAYHERO_USERNAME &&
++      process.env.PAYHERO_PASSWORD &&
++      // Without a channel the request is accepted and the money has nowhere
++      // to land, so this is as load-bearing as the credentials.
++      process.env.PAYHERO_CHANNEL_ID &&
++      process.env.APP_URL,
++  );
++}
++
++const baseUrl = () =>
++  (process.env.PAYHERO_BASE_URL || "https://backend.payhero.co.ke").replace(/\/+$/, "");
++
++/** The name the member will read on their handset, if we have been told it. */
++export function payheroPromptName(): string | null {
++  const n = (process.env.PAYHERO_DISPLAY_NAME || "").trim();
++  return n === "" ? null : n;
++}
++
++/** Callback URL PayHero posts the result to.
++ *
++ *  PayHero's request signing is optional and undocumented, so the secret path
++ *  segment is what stops a stranger marking an invoice paid by guessing a
++ *  CheckoutRequestID — the same reasoning as MPESA_CALLBACK_TOKEN. */
++export function payheroCallbackUrl(): string {
++  const base = `${process.env.APP_URL}/api/payhero/callback`;
++  const token = process.env.PAYHERO_CALLBACK_TOKEN;
++  return token ? `${base}/${encodeURIComponent(token)}` : base;
++}
++
++/** 2547XXXXXXXX / 2541XXXXXXXX — the only form PayHero accepts. */
++export function normalizePhone(raw: string): string {
++  const d = raw.replace(/\D/g, "");
++  if (d.startsWith("254")) return d;
++  if (d.startsWith("0")) return "254" + d.slice(1);
++  if (d.startsWith("7") || d.startsWith("1")) return "254" + d;
++  return d;
++}
++
++export async function stkPush(input: {
++  phone: string;
++  amount: number;
++  accountRef: string;
++  description: string;
++}): Promise<StkResult> {
++  if (!payheroConfigured()) return { ok: false, error: "PayHero not configured" };
++
++  const auth = Buffer.from(
++    `${process.env.PAYHERO_USERNAME}:${process.env.PAYHERO_PASSWORD}`,
++  ).toString("base64");
++
++  try {
++    // A slow gateway must not hold the member's click open indefinitely.
++    const res = await fetch(`${baseUrl()}/api/v2/payments`, {
++      method: "POST",
++      headers: { Authorization: `Basic ${auth}`, "Content-Type": "application/json" },
++      cache: "no-store",
++      signal: AbortSignal.timeout(20_000),
++      body: JSON.stringify({
++        amount: Math.max(1, Math.round(input.amount)),
++        phone_number: normalizePhone(input.phone),
++        channel_id: Number(process.env.PAYHERO_CHANNEL_ID),
++        provider: "m-pesa",
++        // Comes back on the callback. The invoice number is what the admin
++        // quotes, so it is the useful thing to carry.
++        external_reference: input.accountRef,
++        customer_name: input.description.slice(0, 60),
++        callback_url: payheroCallbackUrl(),
++      }),
++    });
++
++    const j = (await res.json().catch(() => null)) as
++      | { success?: boolean; CheckoutRequestID?: string; reference?: string; error_message?: string; message?: string }
++      | null;
++
++    // PayHero answers 200 with success:false for a refusal, so the status
++    // code alone is not an answer.
++    if (!res.ok || j?.success === false) {
++      const reason = j?.error_message ?? j?.message ?? `HTTP ${res.status}`;
++
++      // The one refusal an operator can fix, and the one that looks exactly
++      // like a flaky network: PayHero spends a prepaid SERVICE wallet to send
++      // each prompt, and an empty one refuses every request while the
++      // credentials and channel still look perfect.
++      if (/insufficient|balance|wallet|top ?up/i.test(reason)) {
++        return { ok: false, error: `PayHero service wallet is empty — top it up. (${reason})` };
++      }
++      return { ok: false, error: reason };
++    }
++
++    const checkoutId = j?.CheckoutRequestID ?? j?.reference;
++
++    return checkoutId
++      ? { ok: true, checkoutId }
++      : { ok: false, error: "PayHero accepted the request but returned no reference" };
++  } catch (e) {
++    return { ok: false, error: e instanceof Error ? e.message : String(e) };
++  }
++}
+diff --git a/src/lib/services/payments.ts b/src/lib/services/payments.ts
+new file mode 100644
+index 0000000..50e8ebf
+--- /dev/null
++++ b/src/lib/services/payments.ts
+@@ -0,0 +1,71 @@
++import "server-only";
++
++/* ==========================================================================
++   Which provider collects the money.
++
++   The app used to call Daraja directly from the portal action, so switching
++   provider meant editing the checkout. Everything now asks here instead, and
++   the only thing that changes is an env var.
++
++     PAYMENTS_PROVIDER=payhero|daraja    pick one explicitly
++     unset                               whichever is configured, PayHero
++                                         first — it is the one that works
++                                         without a Safaricom shortcode
++
++   Both return the same StkResult carrying a CheckoutRequestID, and both
++   reconcile through settleByCheckout, so a switch needs no data migration
++   and leaves old invoices settleable by whichever provider raised them.
++   ========================================================================== */
++
++import * as daraja from "./mpesa";
++import * as payhero from "./payhero";
++import type { StkResult } from "./mpesa";
++
++export type Provider = "payhero" | "daraja";
++
++/** The provider that will actually be used, or null if none can run. */
++export function activeProvider(): Provider | null {
++  const forced = (process.env.PAYMENTS_PROVIDER || "").trim().toLowerCase();
++
++  if (forced === "payhero") return payhero.payheroConfigured() ? "payhero" : null;
++  if (forced === "daraja") return daraja.mpesaConfigured() ? "daraja" : null;
++
++  if (payhero.payheroConfigured()) return "payhero";
++  if (daraja.mpesaConfigured()) return "daraja";
++
++  return null;
++}
++
++/** Can a member pay right now? Replaces the direct mpesaConfigured() checks. */
++export function paymentsConfigured(): boolean {
++  return activeProvider() !== null;
++}
++
++/**
++ * The business name the member will see on the prompt, when it is not ours.
++ *
++ * Null for Daraja, where the gym's own shortcode means the prompt already
++ * says Fit Generations. Non-null for an aggregator, where it says somebody
++ * else and an unexplained company name is what makes a careful member cancel.
++ */
++export function promptName(): string | null {
++  return activeProvider() === "payhero" ? payhero.payheroPromptName() : null;
++}
++
++export async function stkPush(input: {
++  phone: string;
++  amount: number;
++  accountRef: string;
++  description: string;
++}): Promise<StkResult> {
++  switch (activeProvider()) {
++    case "payhero":
++      return payhero.stkPush(input);
++    case "daraja":
++      return daraja.stkPush(input);
++    default:
++      return { ok: false, error: "No payment provider is configured" };
++  }
++}
++
++export type { StkResult };
