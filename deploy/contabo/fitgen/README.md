@@ -3,10 +3,19 @@
 Source: **github.com/simboni/fit-generations-gym** (private)
 Compose project **`fitgen`** · containers `fitgen-web`, `fitgen-db`
 
-Today it runs on Render. This moves it onto the shared box beside 64theatre,
-StackUp and St Stephen's, and switches member payments from Daraja — which
-needs a Safaricom shortcode in the gym's own name — to PayHero, which does
-not.
+**It is already deployed on this box** — compose project `fitgen`, running
+from `/root/fit-generations-gym`, serving fitgenerationsgym.com through
+`edge-caddy` since early September. The database is migrated and the volume is
+`fitgen_pgdata`.
+
+So this is an UPGRADE, not an install. Do not clone to /srv/fitgen and do not
+create a second `fitgen` project: that adopts or destroys the live one's
+containers and volume. `preflight.sh fitgen` stops you, and it is right to.
+
+What is actually missing is payments. The app shipped with Daraja, which needs
+a Safaricom shortcode in the gym's own name — the weeks-long approval
+64theatre avoided — and the live `.env` has no M-Pesa variables at all, which
+is why the portal shows "coming soon". Patch 0001 adds PayHero beside Daraja.
 
 ## Never run these two
 
@@ -27,45 +36,53 @@ patch 0001 only adds the PayHero variables and memory caps to it.
 
 ## 1 · Set it up (nothing serving yet)
 
+The deployment is at `/root/fit-generations-gym` and its `.env` already holds
+the database password, auth secret and APP_URL. Leave all of that alone.
+
 ```bash
-bash /srv/smp-portfolio/repo/deploy/contabo/preflight.sh fitgen   # read-only
 docker ps --format '{{.Names}}\t{{.Status}}' > /root/before-fitgen.txt
-
-mkdir -p /srv/fitgen
-git clone --depth 1 https://github.com/simboni/fit-generations-gym /srv/fitgen/repo
-cd /srv/fitgen/repo
-git apply /srv/smp-portfolio/repo/deploy/contabo/fitgen/patches/0001-payhero-payments.patch
-cp .env.example /srv/fitgen/repo/.env && chmod 600 .env
+cd /root/fit-generations-gym
+git pull
+git apply --check /srv/smp-portfolio/repo/deploy/contabo/fitgen/patches/0001-payhero-payments.patch \
+  && git apply /srv/smp-portfolio/repo/deploy/contabo/fitgen/patches/0001-payhero-payments.patch
 ```
 
-Fill in `.env`. Generate the secrets rather than inventing them:
+Add only the PayHero settings. Read them out of 64theatre's `.env` rather than
+retyping secrets — it is the same PayHero account, and a subshell keeps the
+values out of this shell and out of history:
 
 ```bash
-{
-  echo "DB_PASSWORD=$(openssl rand -hex 24)"
-  echo "AUTH_SECRET=$(openssl rand -hex 32)"
-  echo "CRON_SECRET=$(openssl rand -hex 16)"
-  echo "PAYHERO_CALLBACK_TOKEN=$(openssl rand -hex 16)"
-  echo "ADMIN_PASSWORD=$(openssl rand -base64 18 | tr -d '/+=' | cut -c1-20)"
-  echo "APP_URL=https://fitgenerationsgym.com"
-  echo "EDGE_NETWORK=edge"
-} >> .env
-grep '^ADMIN_PASSWORD=' .env     # write this down, then change it in the app
-```
+( set -a; . /srv/64theatre/.env; set +a
+  {
+    echo "PAYHERO_BASE_URL=${PAYHERO_BASE_URL:-https://backend.payhero.co.ke}"
+    echo "PAYHERO_USERNAME=$PAYHERO_USERNAME"
+    echo "PAYHERO_PASSWORD=$PAYHERO_PASSWORD"
+    echo "PAYHERO_CHANNEL_ID=$PAYHERO_CHANNEL_ID"
+    echo "PAYHERO_DISPLAY_NAME=${PAYHERO_DISPLAY_NAME:-}"
+    echo "PAYHERO_CALLBACK_TOKEN=$(openssl rand -hex 16)"
+  } >> /root/fit-generations-gym/.env )
 
-The PayHero values are the same account 64theatre uses — copy
-`PAYHERO_USERNAME`, `PAYHERO_PASSWORD` and `PAYHERO_CHANNEL_ID` from
-`/srv/64theatre/.env`, and set `PAYHERO_DISPLAY_NAME` to the same name
-members will see on the prompt.
+grep -c '^PAYHERO' /root/fit-generations-gym/.env    # expect 6
+```
 
 > **Check `free -m` before building.** This box has no swap and a Next.js
 > build is the heaviest thing that happens on it. Under ~1.5 GB available,
 > wait.
 
 ```bash
-cd /srv/fitgen/repo
+cd /root/fit-generations-gym
 docker compose -f docker-compose.behind-proxy.yml up -d --build
 docker compose -f docker-compose.behind-proxy.yml logs -f fitgen-web
+```
+
+The named volume `fitgen_pgdata` survives this — `up -d --build` replaces
+containers, never volumes. Members and invoices are untouched.
+
+Confirm the variables actually reached the container, which is the failure
+that cost days on the theatre deploy:
+
+```bash
+docker exec fitgen-web printenv | grep -c PAYHERO     # expect 6
 ```
 
 ## 2 · Prove it answers, before touching anything shared
@@ -81,11 +98,13 @@ deploy — it cost a day on StackUp.
 
 ## 3 · Publish
 
-**There is already a `fitgen.caddy` on this box**, from when the site was
-split between here and Render. Read it before replacing it, and keep a copy:
+The site is already published and the existing `fitgen.caddy` is correct —
+the only thing it lacks is `flush_interval -1`. That matters now: the payment
+screen polls while a prompt is out and PayHero posts its callback through this
+proxy, and a buffering proxy breaks both quietly. Keep a copy before changing
+it:
 
 ```bash
-cat /srv/edge/sites/fitgen.caddy
 cp /srv/edge/sites/fitgen.caddy /root/fitgen.caddy.before-$(date -u +%F)
 cp /srv/smp-portfolio/repo/deploy/contabo/fitgen/fitgen.caddy /srv/edge/sites/fitgen.caddy
 
@@ -107,9 +126,10 @@ done
 
 ## 4 · DNS
 
-`www.fitgenerationsgym.com` has been pointing at Render (`216.24.57.1`),
-which is why its certificate has been failing here. Both names must resolve
-to this box:
+`www.fitgenerationsgym.com` pointed at Render (`216.24.57.1`) for a long
+time, which is why its certificate kept failing here. Both names must resolve
+to this box — as of 13 October both A records are correct, with a 14400s TTL,
+so allow for cached answers:
 
 | Host | Type | Value |
 |---|---|---|
@@ -152,13 +172,15 @@ others.
 
 ## Retire Render
 
-Only after a few days of the box behaving. Render is the rollback until then,
-and it costs nothing to leave running.
+The apex has been served from this box for weeks, so Render is only holding
+the old `www` answer and whatever blueprint is still provisioned. Once the new
+DNS has fully propagated and payments have been tested, shut the Render
+service down — it is not a rollback for anything any more.
 
 ## Updating later
 
 ```bash
-cd /srv/fitgen/repo && git pull
+cd /root/fit-generations-gym && git pull
 docker compose -f docker-compose.behind-proxy.yml up -d --build
 ```
 
