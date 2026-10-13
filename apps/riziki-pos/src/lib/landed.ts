@@ -115,7 +115,7 @@ export function landedCosts(opts: {
     `SELECT pl.item_id, p.at, p.ref, s.name AS supplier,
             pl.cost_cents, pl.qty_milli, pl.units
        FROM purchase_lines pl
-       JOIN purchases p ON p.id = pl.purchase_id
+       JOIN purchases p ON p.id = pl.purchase_id AND p.voided_at IS NULL
        LEFT JOIN suppliers s ON s.id = p.supplier_id
       WHERE pl.qty_milli > 0
       ORDER BY pl.item_id, p.at DESC, pl.id DESC`,
@@ -263,7 +263,7 @@ export function landedHistory(itemId: number, limit = 12): LandedDelivery[] {
   const rows = all<LineRow>(
     `SELECT pl.item_id, p.at, p.ref, s.name AS supplier, pl.cost_cents, pl.qty_milli, pl.units
        FROM purchase_lines pl
-       JOIN purchases p ON p.id = pl.purchase_id
+       JOIN purchases p ON p.id = pl.purchase_id AND p.voided_at IS NULL
        LEFT JOIN suppliers s ON s.id = p.supplier_id
       WHERE pl.item_id = ? AND pl.qty_milli > 0
       ORDER BY p.at DESC, pl.id DESC

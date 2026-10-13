@@ -15,7 +15,7 @@
  * Nothing here imports from `next/*`, so it can be unit-tested under Node.
  */
 
-import { all, get, run, tx, audit, postMovement, updateAverageCost } from "./db.ts";
+import { all, get, run, tx, audit, postMovement, stockOf, updateAverageCost } from "./db.ts";
 import { formatKes, MILLI } from "./units.ts";
 import type { DateRange } from "./reports.ts";
 
@@ -339,16 +339,22 @@ export interface PurchaseRow {
   transport_cents: number;
   lines: number;
   user_name: string | null;
+  /** Set when the delivery was undone. The row stays; it stops counting. */
+  voided_at: string | null;
+  void_reason: string | null;
+  voided_by_name: string | null;
 }
 
 export function recentPurchases(limit = 30): PurchaseRow[] {
   return all<PurchaseRow>(
     `SELECT p.id, p.at, p.ref, p.total_cents, p.transport_cents,
+            p.voided_at, p.void_reason, vu.name AS voided_by_name,
             s.name AS supplier_name, u.name AS user_name,
             (SELECT COUNT(*) FROM purchase_lines pl WHERE pl.purchase_id = p.id) AS lines
        FROM purchases p
        LEFT JOIN suppliers s ON s.id = p.supplier_id
        LEFT JOIN users u     ON u.id = p.user_id
+       LEFT JOIN users vu    ON vu.id = p.voided_by
       ORDER BY p.at DESC, p.id DESC
       LIMIT ?`,
     limit,
@@ -400,10 +406,19 @@ export function listPurchases(query: PurchaseQuery = {}): {
   const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
   const from = `FROM purchases p
        LEFT JOIN suppliers s ON s.id = p.supplier_id
-       LEFT JOIN users u     ON u.id = p.user_id`;
+       LEFT JOIN users u     ON u.id = p.user_id
+       LEFT JOIN users vu    ON vu.id = p.voided_by`;
 
+  /*
+    An undone delivery is still a row — it has to be, so the person who typed
+    it twice can see that the second one was cancelled — but it is no longer
+    money the shop spent, so it is counted out of the total while staying in
+    the count of rows on the page.
+  */
   const head = get<{ n: number; total: number }>(
-    `SELECT COUNT(*) AS n, COALESCE(SUM(p.total_cents), 0) AS total ${from} ${clause}`,
+    `SELECT COUNT(*) AS n,
+            COALESCE(SUM(CASE WHEN p.voided_at IS NULL THEN p.total_cents ELSE 0 END), 0) AS total
+       ${from} ${clause}`,
     ...args,
   );
   const total = head?.n ?? 0;
@@ -412,6 +427,7 @@ export function listPurchases(query: PurchaseQuery = {}): {
 
   const rows = all<PurchaseRow>(
     `SELECT p.id, p.at, p.ref, p.total_cents, p.transport_cents,
+            p.voided_at, p.void_reason, vu.name AS voided_by_name,
             s.name AS supplier_name, u.name AS user_name,
             (SELECT COUNT(*) FROM purchase_lines pl WHERE pl.purchase_id = p.id) AS lines
        ${from}
@@ -571,7 +587,7 @@ export function supplierSpend(): SupplierSpendRow[] {
             COALESCE(SUM(p.total_cents), 0)      AS spend_cents,
             MAX(p.at)                            AS last_at
        FROM suppliers s
-       LEFT JOIN purchases p ON p.supplier_id = s.id
+       LEFT JOIN purchases p ON p.supplier_id = s.id AND p.voided_at IS NULL
       GROUP BY s.id
       ORDER BY s.active DESC, spend_cents DESC, s.name`,
   );
@@ -682,11 +698,32 @@ export function replayCost(itemId: number): CostReplay {
       line's landed cost below is already the cost of the corrected quantity.
     */
     if (m.reason === "purchase" && m.ref_id !== null) {
-      const line = get<{ cost_cents: number; qty_milli: number }>(
-        `SELECT cost_cents, qty_milli FROM purchase_lines WHERE purchase_id = ? AND item_id = ?`,
+      const line = get<{ cost_cents: number; qty_milli: number; voided_at: string | null }>(
+        `SELECT pl.cost_cents, pl.qty_milli, p.voided_at
+           FROM purchase_lines pl
+           JOIN purchases p ON p.id = pl.purchase_id
+          WHERE pl.purchase_id = ? AND pl.item_id = ?`,
         m.ref_id,
         itemId,
       );
+
+      /*
+        AN UNDONE DELIVERY IS INVISIBLE HERE — both of its rows.
+
+        Not just its money: its weight too. Skipping only the cost and letting
+        the kilogrammes through leaves the replay holding stock it never paid
+        for, and every later delivery is then blended against a larger pile than
+        the shop ever had. Undoing a 500-a-kilo delivery between one at 365 and
+        one at 355 left the average at 361.67 instead of 360 — wrong, and wrong
+        in a way nothing on any screen would have explained.
+
+        The reversal posted beside it is skipped already, a few lines up, as an
+        adjustment against a delivery. So the pair vanishes together and the
+        replay reads exactly as if the delivery had never been typed, which is
+        what undoing one means.
+      */
+      if (line?.voided_at) continue;
+
       incomingCents = line?.cost_cents ?? null;
       // What the line says arrived, which is the corrected figure where it was
       // corrected and the original everywhere else.
@@ -807,11 +844,14 @@ export function correctPurchasePrices(
   input: { transportCents?: number; lines: PriceCorrection[] },
   userId?: number | null,
 ): CorrectionResult {
-  const purchase = get<{ id: number; transport_cents: number }>(
-    `SELECT id, transport_cents FROM purchases WHERE id = ?`,
+  const purchase = get<{ id: number; transport_cents: number; voided_at: string | null }>(
+    `SELECT id, transport_cents, voided_at FROM purchases WHERE id = ?`,
     purchaseId,
   );
   if (!purchase) throw new Error("That delivery could not be found.");
+  // Nothing to put right on a delivery that did not happen. Correcting one
+  // would rewrite prices the replay has already been told to skip.
+  if (purchase.voided_at) throw new Error("That delivery has been undone — there is nothing to correct.");
 
   const transport = input.transportCents ?? purchase.transport_cents;
   if (!Number.isInteger(transport) || transport < 0) {
@@ -970,4 +1010,129 @@ function recoverGoods(purchaseId: number, lineId: number): number {
   // Landed = goods + goods/goodsTotal × transport, so goods = landed × goodsTotal / landedTotal.
   if (landedTotal <= 0 || goodsTotal <= 0) return mine;
   return Math.round((mine * goodsTotal) / landedTotal);
+}
+
+// -------------------------------------------------------- undoing one
+
+export interface VoidPurchaseResult {
+  ref: string;
+  totalCents: number;
+  /** Each item the delivery touched, and where its cost price ended up. */
+  recosted: Array<{ itemId: number; name: string; costCents: number }>;
+  /** Items the reversal has pushed below zero — true, and worth saying. */
+  nowBelowZero: Array<{ name: string; shortMilli: number; unit: string }>;
+}
+
+/**
+ * A delivery that should never have been entered.
+ *
+ * NOT THE SAME ACT AS CORRECTING ONE. `correctPurchasePrices` is for a delivery
+ * that happened with the wrong figures on it — three drums booked as one, a
+ * price typed with a zero missing. This is for a delivery that did not happen:
+ * typed twice, entered against the wrong supplier, or goods that went back on
+ * the lorry before they were unloaded. Correcting leaves a delivery; voiding
+ * leaves none.
+ *
+ * Undone the way a sale is undone, and for the same reason. The ledger is
+ * append-only, so nothing is deleted: the arrival stays, the reversal is posted
+ * beside it, and the purchase is marked. What makes it an undo rather than an
+ * adjustment is the third step — every item the delivery touched has its cost
+ * replayed from the beginning, and the replay now skips a voided delivery, so
+ * the weighted average lands exactly where it would have if the delivery had
+ * never been typed.
+ *
+ * It does not refuse when the stock goes below zero. Goods sold out of a
+ * delivery that is then cancelled are a real situation — the stock really did
+ * leave the shop — and a count below zero is the honest record of it. It is
+ * reported rather than prevented, so whoever did it knows what to count.
+ */
+export function voidPurchase(
+  purchaseId: number,
+  userId: number,
+  reason: string,
+): VoidPurchaseResult {
+  const why = (reason ?? "").trim();
+  if (!why) throw new Error("Say why this delivery is being undone.");
+
+  return tx(() => {
+    const purchase = get<{ id: number; ref: string; total_cents: number; voided_at: string | null }>(
+      `SELECT id, ref, total_cents, voided_at FROM purchases WHERE id = ?`,
+      purchaseId,
+    );
+    if (!purchase) throw new Error("That delivery no longer exists.");
+    if (purchase.voided_at) throw new Error("That delivery has already been undone.");
+
+    const moves = all<{ item_id: number; delta_milli: number }>(
+      `SELECT item_id, delta_milli FROM stock_movements
+        WHERE ref_type = 'purchase' AND ref_id = ? AND reason IN ('purchase', 'adjustment')`,
+      purchaseId,
+    );
+
+    /*
+      Reversed as an adjustment against the delivery, which is the vocabulary
+      the ledger already has for this.
+
+      There is no `purchase_void` reason and adding one would mean rebuilding
+      the movements table on a live shop to widen a CHECK — a large risk for a
+      word. `adjustment` + `purchase` is already exactly right: the replay skips
+      those rows rather than reading them as an arrival, which is what a
+      reversal is, and the count still moves because stock is the sum of every
+      delta whatever its reason. The note says which kind of adjustment it was.
+    */
+    for (const m of moves) {
+      postMovement({
+        itemId: m.item_id,
+        deltaMilli: -m.delta_milli,
+        reason: "adjustment",
+        refType: "purchase",
+        refId: purchaseId,
+        userId,
+        note: `delivery undone — ${why}`,
+      });
+    }
+
+    run(
+      `UPDATE purchases
+          SET voided_at = datetime('now'), void_reason = ?, voided_by = ?
+        WHERE id = ?`,
+      why,
+      userId,
+      purchaseId,
+    );
+
+    /*
+      And the cost, back to what it would have been.
+
+      Replayed rather than nudged. The weighted average is a running figure —
+      every delivery since this one was blended against the number this one
+      produced — so there is no amount to subtract. The only honest answer is to
+      walk the item's whole history again without this delivery in it.
+    */
+    const touched = all<{ item_id: number; name: string; unit: string }>(
+      `SELECT DISTINCT pl.item_id, i.name, i.canonical_unit AS unit
+         FROM purchase_lines pl JOIN items i ON i.id = pl.item_id
+        WHERE pl.purchase_id = ?`,
+      purchaseId,
+    );
+
+    const recosted = touched.map((t) => ({
+      itemId: t.item_id,
+      name: t.name,
+      costCents: recomputeCost(t.item_id),
+    }));
+
+    const nowBelowZero = touched
+      .map((t) => ({ name: t.name, shortMilli: -stockOf(t.item_id), unit: t.unit }))
+      .filter((x) => x.shortMilli > 0);
+
+    audit(
+      userId,
+      "purchase_void",
+      "purchase",
+      purchaseId,
+      `${formatKes(purchase.total_cents)} undone: ${why}`,
+    );
+
+    return { ref: purchase.ref, totalCents: purchase.total_cents, recosted, nowBelowZero };
+  });
 }

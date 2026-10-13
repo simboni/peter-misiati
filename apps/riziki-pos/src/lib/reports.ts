@@ -1533,10 +1533,14 @@ const EXPORT_SPECS: Record<ExportTable, ExportSpec> = {
 
   purchases: {
     dated: "p.at",
-    personal: ["entered_by"],
+    personal: ["entered_by", "void_reason"],
+    // A delivery that was undone stays in the export, because the record is
+    // what happened and it did get typed. The last two columns are what make
+    // it readable: blank means it counted, filled means it did not.
     header: [
       "line_id", "purchase_id", "business_date", "supplier", "ref", "item",
       "units", "qty", "line_cost_kes", "transport_kes", "entered_by",
+      "undone_at", "void_reason",
     ],
     page: (limit, offset, where, args) =>
       all<Record<string, unknown>>(
@@ -1544,7 +1548,8 @@ const EXPORT_SPECS: Record<ExportTable, ExportSpec> = {
                 date(p.at, '+3 hours') AS business_date,
                 sup.name AS supplier, p.ref, i.name AS item,
                 l.units, l.qty_milli, l.cost_cents,
-                p.transport_cents, u.name AS entered_by
+                p.transport_cents, u.name AS entered_by,
+                p.voided_at, p.void_reason
            FROM purchase_lines l
            JOIN purchases p ON p.id = l.purchase_id
            LEFT JOIN suppliers sup ON sup.id = p.supplier_id
@@ -1560,6 +1565,7 @@ const EXPORT_SPECS: Record<ExportTable, ExportSpec> = {
         r.line_id, r.purchase_id, r.business_date, r.supplier, r.ref, r.item,
         r.units, ((r.qty_milli as number) / 1000).toFixed(3),
         kes(r.cost_cents as number), kes(r.transport_cents as number), r.entered_by,
+        r.voided_at, r.void_reason,
       ]),
   },
 
@@ -1766,7 +1772,7 @@ const EXPORT_SPECS: Record<ExportTable, ExportSpec> = {
                 s.name AS supplier, p.ref,
                 pl.units, pl.qty_milli, pl.cost_cents AS landed_cents
            FROM purchase_lines pl
-           JOIN purchases p ON p.id = pl.purchase_id
+           JOIN purchases p ON p.id = pl.purchase_id AND p.voided_at IS NULL
            LEFT JOIN items i ON i.id = pl.item_id
            LEFT JOIN suppliers s ON s.id = p.supplier_id
           ${where}

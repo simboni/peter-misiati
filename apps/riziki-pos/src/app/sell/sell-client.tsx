@@ -1772,17 +1772,32 @@ export default function SellClient({
           </div>
         ) : null}
 
-        <div className="mt-2.5 flex gap-2">
+        {/*
+          The delivery note belongs here, beside the receipt.
+
+          It has always existed and was only reachable from the invoice, which
+          means the one moment it is actually wanted — a lorry at the door and a
+          driver waiting — was two screens and a page load away. A receipt says
+          what was paid; a note says what is leaving, and goes with the goods.
+          The counter needs both within reach of the same thumb.
+        */}
+        <div className="mt-2.5 grid grid-cols-2 gap-2">
           <Link
             href={`/invoice/${receipt.saleId}?new=1`}
-            className="flex-1 rounded-full bg-white px-4 py-2.5 text-center text-sm font-bold text-brand-dark ring-1 ring-inset ring-line hover:bg-wash"
+            className="rounded-full bg-white px-3 py-2.5 text-center text-sm font-bold text-brand-dark ring-1 ring-inset ring-line hover:bg-wash"
           >
             Receipt / invoice
+          </Link>
+          <Link
+            href={`/delivery/${receipt.saleId}`}
+            className="rounded-full bg-white px-3 py-2.5 text-center text-sm font-bold text-brand-dark ring-1 ring-inset ring-line hover:bg-wash"
+          >
+            Delivery note
           </Link>
           <button
             type="button"
             onClick={() => setReceipt(null)}
-            className="flex-1 rounded-full bg-brand px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-brand-dark"
+            className="col-span-2 rounded-full bg-brand px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-brand-dark"
           >
             Next sale
           </button>

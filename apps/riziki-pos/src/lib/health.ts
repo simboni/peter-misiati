@@ -429,7 +429,7 @@ function deliveryLines(): LineRow[] {
             i.name AS item, i.canonical_unit AS unit, i.size_milli AS usual_size,
             p.at, pl.units, pl.size_milli, pl.qty_milli, pl.cost_cents
        FROM purchase_lines pl
-       JOIN purchases p ON p.id = pl.purchase_id
+       JOIN purchases p ON p.id = pl.purchase_id AND p.voided_at IS NULL
        JOIN items i ON i.id = pl.item_id
       ORDER BY pl.item_id, p.at`,
   );

@@ -17,6 +17,7 @@ import {
   deleteSupplier,
   setSupplierHidden,
   recordPurchase,
+  voidPurchase,
   type PurchaseLineInput,
 } from "@/lib/purchasing";
 import { formatKes, toCents } from "@/lib/units";
@@ -181,4 +182,59 @@ export async function recordPurchaseAction(_prev: FormState, formData: FormData)
   } catch (err) {
     return { error: message(err) };
   }
+}
+
+/**
+ * Undo a delivery that should never have been entered.
+ *
+ * Owner-only, and never a delete: the delivery stays on the list struck
+ * through with the reason beside it, the stock it brought in goes back out as
+ * its own ledger entry, and every cost price it touched is worked out again
+ * from scratch.
+ *
+ * A plain action rather than a `useActionState` one, because the row it is
+ * pressed on is re-rendered the moment it succeeds — there is nothing left
+ * holding a message, so the message travels on the URL the way a refused
+ * supplier delete already does.
+ *
+ * `redirect` is outside the try on purpose: it reports by throwing, so a catch
+ * around it would swallow the redirect and report it as a failure instead.
+ */
+export async function voidPurchaseAction(formData: FormData): Promise<void> {
+  const owner = await requirePermission("purchases");
+  const back = String(formData.get("back") ?? "");
+  let failed: string | null = null;
+  let said: string | null = null;
+
+  try {
+    const res = voidPurchase(
+      Number(formData.get("purchaseId")),
+      owner.id,
+      String(formData.get("reason") ?? ""),
+    );
+    // What the owner needs to hear is not "done" — it is where the cost prices
+    // landed and whether anything is now counted below zero, which happens
+    // honestly when goods out of a cancelled delivery were already sold.
+    const priced = res.recosted
+      .map((r) => `${r.name} now costs ${formatKes(r.costCents)}`)
+      .join(", ");
+    const short = res.nowBelowZero
+      .map((b) => `${b.name} is ${Math.round(b.shortMilli) / 1000} ${b.unit} below zero`)
+      .join(", ");
+    said =
+      `${res.ref || "That delivery"} undone, ${formatKes(res.totalCents)} off the books.` +
+      (priced ? ` ${priced}.` : "") +
+      (short ? ` Count these again: ${short}.` : "");
+  } catch (err) {
+    failed = message(err);
+  }
+
+  revalidatePath("/purchases");
+  revalidatePath("/stock");
+  revalidatePath("/reports");
+  revalidatePath("/items");
+
+  const sep = back.includes("?") ? "&" : "?";
+  if (failed) redirect(`/purchases${back}${sep}err=${encodeURIComponent(failed)}#deliveries`);
+  redirect(`/purchases${back}${sep}ok=${encodeURIComponent(said ?? "")}#deliveries`);
 }

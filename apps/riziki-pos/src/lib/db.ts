@@ -142,6 +142,15 @@ const DROPPED_COLUMNS: Array<{ table: string; column: string }> = [
 const RETIRED_TABLES = ["conversions"];
 
 const ADDED_COLUMNS: Array<{ table: string; column: string; definition: string }> = [
+  /*
+    Undoing a delivery that should not be there at all.
+
+    Stated here as well as in schema.sql, because `CREATE TABLE IF NOT EXISTS`
+    does nothing to a database that already has the table — and the shop's does.
+  */
+  { table: "purchases", column: "void_reason", definition: "TEXT" },
+  { table: "purchases", column: "voided_by", definition: "INTEGER REFERENCES users(id)" },
+  { table: "purchases", column: "voided_at", definition: "TEXT" },
   {
     table: "items",
     column: "price_basis",

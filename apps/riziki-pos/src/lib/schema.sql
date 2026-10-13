@@ -563,7 +563,15 @@ CREATE TABLE IF NOT EXISTS purchases (
   total_cents  INTEGER NOT NULL DEFAULT 0 CHECK (total_cents >= 0),
   transport_cents INTEGER NOT NULL DEFAULT 0 CHECK (transport_cents >= 0),
   ref          TEXT    NOT NULL DEFAULT '',
-  user_id      INTEGER REFERENCES users(id)
+  user_id      INTEGER REFERENCES users(id),
+  -- A delivery that never happened: typed twice, or against the wrong supplier,
+  -- or for goods that went back on the lorry. Undone the way a sale is undone —
+  -- the row stays, the stock it added comes off, and the cost history is
+  -- replayed without it. Correcting a QUANTITY or a PRICE is a different act and
+  -- has its own screen; this is for a delivery that should not be there at all.
+  void_reason  TEXT,
+  voided_by    INTEGER REFERENCES users(id),
+  voided_at    TEXT
 );
 
 CREATE TABLE IF NOT EXISTS purchase_lines (

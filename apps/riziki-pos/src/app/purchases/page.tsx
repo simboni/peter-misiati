@@ -24,8 +24,9 @@ import {
   pct,
 } from "@/lib/units";
 import { listRange, readListPeriod } from "@/lib/list-range";
-import { Card, PageTitle, SectionLabel, Chip, Stat, Empty, TableWrap, Th, Td, Alert } from "@/components/ui";
+import { Card, PageTitle, SectionLabel, Chip, Stat, Empty, TableWrap, Th, Td, Alert, inputClass } from "@/components/ui";
 import { CorrectForm } from "./correct-form";
+import { voidPurchaseAction } from "./actions";
 import { ListToolbar, Pager } from "@/components/section-nav";
 import { DateBar } from "@/components/date-bar";
 import { ExportButtons } from "@/components/export-buttons";
@@ -83,6 +84,7 @@ export default async function PurchasesPage(props: {
     sp?: string;
     edit?: string;
     err?: string;
+    ok?: string;
     q?: string;
     period?: string;
     from?: string;
@@ -103,7 +105,7 @@ export default async function PurchasesPage(props: {
   // carries a refused delete back from the action — the row it was pressed on
   // is re-rendered by then, so there is nothing left holding the message.
   const sp2 = await props.searchParams;
-  const { item, dp, sp, edit, err } = sp2;
+  const { item, dp, sp, edit, err, ok } = sp2;
   const requestedSupplierPage = Math.max(1, Number(sp) || 1);
 
   /*
@@ -173,6 +175,23 @@ export default async function PurchasesPage(props: {
     return out;
   };
 
+  /*
+    Where the owner was, carried through the undo.
+
+    Undoing a delivery found by searching "ufacid" on page three used to answer
+    by dropping whoever did it at the top of an unfiltered page one, with no
+    way back to the rest of what they were checking.
+  */
+  const backTo = (() => {
+    const p = new URLSearchParams(dateKeys);
+    if (q) p.set("q", q);
+    if (item) p.set("item", item);
+    if (deliveryPage > 1) p.set("dp", String(deliveryPage));
+    if (supplierPage > 1) p.set("sp", String(supplierPage));
+    const str = p.toString();
+    return str ? `?${str}` : "";
+  })();
+
   const bought = purchasedItems();
   const items = buyableItems();
 
@@ -200,7 +219,9 @@ export default async function PurchasesPage(props: {
   const last30 = purchases.filter(
     (p) => now - new Date(p.at.replace(" ", "T") + "Z").getTime() < 30 * 86_400_000,
   );
-  const spent30 = last30.reduce((s, p) => s + p.total_cents, 0);
+  // An undone delivery is still on the list, so it is still counted as a
+  // delivery here; it is not money the shop spent, so it is not in the total.
+  const spent30 = last30.reduce((s, p) => s + (p.voided_at ? 0 : p.total_cents), 0);
 
   return (
     <div>
@@ -212,6 +233,15 @@ export default async function PurchasesPage(props: {
       {err ? (
         <div className="mb-3 max-w-3xl">
           <Alert tone="warn">{err}</Alert>
+        </div>
+      ) : null}
+
+      {/* An undone delivery, reported back the same way: where every cost price
+          it touched has landed, and anything the reversal has left counted
+          below zero. The row it was pressed on is gone by now. */}
+      {ok ? (
+        <div className="mb-3 max-w-3xl">
+          <Alert tone="good">{ok}</Alert>
         </div>
       ) : null}
 
@@ -363,11 +393,15 @@ export default async function PurchasesPage(props: {
               </tr>
             </thead>
             <tbody>
-              {shownPurchases.map((p) => (
+              {shownPurchases.map((p) => {
+                const undone = Boolean(p.voided_at);
+                return (
                 <tr key={p.id} className="align-top hover:bg-wash/50">
                   <Td className="whitespace-nowrap text-muted">{formatDateTime(p.at)}</Td>
                   <Td>
-                    <div className="font-bold">{p.supplier_name ?? "Supplier not recorded"}</div>
+                    <div className={`font-bold ${undone ? "text-muted line-through" : ""}`}>
+                      {p.supplier_name ?? "Supplier not recorded"}
+                    </div>
                     {p.ref || p.user_name ? (
                       <div className="text-[11px] text-muted">
                         {[p.ref, p.user_name].filter(Boolean).join(" · ")}
@@ -395,6 +429,13 @@ export default async function PurchasesPage(props: {
                       and the cost price it produced went on deciding the profit
                       on every sale of that chemical afterwards.
                     */}
+                    {undone ? (
+                      <p className="mt-1 text-[11px] text-bad">
+                        Undone by {p.voided_by_name ?? "the owner"}
+                        {p.voided_at ? ` on ${formatDateTime(p.voided_at)}` : ""} —{" "}
+                        {p.void_reason}
+                      </p>
+                    ) : (
                     <CorrectForm
                       purchaseId={p.id}
                       transport={shillings(p.transport_cents)}
@@ -416,9 +457,57 @@ export default async function PurchasesPage(props: {
                         unitLabel: l.unit_label,
                       }))}
                     />
+                    )}
+
+                    {/*
+                      A delivery that never happened — typed twice, booked
+                      against the wrong supplier, or sent back on the lorry
+                      before it was unloaded.
+
+                      Not the same act as correcting one, and kept apart from
+                      it on purpose: correcting leaves a delivery with better
+                      figures on it, undoing leaves none. The stock goes back
+                      out as its own entry and every cost price the delivery
+                      touched is worked out again from the beginning, so the
+                      average lands where it would have if nobody had typed it.
+                    */}
+                    {undone ? null : (
+                      <details className="relative">
+                        <summary className="mt-1 inline-flex min-h-11 cursor-pointer list-none items-center text-[11px] font-bold text-muted hover:text-bad xl:min-h-8">
+                          Undo this delivery
+                        </summary>
+                        <form
+                          action={voidPurchaseAction}
+                          className="absolute left-0 z-20 mt-1 w-72 space-y-2 rounded-xl border border-line bg-white p-2.5 text-left shadow-lift"
+                        >
+                          <input type="hidden" name="purchaseId" value={p.id} />
+                          <input type="hidden" name="back" value={backTo} />
+                          <p className="text-[11px] text-muted">
+                            The stock this brought in goes back out, and the cost prices it
+                            touched are worked out again. The delivery stays on the list,
+                            struck through.
+                          </p>
+                          <input
+                            className={inputClass}
+                            name="reason"
+                            placeholder="Why is it being undone?"
+                            aria-label={`Reason for undoing the delivery of ${formatDateTime(p.at)}`}
+                            required
+                          />
+                          <button
+                            type="submit"
+                            className="flex min-h-11 w-full items-center justify-center rounded-xl bg-bad px-3 text-[12px] font-bold text-white xl:min-h-9"
+                          >
+                            Undo it and take the stock back out
+                          </button>
+                        </form>
+                      </details>
+                    )}
                   </Td>
                   <Td align="right">
-                    <span className="whitespace-nowrap font-extrabold tnum">
+                    <span
+                      className={`whitespace-nowrap font-extrabold tnum ${undone ? "text-muted line-through" : ""}`}
+                    >
                       {formatKes(p.total_cents)}
                     </span>
                     {p.transport_cents ? (
@@ -428,7 +517,8 @@ export default async function PurchasesPage(props: {
                     ) : null}
                   </Td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </TableWrap>
 
