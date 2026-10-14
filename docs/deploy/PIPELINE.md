@@ -31,19 +31,42 @@ What is established:
 `13094` is the PayHero **account id**, not a channel. It was briefly set as
 `PAYHERO_CHANNEL_ID` and matched nothing.
 
-**The test:** register a bank paybill, point a channel at it, send one
-shilling, read the name off the handset.
+**SETTLED 14 Oct — the name is the INITIATOR, not the account holder.**
+A one-shilling prompt against channel 13928 (the I&M account known to be
+Peter's, from a loan disbursement) showed `GLOBE GAIN PIPSPRO`, exactly as
+13962 did. Two accounts, two banks, same name. So:
+
+- All three channels are genuinely his (`account_id: 13094`), and the money
+  settles where it should — `inbound_payment` rows confirm it.
+- PayHero raises every prompt under that entity's Safaricom shortcode.
+- Pointing at a different bank account will NEVER change the name. Only
+  initiating on a shortcode registered to the client will.
+
+So the question to put to PayHero is narrow: *can prompts be initiated on OUR
+shortcode?* A paybill we own that they still push through theirs buys nothing.
+
+**The bigger door this opens.** A paybill with a passkey makes PayHero
+optional. Both apps already have complete Daraja support, written before any
+of this work:
+
+- Fit Generations — `src/lib/services/mpesa.ts`, select with
+  `PAYMENTS_PROVIDER=daraja`
+- 64theatre — `MpesaStkGateway`, select in the admin's Payment Methods
+
+Own paybill means own name on the prompt, no shared service wallet, no
+aggregator fee, and no third party in the customer relationship. The provider
+facade makes it configuration, not code.
 
 ```bash
 ENV_FILE=/path/to/.env CALLBACK_URL=https://… \
   bash deploy/contabo/64theatre/payhero-check.sh 07XXXXXXXX 1
 ```
 
-**Blocker to clear first:** the service wallet reads `KES 100` with status
-**PENDING**, not ACTIVE. A balance that is not yet usable spends like an empty
-one — every prompt refused while credentials, channel and callbacks all look
-healthy. Ask PayHero what clears it. This is the single most likely cause of
-"the STK push takes too long" and of prompts failing in quick succession.
+**On the PENDING service wallet — I overstated this.** It reads `KES 100`
+with status `PENDING`, but payments went through on it and the `service_charge`
+rows show `cost: 0`, so it is neither blocking nor draining. Worth asking
+about, not a blocker. The earlier "most likely cause of slow prompts" claim
+was not supported by the evidence.
 
 ---
 
