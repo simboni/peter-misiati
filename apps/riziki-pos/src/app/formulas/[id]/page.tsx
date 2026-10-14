@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { currentUser, requirePermission } from "@/lib/auth";
+import { currentUser, requirePermission, currentCan } from "@/lib/auth";
 import {
   salesUsingVersion,
   formulaById,
@@ -13,7 +13,7 @@ import {
   createFormulaVersion,
   renameFormula,
 } from "@/lib/production";
-import { formatQty, fromMilli, toMilli, formatDateTime } from "@/lib/units";
+import { formatQty, formatKes, fromMilli, toMilli, formatDateTime } from "@/lib/units";
 import {
   PageTitle,
   Card,
@@ -27,6 +27,7 @@ import {
   Empty,
 } from "@/components/ui";
 import { formulaBundles, saveBundles, BundleError } from "@/lib/bundles";
+import { recipeCost, bundleMargin } from "@/lib/recipe-cost";
 import { batchSizes } from "@/lib/bundle-input";
 import { listProducts } from "@/lib/catalog";
 import { mixableFormulas } from "@/lib/mixing";
@@ -133,6 +134,16 @@ export default async function FormulaDetailPage(props: {
     );
   }
 
+  /*
+    Seeing a recipe and seeing what it costs are two different grants.
+
+    A manager may be trusted with the mixing sheet and not with what a drum of
+    Ungerol cost — that is the whole point of the permission being separate —
+    so the costing block below is decided here, once, and is simply absent for
+    anybody without it.
+  */
+  const seesCost = await currentCan("cost");
+
   const formulaId = Number(id);
   const formula = formulaById(formulaId);
   if (!formula) {
@@ -160,6 +171,27 @@ export default async function FormulaDetailPage(props: {
 
   const items = formulaItems(shown.id);
   const bundles = formulaBundles(formulaId);
+
+  /*
+    WHAT A BATCH COSTS, AND WHAT IS LEFT OF THE PRICE.
+
+    The shop sells twenty litres of this and never buys a drop of it, so there
+    is no delivery behind it and no cost price on it. Its cost is the chemicals
+    that go in, and until this was on the screen the only way to know whether a
+    price was any good was to work it out on paper every time a chemical moved.
+
+    Only for the current version and only where the recipe is still mixed to
+    order: an old version is here to be read, and a recipe mixed in advance is
+    costed by the batch on the mixing board instead.
+
+    Owner-only, like every other cost figure — `seesCost` is checked once and
+    the whole block is simply absent for anybody else.
+  */
+  const batchCost = seesCost && shown.is_current ? recipeCost(shown.id, shown.ref_size_milli) : null;
+  const margins =
+    seesCost && shown.is_current && formula.output_item_id === null
+      ? bundles.map((b) => bundleMargin(shown.id, b))
+      : [];
 
   /*
     What this recipe could be told to make.
@@ -309,6 +341,123 @@ export default async function FormulaDetailPage(props: {
             </Link>
             , with what it cost.
           </p>
+        </div>
+      ) : null}
+
+      {/*
+        WHAT IT COSTS TO MAKE, AND WHAT IS LEFT OF THE PRICE.
+
+        The question this screen could not answer. A mixed product is bought as
+        chemicals and sold as a product, so its cost lives in the recipe and
+        nowhere else — and a price set without it is a guess that stays a guess
+        until a month's figures come in.
+
+        The missing-cost warning is as important as the numbers. A batch costed
+        with two of its seven chemicals unpriced shows a handsome margin, and
+        every figure in it is arithmetically correct; the only thing wrong is
+        that zero is being believed. So the names are on the screen beside the
+        total, not in a footnote.
+      */}
+      {batchCost ? (
+        <div className="mb-3 max-w-3xl">
+          <SectionLabel>What a batch costs</SectionLabel>
+          <Card className="mt-1.5">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <span className="text-xs text-muted">
+                Chemicals for {formatQty(shown.ref_size_milli, shown.ref_unit)}
+              </span>
+              <span className="text-lg font-extrabold tnum">{formatKes(batchCost.totalCents)}</span>
+            </div>
+
+            {batchCost.missing.length ? (
+              <div className="mt-2">
+                <Alert tone="warn">
+                  {batchCost.missing.length === 1
+                    ? `${batchCost.missing[0]} has no cost price, so it counts as nothing here.`
+                    : `${batchCost.missing.slice(0, -1).join(", ")} and ${batchCost.missing[batchCost.missing.length - 1]} have no cost price, so they count as nothing here.`}{" "}
+                  Every figure below is the least this can cost, not what it costs. Record a
+                  delivery for them and it comes right.
+                </Alert>
+              </div>
+            ) : null}
+
+            <ul className="mt-2 space-y-0.5 border-t border-line pt-2 text-[11px]">
+              {batchCost.ingredients.map((i) => (
+                <li key={`${i.itemId}-${i.name}`} className="flex items-baseline justify-between gap-2">
+                  <span className="min-w-0 flex-1 truncate">
+                    {i.name}
+                    <span className="ml-1 text-muted tnum">
+                      {formatQty(i.qtyMilli, i.unit)}
+                      {i.noCost ? "" : ` at ${formatKes(i.unitCostCents)}/${i.unit}`}
+                    </span>
+                  </span>
+                  <span className={`tnum ${i.noCost ? "font-bold text-bad" : "text-muted"}`}>
+                    {i.noCost ? "no cost price" : formatKes(i.costCents)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+
+            {margins.length ? (
+              <div className="mt-2.5 border-t border-line pt-2">
+                <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted">
+                  At the sizes it sells in
+                </div>
+                <TableWrap className="mt-1.5">
+                  <thead>
+                    <tr>
+                      <Th>Size</Th>
+                      <Th align="right">Chemicals</Th>
+                      <Th align="right">Sells for</Th>
+                      <Th align="right">Profit</Th>
+                      <Th align="right">Margin</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {margins.map((m) => (
+                      <tr key={m.sizeMilli}>
+                        <Td className="whitespace-nowrap font-semibold">
+                          {formatQty(m.sizeMilli, shown.ref_unit)}
+                        </Td>
+                        <Td align="right" className="tnum text-muted">
+                          {formatKes(m.costCents)}
+                        </Td>
+                        <Td align="right" className="tnum">{formatKes(m.priceCents)}</Td>
+                        <Td align="right">
+                          <span
+                            className={`font-extrabold tnum ${m.profitCents < 0 ? "text-bad" : ""}`}
+                          >
+                            {formatKes(m.profitCents)}
+                          </span>
+                        </Td>
+                        <Td align="right">
+                          {/*
+                            A margin computed with a chemical missing is a
+                            ceiling, not a figure, and showing it in green is
+                            the whole complaint: the shop was told it was making
+                            70% on a soap whose perfume had never been costed.
+                            It stays amber and says "at most" until the cost is
+                            recorded.
+                          */}
+                          <Chip
+                            tone={
+                              m.profitCents < 0
+                                ? "bad"
+                                : m.missing.length || m.marginPct < 15
+                                  ? "warn"
+                                  : "good"
+                            }
+                          >
+                            {m.missing.length ? `at most ${m.marginPct}%` : `${m.marginPct}%`}
+                          </Chip>
+                        </Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </TableWrap>
+              </div>
+            ) : null}
+          </Card>
         </div>
       ) : null}
 

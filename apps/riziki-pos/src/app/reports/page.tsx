@@ -125,7 +125,21 @@ function isGrain(v: string | undefined): v is Grain {
 function productMeta(p: ProductProfit): string {
   const sold = `${p.units} sold · ${formatKes(p.revenue_cents)} sales`;
 
-  if (p.uncosted) return `${sold} · no cost price recorded`;
+  /*
+    A mixed product is never "uncosted" the way a bought one is.
+
+    Its cost comes from the chemicals that went into it, and the flag is raised
+    when ANY ONE of them has no cost price — six of seven may be perfectly
+    costed. Telling the owner a product with a KES 624 recipe behind it has "no
+    cost price recorded" is how this whole thing read as the shop booking its
+    mixes at pure profit. A mix has no item of its own, which is what tells
+    the two apart.
+  */
+  if (p.uncosted) {
+    return p.item_id === null
+      ? `${sold} · some chemicals in it have no cost price`
+      : `${sold} · no cost price recorded`;
+  }
 
   const margin = `${p.margin_pct.toFixed(0)}% margin${p.estimated ? " (cost estimated)" : ""}`;
 
@@ -318,6 +332,36 @@ export default async function ReportsPage(props: {
           <strong>{formatKes(d.summary.uncostedSalesCents)} of these sales have no cost price</strong>{" "}
           — they are counted as pure profit above, which they are not. Record what those goods cost
           on the delivery, and every profit figure on this page comes right.
+        </>
+      ),
+    });
+  }
+  /*
+    The one the owner spotted, and the one underneath it.
+
+    A mixed product IS costed from its recipe — every chemical that goes into
+    it is written to the sale carrying what that much of it cost. But a chemical
+    with no cost price contributes nothing, and nothing is a believable number:
+    the mix reports a margin better than the shop is making, every total still
+    balances, and no other check on this page notices. The chemicals are named
+    rather than the mixes, because one cost price fixes every mix it is in.
+  */
+  if (d.summary.mixShortCents > 0) {
+    watch.push({
+      tone: "bad",
+      href: "/purchases",
+      key: "attention:mix-short",
+      said: `${formatKes(d.summary.mixShortCents)} of mixes costed without all their chemicals`,
+      items: detail.mixShort,
+      body: (
+        <>
+          <strong>
+            {formatKes(d.summary.mixShortCents)} of mixed products were costed without all their
+            chemicals
+          </strong>{" "}
+          — the recipe is priced from what went in, and anything with no cost price counts as
+          nothing, so these look better than they are. Record what those chemicals cost and every
+          mix they go into comes right at once.
         </>
       ),
     });

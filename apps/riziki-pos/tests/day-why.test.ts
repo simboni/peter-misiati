@@ -160,7 +160,7 @@ test("an expense is checked before a costing verdict", () => {
   const s = {
     salesCents: 10000, cogsCents: 5000, grossProfitCents: 5000,
     expensesCents: 20000, netProfitCents: -15000, saleCount: 1,
-    estimatedCostCents: 5000, uncostedSalesCents: 0,
+    estimatedCostCents: 5000, uncostedSalesCents: 0, mixShortCents: 0,
   };
   assert.equal(causeOf(s, true), "expenses", "gross is positive, so it cannot be a costing fault");
 });
@@ -170,7 +170,7 @@ test("a borrowed cost is checked before a plain under-cost verdict", () => {
   const borrowed = {
     salesCents: 20000, cogsCents: 30000, grossProfitCents: -10000,
     expensesCents: 0, netProfitCents: -10000, saleCount: 1,
-    estimatedCostCents: 30000, uncostedSalesCents: 0,
+    estimatedCostCents: 30000, uncostedSalesCents: 0, mixShortCents: 0,
   };
   assert.equal(causeOf(borrowed, true), "late-cost");
 
@@ -184,7 +184,7 @@ test("half the cost borrowed is enough to blame the borrowing", () => {
   const half = {
     salesCents: 20000, cogsCents: 30000, grossProfitCents: -10000,
     expensesCents: 0, netProfitCents: -10000, saleCount: 1,
-    estimatedCostCents: 15000, uncostedSalesCents: 0,
+    estimatedCostCents: 15000, uncostedSalesCents: 0, mixShortCents: 0,
   };
   assert.equal(causeOf(half, true), "late-cost");
   assert.equal(causeOf({ ...half, estimatedCostCents: 14999 }, true), "under-cost");

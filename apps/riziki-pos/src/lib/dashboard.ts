@@ -485,6 +485,13 @@ export interface AttentionDetail {
   low: NamedThing[];
   uncosted: NamedThing[];
   uncostedSales: NamedThing[];
+  /**
+   * The chemicals that went into a mix with no cost price on them.
+   *
+   * Named rather than the mixes they went into, because one cost price fixes
+   * every mix that chemical is in at once — and the mixes are the symptom.
+   */
+  mixShort: NamedThing[];
 }
 
 const qtyWords = (milli: number, unit: string) =>
@@ -532,16 +539,27 @@ export function attentionDetail(asked: DateRange): AttentionDetail {
     And the sales that went out before anything was costed. Grouped by product,
     because "which goods" is the question — the delivery that fixes one of them
     fixes every sale of it at once.
+
+    JOINED to items, and that join is the whole point of the query rather than a
+    detail of it. Without it this listed every mixed product the shop sells —
+    "Multipurpose Soap — 20 L bundle" and thirty more — because the parent line
+    of a recipe sale carries no cost BY DESIGN: its cost sits on the ingredient
+    lines underneath it, and those are costed properly. The owner read that list
+    as "the shop is booking its biggest sellers at 100% profit", which is what it
+    said and not what was happening. Nothing was wrong with the money; the list
+    was wrong about the money.
   */
   const uncostedSales = all<{ id: number; name: string; cents: number; lines: number }>(
-    `SELECT COALESCE(sl.item_id, 0)          AS id,
+    `SELECT sl.item_id                       AS id,
             sl.name_snapshot                 AS name,
             SUM(sl.line_total_cents)         AS cents,
             COUNT(*)                         AS lines
        FROM sale_lines sl
        JOIN sales s ON s.id = sl.sale_id
+       JOIN items i ON i.id = sl.item_id
       WHERE s.status = 'completed'
         AND sl.cost_cents = 0
+        AND COALESCE(i.cost_cents, 0) = 0
         AND sl.line_total_cents > 0
         AND date(s.at, '+3 hours') BETWEEN ? AND ?
       GROUP BY sl.name_snapshot
@@ -554,5 +572,39 @@ export function attentionDetail(asked: DateRange): AttentionDetail {
     said: `${formatKes(r.cents)} across ${r.lines} ${r.lines === 1 ? "sale" : "sales"}`,
   }));
 
-  return { owed, low, uncosted, uncostedSales };
+  /*
+    The real version of the complaint.
+
+    A mix IS costed from its recipe — every chemical that goes in is written to
+    the sale as its own line carrying what that much of it cost. But a chemical
+    with no cost price contributes nothing, and nothing is a believable number:
+    the mix reports a margin better than the shop is making and no figure
+    anywhere is out of balance. These are the chemicals doing it.
+  */
+  const mixShort = all<{ id: number; name: string; qty: number; unit: string; lines: number }>(
+    `SELECT sl.item_id              AS id,
+            sl.name_snapshot        AS name,
+            SUM(sl.qty_milli)       AS qty,
+            COUNT(*)                AS lines,
+            i.canonical_unit        AS unit
+       FROM sale_lines sl
+       JOIN sales s ON s.id = sl.sale_id
+       JOIN items i ON i.id = sl.item_id
+      WHERE s.status = 'completed'
+        AND sl.formula_version_id IS NOT NULL
+        AND sl.bundle_id IS NULL
+        AND sl.line_total_cents = 0
+        AND sl.cost_cents = 0
+        AND date(s.at, '+3 hours') BETWEEN ? AND ?
+      GROUP BY sl.name_snapshot
+      ORDER BY qty DESC`,
+    range.from,
+    range.to,
+  ).map((r) => ({
+    id: r.id,
+    name: r.name,
+    said: `${qtyWords(r.qty, r.unit)} went into mixes with no cost price`,
+  }));
+
+  return { owed, low, uncosted, uncostedSales, mixShort };
 }

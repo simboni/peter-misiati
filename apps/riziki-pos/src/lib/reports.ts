@@ -601,6 +601,28 @@ const MIX_PARENT_SQL = `
 const MIX_PART_SQL = `
   (sl.formula_version_id IS NOT NULL AND sl.bundle_id IS NULL AND sl.line_total_cents = 0)`;
 
+/**
+ * A mix sold with at least one ingredient costed at nothing.
+ *
+ * The parent line of a recipe sale carries no cost by design — the ingredient
+ * lines under it do. So a mix whose chemicals have no cost price is not an
+ * uncosted sale by any test above: the parent is meant to be zero, and the
+ * ingredient lines are charged nothing so they fail the `line_total_cents > 0`
+ * check too. It falls through every net, and the mix simply reports a margin
+ * better than the one the shop is making.
+ *
+ * This is the net for it: a parent whose own ingredients came to nothing on at
+ * least one line.
+ */
+const MIX_SHORT_SQL = `
+  (${MIX_PARENT_SQL} AND EXISTS (
+     SELECT 1 FROM sale_lines part
+      WHERE part.sale_id = sl.sale_id
+        AND part.formula_version_id = sl.formula_version_id
+        AND part.bundle_id IS NULL
+        AND part.line_total_cents = 0
+        AND part.cost_cents = 0))`;
+
 export interface ProfitSummary {
   salesCents: number;
   cogsCents: number;
@@ -619,6 +641,11 @@ export interface ProfitSummary {
    * here so the screen can say so out loud instead of quietly overstating.
    */
   uncostedSalesCents: number;
+  /**
+   * Mixed products sold whose recipe was costed short, at the price they went
+   * out at. Their profit is overstated by whatever the unpriced chemicals cost.
+   */
+  mixShortCents: number;
 }
 
 /**
@@ -662,14 +689,16 @@ export function profitSummary(asked: DateRange): ProfitSummary {
     The mixed-product line of a recipe sale is deliberately not swept up in
     this: it has no item, and its cost sits on the ingredient lines underneath.
   */
-  const cogs = get<{ total: number; estimated: number; uncosted: number }>(
+  const cogs = get<{ total: number; estimated: number; uncosted: number; mix_short: number }>(
     `SELECT COALESCE(SUM(${LINE_COST_SQL}), 0) AS total,
             COALESCE(SUM(
               CASE WHEN ${LINE_ESTIMATED_SQL}
                    THEN CAST(ROUND(1.0 * i.cost_cents * sl.qty_milli / 1000) AS INTEGER)
                    ELSE 0 END), 0) AS estimated,
             COALESCE(SUM(
-              CASE WHEN ${LINE_UNCOSTED_SQL} THEN sl.line_total_cents ELSE 0 END), 0) AS uncosted
+              CASE WHEN ${LINE_UNCOSTED_SQL} THEN sl.line_total_cents ELSE 0 END), 0) AS uncosted,
+            COALESCE(SUM(
+              CASE WHEN ${MIX_SHORT_SQL} THEN sl.line_total_cents ELSE 0 END), 0) AS mix_short
        FROM sale_lines sl
        JOIN sales s ON s.id = sl.sale_id
        LEFT JOIN items i ON i.id = sl.item_id
@@ -701,6 +730,7 @@ export function profitSummary(asked: DateRange): ProfitSummary {
     saleCount: sales?.n ?? 0,
     estimatedCostCents: cogs?.estimated ?? 0,
     uncostedSalesCents: cogs?.uncosted ?? 0,
+    mixShortCents: cogs?.mix_short ?? 0,
   };
 }
 
