@@ -222,7 +222,7 @@ export const clients: Client[] = [
   { name: "Golden Star Academy", logo: "/clients/golden-star.webp" },
   { name: "Dr. Wamalwa — Intersex Foundation", logo: "/clients/dr-wamalwa.png" },
   { name: "e-Learners Academy", logo: "/clients/elearners.webp" },
-  { name: "KeYSA — Kenya Youths Support Association", logo: "/clients/keysa.png" },
+  { name: "KeYSA — Kenya Youth Support Association", logo: "/clients/keysa.png", link: "https://www.keysa.org" },
   { name: "Canossian Daughters of Charity", logo: "/clients/canossian.webp" },
   { name: "Zuri Hotels", logo: "/clients/zuri.png" },
   { name: "Holy Cross Junior School", logo: "/clients/admin-up.png" },
