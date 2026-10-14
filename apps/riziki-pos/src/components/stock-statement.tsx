@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { formatKes, formatQty } from "@/lib/units";
 import {
@@ -100,15 +101,18 @@ export function StatementPeriods({
 export function StatementFlow({
   totals,
   uncosted,
+  children,
 }: {
   totals: StatementTotals;
   uncosted: string[];
+  /** The takings line, where the screen is allowed to show it. */
+  children?: ReactNode;
 }) {
   const steps: Array<{ label: string; cents: number; sign: "" | "+" | "−" | "±" }> = [
     { label: "Opening stock", cents: totals.openingValueCents, sign: "" },
     { label: "Bought", cents: totals.boughtValueCents, sign: "+" },
     { label: "Made", cents: totals.madeValueCents, sign: "+" },
-    { label: "Sold", cents: totals.soldValueCents, sign: "−" },
+    { label: "Sold, at cost", cents: totals.soldValueCents, sign: "−" },
     { label: "Used in mixing", cents: totals.usedValueCents, sign: "−" },
     { label: "Adjusted", cents: totals.adjustedValueCents, sign: "±" },
     { label: "Closing stock", cents: totals.closingValueCents, sign: "" },
@@ -116,6 +120,20 @@ export function StatementFlow({
 
   return (
     <div>
+      {/*
+        THE HEADING IS NOT DECORATION.
+
+        Every figure in this strip is a COST. It sits on the same page as
+        "Sales today", which is takings, and the owner read the two as two
+        answers to the same question — reasonably, because one of these tiles
+        used to say simply "Sold". Two numbers about the same goods, differing
+        by exactly the profit, with nothing on the screen to say which was
+        which.
+      */}
+      <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.08em] text-muted">
+        What the shelf was worth — cost prices, not takings
+      </div>
+
       {/*
         Seven cells, and the two that matter are the ends. Two to a row on a
         phone so nothing is squeezed to four characters, all seven across on a
@@ -155,6 +173,8 @@ export function StatementFlow({
         Valued at what each thing costs today. Opening and closing are the same shelf priced the
         same way, so the difference between them is real movement and not a price change.
       </p>
+
+      {children}
 
       {uncosted.length ? (
         <div className="mt-2">
@@ -257,4 +277,45 @@ export function StatementTable({ rows }: { rows: StatementRow[] }) {
 /** "Today", or "1–14 Oct 2026" — what the figures above are about. */
 export function StatementCaption({ range }: { range: DateRange }) {
   return <span className="text-[11px] text-muted">{describeRange(range)}</span>;
+}
+
+/**
+ * The one line that stops the stock statement and the takings looking like an
+ * argument.
+ *
+ * "Sales today KES 12,275" and "Sold KES 6,984" are both true and are not the
+ * same question: the first is what the customers paid, the second is what those
+ * goods had cost the shop. The gap between them IS the profit, and saying so
+ * out loud turns two numbers that look like a contradiction into one sentence.
+ *
+ * The figures come from the sales record — the same source the Reports screen
+ * reads — rather than from the stock valuation above, so the two screens cannot
+ * disagree by a rounding cent.
+ */
+export function StatementTakings({
+  salesCents,
+  cogsCents,
+  profitCents,
+  href = "/reports",
+}: {
+  salesCents: number;
+  cogsCents: number;
+  profitCents: number;
+  href?: string;
+}) {
+  if (salesCents === 0 && cogsCents === 0) return null;
+  return (
+    <p className="mt-2 rounded-xl bg-wash px-2.5 py-2 text-[11px] leading-relaxed">
+      <strong className="text-ink">Those goods sold for {formatKes(salesCents)}</strong> and had
+      cost {formatKes(cogsCents)}, so the gross profit on them is{" "}
+      <strong className={profitCents < 0 ? "text-bad" : "text-good"}>
+        {formatKes(profitCents)}
+      </strong>
+      . The tiles above are cost prices — they are what the shelf is worth, never what it sold
+      for.{" "}
+      <Link href={href} className="font-bold text-brand-dark">
+        Full profit report →
+      </Link>
+    </p>
+  );
 }

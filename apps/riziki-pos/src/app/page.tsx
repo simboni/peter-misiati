@@ -16,7 +16,9 @@ import {
   StatementFlow,
   StatementTable,
   StatementCaption,
+  StatementTakings,
 } from "@/components/stock-statement";
+import { profitSummary } from "@/lib/reports";
 
 export const dynamic = "force-dynamic";
 
@@ -48,6 +50,14 @@ export default async function HomePage(props: {
   const statement = stockStatement(stockRange);
   const movers = topMovers(statement, 8);
   const seesCost = can(user, "cost");
+  /*
+    The takings for the same period, from the sales record.
+
+    Read here rather than derived from the stock valuation above, so this page
+    and the Reports screen cannot disagree by a rounding cent — they are the
+    same function.
+  */
+  const stockProfit = seesCost ? profitSummary(stockRange) : null;
   const statementHref = (() => {
     const q = new URLSearchParams({ period });
     if (period === "custom") {
@@ -264,7 +274,15 @@ export default async function HomePage(props: {
 
         {seesCost ? (
           <div className="mb-3">
-            <StatementFlow totals={statement.totals} uncosted={statement.uncosted} />
+            <StatementFlow totals={statement.totals} uncosted={statement.uncosted}>
+              {stockProfit ? (
+                <StatementTakings
+                  salesCents={stockProfit.salesCents}
+                  cogsCents={stockProfit.cogsCents}
+                  profitCents={stockProfit.grossProfitCents}
+                />
+              ) : null}
+            </StatementFlow>
           </div>
         ) : null}
 

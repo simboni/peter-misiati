@@ -14,7 +14,9 @@ import {
   StatementPeriods,
   StatementFlow,
   StatementTable,
+  StatementTakings,
 } from "@/components/stock-statement";
+import { profitSummary } from "@/lib/reports";
 import { PrintButton } from "../../invoice/[id]/print-button";
 
 export const dynamic = "force-dynamic";
@@ -44,6 +46,9 @@ export default async function StockStatementPage(props: {
 
   // The money is a cost figure like any other, and is the owner's.
   const seesCost = can(user, "cost");
+  // The same period's takings, from the sales record, so this page and Reports
+  // are the same numbers rather than two calculations of them.
+  const takings = seesCost ? profitSummary(range) : null;
 
   const held = statement.rows.filter((r) => r.closingMilli !== 0).length;
 
@@ -65,7 +70,13 @@ export default async function StockStatementPage(props: {
 
       {seesCost ? (
         <div className="mb-4">
-          <StatementFlow totals={statement.totals} uncosted={statement.uncosted} />
+          <StatementFlow totals={statement.totals} uncosted={statement.uncosted}>
+            <StatementTakings
+              salesCents={takings!.salesCents}
+              cogsCents={takings!.cogsCents}
+              profitCents={takings!.grossProfitCents}
+            />
+          </StatementFlow>
         </div>
       ) : (
         <div className="mb-4">
