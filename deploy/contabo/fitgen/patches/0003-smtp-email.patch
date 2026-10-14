@@ -1,5 +1,5 @@
 diff --git a/.env.example b/.env.example
-index 61ecb0a..2c0d50d 100644
+index 72bb752..2eb67df 100644
 --- a/.env.example
 +++ b/.env.example
 @@ -33,10 +33,6 @@ SEED_DEMO=false
@@ -13,24 +13,31 @@ index 61ecb0a..2c0d50d 100644
  # M-Pesa (Safaricom Daraja).
  MPESA_ENV=
  MPESA_CONSUMER_KEY=
-@@ -44,3 +40,47 @@ MPESA_CONSUMER_SECRET=
- MPESA_SHORTCODE=
+@@ -45,6 +41,37 @@ MPESA_SHORTCODE=
  MPESA_PASSKEY=
  MPESA_CALLBACK_TOKEN=
-+
+ 
 +# --- Email -------------------------------------------------------------------
-+# Two ways to send; SMTP wins when both are set.
++# Two ways to send; SMTP wins over Resend when both are set.
 +#
-+# SMTP sends through a real mailbox, so mail leaves as info@yourdomain and a
-+# member hitting reply reaches a person. That is the reason to prefer it.
-+# The trade is volume: mailbox plans cap daily sends, and a month-end run of
-+# invoices to every member can reach the cap — at which point the rest fail
-+# silently. Watch the logs the first time a full run goes out.
++# SMTP_USER is always a FULL login, never a bare local part — a bare "info"
++# authenticates against nothing and the server refuses to relay, which presents
++# as "receiving works but sending does not".
 +#
-+# SMTP_USER is the FULL address. A bare "info" authenticates against nothing
-+# and the server refuses to relay, which presents as "receiving works but
-+# sending does not".
-+# Hostinger: smtp.hostinger.com, port 465 (SSL) or 587 (STARTTLS).
++# BREVO is what this deploy uses: smtp-relay.brevo.com, port 587.
++#   SMTP_USER is Brevo's own generated login (…@smtp-brevo.com) and NOT the
++#   address in MAIL_FROM. MAIL_FROM may be any address on a domain
++#   authenticated under Brevo -> Senders, Domains & Dedicated IPs; the mailbox
++#   behind it does not need to exist for sending to work.
++#   The catch is the other direction: nothing receives mail at that address, so
++#   a member hitting reply gets a bounce. Until a real mailbox exists, keep
++#   a working address in the message body.
++#
++# A HOSTINGER MAILBOX is the alternative: smtp.hostinger.com, 465 (SSL) or
++#   587 (STARTTLS), SMTP_USER being the address itself. Replies reach a person,
++#   which is the reason to prefer it. The trade is volume — mailbox plans cap
++#   daily sends, so a month-end invoice run to every member can hit the cap and
++#   the rest fail quietly. Watch the logs the first time a full run goes out.
 +SMTP_HOST=
 +SMTP_PORT=587
 +SMTP_USER=
@@ -41,38 +48,23 @@ index 61ecb0a..2c0d50d 100644
 +# Resend — HTTP API, no mailbox. Used only when SMTP is unset.
 +RESEND_API_KEY=
 +
-+# --- PayHero (recommended) ---------------------------------------------------
-+# STK push that settles straight into the gym's bank account. The member still
-+# approves an M-Pesa prompt — "bank" is where the money lands, not how they pay.
-+# A bank paybill cannot raise a prompt by itself; that is the gap PayHero fills,
-+# and it needs no Safaricom shortcode approval.
-+#
-+# Leave PAYMENTS_PROVIDER blank to use whichever is configured (PayHero first).
-+# USERNAME/PASSWORD are API credentials from the dashboard, NOT the login.
-+# CHANNEL_ID is under Payment Channels — use the BANK channel.
-+# CALLBACK_TOKEN is a secret path segment; without it anyone who guesses a
-+# CheckoutRequestID can mark an invoice paid. Generate: openssl rand -hex 16
-+# DISPLAY_NAME is the name shown on the member's prompt — it is the collecting
-+# paybill's, not the gym's, so the portal says it in advance.
-+PAYMENTS_PROVIDER=
-+PAYHERO_BASE_URL=https://backend.payhero.co.ke
-+PAYHERO_USERNAME=
-+PAYHERO_PASSWORD=
-+PAYHERO_CHANNEL_ID=
-+PAYHERO_CALLBACK_TOKEN=
-+PAYHERO_DISPLAY_NAME=
+ # --- PayHero (recommended) ---------------------------------------------------
+ # STK push that settles straight into the gym's bank account. The member still
+ # approves an M-Pesa prompt — "bank" is where the money lands, not how they pay.
 diff --git a/docker-compose.behind-proxy.yml b/docker-compose.behind-proxy.yml
-index 5b5a471..7ff8c32 100644
+index 0b57699..910915c 100644
 --- a/docker-compose.behind-proxy.yml
 +++ b/docker-compose.behind-proxy.yml
-@@ -43,12 +43,37 @@ services:
+@@ -43,6 +43,17 @@ services:
        RESET_ADMIN: ${RESET_ADMIN:-}
        RESEND_API_KEY: ${RESEND_API_KEY:-}
        MAIL_FROM: ${MAIL_FROM:-}
-+      # SMTP — sends through a real mailbox, so members see info@ in the From
-+      # line and can simply reply. Takes precedence over Resend when set.
-+      # SMTP_USER must be the FULL address: a bare local part authenticates
-+      # against nothing and the server refuses to relay.
++      # SMTP — mail leaves as the gym's own address. Takes precedence over
++      # Resend when set. SMTP_USER is the relay's FULL login, which for Brevo
++      # is its generated …@smtp-brevo.com and NOT the MAIL_FROM address; a bare
++      # local part authenticates against nothing and will not relay.
++      # These MUST be named here or the container never sees them, however
++      # correct .env looks — the same omission that made PayHero inert.
 +      SMTP_HOST: ${SMTP_HOST:-}
 +      SMTP_PORT: ${SMTP_PORT:-587}
 +      SMTP_USER: ${SMTP_USER:-}
@@ -81,47 +73,6 @@ index 5b5a471..7ff8c32 100644
        MPESA_ENV: ${MPESA_ENV:-}
        MPESA_CONSUMER_KEY: ${MPESA_CONSUMER_KEY:-}
        MPESA_CONSUMER_SECRET: ${MPESA_CONSUMER_SECRET:-}
-       MPESA_SHORTCODE: ${MPESA_SHORTCODE:-}
-       MPESA_PASSKEY: ${MPESA_PASSKEY:-}
-       MPESA_CALLBACK_TOKEN: ${MPESA_CALLBACK_TOKEN:-}
-+      # PayHero — STK push that settles to the gym's bank account, with no
-+      # Safaricom shortcode needed. These MUST be listed here: Docker passes a
-+      # container only what the compose file names, and leaving a payment
-+      # block out of this list is what made an identical gateway inert on the
-+      # theatre deploy while its .env looked perfectly correct.
-+      PAYMENTS_PROVIDER: ${PAYMENTS_PROVIDER:-}
-+      PAYHERO_BASE_URL: ${PAYHERO_BASE_URL:-https://backend.payhero.co.ke}
-+      PAYHERO_USERNAME: ${PAYHERO_USERNAME:-}
-+      PAYHERO_PASSWORD: ${PAYHERO_PASSWORD:-}
-+      # The payment channel money lands in. Use the BANK channel, or takings
-+      # sit in a PayHero wallet instead of the gym's account.
-+      PAYHERO_CHANNEL_ID: ${PAYHERO_CHANNEL_ID:-}
-+      PAYHERO_CALLBACK_TOKEN: ${PAYHERO_CALLBACK_TOKEN:-}
-+      # The business name the member reads on the prompt. It belongs to the
-+      # collecting paybill, not the gym, so the portal names it in advance.
-+      PAYHERO_DISPLAY_NAME: ${PAYHERO_DISPLAY_NAME:-}
-     depends_on:
-       fitgen-db:
-         condition: service_healthy
-@@ -57,6 +82,10 @@ services:
-       - internal  # reach the database
-     expose:
-       - "3000"
-+    # The shared box has no swap, so an uncapped container does not slow the
-+    # machine down — the kernel kills whichever process it picks, which may be
-+    # another client's database rather than the one that leaked.
-+    mem_limit: 1g
- 
-   fitgen-db:
-     image: postgres:16-alpine
-@@ -70,6 +99,7 @@ services:
-       - pgdata:/var/lib/postgresql/data
-     networks:
-       - internal  # deliberately NOT on edge — nothing else can reach it
-+    mem_limit: 512m
-     healthcheck:
-       test: ["CMD-SHELL", "pg_isready -U fitgen"]
-       interval: 10s
 diff --git a/package-lock.json b/package-lock.json
 index 2496cb5..73c5feb 100644
 --- a/package-lock.json

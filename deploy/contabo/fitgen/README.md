@@ -39,6 +39,11 @@ patch 0001 only adds the PayHero variables and memory caps to it.
 The deployment is at `/root/fit-generations-gym` and its `.env` already holds
 the database password, auth secret and APP_URL. Leave all of that alone.
 
+**The patches are ordered and each assumes its predecessors.** They touch the
+same compose file and `.env.example`, so applying 0003 before 0001 — or
+checking one against the wrong starting state — fails with `patch does not
+apply`. Apply 0001, 0002, 0003, 0004 in that order.
+
 ```bash
 docker ps --format '{{.Names}}\t{{.Status}}' > /root/before-fitgen.txt
 cd /root/fit-generations-gym
@@ -167,7 +172,70 @@ Test one real payment end to end: sign in to the member portal, open an
 unpaid invoice, pay the smallest amount the gym sells, and watch the prompt,
 the screen and the invoice flip to paid.
 
-## 6 · Back it up
+## 6 · Email
+
+Patch 0003 adds an SMTP provider to `messaging.ts` and — the load-bearing
+half — names the `SMTP_*` variables in the compose file. Without that, the
+container sees nothing however correct `.env` looks. It is the same omission
+that made PayHero inert, and it will keep being the same omission.
+
+```bash
+cd /root/fit-generations-gym
+git apply --check /srv/smp-portfolio/repo/deploy/contabo/fitgen/patches/0003-smtp-email.patch \
+  && git apply /srv/smp-portfolio/repo/deploy/contabo/fitgen/patches/0003-smtp-email.patch
+grep -c SMTP_ docker-compose.behind-proxy.yml     # expect 6
+```
+
+Then the Brevo settings. `SMTP_USER` is Brevo's **generated login**, not the
+gym's address — authenticating as `info@` fails, and the failure looks exactly
+like a wrong password:
+
+```
+SMTP_HOST=smtp-relay.brevo.com
+SMTP_PORT=587
+SMTP_USER=<the Login from Brevo -> SMTP & API -> SMTP tab>
+SMTP_PASS=<an SMTP key, xsmtpsib-… — an API key, xkeysib-…, gives 535>
+MAIL_FROM="Fit Generations Gym <info@fitgenerationsgym.com>"
+```
+
+`MAIL_FROM` needs the **domain** authenticated under Brevo → Senders, Domains
+& Dedicated IPs. Single-sender verification is not an option here: Brevo mails
+a confirmation link to the address, and no mailbox exists behind `info@`.
+
+Rebuild with `--build`. It is not optional — 0003 adds nodemailer to
+`package.json`, and restarting the old image gives `Cannot find module
+'nodemailer'` on the first send:
+
+```bash
+docker compose -f docker-compose.behind-proxy.yml up -d --build
+docker exec fitgen-web printenv | grep -c SMTP_   # expect 4
+```
+
+Prove the whole chain from inside the container, which tests the environment
+and the module together:
+
+```bash
+docker exec fitgen-web node -e "
+require('nodemailer').createTransport({
+  host: process.env.SMTP_HOST, port: Number(process.env.SMTP_PORT || 587),
+  secure: false,
+  auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+}).sendMail({
+  from: process.env.MAIL_FROM, to: 'misiatipeter@gmail.com',
+  subject: 'Fit Generations SMTP test', text: 'Brevo relay is live.',
+}).then(i => console.log('OK', i.messageId), e => { console.error('FAIL', e.message); process.exit(1); });
+"
+```
+
+**What this does not give you.** A working pipe, and nothing using it.
+`sendEmail` has exactly one caller — password reset. The nightly tick writes
+reminder rows that nothing reads out. Approvals, invoices and reminders are
+unbuilt, and that is a larger job than this patch was.
+
+Mail also leaves from an address that cannot receive: anyone replying to an
+invoice gets a bounce. Either buy the mailbox or carry a real reply address.
+
+## 7 · Back it up
 
 Nothing on this box backs up automatically. Once there are real members:
 
