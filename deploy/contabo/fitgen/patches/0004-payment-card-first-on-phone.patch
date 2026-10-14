@@ -1,0 +1,13 @@
+diff --git a/src/app/(portal)/portal/invoices/[id]/page.tsx b/src/app/(portal)/portal/invoices/[id]/page.tsx
+index 1e9a2cd..3683ebe 100644
+--- a/src/app/(portal)/portal/invoices/[id]/page.tsx
++++ b/src/app/(portal)/portal/invoices/[id]/page.tsx
+@@ -63,7 +63,7 @@ export default async function PortalInvoicePage({
+             </div>
+           </div>
+ 
+-          <div className="rounded-3xl border border-white/10 bg-ink-850 p-6 sm:p-8">
++          <div className="order-first rounded-3xl border border-white/10 bg-ink-850 p-6 sm:p-8 lg:order-none">
+             {paid ? (
+               <div className="flex flex-col items-center py-6 text-center">
+                 <span className="grid h-14 w-14 place-items-center rounded-full bg-lime-500/15 text-lime-400"><CheckIcon className="h-7 w-7" /></span>
