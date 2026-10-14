@@ -1,0 +1,636 @@
+diff --git a/.env.example b/.env.example
+index 2eb67df..ac01f53 100644
+--- a/.env.example
++++ b/.env.example
+@@ -68,6 +68,9 @@ SMTP_USER=
+ SMTP_PASS=
+ SMTP_SECURE=
+ MAIL_FROM="Fit Generations Gym <info@fitgenerationsgym.com>"
++# An address someone actually reads. info@ above can send but not receive,
++# so leave this unset only once a real mailbox exists behind it.
++MAIL_REPLY_TO="misiatipeter@gmail.com"
+ 
+ # Resend — HTTP API, no mailbox. Used only when SMTP is unset.
+ RESEND_API_KEY=
+diff --git a/docker-compose.behind-proxy.yml b/docker-compose.behind-proxy.yml
+index 910915c..e6ad121 100644
+--- a/docker-compose.behind-proxy.yml
++++ b/docker-compose.behind-proxy.yml
+@@ -43,6 +43,9 @@ services:
+       RESET_ADMIN: ${RESET_ADMIN:-}
+       RESEND_API_KEY: ${RESEND_API_KEY:-}
+       MAIL_FROM: ${MAIL_FROM:-}
++      # Where a member's reply lands. MAIL_FROM on a relay is a sending
++      # identity with no inbox behind it, so without this a reply bounces.
++      MAIL_REPLY_TO: ${MAIL_REPLY_TO:-}
+       # SMTP — mail leaves as the gym's own address. Takes precedence over
+       # Resend when set. SMTP_USER is the relay's FULL login, which for Brevo
+       # is its generated …@smtp-brevo.com and NOT the MAIL_FROM address; a bare
+diff --git a/src/app/admin/notifications/page.tsx b/src/app/admin/notifications/page.tsx
+index 1330b2c..ca7e0e9 100644
+--- a/src/app/admin/notifications/page.tsx
++++ b/src/app/admin/notifications/page.tsx
+@@ -9,9 +9,10 @@ export const dynamic = "force-dynamic";
+ 
+ const typeIcon: Record<string, string> = {
+   expiring: "calendar", expired: "bell", overdue: "payment",
+-  welcome: "users", receipt: "receipt", verify: "settings",
++  welcome: "users", receipt: "receipt", invoice: "receipt", verify: "settings",
+ };
+ const tone: Record<string, string> = {
++  invoice: "bg-lime-500/10 text-lime-600",
+   expiring: "bg-amber-500/10 text-amber-600",
+   expired: "bg-ember-500/10 text-ember-600",
+   overdue: "bg-ember-500/10 text-ember-600",
+@@ -48,7 +49,7 @@ export default function NotificationsPage() {
+           <TableFilter
+             placeholder="Search reminders…"
+             pageSize={10}
+-            filters={[{ key: "type", label: "types", options: ["expiring", "expired", "overdue", "welcome", "receipt", "verify"] }]}
++            filters={[{ key: "type", label: "types", options: ["invoice", "expiring", "expired", "overdue", "welcome", "receipt", "verify"] }]}
+           >
+             <ul className="divide-y divide-zinc-100">
+               {reminders.map((r) => (
+@@ -60,6 +61,16 @@ export default function NotificationsPage() {
+                     <div className="flex items-center gap-2">
+                       <p className="font-medium text-zinc-800">{r.title}</p>
+                       <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">{r.channel}</span>
++                      {/* Delivery, not intent. A queued row has not left the
++                          box yet; one still queued tomorrow is a mail problem
++                          worth chasing, and this is the only place it shows. */}
++                      <span
++                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
++                          r.status === "sent" ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"
++                        }`}
++                      >
++                        {r.status}
++                      </span>
+                     </div>
+                     <p className="text-sm text-zinc-500">{r.memberName} — {r.detail}</p>
+                   </div>
+diff --git a/src/lib/db/schema.ts b/src/lib/db/schema.ts
+index 5f2e1e0..6b7985e 100644
+--- a/src/lib/db/schema.ts
++++ b/src/lib/db/schema.ts
+@@ -159,7 +159,7 @@ export type Attendance = {
+   present: boolean;
+ };
+ 
+-export type ReminderType = "expiring" | "expired" | "overdue" | "welcome" | "receipt" | "verify";
++export type ReminderType = "expiring" | "expired" | "overdue" | "welcome" | "receipt" | "invoice" | "verify";
+ export type Reminder = {
+   id: string;
+   gymId: string;
+diff --git a/src/lib/services/billing.ts b/src/lib/services/billing.ts
+index c583dc9..8d05ce6 100644
+--- a/src/lib/services/billing.ts
++++ b/src/lib/services/billing.ts
+@@ -5,6 +5,7 @@ import {
+   GYM_ID,
+   type DB, type Membership, type Invoice, type InvoiceItem, type BillablePlan, type PayMethod,
+ } from "@/lib/db/schema";
++import { drainReminderEmails, emailChannel } from "./notify";
+ 
+ const pubToken = () => randomUUID().replace(/-/g, "");
+ 
+@@ -27,14 +28,23 @@ function nextInvoiceNumber(db: DB): string {
+   return `FG-INV-${String(db.meta.invoiceSeq).padStart(4, "0")}`;
+ }
+ 
++/* Stage one notification. This writes a row and nothing else — the email goes
++   out via drainReminderEmails() after saveDB has committed, so an SMTP timeout
++   can never abort a recorded payment. "queued" is therefore the honest status
++   to write here; only an accepted send makes it "sent". */
+ function reminder(
+-  db: DB, memberId: string, memberName: string, type: "welcome" | "receipt", title: string, detail: string, key: string,
++  db: DB, memberId: string, memberName: string, type: "welcome" | "receipt" | "invoice",
++  title: string, detail: string, key: string,
++  extra: { invoiceId?: string; membershipId?: string } = {},
+ ) {
+   if (db.reminders.some((r) => r.dedupeKey === key)) return;
+   const on = todayISO();
++  const { channel, status } = emailChannel();
+   db.reminders.push({
+-    id: uid("REM"), gymId: GYM_ID, memberId, memberName, type, channel: "in-app",
+-    title, detail, status: "sent", dedupeKey: key, createdAt: on, sentAt: on,
++    id: uid("REM"), gymId: GYM_ID, memberId, memberName, type, channel,
++    title, detail, status, dedupeKey: key, createdAt: on,
++    ...(status === "sent" ? { sentAt: on } : {}),
++    ...extra,
+   });
+ }
+ 
+@@ -56,7 +66,8 @@ function activateMembership(db: DB, mem: Membership, fallbackStart: string) {
+     u.currentMembershipId = mem.id;
+     u.plan = mem.planName;
+     reminder(db, u.id, u.name, "welcome", "Welcome to Fit Generations",
+-      `${u.name}'s ${mem.planName} runs ${start} → ${end}.`, `welcome:${mem.id}`);
++      `${u.name}'s ${mem.planName} runs ${start} → ${end}.`, `welcome:${mem.id}`,
++      { membershipId: mem.id });
+   }
+ }
+ 
+@@ -108,7 +119,12 @@ export async function assignPlan(
+     // membership stays current; this pending one takes effect only once paid.
+     const hasActive = db.memberships.some((m) => m.memberId === memberId && m.status === "active");
+     if (!hasActive) member.currentMembershipId = membershipId;
++
++    reminder(db, member.id, member.name, "invoice", "Invoice issued",
++      `${invoice.number} for ${money(invoice.total)} is due ${invoice.dueDate}.`,
++      `invoice:${invoiceId}`, { invoiceId, membershipId });
+   });
++  await drainReminderEmails();
+   return { invoiceId, membershipId };
+ }
+ 
+@@ -143,10 +159,15 @@ export async function recordInvoicePayment(
+       receivedBy: input.receivedBy, reference: input.reference,
+     });
+     reminder(db, inv.memberId, inv.memberName, "receipt", "Payment received",
+-      `Receipt for ${money(amount)} against ${inv.number}. Balance ${money(inv.balance)}.`, `receipt:${payId}`);
++      `Receipt for ${money(amount)} against ${inv.number}. Balance ${money(inv.balance)}.`, `receipt:${payId}`,
++      { invoiceId: inv.id });
+ 
+     if (fully && mem && mem.status === "pending") activateMembership(db, mem, today);
+   });
++
++  // Outside the transaction, deliberately: the payment is already durable, so
++  // a mail failure costs a retry on the next tick rather than the record.
++  await drainReminderEmails();
+ }
+ 
+ /** Void an open invoice and cancel any still-pending membership it created.
+diff --git a/src/lib/services/email-templates.ts b/src/lib/services/email-templates.ts
+new file mode 100644
+index 0000000..4dd8b60
+--- /dev/null
++++ b/src/lib/services/email-templates.ts
+@@ -0,0 +1,214 @@
++/* ==========================================================================
++   Member email templates — pure functions, no store and no "server-only".
++
++   Separate from notify.ts on purpose: these are the part worth looking at and
++   worth testing, and neither is possible if rendering one needs a database and
++   an SMTP server. Give composeEmail a reminder type and the facts, get back a
++   subject and both bodies.
++
++   HTML EMAIL IS NOT HTML. Gmail strips <style> blocks, Outlook ignores flexbox
++   and most clients drop background images, so everything here is inline styles
++   on tables. Dark by design, matching the portal, with a plain-text twin that
++   carries the same facts for clients that refuse HTML outright.
++   ========================================================================== */
++
++import { gym } from "@/lib/gym";
++import type { ReminderType } from "@/lib/db/schema";
++
++const money = (n: number) => `KSh ${n.toLocaleString()}`;
++
++const INK = "#0b0b0b", CARD = "#12100f", LINE = "#262626";
++const LIME = "#a3e635", EMBER = "#ef4444", AMBER = "#f59e0b";
++const BODY = "#c9c9c9", MUTED = "#8a8a8a";
++
++/** Everything a message needs. Any field may be missing — a reminder row can
++    outlive the invoice it referred to, and a blank row beats a crash. */
++export type EmailFacts = {
++  firstName?: string;
++  invoiceNumber?: string;
++  total?: number;
++  amountPaid?: number;
++  balance?: number;
++  dueDate?: string;
++  planName?: string;
++  startDate?: string;
++  endDate?: string;
++  /** Public invoice link, `${APP_URL}/i/${publicToken}`. */
++  payUrl?: string;
++  /** Portal base, `${APP_URL}/portal`. */
++  portalUrl?: string;
++  /** Used only by the fallback, for a type with no template of its own. */
++  title?: string;
++  detail?: string;
++};
++
++type Block = {
++  accent: string;
++  heading: string;
++  lead: string;
++  rows: [string, string][];
++  cta?: { label: string; href: string };
++};
++
++const esc = (s: string) =>
++  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
++
++export function renderHtml(b: Block): string {
++  const rows = b.rows
++    .map(
++      ([k, v]) =>
++        `<tr><td style="padding:7px 0;font-size:13px;color:${MUTED};">${esc(k)}</td>` +
++        `<td style="padding:7px 0;font-size:13px;color:#ffffff;text-align:right;font-weight:bold;">${esc(v)}</td></tr>`,
++    )
++    .join("");
++
++  const cta = b.cta
++    ? `<tr><td style="padding:18px 28px 6px;">
++      <a href="${esc(b.cta.href)}" style="display:inline-block;background:${b.accent};color:${INK};text-decoration:none;font-weight:bold;font-size:14px;padding:13px 24px;border-radius:999px;">${esc(b.cta.label)}</a>
++    </td></tr>
++    <tr><td style="padding:10px 28px 4px;">
++      <p style="margin:0;font-size:12px;line-height:1.6;color:${MUTED};">Or paste this into your browser:<br><a href="${esc(b.cta.href)}" style="color:${b.accent};word-break:break-all;">${esc(b.cta.href)}</a></p>
++    </td></tr>`
++    : "";
++
++  return `<!doctype html><html><body style="margin:0;background:${INK};padding:24px;font-family:Arial,Helvetica,sans-serif;">
++  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;margin:0 auto;background:${CARD};border:1px solid ${LINE};border-radius:16px;overflow:hidden;">
++    <tr><td style="height:4px;background:linear-gradient(90deg,${b.accent},${EMBER});"></td></tr>
++    <tr><td style="padding:28px 28px 6px;">
++      <div style="font-size:13px;font-weight:bold;letter-spacing:2px;color:${b.accent};text-transform:uppercase;">${esc(gym.name)}</div>
++      <h1 style="margin:14px 0 0;font-size:22px;color:#ffffff;">${esc(b.heading)}</h1>
++      <p style="margin:10px 0 0;font-size:14px;line-height:1.6;color:${BODY};">${esc(b.lead)}</p>
++    </td></tr>
++    ${rows ? `<tr><td style="padding:14px 28px 4px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-top:1px solid ${LINE};">${rows}</table></td></tr>` : ""}
++    ${cta}
++    <tr><td style="padding:18px 28px 26px;border-top:1px solid ${LINE};">
++      <p style="margin:0;font-size:12px;line-height:1.6;color:#7a7a7a;">${esc(gym.name)} · ${esc(gym.contact.phones[0])}<br>${esc(gym.contact.addressLines[0])}, ${esc(gym.contact.addressLines[2])}</p>
++    </td></tr>
++  </table>
++</body></html>`;
++}
++
++export function renderText(b: Block): string {
++  return [
++    b.heading,
++    "",
++    b.lead,
++    "",
++    ...b.rows.map(([k, v]) => `${k}: ${v}`),
++    ...(b.cta ? ["", b.cta.label + ":", b.cta.href] : []),
++    "",
++    `— ${gym.name}, ${gym.contact.phones[0]}`,
++  ].join("\n");
++}
++
++/** Subject + both bodies for one notification. */
++export function composeEmail(
++  type: ReminderType,
++  f: EmailFacts,
++): { subject: string; text: string; html: string } {
++  const dash = "—";
++  let subject: string;
++  let b: Block;
++
++  switch (type) {
++    case "invoice":
++      subject = `Invoice ${f.invoiceNumber ?? ""} · ${money(f.total ?? 0)}`.replace("  ", " ");
++      b = {
++        accent: LIME,
++        heading: "Your invoice is ready",
++        lead: `Pay by M-Pesa to activate your ${f.planName ?? "membership"}.`,
++        rows: [
++          ["Invoice", f.invoiceNumber ?? dash],
++          ["Amount", money(f.total ?? 0)],
++          ["Due", f.dueDate ?? dash],
++        ],
++        ...(f.payUrl ? { cta: { label: "Pay now", href: f.payUrl } } : {}),
++      };
++      break;
++
++    case "receipt": {
++      const owing = (f.balance ?? 0) > 0;
++      subject = `Payment received · ${f.invoiceNumber ?? gym.shortName}`;
++      b = {
++        accent: LIME,
++        heading: "Payment received",
++        lead: owing
++          ? "Thank you. A balance remains on this invoice."
++          : "Thank you — this invoice is settled in full.",
++        rows: [
++          ["Invoice", f.invoiceNumber ?? dash],
++          ["Paid", money(f.amountPaid ?? 0)],
++          ["Balance", money(f.balance ?? 0)],
++        ],
++        ...(owing && f.payUrl ? { cta: { label: "Pay the balance", href: f.payUrl } } : {}),
++      };
++      break;
++    }
++
++    case "welcome":
++      subject = `You're active · ${f.planName ?? gym.shortName}`;
++      b = {
++        accent: LIME,
++        heading: "Your membership is active",
++        lead: `Welcome${f.firstName ? ", " + f.firstName : ""}. Just give your name at the front desk.`,
++        rows: [
++          ["Plan", f.planName ?? dash],
++          ["Starts", f.startDate ?? dash],
++          ["Runs until", f.endDate ?? dash],
++        ],
++        ...(f.portalUrl ? { cta: { label: "Open your portal", href: f.portalUrl } } : {}),
++      };
++      break;
++
++    case "expiring":
++      subject = `${f.planName ?? "Your membership"} expires ${f.endDate ?? "soon"}`;
++      b = {
++        accent: AMBER,
++        heading: "Time to renew",
++        lead: "Renew before the end date and your access carries on uninterrupted.",
++        rows: [
++          ["Plan", f.planName ?? dash],
++          ["Expires", f.endDate ?? dash],
++        ],
++        ...(f.portalUrl ? { cta: { label: "Renew", href: f.portalUrl + "/plans" } } : {}),
++      };
++      break;
++
++    case "expired":
++      subject = `${f.planName ?? "Your membership"} has expired`;
++      b = {
++        accent: EMBER,
++        heading: "Your membership has expired",
++        lead: "Renew to pick up where you left off — your history and plans are still here.",
++        rows: [
++          ["Plan", f.planName ?? dash],
++          ["Expired", f.endDate ?? dash],
++        ],
++        ...(f.portalUrl ? { cta: { label: "Renew", href: f.portalUrl + "/plans" } } : {}),
++      };
++      break;
++
++    case "overdue":
++      subject = `Invoice ${f.invoiceNumber ?? ""} is past due`.replace("  ", " ");
++      b = {
++        accent: EMBER,
++        heading: "Invoice past due",
++        lead: "Settle this to keep your membership active. Already paid? Reply and we will check.",
++        rows: [
++          ["Invoice", f.invoiceNumber ?? dash],
++          ["Outstanding", money(f.balance ?? 0)],
++          ["Was due", f.dueDate ?? dash],
++        ],
++        ...(f.payUrl ? { cta: { label: "Pay now", href: f.payUrl } } : {}),
++      };
++      break;
++
++    default:
++      // A reminder type with no template of its own still has to produce a
++      // sensible email rather than an empty one.
++      subject = f.title ?? gym.name;
++      b = { accent: LIME, heading: f.title ?? gym.name, lead: f.detail ?? "", rows: [] };
++  }
++
++  return { subject, text: renderText(b), html: renderHtml(b) };
++}
+diff --git a/src/lib/services/lifecycle.ts b/src/lib/services/lifecycle.ts
+index cb95adc..fff2567 100644
+--- a/src/lib/services/lifecycle.ts
++++ b/src/lib/services/lifecycle.ts
+@@ -1,6 +1,7 @@
+ import "server-only";
+ import { saveDB, uid } from "@/lib/db/store";
+ import { GYM_ID, type DB, type ReminderType } from "@/lib/db/schema";
++import { drainReminderEmails, emailChannel } from "./notify";
+ 
+ /* ==========================================================================
+    Lifecycle tick — the scheduled heartbeat. Idempotent: safe to run any number
+@@ -13,7 +14,7 @@ const daysBetween = (a: string, b: string) =>
+   Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86400000);
+ const money = (n: number) => `KSh ${n.toLocaleString()}`;
+ 
+-export type TickResult = { overdue: number; expired: number; created: number };
++export type TickResult = { overdue: number; expired: number; created: number; emailed: number; emailFailed: number };
+ 
+ export async function runReminderTick(): Promise<TickResult> {
+   let overdue = 0, expired = 0, created = 0;
+@@ -27,10 +28,15 @@ export async function runReminderTick(): Promise<TickResult> {
+       extra: { invoiceId?: string; membershipId?: string } = {},
+     ) => {
+       if (has(key)) return;
++      // "queued" when there is a mailer, and it stays queued until an SMTP
++      // server actually accepts it. These rows were previously written
++      // status: "sent" with channel "in-app", so /admin/notifications reported
++      // every nudge as delivered while nothing ever left the box.
++      const { channel, status } = emailChannel();
+       db.reminders.push({
+         id: uid("REM"), gymId: GYM_ID, memberId, memberName: nameOf(memberId), type,
+-        channel: "in-app", title, detail, status: "sent", dedupeKey: key,
+-        createdAt: today, sentAt: today, ...extra,
++        channel, title, detail, status, dedupeKey: key,
++        createdAt: today, ...(status === "sent" ? { sentAt: today } : {}), ...extra,
+       });
+       created++;
+     };
+@@ -76,5 +82,9 @@ export async function runReminderTick(): Promise<TickResult> {
+     }
+   });
+ 
+-  return { overdue, expired, created };
++  // Sends what this tick staged, plus anything an earlier run left queued —
++  // a failed send is retried here rather than dropped.
++  const mail = await drainReminderEmails();
++
++  return { overdue, expired, created, emailed: mail.sent, emailFailed: mail.failed };
+ }
+diff --git a/src/lib/services/messaging.ts b/src/lib/services/messaging.ts
+index f227e0b..6ab0915 100644
+--- a/src/lib/services/messaging.ts
++++ b/src/lib/services/messaging.ts
+@@ -4,16 +4,23 @@ import "server-only";
+ 
+    Three providers, picked in this order:
+ 
+-     SMTP    when SMTP_HOST and SMTP_USER are set — sends through a real
+-             mailbox, so mail leaves as info@<the gym's domain> and replies
+-             come back to a human rather than to a no-reply void.
+-     Resend  when RESEND_API_KEY is set — HTTP API, no mailbox needed.
+-     Log     otherwise, so every flow still works in development.
+-
+-   SMTP is first because a mailbox the gym already pays for is the thing
+-   members should see in the From line. Its limits are the trade: mailbox
+-   plans cap daily sends, which a burst of monthly invoices can reach — see
+-   the note on sendEmail. */
++     SMTP    when SMTP_HOST, SMTP_USER and SMTP_PASS are set
++     Resend  when RESEND_API_KEY is set — HTTP API
++     Log     otherwise, so every flow still works in development
++
++   SMTP is first because it sends as the gym's own address on whatever relay
++   the deploy has, rather than a third party's domain.
++
++   SENDING AND RECEIVING ARE SEPARATE, which is the thing that catches people
++   out. On a relay like Brevo, MAIL_FROM only has to be an address on an
++   AUTHENTICATED DOMAIN — the mailbox behind it need not exist, and on this
++   deploy it does not. Mail goes out as info@<domain> and a reply to it
++   bounces. MAIL_REPLY_TO exists for exactly that: point it at an address
++   somebody reads. With a real mailbox (Hostinger and the like) the from
++   address receives too and MAIL_REPLY_TO can stay unset, but the trade is
++   volume, since mailbox plans cap daily sends where a relay counts in
++   thousands. Either way a cap is reached at the provider and reported
++   nowhere else, so see the error path in SmtpProvider.send. */
+ 
+ export type OutMessage = { to: string; subject: string; body: string; html?: string; channel: "email" | "sms" };
+ 
+@@ -21,6 +28,12 @@ export interface MessageProvider {
+   send(m: OutMessage): Promise<{ ok: boolean; id?: string }>;
+ }
+ 
++/** An address a member's reply will reach, when the From line is not one. */
++function replyTo(): string | undefined {
++  const v = (process.env.MAIL_REPLY_TO || "").trim();
++  return v === "" ? undefined : v;
++}
++
+ class LogProvider implements MessageProvider {
+   async send(m: OutMessage) {
+     // No email provider configured — log so the flow still works in dev.
+@@ -57,6 +70,9 @@ class SmtpProvider implements MessageProvider {
+       const info = await transport.sendMail({
+         from: process.env.MAIL_FROM || process.env.SMTP_USER,
+         to: m.to,
++        // Where a reply actually lands. Without this it goes back to MAIL_FROM,
++        // which on a relay is an identity with no inbox behind it.
++        ...(replyTo() ? { replyTo: replyTo() } : {}),
+         subject: m.subject,
+         text: m.body,
+         ...(m.html ? { html: m.html } : {}),
+@@ -84,6 +100,7 @@ class ResendProvider implements MessageProvider {
+         body: JSON.stringify({
+           from: process.env.MAIL_FROM || "Fit Generations Gym <onboarding@resend.dev>",
+           to: m.to,
++          ...(replyTo() ? { reply_to: replyTo() } : {}),
+           subject: m.subject,
+           text: m.body,
+           ...(m.html ? { html: m.html } : {}),
+diff --git a/src/lib/services/notify.ts b/src/lib/services/notify.ts
+new file mode 100644
+index 0000000..6f58721
+--- /dev/null
++++ b/src/lib/services/notify.ts
+@@ -0,0 +1,129 @@
++import "server-only";
++
++/* ==========================================================================
++   Member emails — the outbox. Templates live in ./email-templates.
++
++   THE OUTBOX PATTERN, AND WHY. Every state change in this app happens inside
++   saveDB(mutator), which is synchronous and unlocked. Sending from in there
++   would mean an SMTP timeout could abort a recorded payment, and a retry would
++   spend the member's patience twice. So the mutation only writes a reminder
++   row with status "queued"; sending happens here, after the transaction has
++   committed. A failed send leaves the row queued and the next tick picks it
++   up. Nothing is lost, and nothing goes twice — dedupeKey already guarantees
++   one row per event.
++
++   It also fixes something dishonest. These rows were written
++   `channel: "in-app", status: "sent"` — marked sent when nothing had been
++   sent, which is what /admin/notifications has reported all along. Now "sent"
++   means a mail server accepted it.
++   ========================================================================== */
++
++import { getDB, saveDB } from "@/lib/db/store";
++import { emailConfigured, sendEmail } from "./messaging";
++import { composeEmail, type EmailFacts } from "./email-templates";
++import { gym } from "@/lib/gym";
++import type { DB, Reminder } from "@/lib/db/schema";
++
++const todayISO = () => new Date().toISOString().slice(0, 10);
++const linkBase = () => (process.env.APP_URL || `https://${gym.domain}`).replace(/\/$/, "");
++
++/** Most one drain will send. Brevo's free tier allows 300 a day and a mailbox
++    plan rather fewer, so a first tick across a full member list must not spend
++    the quota in one go — the remainder stays queued for the next run instead
++    of failing in a heap. */
++const BATCH = 40;
++
++// One drain at a time. Two concurrent runs would both read the same queued
++// rows before either marked them sent, and members would get two of
++// everything. Single container, so an in-process flag is enough.
++const g = globalThis as unknown as { __fgdraining?: boolean };
++
++/** How a staged reminder should be recorded: queued for email when a mailer
++    exists, otherwise an in-app notice that is genuinely already delivered. */
++export function emailChannel(): { channel: Reminder["channel"]; status: Reminder["status"] } {
++  return emailConfigured() ? { channel: "email", status: "queued" } : { channel: "in-app", status: "sent" };
++}
++
++/** Gather the facts for one row from whatever it still points at. */
++function factsFor(db: DB, r: Reminder, firstName: string): EmailFacts {
++  const inv = r.invoiceId ? db.invoices.find((i) => i.id === r.invoiceId) : undefined;
++  const mem = r.membershipId ? db.memberships.find((m) => m.id === r.membershipId) : undefined;
++
++  return {
++    firstName,
++    invoiceNumber: inv?.number,
++    total: inv?.total,
++    amountPaid: inv?.amountPaid,
++    balance: inv?.balance,
++    dueDate: inv?.dueDate,
++    planName: mem?.planName,
++    startDate: mem?.startDate,
++    endDate: mem?.endDate,
++    payUrl: inv?.publicToken ? `${linkBase()}/i/${inv.publicToken}` : undefined,
++    portalUrl: `${linkBase()}/portal`,
++    title: r.title,
++    detail: r.detail,
++  };
++}
++
++/**
++ * Send every queued email reminder. Safe to call after any mutation and from
++ * the tick; returns zero quickly when there is nothing to do.
++ */
++export async function drainReminderEmails(): Promise<{ sent: number; failed: number; skipped: number }> {
++  const idle = { sent: 0, failed: 0, skipped: 0 };
++  if (!emailConfigured() || g.__fgdraining) return idle;
++
++  const db: DB = getDB();
++  const queued = db.reminders.filter((r) => r.channel === "email" && r.status === "queued").slice(0, BATCH);
++  if (queued.length === 0) return idle;
++
++  g.__fgdraining = true;
++  const sentIds: string[] = [];
++  const noAddress: string[] = [];
++  let failed = 0;
++
++  try {
++    for (const r of queued) {
++      const user = db.users.find((u) => u.id === r.memberId);
++
++      // No address to send to. Left queued it would be retried on every tick
++      // for ever, so it reverts to an in-app notice — which is the truth.
++      if (!user?.email) {
++        noAddress.push(r.id);
++        continue;
++      }
++
++      const msg = composeEmail(r.type, factsFor(db, r, user.name.split(" ")[0] ?? ""));
++      const res = await sendEmail(user.email, msg.subject, msg.text, msg.html);
++      if (res.ok) sentIds.push(r.id);
++      else failed++;
++    }
++
++    if (sentIds.length || noAddress.length) {
++      const sent = new Set(sentIds);
++      const orphan = new Set(noAddress);
++      const on = todayISO();
++      await saveDB((d) => {
++        for (const r of d.reminders) {
++          if (sent.has(r.id)) {
++            r.status = "sent";
++            r.sentAt = on;
++          } else if (orphan.has(r.id)) {
++            r.channel = "in-app";
++            r.status = "sent";
++            r.sentAt = on;
++          }
++        }
++      });
++    }
++  } finally {
++    g.__fgdraining = false;
++  }
++
++  // Worth a log line: a provider at its daily cap and a wrong password both
++  // surface only here.
++  if (failed) console.error(`[notify] ${failed} reminder email(s) failed — left queued for the next tick`);
++
++  return { sent: sentIds.length, failed, skipped: noAddress.length };
++}

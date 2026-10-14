@@ -116,9 +116,22 @@ produce it are both checked before the script connects:
 Then `MAIL_FROM_ADDRESS` has to be a sender Brevo has verified, or the login
 succeeds and the send is refused separately.
 
-**Fit Generations is a different stack** — it uses Resend
-(`RESEND_API_KEY`, `MAIL_FROM` in its compose), not SMTP. If both should go
-through Brevo, the gym needs an SMTP path adding; it is not the same fix.
+**Fit Generations is done, and on a separate Brevo path.** Patch 0003 added an
+SMTP provider (it previously only had Resend) and patch 0005 the six member
+emails. Live and verified: relay accepted two test sends on 14 October.
+
+Three things learned there that apply to 64theatre too:
+
+- `SMTP_USER` is Brevo's **generated login** (`…@smtp-brevo.com`), never the
+  from-address. Authenticating as `info@…` gives a 535 that reads as a wrong
+  password.
+- An **authenticated domain** lets you send as any address on it, mailbox or
+  no mailbox. Single-sender verification needs a real inbox to click a link,
+  so it is not available for an address that does not exist.
+- Sending and receiving are separate. `info@fitgenerationsgym.com` sends and
+  cannot receive, so `MAIL_REPLY_TO` carries a real address or replies bounce.
+
+64theatre is still `MAIL_MAILER=log`. Same account, same two traps.
 
 ---
 
@@ -150,3 +163,24 @@ Never run the gym's `docker-compose.yml` or `ops/install-edge.sh` — both bind
 5. **StackUp has no tests**, while the portfolio claims "a CI gate asserts
    cross-workspace isolation on every push". Fix one or the other before an
    interviewer reads it.
+6. **The gym has one user — the admin.** No members, so no member email has
+   been delivered end to end yet; only the relay is proven. The first real
+   member is also the first real test of the invoice flow.
+7. **The gym's cron tick needs a schedule.** `/api/cron/tick` drains the
+   outbox and nothing calls it on a timer, so a queued reminder waits for
+   someone to press the admin button. A `cron` entry on the box is enough.
+
+---
+
+## A patch is only as good as the state it was checked against
+
+Patch 0003 failed on the box with `patch does not apply`. Its compose and
+`.env.example` hunks carried the whole of patch 0001, because the patches were
+split from a baseline that did not have 0001 applied — and my `git apply
+--check` passed because I ran it against that same wrong baseline.
+
+So: **check a patch against a reconstruction of the target, not the tree it
+was written in.** Build the base from the real HEAD plus the patches already
+applied, in order, then check. It takes a `git worktree add` and catches the
+one class of failure a local check cannot see. The patches for this app are
+ordered and cumulative; they are not independent.

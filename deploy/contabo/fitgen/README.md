@@ -42,7 +42,7 @@ the database password, auth secret and APP_URL. Leave all of that alone.
 **The patches are ordered and each assumes its predecessors.** They touch the
 same compose file and `.env.example`, so applying 0003 before 0001 — or
 checking one against the wrong starting state — fails with `patch does not
-apply`. Apply 0001, 0002, 0003, 0004 in that order.
+apply`. Apply 0001, 0002, 0003, 0004, 0005 in that order.
 
 ```bash
 docker ps --format '{{.Names}}\t{{.Status}}' > /root/before-fitgen.txt
@@ -227,15 +227,76 @@ require('nodemailer').createTransport({
 "
 ```
 
-**What this does not give you.** A working pipe, and nothing using it.
-`sendEmail` has exactly one caller — password reset. The nightly tick writes
-reminder rows that nothing reads out. Approvals, invoices and reminders are
-unbuilt, and that is a larger job than this patch was.
+Patch 0003 gives a working pipe and nothing using it: `sendEmail` has one
+caller, password reset. Patch 0005 is what actually sends to members.
 
-Mail also leaves from an address that cannot receive: anyone replying to an
-invoice gets a bounce. Either buy the mailbox or carry a real reply address.
+## 7 · Member emails
 
-## 7 · Back it up
+```bash
+cd /root/fit-generations-gym
+git apply --check /srv/smp-portfolio/repo/deploy/contabo/fitgen/patches/0005-member-emails.patch \
+  && git apply /srv/smp-portfolio/repo/deploy/contabo/fitgen/patches/0005-member-emails.patch
+```
+
+Add one line to `.env` — mail goes out as `info@`, which on Brevo can send but
+has no inbox, so without this a member's reply bounces:
+
+```
+MAIL_REPLY_TO="misiatipeter@gmail.com"
+```
+
+No new dependency, so a plain restart is enough:
+
+```bash
+docker compose -f docker-compose.behind-proxy.yml up -d
+```
+
+Six emails, at the points where the state already changes: invoice issued,
+payment received (full or partial), membership activated, expiring within
+seven days, expired, invoice overdue. There is no admin approval step in this
+app — `pending` means awaiting payment and payment activates the membership —
+so the "approval" email is the activation one.
+
+**It is an outbox, not a send.** Every one of these fires inside
+`saveDB(mutator)`, which is synchronous and unlocked, so sending from in there
+would let an SMTP timeout abort a recorded payment. The mutation writes a
+reminder row with `status: "queued"`; `drainReminderEmails()` sends after the
+transaction commits. A failed send stays queued and the next tick retries it.
+
+That also makes the admin panel honest. These rows were written
+`channel: "in-app", status: "sent"` — marked sent when nothing had been sent.
+`/admin/notifications` now shows the real delivery state, amber for queued.
+
+### Proving it
+
+The relay test in section 6 proves SMTP. This proves the app:
+
+```bash
+curl -sS -X POST -H "Authorization: Bearer $(grep '^CRON_SECRET' /root/fit-generations-gym/.env | cut -d= -f2-)" \
+  https://fitgenerationsgym.com/api/cron/tick
+```
+
+The response carries `emailed` and `emailFailed`. With no members it will
+report zeros — correct, not broken. Create a member with a real address,
+assign a plan, and the invoice email goes out on the spot.
+
+```bash
+docker exec fitgen-db psql -U fitgen -d fitgen -tA -F' | ' -c \
+"select data->>'type', data->>'channel', data->>'status', data->>'memberName'
+   from reminders order by data->>'createdAt' desc limit 10;"
+```
+
+Anything still `queued` on the next day is a mail fault worth chasing, and
+`docker logs fitgen-web | grep notify` will name it.
+
+### The cap
+
+`BATCH = 40` per drain. Brevo's free tier allows 300 a day, so a first tick
+across a long member list cannot spend the quota in one go — the remainder
+stays queued for the next run instead of failing in a heap. Raise it only
+after checking the plan's real daily limit.
+
+## 8 · Back it up
 
 Nothing on this box backs up automatically. Once there are real members:
 
