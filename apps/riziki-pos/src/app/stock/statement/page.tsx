@@ -54,6 +54,32 @@ export default async function StockStatementPage(props: {
 
   return (
     <div>
+      {/*
+        THE PRINTED COPY WAS LOSING ITS LAST TWO COLUMNS.
+
+        The table scrolls sideways on screen, which is right — eight columns do
+        not fit a phone. On paper there is nothing to scroll, so the overflow
+        box simply cut Adjusted and Closing off the edge of the sheet: the shop
+        printed a stock statement with no closing stock on it, which is the one
+        figure it is for.
+
+        Landscape, smaller type, and the overflow released. The rule against
+        breaking a row across pages is here too — half a row at a page turn is
+        a figure read twice or not at all.
+      */}
+      <style>{`
+        @media print {
+          @page { size: A4 landscape; margin: 10mm; }
+          html, body { background: #fff !important; }
+          .no-print { display: none !important; }
+          .stmt-table { overflow: visible !important; box-shadow: none !important; }
+          .stmt-table table { font-size: 9.5px; width: 100%; }
+          .stmt-table th, .stmt-table td { padding: 3px 5px !important; }
+          .stmt-table tr { break-inside: avoid; page-break-inside: avoid; }
+          .stmt-table thead { display: table-header-group; }
+        }
+      `}</style>
+
       <PageTitle
         title="Stock movement"
         subtitle={`${STATEMENT_PERIOD_LABEL[period]} · ${describeRange(range)}`}
@@ -93,7 +119,7 @@ export default async function StockStatementPage(props: {
       </SectionLabel>
 
       {statement.rows.length ? (
-        <StatementTable rows={statement.rows} />
+        <StatementTable rows={statement.rows} className="stmt-table" />
       ) : (
         <Card>
           <Empty>Nothing was held and nothing moved in this period.</Empty>

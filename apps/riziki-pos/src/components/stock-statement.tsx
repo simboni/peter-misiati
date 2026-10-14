@@ -219,9 +219,16 @@ function Qty({
  * that item's own stock card, because the next question after "where did
  * forty kilos go" is always "which entries", and that screen has them.
  */
-export function StatementTable({ rows }: { rows: StatementRow[] }) {
+export function StatementTable({
+  rows,
+  className = "",
+}: {
+  rows: StatementRow[];
+  /** Lets the printed copy release the sideways scroll that clips it on paper. */
+  className?: string;
+}) {
   return (
-    <TableWrap>
+    <TableWrap className={className}>
       <thead>
         <tr>
           <Th>Item</Th>

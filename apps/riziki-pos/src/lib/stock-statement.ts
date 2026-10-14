@@ -111,8 +111,24 @@ export function readStatementPeriod(params: {
  *  - `repack_out`    poured out of the drum to be packed         → Used    (−)
  *  - `repack_loss`   spilt or left in the drum                   → Adjusted
  *  - `stocktake`     the book corrected to a count               → Adjusted
- *  - `adjustment`    moved by hand, including an undone delivery → Adjusted
+ *  - `adjustment`    moved by hand                               → Adjusted
  *  - `opening`       the go-live count, if it falls in range     → Adjusted
+ *
+ * WITH ONE EXCEPTION, AND IT IS A BIG ONE.
+ *
+ * Undoing a delivery, and correcting how much of one arrived, both post their
+ * reversal as `adjustment` — the ledger has no `purchase_void` reason and the
+ * movements table is append-only, so inventing one on a live shop was never an
+ * option. But the thing being reversed is a DELIVERY, and leaving it in
+ * Adjusted splits one act across two columns: the arrival shows as bought and
+ * the undo shows as an unexplained write-down of the same size. The shop undid
+ * some deliveries on its first day with this screen and the statement reported
+ * a six-hundred-thousand-shilling adjustment nobody had made.
+ *
+ * They carry `ref_type = 'purchase'`, which is exactly what tells them apart
+ * from an adjustment somebody typed. So they go back where they belong, and a
+ * delivery that was undone nets itself out of Bought instead of denting a
+ * column that is supposed to mean "somebody changed the count by hand".
  */
 const BOUGHT = ["purchase"];
 const MADE = ["batch_output", "repack_in"];
@@ -121,6 +137,18 @@ const USED = ["batch_consume", "repack_out"];
 const ADJUSTED = ["repack_loss", "stocktake", "adjustment", "opening"];
 
 const list = (xs: string[]) => xs.map((x) => `'${x}'`).join(", ");
+
+/**
+ * A delivery undone or re-counted: posted as an adjustment, filed against a
+ * purchase.
+ *
+ * `COALESCE` and not `m.ref_type = 'purchase'`, because most movements have no
+ * ref_type at all and in SQL `NULL = 'purchase'` is NULL, not false. Negating
+ * that gives NULL too, so an ordinary hand adjustment matched neither the
+ * Bought test nor the Adjusted one and fell out of the statement entirely —
+ * which the closing figure would then have disagreed with.
+ */
+const REVERSED_DELIVERY = `(m.reason = 'adjustment' AND COALESCE(m.ref_type, '') = 'purchase')`;
 
 export interface StatementRow {
   itemId: number;
@@ -197,7 +225,8 @@ export function stockStatement(range: DateRange): StockStatement {
   }>(
     `SELECT i.id, i.name, i.canonical_unit AS unit, i.cost_cents,
             COALESCE(SUM(CASE WHEN ${before} THEN m.delta_milli END), 0) AS opening,
-            COALESCE(SUM(CASE WHEN ${inRange} AND m.reason IN (${list(BOUGHT)})
+            COALESCE(SUM(CASE WHEN ${inRange}
+                              AND (m.reason IN (${list(BOUGHT)}) OR ${REVERSED_DELIVERY})
                               THEN m.delta_milli END), 0) AS bought,
             COALESCE(SUM(CASE WHEN ${inRange} AND m.reason IN (${list(MADE)})
                               THEN m.delta_milli END), 0) AS made,
@@ -206,6 +235,7 @@ export function stockStatement(range: DateRange): StockStatement {
             COALESCE(SUM(CASE WHEN ${inRange} AND m.reason IN (${list(USED)})
                               THEN -m.delta_milli END), 0) AS used,
             COALESCE(SUM(CASE WHEN ${inRange} AND m.reason IN (${list(ADJUSTED)})
+                              AND NOT ${REVERSED_DELIVERY}
                               THEN m.delta_milli END), 0) AS adjusted,
             COALESCE(SUM(CASE WHEN ${inRange} THEN 1 END), 0) AS moves
        FROM items i

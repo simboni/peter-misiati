@@ -212,3 +212,55 @@ test("the movers are ranked by what moved, not by what is held", () => {
   assert.ok(top.length > 0);
   assert.ok(top.every((r) => r.moved), "a drum that sat still all month is not news");
 });
+
+// ------------------------------------------- a delivery that was undone
+
+/*
+  The reversal of a delivery is posted as an `adjustment` — the ledger has no
+  `purchase_void` reason and is append-only, so inventing one on a live shop was
+  never on. What tells it apart from an adjustment somebody typed is that it is
+  filed against a purchase, and that is what puts it back in Bought.
+
+  Without this the shop's first day with the screen reported a six-hundred-
+  thousand-shilling write-down nobody had made: the arrival counted as bought,
+  the undo counted as an adjustment, and one act showed up twice in two columns.
+*/
+
+test("undoing a delivery nets out of Bought, not out of Adjusted", () => {
+  run(
+    `INSERT INTO stock_movements (item_id, delta_milli, reason, ref_type, ref_id, user_id, at)
+     VALUES (?, 60000, 'purchase', 'purchase', 991, 1, ?)`,
+    drum,
+    `${TODAY} 06:00:00`,
+  );
+  const bought = row(stockStatement(statementRange("today", TODAY)), ITEM)!;
+
+  run(
+    `INSERT INTO stock_movements (item_id, delta_milli, reason, ref_type, ref_id, user_id, at)
+     VALUES (?, -60000, 'adjustment', 'purchase', 991, 1, ?)`,
+    drum,
+    `${TODAY} 06:00:00`,
+  );
+  const after = row(stockStatement(statementRange("today", TODAY)), ITEM)!;
+
+  assert.equal(after.boughtMilli, bought.boughtMilli - 60_000, "the delivery comes back off Bought");
+  assert.equal(after.adjustedMilli, bought.adjustedMilli, "and Adjusted is untouched by it");
+  assert.equal(
+    after.openingMilli + after.boughtMilli + after.madeMilli - after.soldMilli - after.usedMilli +
+      after.adjustedMilli,
+    after.closingMilli,
+    "and it still reconciles",
+  );
+});
+
+test("an adjustment somebody typed by hand still counts as one", () => {
+  const before = row(stockStatement(statementRange("today", TODAY)), ITEM)!.adjustedMilli;
+  run(
+    `INSERT INTO stock_movements (item_id, delta_milli, reason, user_id, at)
+     VALUES (?, -2000, 'adjustment', 1, ?)`,
+    drum,
+    `${TODAY} 06:00:00`,
+  );
+  const after = row(stockStatement(statementRange("today", TODAY)), ITEM)!;
+  assert.equal(after.adjustedMilli, before - 2_000, "no purchase behind it, so it is an adjustment");
+});
