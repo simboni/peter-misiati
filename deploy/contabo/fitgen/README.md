@@ -42,7 +42,7 @@ the database password, auth secret and APP_URL. Leave all of that alone.
 **The patches are ordered and each assumes its predecessors.** They touch the
 same compose file and `.env.example`, so applying 0003 before 0001 — or
 checking one against the wrong starting state — fails with `patch does not
-apply`. Apply 0001, 0002, 0003, 0004, 0005 in that order.
+apply`. Apply 0001 through 0007 in order.
 
 ```bash
 docker ps --format '{{.Names}}\t{{.Status}}' > /root/before-fitgen.txt
@@ -296,7 +296,82 @@ across a long member list cannot spend the quota in one go — the remainder
 stays queued for the next run instead of failing in a heap. Raise it only
 after checking the plan's real daily limit.
 
-## 8 · Back it up
+## 8 · Reversing payments, and the service fee ledger
+
+```bash
+cd /root/fit-generations-gym
+git apply --check /srv/smp-portfolio/repo/deploy/contabo/fitgen/patches/0007-void-and-service-fees.patch \
+  && git apply /srv/smp-portfolio/repo/deploy/contabo/fitgen/patches/0007-void-and-service-fees.patch
+docker compose -f docker-compose.behind-proxy.yml up -d --build
+```
+
+**`--build`, always.** The Dockerfile does `COPY . .` then `npm run build`, so
+the source is compiled into the image. A plain `up -d` restarts the old code
+and the patch appears to have done nothing.
+
+### Reversing a payment
+
+Voiding an invoice already existed; reversing a payment did not, and a paid
+invoice could not be voided at all. Now there is a **Reverse** button on every
+live payment, on the ledger and on the invoice.
+
+The row is kept and marked `Reversed`, not deleted — deleting would leave a
+member holding a receipt for something the books say never happened. Every
+total excludes reversed rows: revenue, method split, the month's collections
+and the income chart all read from one filtered list, because two figures on
+one screen disagreeing is worse than both being wrong.
+
+A reversal is not only about money. If the payment settled an invoice, it also
+activated a membership, so the membership goes back to `pending` and the
+member's status with it — otherwise the gym hands out access paid for with
+money that has been taken back. Both membership dates are cleared so that
+re-paying later recomputes the window from that day and the member does not
+lose the days in between.
+
+A **paid** invoice still cannot be voided directly. Reverse its payments first
+and the Void button appears. That ordering is deliberate: it keeps the audit
+trail in the right sequence instead of destroying payment records.
+
+### Service fees
+
+A **Service fees** panel under Payments & Billing showing what the gym owes —
+PayHero's cut and the platform fee — per month, with a **Pay** button that
+records settlement and books it as an expense so the gym's own margin figures
+include the cost of collecting money. **Undo** reverses a mis-click.
+
+Rates are set under **Settings → Service fees** and default to **zero**: a fee
+nobody agreed to must not appear by itself.
+
+Four things about the design, because this is the one figure where the
+supplier bills the client and it has to survive being questioned:
+
+- **Derived, never typed in.** An unpaid period is recomputed from the payment
+  ledger on every tick, on every payment, on every reversal and whenever a
+  rate changes. Nobody can nudge the number, and reversing a member's payment
+  shrinks the fee automatically.
+- **Rates live in settings**, on a screen the gym can open — not in code or an
+  env var they cannot see.
+- **Every row shows its arithmetic.** "1.5% of KSh 48,000 over 12 payments",
+  not a bare total. A fee the client cannot check is a fee they will dispute.
+- **A paid period is frozen.** Recomputation skips it. A settled bill must
+  never move afterwards; that is a credit note conversation, not a silent
+  edit.
+
+Gateway fees apply only to M-Pesa and card. Cash over the desk costs PayHero
+nothing and billing for it would be indefensible.
+
+Set the rates, then:
+
+```bash
+docker exec fitgen-db psql -U fitgen -d fitgen -tA -F' | ' -c \
+"select data->>'period', data->>'kind', data->>'amount', data->>'status', data->>'basis'
+   from service_charges order by data->>'period' desc;"
+```
+
+The table is created automatically on boot — `ensureSchema` is idempotent DDL,
+so no migration step.
+
+## 9 · Back it up
 
 Nothing on this box backs up automatically. Once there are real members:
 

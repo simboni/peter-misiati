@@ -1,0 +1,982 @@
+diff --git a/src/app/admin/billing/[id]/page.tsx b/src/app/admin/billing/[id]/page.tsx
+index adced19..2adbb79 100644
+--- a/src/app/admin/billing/[id]/page.tsx
++++ b/src/app/admin/billing/[id]/page.tsx
+@@ -1,8 +1,8 @@
+ import Link from "next/link";
+ import { notFound } from "next/navigation";
+-import { getInvoice, getUser } from "@/lib/db/repo";
++import { getInvoice, getUser, paymentsForInvoice } from "@/lib/db/repo";
+ import { getSettings } from "@/lib/services/settings";
+-import { recordInvoicePaymentAction, voidInvoiceAction } from "@/lib/admin/actions";
++import { recordInvoicePaymentAction, voidInvoiceAction, reversePaymentAction } from "@/lib/admin/actions";
+ import { InvoiceDocument } from "@/components/invoice-document";
+ import { ShareInvoice } from "@/components/admin/share-invoice";
+ import { SubmitButton } from "@/components/admin/submit-button";
+@@ -21,6 +21,8 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
+   const member = getUser(inv.memberId);
+   const s = getSettings();
+   const settled = inv.status === "paid" || inv.status === "void";
++  const payments = paymentsForInvoice(inv.id);
++  const livePayments = payments.filter((p) => p.status !== "Reversed");
+ 
+   return (
+     <>
+@@ -74,6 +76,47 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
+             </Card>
+           )}
+ 
++          {payments.length > 0 && (
++            <Card title="Payments">
++              <ul className="divide-y divide-zinc-100">
++                {payments.map((p) => {
++                  const reversed = p.status === "Reversed";
++                  return (
++                    <li key={p.id} className={`py-3 ${reversed ? "opacity-55" : ""}`}>
++                      <div className="flex items-start justify-between gap-3">
++                        <div className="min-w-0">
++                          <p className={`font-medium text-zinc-800 ${reversed ? "line-through" : ""}`}>{money(p.amount)}</p>
++                          <p className="truncate text-xs text-zinc-500">
++                            {p.method} · {p.date}{p.reference ? ` · ${p.reference}` : ""}
++                          </p>
++                          {reversed && (
++                            <p className="mt-0.5 text-xs text-zinc-400">
++                              Reversed {p.reversedAt}{p.reversalReason ? ` — ${p.reversalReason}` : ""}
++                            </p>
++                          )}
++                        </div>
++                        {!reversed && (
++                          <form action={reversePaymentAction} className="shrink-0">
++                            <input type="hidden" name="paymentId" value={p.id} />
++                            <input type="hidden" name="invoiceId" value={inv.id} />
++                            <input type="hidden" name="memberId" value={inv.memberId} />
++                            <input type="hidden" name="reason" value="Reversed by admin" />
++                            <ConfirmSubmit
++                              confirm={`Reverse ${money(p.amount)} on ${inv.number}? The invoice re-opens and any membership it activated goes back to pending. The payment stays on the ledger, marked reversed.`}
++                              className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-semibold text-zinc-500 hover:bg-zinc-50"
++                            >
++                              Reverse
++                            </ConfirmSubmit>
++                          </form>
++                        )}
++                      </div>
++                    </li>
++                  );
++                })}
++              </ul>
++            </Card>
++          )}
++
+           <Card title="Share">
+             <ShareInvoice
+               token={inv.publicToken}
+@@ -92,6 +135,14 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
+               </span>
+               <div><p className="font-medium text-zinc-800">{inv.memberName}</p><p className="text-xs text-zinc-400">View member profile →</p></div>
+             </Link>
++            {/* A paid invoice cannot be voided out from under its payments —
++                that would leave the member holding a receipt for a charge the
++                books say never existed. Reverse them first and this appears. */}
++            {inv.status === "paid" && livePayments.length > 0 && (
++              <p className="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-500">
++                To void this invoice, reverse its {livePayments.length === 1 ? "payment" : "payments"} first.
++              </p>
++            )}
+             {!settled && (
+               <form action={voidInvoiceAction} className="mt-3">
+                 <input type="hidden" name="invoiceId" value={inv.id} />
+diff --git a/src/app/admin/billing/page.tsx b/src/app/admin/billing/page.tsx
+index e6e11ba..fe4c0ff 100644
+--- a/src/app/admin/billing/page.tsx
++++ b/src/app/admin/billing/page.tsx
+@@ -1,8 +1,13 @@
+ import Link from "next/link";
+-import { listInvoices, listBillablePlans, listPayments } from "@/lib/db/repo";
+-import { createDayPassAction } from "@/lib/admin/actions";
++import { listInvoices, listBillablePlans, listPayments, isLivePayment } from "@/lib/db/repo";
++import {
++  createDayPassAction, reversePaymentAction,
++  payServiceChargeAction, unpayServiceChargeAction, recomputeServiceChargesAction,
++} from "@/lib/admin/actions";
++import { listServiceCharges, serviceChargeTotals } from "@/lib/services/service-fees";
+ import { PageHeading, Card, StatCard, BillStatus, Badge, money } from "@/components/admin/ui";
+ import { SubmitButton } from "@/components/admin/submit-button";
++import { ConfirmSubmit } from "@/components/admin/confirm-submit";
+ import { TableFilter } from "@/components/admin/table-filter";
+ 
+ export const dynamic = "force-dynamic";
+@@ -14,12 +19,19 @@ export default function BillingPage() {
+   const invoices = listInvoices();
+   const payments = listPayments();
+   const dayPlans = listBillablePlans().filter((p) => p.category === "day-pass");
++  const charges = listServiceCharges();
++  const { due: feesDue, paid: feesPaid } = serviceChargeTotals();
+ 
+   const invoiced = invoices.filter((i) => i.status !== "void").reduce((s, i) => s + i.total, 0);
+   const collected = invoices.reduce((s, i) => s + i.amountPaid, 0);
+   const outstanding = invoices.reduce((s, i) => s + i.balance, 0);
+   const openCount = invoices.filter((i) => i.status === "pending" || i.status === "partially_paid" || i.status === "overdue").length;
+-  const monthCollected = payments.filter((p) => p.date.startsWith(thisMonth())).reduce((s, p) => s + p.amount, 0);
++  // Reversed payments are money handed back, so they count nowhere. The other
++  // three figures come from invoice fields, which reversePayment already
++  // corrects, so only this one needs the filter.
++  const monthCollected = payments
++    .filter((p) => isLivePayment(p) && p.date.startsWith(thisMonth()))
++    .reduce((s, p) => s + p.amount, 0);
+ 
+   return (
+     <>
+@@ -107,6 +119,86 @@ export default function BillingPage() {
+         </TableFilter>
+       </Card>
+ 
++      {/* What the gym owes to run the gym. Separate from everything above,
++          which is money coming IN — mixing the two is how a "collected"
++          figure ends up meaning neither thing. */}
++      <Card title="Service fees" className="mb-6">
++        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-100 pb-4">
++          <div className="flex gap-6">
++            <div>
++              <p className="text-xs uppercase tracking-wide text-zinc-400">Outstanding</p>
++              <p className={`text-xl font-bold ${feesDue > 0 ? "text-ember-600" : "text-zinc-800"}`}>{money(feesDue)}</p>
++            </div>
++            <div>
++              <p className="text-xs uppercase tracking-wide text-zinc-400">Settled to date</p>
++              <p className="text-xl font-bold text-zinc-800">{money(feesPaid)}</p>
++            </div>
++          </div>
++          <form action={recomputeServiceChargesAction}>
++            <SubmitButton className="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-600 hover:bg-zinc-50">
++              Recalculate
++            </SubmitButton>
++          </form>
++        </div>
++
++        {charges.length === 0 ? (
++          <p className="py-6 text-center text-sm text-zinc-400">
++            No service fees yet. Set the rates under Settings → Service fees and they accrue from your collections.
++          </p>
++        ) : (
++          <ul className="divide-y divide-zinc-100">
++            {charges.map((c) => (
++              <li key={c.id} className="flex flex-wrap items-start justify-between gap-3 py-4">
++                <div className="min-w-0">
++                  <div className="flex flex-wrap items-center gap-2">
++                    <p className="font-medium text-zinc-800">{c.label}</p>
++                    <Badge label={c.status === "paid" ? "Paid" : "Due"} />
++                    <span className="text-xs text-zinc-400">{c.period}</span>
++                  </div>
++                  {/* The arithmetic, always. A fee the client cannot check is
++                      a fee the client will eventually dispute. */}
++                  <p className="mt-1 text-xs text-zinc-500">{c.basis}</p>
++                  {c.status === "paid" && (
++                    <p className="mt-0.5 text-xs text-zinc-400">
++                      Paid {c.paidAt}{c.paidMethod ? ` · ${c.paidMethod}` : ""}{c.paidRef ? ` · ${c.paidRef}` : ""}
++                    </p>
++                  )}
++                </div>
++
++                <div className="flex items-center gap-3">
++                  <span className="text-lg font-bold text-zinc-800">{money(c.amount)}</span>
++                  {c.status === "due" ? (
++                    <form action={payServiceChargeAction} className="flex items-end gap-2">
++                      <input type="hidden" name="chargeId" value={c.id} />
++                      <select name="method" aria-label="Method" className="rounded-lg border border-zinc-200 px-2 py-1.5 text-xs text-zinc-700">
++                        {["Mpesa", "Bank Transfer", "Cash", "Card"].map((m) => <option key={m}>{m}</option>)}
++                      </select>
++                      <input name="reference" placeholder="Ref" className="w-24 rounded-lg border border-zinc-200 px-2 py-1.5 text-xs text-zinc-700" />
++                      <ConfirmSubmit
++                        confirm={`Mark ${money(c.amount)} for ${c.label} (${c.period}) as paid? It is booked as an expense and the figure is frozen.`}
++                        className="rounded-lg bg-ember-500 px-4 py-1.5 text-xs font-semibold text-white hover:bg-ember-600"
++                      >
++                        Pay
++                      </ConfirmSubmit>
++                    </form>
++                  ) : (
++                    <form action={unpayServiceChargeAction}>
++                      <input type="hidden" name="chargeId" value={c.id} />
++                      <ConfirmSubmit
++                        confirm={`Undo payment of ${money(c.amount)}? The expense entry is removed and the period starts recalculating again.`}
++                        className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-semibold text-zinc-500 hover:bg-zinc-50"
++                      >
++                        Undo
++                      </ConfirmSubmit>
++                    </form>
++                  )}
++                </div>
++              </li>
++            ))}
++          </ul>
++        )}
++      </Card>
++
+       {/* Payments ledger */}
+       <Card title="Payments ledger">
+         <TableFilter
+@@ -114,7 +206,7 @@ export default function BillingPage() {
+           pageSize={10}
+           filters={[
+             { key: "method", label: "methods", options: ["Cash", "Mpesa", "Bank Transfer", "Cheque", "Card"] },
+-            { key: "status", label: "statuses", options: ["Fully Paid", "Partially Paid", "Unpaid"] },
++            { key: "status", label: "statuses", options: ["Fully Paid", "Partially Paid", "Unpaid", "Reversed"] },
+           ]}
+         >
+           <div className="hidden overflow-x-auto lg:block">
+@@ -123,37 +215,68 @@ export default function BillingPage() {
+                 <th className="py-3 pr-4 font-semibold">Ref</th><th className="py-3 pr-4 font-semibold">Member</th>
+                 <th className="py-3 pr-4 font-semibold">For</th><th className="py-3 pr-4 font-semibold">Amount</th>
+                 <th className="py-3 pr-4 font-semibold">Method</th><th className="py-3 pr-4 font-semibold">Date</th>
+-                <th className="py-3 pr-4 font-semibold">Status</th>
++                <th className="py-3 pr-4 font-semibold">Status</th><th></th>
+               </tr></thead>
+               <tbody className="divide-y divide-zinc-100">
+                 {payments.map((p) => (
+-                  <tr key={p.id} data-row data-search={`${p.member} ${p.plan} ${p.reference ?? ""}`} data-f-method={p.method} data-f-status={p.status} className="hover:bg-zinc-50">
++                  <tr key={p.id} data-row data-search={`${p.member} ${p.plan} ${p.reference ?? ""}`} data-f-method={p.method} data-f-status={p.status}
++                    className={`hover:bg-zinc-50 ${isLivePayment(p) ? "" : "opacity-55"}`}>
+                     <td className="py-3 pr-4 font-medium text-zinc-500">{p.id}</td>
+                     <td className="py-3 pr-4 text-zinc-800">{p.member}</td>
+                     <td className="py-3 pr-4 text-zinc-600">{p.plan}</td>
+-                    <td className="py-3 pr-4 font-semibold text-zinc-800">{money(p.amount)}</td>
++                    <td className={`py-3 pr-4 font-semibold text-zinc-800 ${isLivePayment(p) ? "" : "line-through"}`}>{money(p.amount)}</td>
+                     <td className="py-3 pr-4 text-zinc-600">{p.method}</td>
+                     <td className="py-3 pr-4 text-zinc-500">{p.date}</td>
+                     <td className="py-3 pr-4"><Badge label={p.status} /></td>
++                    <td className="py-3 pr-4 text-right">
++                      {isLivePayment(p) && (
++                        <form action={reversePaymentAction}>
++                          <input type="hidden" name="paymentId" value={p.id} />
++                          <input type="hidden" name="invoiceId" value={p.invoiceId ?? ""} />
++                          <input type="hidden" name="memberId" value={p.memberId ?? ""} />
++                          <input type="hidden" name="reason" value="Reversed by admin" />
++                          <ConfirmSubmit
++                            confirm={`Reverse ${money(p.amount)} from ${p.member}? Any invoice it settled re-opens and any membership it activated goes back to pending. The row stays on the ledger, marked reversed.`}
++                            className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-semibold text-zinc-500 hover:bg-zinc-50"
++                          >
++                            Reverse
++                          </ConfirmSubmit>
++                        </form>
++                      )}
++                    </td>
+                   </tr>
+                 ))}
+-                <tr data-empty className="hidden"><td colSpan={7} className="py-8 text-center text-sm text-zinc-400">No payments match.</td></tr>
++                <tr data-empty className="hidden"><td colSpan={8} className="py-8 text-center text-sm text-zinc-400">No payments match.</td></tr>
+               </tbody>
+             </table>
+           </div>
+           <div className="space-y-3 lg:hidden">
+             {payments.map((p) => (
+               <div key={p.id} data-row data-search={`${p.member} ${p.plan} ${p.reference ?? ""}`} data-f-method={p.method} data-f-status={p.status}
+-                className="rounded-xl border border-zinc-200 p-4">
++                className={`rounded-xl border border-zinc-200 p-4 ${isLivePayment(p) ? "" : "opacity-55"}`}>
+                 <div className="flex items-center justify-between">
+                   <span className="font-medium text-zinc-800">{p.member}</span>
+-                  <span className="font-semibold text-zinc-800">{money(p.amount)}</span>
++                  <span className={`font-semibold text-zinc-800 ${isLivePayment(p) ? "" : "line-through"}`}>{money(p.amount)}</span>
+                 </div>
+                 <p className="mt-1 text-xs text-zinc-500">{p.plan}</p>
+                 <div className="mt-2 flex items-center justify-between text-xs text-zinc-500">
+                   <span>{p.method} · {p.date}</span>
+                   <Badge label={p.status} />
+                 </div>
++                {isLivePayment(p) && (
++                  <form action={reversePaymentAction} className="mt-3">
++                    <input type="hidden" name="paymentId" value={p.id} />
++                    <input type="hidden" name="invoiceId" value={p.invoiceId ?? ""} />
++                    <input type="hidden" name="memberId" value={p.memberId ?? ""} />
++                    <input type="hidden" name="reason" value="Reversed by admin" />
++                    <ConfirmSubmit
++                      confirm={`Reverse ${money(p.amount)} from ${p.member}? Any invoice it settled re-opens and any membership it activated goes back to pending.`}
++                      className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-xs font-semibold text-zinc-500"
++                    >
++                      Reverse
++                    </ConfirmSubmit>
++                  </form>
++                )}
+               </div>
+             ))}
+             <div data-empty className="hidden py-6 text-center text-sm text-zinc-400">No payments match.</div>
+diff --git a/src/app/admin/settings/page.tsx b/src/app/admin/settings/page.tsx
+index 9a36025..779fa22 100644
+--- a/src/app/admin/settings/page.tsx
++++ b/src/app/admin/settings/page.tsx
+@@ -37,6 +37,33 @@ export default function SettingsPage() {
+               <Labeled label="Invoice footer note"><textarea name="invoiceFooter" rows={3} defaultValue={s.invoiceFooter} className={field} /></Labeled>
+             </div>
+           </Card>
++
++          <Card title="Service fees">
++            <p className="mb-4 text-xs text-zinc-500">
++              What it costs the gym to collect money. These rates drive the Service fees
++              panel under Payments &amp; Billing, where every charge shows the arithmetic
++              behind it. Leave a rate at 0 and it is not charged.
++            </p>
++            <div className="grid grid-cols-2 gap-4">
++              <Labeled label="Gateway fee (% per collection)">
++                <input name="gatewayFeePercent" type="number" min="0" step="0.01" defaultValue={s.gatewayFeePercent} className={field} />
++              </Labeled>
++              <Labeled label="Gateway fee (flat, per transaction)">
++                <input name="gatewayFeeFlat" type="number" min="0" step="1" defaultValue={s.gatewayFeeFlat} className={field} />
++              </Labeled>
++              <Labeled label="Platform fee (% of collections)">
++                <input name="platformFeePercent" type="number" min="0" step="0.01" defaultValue={s.platformFeePercent} className={field} />
++              </Labeled>
++              <Labeled label="Platform fee (flat, per month)">
++                <input name="platformFeeMonthly" type="number" min="0" step="1" defaultValue={s.platformFeeMonthly} className={field} />
++              </Labeled>
++            </div>
++            <p className="mt-3 text-xs text-zinc-400">
++              Gateway fees apply only to M-Pesa and card — cash taken at the desk costs
++              the gateway nothing. Changing a rate recalculates every unpaid period;
++              anything already marked paid stays as it was agreed.
++            </p>
++          </Card>
+         </div>
+ 
+         <div className="mt-6 flex items-center gap-3">
+diff --git a/src/components/admin/ui.tsx b/src/components/admin/ui.tsx
+index fff9990..6bf4f50 100644
+--- a/src/components/admin/ui.tsx
++++ b/src/components/admin/ui.tsx
+@@ -90,6 +90,8 @@ const statusTones: Record<string, string> = {
+   Pending: "bg-amber-100 text-amber-700",
+   Frozen: "bg-sky-100 text-sky-700",
+   "Partially Paid": "bg-blue-100 text-blue-700",
++  // Grey rather than red: a reversal is a correction, not a failure.
++  Reversed: "bg-zinc-200 text-zinc-500",
+   Member: "bg-sky-100 text-sky-700",
+   Trainer: "bg-ember-100 text-ember-700",
+   Accountant: "bg-amber-100 text-amber-700",
+diff --git a/src/lib/admin/actions.ts b/src/lib/admin/actions.ts
+index 054c867..deb5382 100644
+--- a/src/lib/admin/actions.ts
++++ b/src/lib/admin/actions.ts
+@@ -6,8 +6,9 @@ import {
+   createUser, updateUser, deleteUser, getInvoice,
+   createPayment, updatePlan, setAttendance, todayISO,
+ } from "@/lib/db/repo";
+-import { assignPlan, recordInvoicePayment, renewMembership, createDayPass, voidInvoice } from "@/lib/services/billing";
++import { assignPlan, recordInvoicePayment, renewMembership, createDayPass, voidInvoice, reversePayment } from "@/lib/services/billing";
+ import { runReminderTick } from "@/lib/services/lifecycle";
++import { accrueServiceCharges, payServiceCharge, unpayServiceCharge } from "@/lib/services/service-fees";
+ import { currentUser } from "@/lib/auth/current-user";
+ import type { Role, MemberStatus, PayMethod, PayStatus, User } from "@/lib/db/schema";
+ 
+@@ -138,6 +139,45 @@ export async function assignPlanAction(formData: FormData) {
+   redirect(`/admin/billing/${invoiceId}`);
+ }
+ 
++/* ---------------------------- service fees ------------------------------ */
++
++/** Recompute what the gym owes from the ledger. Safe to press at any time. */
++export async function recomputeServiceChargesAction() {
++  await accrueServiceCharges();
++  revalidatePath("/admin/billing");
++  revalidatePath("/admin/reports");
++}
++
++export async function payServiceChargeAction(formData: FormData) {
++  await payServiceCharge(String(formData.get("chargeId") || ""), {
++    method: String(formData.get("method") || "Mpesa") as PayMethod,
++    reference: String(formData.get("reference") || ""),
++  });
++  revalidatePath("/admin/billing");
++  revalidatePath("/admin/reports");
++  redirect("/admin/billing");
++}
++
++/** Undo a mark-as-paid entered in error. */
++export async function unpayServiceChargeAction(formData: FormData) {
++  await unpayServiceCharge(String(formData.get("chargeId") || ""));
++  revalidatePath("/admin/billing");
++  revalidatePath("/admin/reports");
++  redirect("/admin/billing");
++}
++
++/** Reverse a payment taken in error. The row stays, marked Reversed, and the
++    invoice re-opens — see reversePayment for what happens to the membership. */
++export async function reversePaymentAction(formData: FormData) {
++  const paymentId = String(formData.get("paymentId") || "");
++  const invoiceId = String(formData.get("invoiceId") || "");
++  const memberId = String(formData.get("memberId") || "");
++  await reversePayment(paymentId, String(formData.get("reason") || ""));
++  revalidateAdmin();
++  if (memberId) revalidatePath(`/admin/members/${memberId}`);
++  redirect(invoiceId ? `/admin/billing/${invoiceId}` : "/admin/billing");
++}
++
+ /** Void an open invoice (e.g. plan assigned in error / member walked away). */
+ export async function voidInvoiceAction(formData: FormData) {
+   const invoiceId = String(formData.get("invoiceId") || "");
+diff --git a/src/lib/admin/module-actions.ts b/src/lib/admin/module-actions.ts
+index 9f21c36..c260c64 100644
+--- a/src/lib/admin/module-actions.ts
++++ b/src/lib/admin/module-actions.ts
+@@ -9,6 +9,7 @@ import {
+   createWorkoutPlan, createNutritionPlan, assignWorkoutPlan, assignNutritionPlan,
+ } from "@/lib/services/programmes";
+ import { updateSettings } from "@/lib/services/settings";
++import { accrueServiceCharges } from "@/lib/services/service-fees";
+ import type {
+   BillablePlan, PayMethod, GymClass, ReservationStatus, WorkoutDay, NutritionMeal,
+ } from "@/lib/db/schema";
+@@ -220,7 +221,15 @@ export async function updateSettingsAction(formData: FormData) {
+     invoiceDueDays: num(formData, "invoiceDueDays", 7),
+     invoiceFooter: str(formData, "invoiceFooter"),
+     reminderDaysBefore: num(formData, "reminderDaysBefore", 7),
++    gatewayFeePercent: num(formData, "gatewayFeePercent"),
++    gatewayFeeFlat: num(formData, "gatewayFeeFlat"),
++    platformFeePercent: num(formData, "platformFeePercent"),
++    platformFeeMonthly: num(formData, "platformFeeMonthly"),
+   });
++  // A rate change leaves every unpaid period stale, so recompute here rather
++  // than waiting for the nightly tick. Paid periods are frozen and untouched.
++  await accrueServiceCharges();
++  revalidatePath("/admin/billing");
+   revalidatePath("/admin/settings");
+   redirect("/admin/settings");
+ }
+diff --git a/src/lib/db/client.ts b/src/lib/db/client.ts
+index c239561..1ea2242 100644
+--- a/src/lib/db/client.ts
++++ b/src/lib/db/client.ts
+@@ -35,7 +35,7 @@ export function db(): Drizzle {
+ 
+ export const isManagedPg = () => Boolean(process.env.DATABASE_URL);
+ 
+-const WITH_GYM = ["users", "plans", "billable_plans", "memberships", "invoices", "daypasses", "payments", "reminders", "incomes", "expenses", "attendance", "products", "orders", "classes", "reservations", "workout_plans", "nutrition_plans", "settings"];
++const WITH_GYM = ["users", "plans", "billable_plans", "memberships", "invoices", "daypasses", "payments", "reminders", "incomes", "expenses", "service_charges", "attendance", "products", "orders", "classes", "reservations", "workout_plans", "nutrition_plans", "settings"];
+ const NO_GYM = ["gyms", "meta"];
+ 
+ /** Idempotent DDL — every table is (id, [gym_id], data jsonb). */
+diff --git a/src/lib/db/pg-schema.ts b/src/lib/db/pg-schema.ts
+index e00356c..6a3e716 100644
+--- a/src/lib/db/pg-schema.ts
++++ b/src/lib/db/pg-schema.ts
+@@ -1,7 +1,7 @@
+ import { pgTable, text, jsonb } from "drizzle-orm/pg-core";
+ import type {
+   User, Plan, BillablePlan, Membership, Invoice, DayPass, Payment, Reminder,
+-  Income, Expense, Attendance,
++  Income, Expense, ServiceCharge, Attendance,
+   Product, Order, GymClass, Reservation, WorkoutPlan, NutritionPlan, GymSettings,
+ } from "./schema";
+ 
+@@ -32,6 +32,7 @@ export const payments = doc<Payment>("payments");
+ export const reminders = doc<Reminder>("reminders");
+ export const incomes = doc<Income>("incomes");
+ export const expenses = doc<Expense>("expenses");
++export const serviceCharges = doc<ServiceCharge>("service_charges");
+ export const attendance = doc<Attendance>("attendance");
+ export const products = doc<Product>("products");
+ export const orders = doc<Order>("orders");
+@@ -49,7 +50,7 @@ export const meta = pgTable("meta", {
+ // Collection name → table, in dependency-free order (we truncate+insert all).
+ export const TABLES = {
+   gyms, users, plans, billablePlans, memberships, invoices, daypasses,
+-  payments, reminders, incomes, expenses, attendance,
++  payments, reminders, incomes, expenses, serviceCharges, attendance,
+   products, orders, classes, reservations, workoutPlans, nutritionPlans, settings,
+   meta,
+ } as const;
+diff --git a/src/lib/db/repo.ts b/src/lib/db/repo.ts
+index b9d2272..f8e2670 100644
+--- a/src/lib/db/repo.ts
++++ b/src/lib/db/repo.ts
+@@ -115,6 +115,17 @@ export async function updatePlan(id: string, patch: Partial<Pick<Plan, "label" |
+ export function listPayments(): Payment[] {
+   return getDB().payments.slice().sort((a, b) => b.date.localeCompare(a.date));
+ }
++/** Payments against one invoice, newest first — reversed ones included, since
++    the point of keeping them is that somebody can see them. */
++export function paymentsForInvoice(invoiceId: string): Payment[] {
++  return getDB().payments.filter((p) => p.invoiceId === invoiceId).sort((a, b) => b.date.localeCompare(a.date));
++}
++/** Money actually taken. A reversed payment is not revenue, and every total on
++    the dashboard has to agree about that, or two figures on one screen
++    contradict each other. */
++export function isLivePayment(p: Payment): boolean {
++  return p.status !== "Reversed";
++}
+ export async function createPayment(input: {
+   member: string; plan: string; amount: number; method: PayMethod; status: PayStatus;
+ }): Promise<Payment> {
+@@ -177,9 +188,12 @@ export function dashboard() {
+     segments: [...planCount.entries()].map(([label, value], i) => ({ label, value, color: planColors[i % planColors.length] })),
+   };
+ 
+-  // Payments
+-  const paid = db.payments.reduce((s, p) => s + p.amount, 0);
+-  const cnt = (s: PayStatus) => db.payments.filter((p) => p.status === s).length;
++  // Payments. Every figure below is drawn from livePayments, never
++  // db.payments — a reversed payment is money handed back, and one total
++  // forgetting that is how a dashboard starts disagreeing with itself.
++  const livePayments = db.payments.filter(isLivePayment);
++  const paid = livePayments.reduce((s, p) => s + p.amount, 0);
++  const cnt = (s: PayStatus) => livePayments.filter((p) => p.status === s).length;
+   const paymentStatus = {
+     total: `KSh ${paid.toLocaleString()}`,
+     segments: [
+@@ -193,7 +207,7 @@ export function dashboard() {
+     Cash: palette.ember, "Bank Transfer": palette.amber, Cheque: palette.sky, Mpesa: palette.green, Card: palette.violet,
+   };
+   const methodTotals = new Map<PayMethod, number>();
+-  for (const p of db.payments) methodTotals.set(p.method, (methodTotals.get(p.method) ?? 0) + p.amount);
++  for (const p of livePayments) methodTotals.set(p.method, (methodTotals.get(p.method) ?? 0) + p.amount);
+   const paymentReport = {
+     total: `KSh ${paid.toLocaleString()}`,
+     segments: [...methodTotals.entries()].filter(([, v]) => v > 0).map(([label, value]) => ({ label, value, color: methodColors[label] })),
+@@ -218,7 +232,7 @@ export function dashboard() {
+   if (db.incomes?.length) {
+     for (const i of db.incomes) incomeByMonth.set(i.month, (incomeByMonth.get(i.month) ?? 0) + i.amount);
+   } else {
+-    for (const p of db.payments) {
++    for (const p of livePayments) {
+       const key = p.date.slice(0, 7);
+       incomeByMonth.set(key, (incomeByMonth.get(key) ?? 0) + p.amount);
+     }
+diff --git a/src/lib/db/schema.ts b/src/lib/db/schema.ts
+index 6b7985e..d4148a3 100644
+--- a/src/lib/db/schema.ts
++++ b/src/lib/db/schema.ts
+@@ -11,7 +11,9 @@ export type Role = "admin" | "trainer" | "accountant" | "member";
+ // drives Active/Expired via memberships. "Frozen" = paused. "Dropped" = churned.
+ export type MemberStatus = "Prospect" | "Pending" | "Active" | "Expired" | "Dropped" | "Frozen";
+ export type PayMethod = "Cash" | "Bank Transfer" | "Cheque" | "Mpesa" | "Card";
+-export type PayStatus = "Fully Paid" | "Partially Paid" | "Unpaid";
++// "Reversed" is a correction, not a state the money passes through: the row
++// stays for the audit trail and is excluded from every total.
++export type PayStatus = "Fully Paid" | "Partially Paid" | "Unpaid" | "Reversed";
+ 
+ export type MembershipStatus = "pending" | "active" | "expired" | "cancelled" | "frozen";
+ export type InvoiceStatus = "pending" | "partially_paid" | "paid" | "overdue" | "void";
+@@ -65,6 +67,8 @@ export type Payment = {
+   invoiceId?: string;
+   reference?: string;
+   receivedBy?: string;
++  reversedAt?: string;
++  reversalReason?: string;
+ };
+ 
+ /* ---- Billing entities (Phase 1) --------------------------------------- */
+@@ -269,6 +273,36 @@ export type NutritionPlan = {
+ };
+ 
+ // Editable gym profile / operational settings (single row per gym).
++/* ---- What the gym owes to run the gym --------------------------------- */
++
++/** gateway  — PayHero's cut for moving the money
++ *  platform — the fee for running and supporting the system */
++export type ServiceChargeKind = "gateway" | "platform";
++
++/**
++ * One period's bill for one kind of charge. These are DERIVED, not entered:
++ * accrueServiceCharges recomputes an unpaid period from the payment ledger
++ * every time it runs, so reversing a member's payment also shrinks the fee.
++ * Once paid, a row is frozen — a bill already settled must not quietly change.
++ */
++export type ServiceCharge = {
++  id: string;
++  gymId: string;
++  period: string; // YYYY-MM
++  kind: ServiceChargeKind;
++  /** The arithmetic, in words, so the number is never just asserted. */
++  basis: string;
++  /** Collections the percentage was applied to, for the same reason. */
++  baseAmount: number;
++  count: number;
++  amount: number;
++  status: "due" | "paid";
++  computedAt: string;
++  paidAt?: string;
++  paidMethod?: PayMethod;
++  paidRef?: string;
++};
++
+ export type GymSettings = {
+   id: string; // always GYM_ID
+   gymId: string;
+@@ -282,6 +316,15 @@ export type GymSettings = {
+   invoiceDueDays: number;
+   invoiceFooter: string;
+   reminderDaysBefore: number;
++
++  /* Service fee rates. Deliberately kept in settings, where the gym can read
++     them, rather than in code or an env var: this is the one figure in the
++     system that the supplier bills the client for, so the client has to be
++     able to see the rate and check the arithmetic. */
++  gatewayFeePercent: number;  // PayHero's cut, % of each collection
++  gatewayFeeFlat: number;     // plus this per transaction, KES
++  platformFeePercent: number; // support/hosting, % of collections
++  platformFeeMonthly: number; // plus this per month, KES
+ };
+ 
+ export type DB = {
+@@ -295,6 +338,7 @@ export type DB = {
+   reminders: Reminder[];
+   incomes: Income[];
+   expenses: Expense[];
++  serviceCharges: ServiceCharge[];
+   attendance: Attendance[];
+   products: Product[];
+   orders: Order[];
+diff --git a/src/lib/db/seed.ts b/src/lib/db/seed.ts
+index 3ea2b14..c985f47 100644
+--- a/src/lib/db/seed.ts
++++ b/src/lib/db/seed.ts
+@@ -312,11 +312,14 @@ export function buildSeed(): DB {
+     address: "Nairobi, Kenya", currency: "KSh", registrationFee,
+     invoiceDueDays: 7, invoiceFooter: "Thank you for training with Fit Generations. Payments are non-refundable.",
+     reminderDaysBefore: 7,
++    // No fee is charged until the gym and the supplier agree one and enter it
++    // under Settings. A seeded rate would be a charge nobody consented to.
++    gatewayFeePercent: 0, gatewayFeeFlat: 0, platformFeePercent: 0, platformFeeMonthly: 0,
+   }];
+ 
+   return {
+     users, plans, billablePlans, memberships, invoices, daypasses: [],
+-    payments, reminders, incomes, expenses, attendance: [],
++    payments, reminders, incomes, expenses, serviceCharges: [], attendance: [],
+     products, orders: [], classes, reservations: [], workoutPlans, nutritionPlans, settings,
+     meta: { seededAt: today, invoiceSeq: seq },
+   };
+diff --git a/src/lib/db/store.ts b/src/lib/db/store.ts
+index 401df37..b356aee 100644
+--- a/src/lib/db/store.ts
++++ b/src/lib/db/store.ts
+@@ -30,7 +30,7 @@ const dbFile = () => path.join(dataDir(), "db.json");
+ 
+ const collections = [
+   "users", "plans", "billablePlans", "memberships", "invoices", "daypasses",
+-  "payments", "reminders", "incomes", "expenses", "attendance",
++  "payments", "reminders", "incomes", "expenses", "serviceCharges", "attendance",
+   "products", "orders", "classes", "reservations", "workoutPlans", "nutritionPlans", "settings",
+ ] as const;
+ 
+diff --git a/src/lib/services/billing.ts b/src/lib/services/billing.ts
+index 8d05ce6..1ff2965 100644
+--- a/src/lib/services/billing.ts
++++ b/src/lib/services/billing.ts
+@@ -6,6 +6,7 @@ import {
+   type DB, type Membership, type Invoice, type InvoiceItem, type BillablePlan, type PayMethod,
+ } from "@/lib/db/schema";
+ import { drainReminderEmails, emailChannel } from "./notify";
++import { accrueServiceCharges } from "./service-fees";
+ 
+ const pubToken = () => randomUUID().replace(/-/g, "");
+ 
+@@ -168,6 +169,73 @@ export async function recordInvoicePayment(
+   // Outside the transaction, deliberately: the payment is already durable, so
+   // a mail failure costs a retry on the next tick rather than the record.
+   await drainReminderEmails();
++  // Taking money changes what is owed on it. Derived, so this is a recompute
++  // rather than an increment and cannot drift.
++  await accrueServiceCharges();
++}
++
++/**
++ * Reverse a payment taken in error — a mistyped amount, a bounced transfer, a
++ * duplicate M-Pesa entry, or test data before go-live.
++ *
++ * The row is KEPT and marked "Reversed" rather than deleted, so the ledger
++ * still shows what happened; every total excludes reversed rows. Deleting
++ * would leave a receipt the member holds with nothing behind it.
++ *
++ * The money is only half of it. If this payment settled the invoice, it also
++ * activated a membership, and leaving that active would hand out access paid
++ * for with money that has been taken back. So the membership goes back to
++ * pending and the member's status with it.
++ */
++export async function reversePayment(paymentId: string, reason?: string): Promise<void> {
++  await saveDB((db) => {
++    const pay = db.payments.find((p) => p.id === paymentId);
++    if (!pay || pay.status === "Reversed") return;
++
++    pay.status = "Reversed";
++    pay.reversedAt = todayISO();
++    if (reason?.trim()) pay.reversalReason = reason.trim();
++
++    const inv = pay.invoiceId ? db.invoices.find((i) => i.id === pay.invoiceId) : undefined;
++    // A void invoice is already settled at zero; re-opening it would resurrect
++    // a cancelled charge.
++    if (!inv || inv.status === "void") return;
++
++    const today = todayISO();
++    inv.amountPaid = Math.max(0, inv.amountPaid - pay.amount);
++    inv.balance = Math.max(0, inv.total - inv.amountPaid);
++    if (inv.balance <= 0) {
++      inv.status = "paid";
++    } else {
++      inv.paidAt = undefined;
++      inv.status = inv.amountPaid > 0 ? "partially_paid" : inv.dueDate < today ? "overdue" : "pending";
++    }
++
++    const mem = inv.membershipId ? db.memberships.find((m) => m.id === inv.membershipId) : undefined;
++    if (!mem || inv.balance <= 0) return;
++    if (mem.status !== "active" && mem.status !== "expired") return;
++
++    mem.status = "pending";
++    // Both dates are cleared, not just the end. Re-paying later recomputes the
++    // window from that day, so the member does not silently lose the days
++    // between the reversal and the real payment. A deliberate back-date has to
++    // be re-entered — rare, and better than quietly shortening a membership.
++    mem.startDate = undefined;
++    mem.endDate = undefined;
++
++    const u = db.users.find((x) => x.id === mem.memberId);
++    if (!u || u.currentMembershipId !== mem.id) return;
++
++    // Fall back to another live membership if the member has one, so reversing
++    // a renewal does not blank out a plan they are still entitled to.
++    const other = db.memberships.find((m) => m.memberId === u.id && m.status === "active" && m.id !== mem.id);
++    u.currentMembershipId = other?.id ?? mem.id;
++    u.plan = other?.planName ?? "—";
++    u.status = other ? "Active" : "Pending";
++  });
++  // Money handed back is money the gateway and platform fees should not have
++  // been charged on. Unpaid periods shrink; paid ones are frozen.
++  await accrueServiceCharges();
+ }
+ 
+ /** Void an open invoice and cancel any still-pending membership it created.
+diff --git a/src/lib/services/lifecycle.ts b/src/lib/services/lifecycle.ts
+index fff2567..c39bd76 100644
+--- a/src/lib/services/lifecycle.ts
++++ b/src/lib/services/lifecycle.ts
+@@ -2,6 +2,7 @@ import "server-only";
+ import { saveDB, uid } from "@/lib/db/store";
+ import { GYM_ID, type DB, type ReminderType } from "@/lib/db/schema";
+ import { drainReminderEmails, emailChannel } from "./notify";
++import { accrueServiceCharges } from "./service-fees";
+ 
+ /* ==========================================================================
+    Lifecycle tick — the scheduled heartbeat. Idempotent: safe to run any number
+@@ -86,5 +87,9 @@ export async function runReminderTick(): Promise<TickResult> {
+   // a failed send is retried here rather than dropped.
+   const mail = await drainReminderEmails();
+ 
++  // Keep what the gym owes in step with what it has collected. Derived, so
++  // running it daily costs nothing and never double-counts.
++  await accrueServiceCharges();
++
+   return { overdue, expired, created, emailed: mail.sent, emailFailed: mail.failed };
+ }
+diff --git a/src/lib/services/service-fees.ts b/src/lib/services/service-fees.ts
+new file mode 100644
+index 0000000..300997d
+--- /dev/null
++++ b/src/lib/services/service-fees.ts
+@@ -0,0 +1,190 @@
++import "server-only";
++
++/* ==========================================================================
++   What the gym owes to run the gym — the gateway's cut and the platform fee.
++
++   This is the one place in the system where the supplier bills the client, so
++   it is built to be checked rather than trusted:
++
++     · DERIVED, NEVER TYPED IN. An unpaid period is recomputed from the payment
++       ledger every time this runs. Nobody can nudge the figure, and reversing
++       a member's payment shrinks the fee automatically — which is the correct
++       behaviour and also the easiest one to get wrong by storing a total.
++     · THE RATES LIVE IN SETTINGS, on a screen the gym can open, not in code or
++       an env var they cannot see.
++     · EVERY ROW SHOWS ITS ARITHMETIC. `basis`, `baseAmount` and `count` are
++       stored so the admin can read "1.5% of KSh 48,000 over 12 payments"
++       rather than being handed a number.
++     · A PAID PERIOD IS FROZEN. Recomputation skips it. A bill that has been
++       settled must never move afterwards, even if a later correction changes
++       the month it came from — that is a credit note conversation, not a
++       silent edit.
++
++   Charges accrue against the month a payment was RECEIVED, so a reversal in
++   November does not quietly alter an October bill that is already paid.
++   ========================================================================== */
++
++import { getDB, saveDB, uid } from "@/lib/db/store";
++import { getSettings } from "./settings";
++import { GYM_ID, type DB, type PayMethod, type ServiceCharge, type ServiceChargeKind } from "@/lib/db/schema";
++
++const todayISO = () => new Date().toISOString().slice(0, 10);
++const thisMonth = () => todayISO().slice(0, 7);
++const money = (n: number) => `KSh ${Math.round(n).toLocaleString()}`;
++const pct = (n: number) => `${n}%`;
++
++/** Gateway fees apply only to money that actually moved through the gateway.
++    Cash handed over at the desk costs PayHero nothing and must not be billed. */
++const GATEWAY_METHODS: PayMethod[] = ["Mpesa", "Card"];
++
++export type ServiceChargeView = ServiceCharge & { label: string };
++
++const LABELS: Record<ServiceChargeKind, string> = {
++  gateway: "Payment gateway (PayHero)",
++  platform: "Platform & support",
++};
++
++export function listServiceCharges(): ServiceChargeView[] {
++  return (getDB().serviceCharges ?? [])
++    .slice()
++    .sort((a, b) => (b.period + b.kind).localeCompare(a.period + a.kind))
++    .map((c) => ({ ...c, label: LABELS[c.kind] }));
++}
++
++export function serviceChargeTotals() {
++  const all = getDB().serviceCharges ?? [];
++  return {
++    due: all.filter((c) => c.status === "due").reduce((s, c) => s + c.amount, 0),
++    paid: all.filter((c) => c.status === "paid").reduce((s, c) => s + c.amount, 0),
++  };
++}
++
++/** The months that have live payments, plus the current one so a new month
++    shows a zero-ish platform fee rather than nothing at all. */
++function periodsToCompute(db: DB): string[] {
++  const months = new Set<string>([thisMonth()]);
++  for (const p of db.payments) if (p.status !== "Reversed") months.add(p.date.slice(0, 7));
++  return [...months];
++}
++
++/**
++ * Recompute every unpaid period from the ledger. Idempotent: run it on every
++ * tick, after a payment, after a reversal, or from the admin button.
++ */
++export async function accrueServiceCharges(): Promise<{ periods: number; due: number }> {
++  const s = getSettings();
++  let due = 0;
++  let periods = 0;
++
++  await saveDB((db) => {
++    if (!Array.isArray(db.serviceCharges)) db.serviceCharges = [];
++    const on = todayISO();
++
++    for (const period of periodsToCompute(db)) {
++      periods++;
++      const live = db.payments.filter((p) => p.status !== "Reversed" && p.date.startsWith(period));
++      const gatewayPays = live.filter((p) => GATEWAY_METHODS.includes(p.method));
++
++      const collected = live.reduce((t, p) => t + p.amount, 0);
++      const throughGateway = gatewayPays.reduce((t, p) => t + p.amount, 0);
++
++      const rows: { kind: ServiceChargeKind; amount: number; basis: string; base: number; count: number }[] = [
++        {
++          kind: "gateway",
++          amount: (throughGateway * s.gatewayFeePercent) / 100 + gatewayPays.length * s.gatewayFeeFlat,
++          base: throughGateway,
++          count: gatewayPays.length,
++          basis:
++            `${pct(s.gatewayFeePercent)} of ${money(throughGateway)}` +
++            (s.gatewayFeeFlat > 0 ? ` + ${money(s.gatewayFeeFlat)} × ${gatewayPays.length}` : "") +
++            ` · M-Pesa and card only`,
++        },
++        {
++          kind: "platform",
++          amount: (collected * s.platformFeePercent) / 100 + s.platformFeeMonthly,
++          base: collected,
++          count: live.length,
++          basis:
++            (s.platformFeePercent > 0 ? `${pct(s.platformFeePercent)} of ${money(collected)}` : "") +
++            (s.platformFeePercent > 0 && s.platformFeeMonthly > 0 ? " + " : "") +
++            (s.platformFeeMonthly > 0 ? `${money(s.platformFeeMonthly)} monthly` : "") || "No platform fee set",
++        },
++      ];
++
++      for (const r of rows) {
++        const existing = db.serviceCharges.find((c) => c.period === period && c.kind === r.kind);
++
++        // Settled bills are history. Leave them exactly as they were agreed.
++        if (existing?.status === "paid") continue;
++
++        const amount = Math.round(r.amount);
++
++        // Nothing owed and nothing recorded — do not create an empty row.
++        if (!existing && amount <= 0) continue;
++
++        if (existing) {
++          existing.amount = amount;
++          existing.basis = r.basis;
++          existing.baseAmount = r.base;
++          existing.count = r.count;
++          existing.computedAt = on;
++        } else {
++          db.serviceCharges.push({
++            id: uid("SVC"), gymId: GYM_ID, period, kind: r.kind, basis: r.basis,
++            baseAmount: r.base, count: r.count, amount, status: "due", computedAt: on,
++          });
++        }
++        if (amount > 0) due += amount;
++      }
++    }
++  });
++
++  return { periods, due };
++}
++
++/**
++ * Mark a service charge settled, and book it as an expense so the gym's own
++ * profit figures include what it costs to collect money. Freezes the row
++ * against further recomputation.
++ */
++export async function payServiceCharge(
++  id: string,
++  input: { method: PayMethod; reference?: string },
++): Promise<void> {
++  await saveDB((db) => {
++    const c = (db.serviceCharges ?? []).find((x) => x.id === id);
++    if (!c || c.status === "paid") return;
++
++    c.status = "paid";
++    c.paidAt = todayISO();
++    c.paidMethod = input.method;
++    if (input.reference?.trim()) c.paidRef = input.reference.trim();
++
++    // Booked against the month the charge belongs to, not the month it was
++    // settled, so a late payment does not distort the next month's margin.
++    db.expenses.push({
++      id: uid("EXP"),
++      month: c.period,
++      amount: c.amount,
++      category: c.kind === "gateway" ? "Gateway fees" : "Platform & support",
++    });
++  });
++}
++
++/** Undo a mark-as-paid entered by mistake. The expense row goes with it, and
++    the period becomes recomputable again. */
++export async function unpayServiceCharge(id: string): Promise<void> {
++  await saveDB((db) => {
++    const c = (db.serviceCharges ?? []).find((x) => x.id === id);
++    if (!c || c.status !== "paid") return;
++
++    const category = c.kind === "gateway" ? "Gateway fees" : "Platform & support";
++    const i = db.expenses.findIndex((e) => e.month === c.period && e.amount === c.amount && e.category === category);
++    if (i >= 0) db.expenses.splice(i, 1);
++
++    c.status = "due";
++    c.paidAt = undefined;
++    c.paidMethod = undefined;
++    c.paidRef = undefined;
++  });
++}
+diff --git a/src/lib/services/settings.ts b/src/lib/services/settings.ts
+index bac516c..1d8a621 100644
+--- a/src/lib/services/settings.ts
++++ b/src/lib/services/settings.ts
+@@ -14,10 +14,16 @@ const DEFAULTS: GymSettings = {
+   address: "Nairobi, Kenya", currency: "KSh", registrationFee: 500,
+   invoiceDueDays: 7, invoiceFooter: "Thank you for training with Fit Generations.",
+   reminderDaysBefore: 7,
++  // All zero on purpose. A fee the gym never agreed to must not appear by
++  // default; the supplier and the gym set these together, in the open.
++  gatewayFeePercent: 0, gatewayFeeFlat: 0, platformFeePercent: 0, platformFeeMonthly: 0,
+ };
+ 
+ export function getSettings(): GymSettings {
+-  return getDB().settings[0] ?? DEFAULTS;
++  // Spread over DEFAULTS rather than `?? DEFAULTS`: a settings row written
++  // before the fee fields existed returns them as undefined, and every
++  // percentage downstream becomes NaN.
++  return { ...DEFAULTS, ...(getDB().settings[0] ?? {}) };
+ }
+ 
+ export async function updateSettings(patch: Partial<Omit<GymSettings, "id" | "gymId">>): Promise<void> {
