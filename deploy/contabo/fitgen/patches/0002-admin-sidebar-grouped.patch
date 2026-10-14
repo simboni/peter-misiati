@@ -1,0 +1,151 @@
+diff --git a/src/components/admin/sidebar.tsx b/src/components/admin/sidebar.tsx
+index 516d1f5..61e0d68 100644
+--- a/src/components/admin/sidebar.tsx
++++ b/src/components/admin/sidebar.tsx
+@@ -3,11 +3,23 @@
+ import Link from "next/link";
+ import Image from "next/image";
+ import { usePathname } from "next/navigation";
+-import { adminNav } from "@/lib/admin";
++import { adminNav, adminNavGroups } from "@/lib/admin";
+ import { Ico } from "@/components/admin/admin-icons";
+ 
+-export function Sidebar({ nav = adminNav, onNavigate }: { nav?: typeof adminNav; onNavigate?: () => void }) {
+-  const pathname = usePathname();
++export function Sidebar({
++  nav = adminNav,
++  onNavigate,
++  // Overridable so the sidebar can be rendered and reviewed outside the
++  // authenticated admin routes. Defaults to the real path, so nothing
++  // changes in the app.
++  currentPath,
++}: {
++  nav?: typeof adminNav;
++  onNavigate?: () => void;
++  currentPath?: string;
++}) {
++  const livePath = usePathname();
++  const pathname = currentPath ?? livePath;
+   const isActive = (href: string) =>
+     href === "/admin" ? pathname === "/admin" : pathname.startsWith(href);
+ 
+@@ -26,33 +38,62 @@ export function Sidebar({ nav = adminNav, onNavigate }: { nav?: typeof adminNav;
+         </div>
+       </div>
+ 
+-      {/* Nav */}
++      {/* Nav — grouped.
++          Fourteen flat links gave the eye nowhere to land: everything
++          competed equally, so finding anything meant reading all of it.
++          Grouping is most of the fix; the styling below is the rest. Groups
++          are built from the RBAC-filtered list, so one that ends up empty is
++          not rendered at all rather than left as an orphaned heading. */}
+       <nav className="flex-1 overflow-y-auto px-3 py-4">
+-        <ul className="space-y-1">
+-          {nav.map((item) => {
+-            const active = isActive(item.href);
+-            return (
+-              <li key={item.href}>
+-                <Link
+-                  href={item.href}
+-                  onClick={onNavigate}
+-                  className={`group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+-                    active ? "bg-white text-ember-600 shadow-sm" : "text-white/90 hover:bg-white/10"
+-                  }`}
+-                >
+-                  <Ico name={item.icon} className="h-5 w-5 shrink-0" />
+-                  <span className="flex-1">{item.label}</span>
+-                  {item.badge && (
+-                    <span className={`grid h-5 min-w-5 place-items-center rounded-full px-1 text-[10px] font-bold ${active ? "bg-ember-600 text-white" : "bg-white text-ember-600"}`}>
+-                      {item.badge}
+-                    </span>
+-                  )}
+-                  <Ico name="chevronRight" className={`h-3.5 w-3.5 shrink-0 opacity-50 ${active ? "" : "group-hover:translate-x-0.5"} transition-transform`} />
+-                </Link>
+-              </li>
+-            );
+-          })}
+-        </ul>
++        {adminNavGroups.map((group) => {
++          const items = nav.filter((item) => group.hrefs.includes(item.href));
++          if (items.length === 0) return null;
++
++          // Keep the author's order within a group, not the nav array's.
++          items.sort((a, b) => group.hrefs.indexOf(a.href) - group.hrefs.indexOf(b.href));
++
++          return (
++            <div key={group.label} className="mb-5 last:mb-0">
++              <p className="px-3 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.13em] text-white/40">
++                {group.label}
++              </p>
++              <ul className="space-y-0.5">
++                {items.map((item) => {                  const active = isActive(item.href);
++                  return (
++                    <li key={item.href}>
++                      <Link
++                        href={item.href}
++                        onClick={onNavigate}
++                        aria-current={active ? "page" : undefined}
++                        className={`group relative flex items-center gap-3 rounded-lg py-2 pl-3 pr-2.5 text-sm transition-all ${
++                          active
++                            ? "bg-white font-semibold text-ember-700 shadow-sm"
++                            : "font-medium text-white/85 hover:bg-white/10 hover:text-white"
++                        }`}
++                      >
++                        {/* The active marker is the brand lime, so the current
++                            page reads at a glance rather than being inferred
++                            from a slightly lighter pill. */}
++                        {active && (
++                          <span className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r bg-lime-500" aria-hidden="true" />
++                        )}
++                        <Ico name={item.icon} className={`h-[18px] w-[18px] shrink-0 ${active ? "" : "opacity-80 group-hover:opacity-100"}`} />
++                        <span className="flex-1 truncate">{item.label}</span>
++                        {item.badge ? (
++                          <span className={`grid h-5 min-w-5 place-items-center rounded-full px-1.5 text-[10px] font-bold ${
++                            active ? "bg-ember-600 text-white" : "bg-lime-500 text-ink-900"
++                          }`}>
++                            {item.badge}
++                          </span>
++                        ) : null}
++                      </Link>
++                    </li>
++                  );
++                })}
++              </ul>
++            </div>
++          );
++        })}
+       </nav>
+ 
+       {/* Footer / logout */}
+diff --git a/src/lib/admin.ts b/src/lib/admin.ts
+index 6384899..131b53a 100644
+--- a/src/lib/admin.ts
++++ b/src/lib/admin.ts
+@@ -6,6 +6,26 @@
+    these are the exact shapes the API will return.
+    ========================================================================== */
+ 
++/**
++ * How the fourteen admin destinations are grouped in the sidebar.
++ *
++ * Kept SEPARATE from adminNav rather than nesting it, because adminNav is
++ * filtered by RBAC in app/admin/layout.tsx and mirrored by permissions.ts —
++ * nesting would mean changing both and every consumer. The sidebar groups
++ * whatever filtered list it is handed and drops groups that end up empty, so
++ * a receptionist who cannot see billing never sees an orphaned "Money"
++ * heading.
++ *
++ * Order within a group is deliberate: the thing used most often is first.
++ */
++export const adminNavGroups: { label: string; hrefs: string[] }[] = [
++  { label: "Overview", hrefs: ["/admin", "/admin/reports", "/admin/notifications"] },
++  { label: "People", hrefs: ["/admin/users", "/admin/attendance", "/admin/reservations"] },
++  { label: "Money", hrefs: ["/admin/billing", "/admin/membership", "/admin/store"] },
++  { label: "Training", hrefs: ["/admin/classes", "/admin/workout", "/admin/nutrition", "/admin/calculators"] },
++  { label: "System", hrefs: ["/admin/settings"] },
++];
++
+ export type AdminNavItem = {
+   label: string;
+   href: string;
