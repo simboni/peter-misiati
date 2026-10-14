@@ -25,6 +25,9 @@ const {
   readStatementPeriod,
   isStatementPeriod,
   topMovers,
+  sortRows,
+  isStatementSort,
+  isSortDirection,
 } = await import("../src/lib/stock-statement.ts");
 
 seed();
@@ -182,6 +185,7 @@ test("stock with no cost price is named rather than valued at nothing", () => {
   assert.ok(s.uncosted.includes(ITEM), "the valuation is short and says so");
   assert.equal(row(s, ITEM)!.closingValueCents, 0);
   assert.ok(row(s, ITEM)!.closingMilli > 0, "while the quantity is still right");
+  run(`UPDATE items SET cost_cents = 40000 WHERE name = ?`, ITEM); // put it back for later tests
 });
 
 // ----------------------------------------------------------- the shape
@@ -263,4 +267,76 @@ test("an adjustment somebody typed by hand still counts as one", () => {
   );
   const after = row(stockStatement(statementRange("today", TODAY)), ITEM)!;
   assert.equal(after.adjustedMilli, before - 2_000, "no purchase behind it, so it is an adjustment");
+});
+
+// ---------------------------------------------------------- the ordering
+
+test("numbers sort by what they are worth, not by the digits", () => {
+  /*
+    A column holding 400 pieces of bottle and 25 kg of caustic cannot be ranked
+    by the number in it. Sorting by the digits puts the bottle caps on top; the
+    owner is asking where the money went.
+  */
+  run(
+    `INSERT INTO items (chemical_id, name, kind, canonical_unit, size_milli, unit_label,
+                        sellable, price_basis, price_cents, cost_cents)
+     VALUES (NULL, 'SORT CHEAP PIECES', 'packaging', 'pcs', 1000, 'piece', 1, 'unit', 500, 100)`,
+  );
+  const cheap = idOf("SORT CHEAP PIECES");
+  run(
+    `INSERT INTO stock_movements (item_id, delta_milli, reason, user_id, at)
+     VALUES (?, 400000, 'purchase', 1, ?)`,
+    cheap,
+    `${TODAY} 06:00:00`,
+  );
+
+  const s = stockStatement(statementRange("today", TODAY));
+  const byBought = sortRows(s.rows, "bought", "desc");
+
+  const cheapAt = byBought.findIndex((r) => r.name === "SORT CHEAP PIECES");
+  const drumAt = byBought.findIndex((r) => r.name === ITEM);
+  assert.ok(cheapAt >= 0 && drumAt >= 0);
+  assert.ok(
+    drumAt < cheapAt,
+    "20 kg of a 400-a-kilo chemical outranks 400 pieces worth a shilling each",
+  );
+});
+
+test("sorting changes the order and nothing else", () => {
+  const s = stockStatement(statementRange("month", TODAY));
+  const asc = sortRows(s.rows, "closing", "asc");
+  const desc = sortRows(s.rows, "closing", "desc");
+
+  assert.equal(asc.length, s.rows.length, "no row is lost");
+  assert.equal(desc.length, s.rows.length);
+  assert.deepEqual(
+    [...asc].map((r) => r.itemId).sort(),
+    [...s.rows].map((r) => r.itemId).sort(),
+    "the same rows, rearranged",
+  );
+  /*
+    Not "desc is asc reversed". Ties fall back to the NAME in both directions —
+    deliberately, so the order is stable — so reversing the ascending list puts
+    tied rows in the wrong order relative to each other. What must hold is that
+    each list really is ordered, and that the two ends swap.
+  */
+  const key = (r: (typeof asc)[number]) =>
+    r.costCents > 0 ? Math.round((r.closingMilli * r.costCents) / 1000) : r.closingMilli;
+  for (let i = 1; i < asc.length; i++) assert.ok(key(asc[i]) >= key(asc[i - 1]), "ascending");
+  for (let i = 1; i < desc.length; i++) assert.ok(key(desc[i]) <= key(desc[i - 1]), "descending");
+  assert.equal(key(asc[asc.length - 1]), key(desc[0]), "the biggest is at both far ends");
+});
+
+test("a column with nothing in it falls back to the name, so the order is stable", () => {
+  const s = stockStatement(statementRange("yesterday", TODAY));
+  const once = sortRows(s.rows, "made", "desc").map((r) => r.name);
+  const twice = sortRows(s.rows, "made", "desc").map((r) => r.name);
+  assert.deepEqual(once, twice, "a reload cannot shuffle two rows that look the same");
+});
+
+test("the sort and direction are only taken from known values", () => {
+  assert.equal(isStatementSort("sold"), true);
+  assert.equal(isStatementSort("; DROP TABLE"), false);
+  assert.equal(isSortDirection("desc"), true);
+  assert.equal(isSortDirection("sideways"), false);
 });

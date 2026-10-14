@@ -330,3 +330,89 @@ function moveSize(r: StatementRow): number {
   // instead of sorting to the bottom for ever.
   return r.costCents > 0 ? Math.round((milli * r.costCents) / MILLI) : milli;
 }
+
+// ----------------------------------------------------------- the ordering
+
+export const STATEMENT_SORTS = [
+  "name",
+  "opening",
+  "bought",
+  "made",
+  "sold",
+  "used",
+  "adjusted",
+  "closing",
+] as const;
+export type StatementSort = (typeof STATEMENT_SORTS)[number];
+export type SortDirection = "asc" | "desc";
+
+export function isStatementSort(v: string | undefined | null): v is StatementSort {
+  return !!v && (STATEMENT_SORTS as readonly string[]).includes(v);
+}
+
+export function isSortDirection(v: string | undefined | null): v is SortDirection {
+  return v === "asc" || v === "desc";
+}
+
+/**
+ * What a column is worth, for ranking.
+ *
+ * NOT the quantity. A column holding 400 pieces of bottle and 25 kg of caustic
+ * cannot be ordered by the number in it — kilos, litres and pieces are not
+ * comparable, and "sort by biggest" would put a box of bottle caps above a
+ * drum of Ungerol. Ranking by what the quantity is WORTH is the only ordering
+ * that answers the question the owner is actually asking, which is "where did
+ * the money go".
+ *
+ * Quantity is the fallback where nothing has a cost price, so an uncosted item
+ * still sorts sensibly among the others instead of sinking to the bottom for
+ * ever and being missed.
+ */
+function worth(r: StatementRow, milli: number): number {
+  return r.costCents > 0 ? Math.round((milli * r.costCents) / MILLI) : milli;
+}
+
+function sortKey(r: StatementRow, by: StatementSort): number {
+  switch (by) {
+    case "opening":
+      return worth(r, r.openingMilli);
+    case "bought":
+      return worth(r, r.boughtMilli);
+    case "made":
+      return worth(r, r.madeMilli);
+    case "sold":
+      return worth(r, r.soldMilli);
+    case "used":
+      return worth(r, r.usedMilli);
+    case "adjusted":
+      return worth(r, r.adjustedMilli);
+    case "closing":
+      return worth(r, r.closingMilli);
+    default:
+      return 0;
+  }
+}
+
+/**
+ * Order the statement, without touching the arithmetic.
+ *
+ * Sorting is presentation and nothing else: the same rows in a different order
+ * add up to the same totals, which is why this takes a list rather than being
+ * folded into the SQL where it could quietly change what is counted.
+ */
+export function sortRows(
+  rows: StatementRow[],
+  by: StatementSort,
+  dir: SortDirection,
+): StatementRow[] {
+  const sign = dir === "asc" ? 1 : -1;
+  const out = [...rows];
+  out.sort((a, b) => {
+    if (by === "name") return sign * a.name.localeCompare(b.name);
+    const d = sortKey(a, by) - sortKey(b, by);
+    // Ties fall back to the name, so the order is stable and a reload cannot
+    // shuffle two rows that look identical.
+    return d === 0 ? a.name.localeCompare(b.name) : sign * d;
+  });
+  return out;
+}

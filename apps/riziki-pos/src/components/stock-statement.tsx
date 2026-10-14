@@ -7,6 +7,8 @@ import {
   type StatementPeriod,
   type StatementRow,
   type StatementTotals,
+  type StatementSort,
+  type SortDirection,
 } from "@/lib/stock-statement";
 import { describeRange, type DateRange } from "@/lib/reports";
 import { Alert, TableWrap, Th, Td } from "@/components/ui";
@@ -219,26 +221,90 @@ function Qty({
  * that item's own stock card, because the next question after "where did
  * forty kilos go" is always "which entries", and that screen has them.
  */
+/**
+ * A column heading that sorts.
+ *
+ * A link and not a button: the sort lives in the URL, so the back button
+ * works, a sorted view can be sent to somebody, and the page still sorts on a
+ * counter phone that has decided not to run JavaScript today. Pressing the
+ * column you are already on flips the direction, which is what every table
+ * anybody has used does.
+ *
+ * The faint ⇅ on the other columns is there to say they can be pressed at all.
+ * Without it the only sortable-looking column is the one already sorted.
+ */
+function SortTh({
+  label,
+  col,
+  sort,
+  dir,
+  hrefFor,
+  align = "right",
+}: {
+  label: string;
+  col: StatementSort;
+  sort?: StatementSort;
+  dir?: SortDirection;
+  hrefFor?: (col: StatementSort, dir: SortDirection) => string;
+  align?: "left" | "right";
+}) {
+  if (!hrefFor) return <Th align={align}>{label}</Th>;
+
+  const active = sort === col;
+  // Numbers open on biggest-first, names on A–Z: that is what each is asked for.
+  const next: SortDirection = active ? (dir === "desc" ? "asc" : "desc") : col === "name" ? "asc" : "desc";
+
+  return (
+    <Th align={align}>
+      <Link
+        href={hrefFor(col, next)}
+        scroll={false}
+        aria-sort={active ? (dir === "asc" ? "ascending" : "descending") : "none"}
+        className={`inline-flex items-center gap-1 whitespace-nowrap hover:text-ink ${
+          active ? "text-ink" : ""
+        }`}
+      >
+        {align === "right" ? null : <span>{label}</span>}
+        <span aria-hidden className={active ? "" : "text-line"}>
+          {active ? (dir === "asc" ? "▲" : "▼") : "⇅"}
+        </span>
+        {align === "right" ? <span>{label}</span> : null}
+      </Link>
+    </Th>
+  );
+}
+
 export function StatementTable({
   rows,
   className = "",
+  sort,
+  dir,
+  hrefFor,
 }: {
   rows: StatementRow[];
   /** Lets the printed copy release the sideways scroll that clips it on paper. */
   className?: string;
+  sort?: StatementSort;
+  dir?: SortDirection;
+  /** Omitted on a screen that does not sort — the headings stay plain. */
+  hrefFor?: (col: StatementSort, dir: SortDirection) => string;
 }) {
+  const th = (label: string, col: StatementSort, align: "left" | "right" = "right") => (
+    <SortTh label={label} col={col} sort={sort} dir={dir} hrefFor={hrefFor} align={align} />
+  );
+
   return (
     <TableWrap className={className}>
       <thead>
         <tr>
-          <Th>Item</Th>
-          <Th align="right">Opening</Th>
-          <Th align="right">Bought</Th>
-          <Th align="right">Made</Th>
-          <Th align="right">Sold</Th>
-          <Th align="right">Used</Th>
-          <Th align="right">Adjusted</Th>
-          <Th align="right">Closing</Th>
+          {th("Item", "name", "left")}
+          {th("Opening", "opening")}
+          {th("Bought", "bought")}
+          {th("Made", "made")}
+          {th("Sold", "sold")}
+          {th("Used", "used")}
+          {th("Adjusted", "adjusted")}
+          {th("Closing", "closing")}
         </tr>
       </thead>
       <tbody>

@@ -6,7 +6,12 @@ import {
   stockStatement,
   statementRange,
   readStatementPeriod,
+  sortRows,
+  isStatementSort,
+  isSortDirection,
   STATEMENT_PERIOD_LABEL,
+  type StatementSort,
+  type SortDirection,
 } from "@/lib/stock-statement";
 import { describeRange } from "@/lib/reports";
 import { PageTitle, SectionLabel, Card, Empty, Alert } from "@/components/ui";
@@ -34,7 +39,13 @@ export const dynamic = "force-dynamic";
  * date at all, including dates nobody thought to ask about at the time.
  */
 export default async function StockStatementPage(props: {
-  searchParams: Promise<{ period?: string; from?: string; to?: string }>;
+  searchParams: Promise<{
+    period?: string;
+    from?: string;
+    to?: string;
+    sort?: string;
+    dir?: string;
+  }>;
 }) {
   const user = await currentUser();
   if (!user) redirect("/login");
@@ -43,6 +54,28 @@ export default async function StockStatementPage(props: {
   const period = readStatementPeriod(sp);
   const range = statementRange(period, businessDate(), sp.from, sp.to);
   const statement = stockStatement(range);
+
+  /*
+    The order, in the URL like everything else on this screen.
+
+    Alphabetical by default, because a statement is read down a list of names
+    until it is read for a reason — and then the reason is almost always "which
+    one moved the most", which is one press on a column heading away.
+  */
+  const sort: StatementSort = isStatementSort(sp.sort) ? sp.sort : "name";
+  const dir: SortDirection = isSortDirection(sp.dir) ? sp.dir : sort === "name" ? "asc" : "desc";
+  const rows = sortRows(statement.rows, sort, dir);
+
+  const hrefFor = (col: StatementSort, next: SortDirection) => {
+    const q = new URLSearchParams({ period });
+    if (period === "custom") {
+      q.set("from", range.from);
+      q.set("to", range.to);
+    }
+    q.set("sort", col);
+    q.set("dir", next);
+    return `/stock/statement?${q.toString()}`;
+  };
 
   // The money is a cost figure like any other, and is the owner's.
   const seesCost = can(user, "cost");
@@ -119,7 +152,24 @@ export default async function StockStatementPage(props: {
       </SectionLabel>
 
       {statement.rows.length ? (
-        <StatementTable rows={statement.rows} className="stmt-table" />
+        <>
+          <StatementTable
+            rows={rows}
+            className="stmt-table"
+            sort={sort}
+            dir={dir}
+            hrefFor={hrefFor}
+          />
+          {sort !== "name" ? (
+            <p className="no-print mt-2 text-[11px] text-muted">
+              Sorted by what each one is worth at cost, biggest first — kilos, litres and pieces
+              cannot be ranked against each other, but what they are worth can.{" "}
+              <Link href={hrefFor("name", "asc")} className="font-bold text-brand-dark">
+                Back to A–Z
+              </Link>
+            </p>
+          ) : null}
+        </>
       ) : (
         <Card>
           <Empty>Nothing was held and nothing moved in this period.</Empty>
