@@ -97,28 +97,33 @@ if [ -n "${TRANSCRIPT_IN:-}" ]; then
   cp "$TRANSCRIPT_IN" "$TRANSCRIPT"
 else
 {
-  printf 'EHLO %s\r\n' "$EHLO";       sleep 2
-  printf 'AUTH LOGIN\r\n';            sleep 1
-  printf '%s\r\n' "$U64";             sleep 1
-  printf '%s\r\n' "$P64";             sleep 3
+  # NOTE the single \n. openssl's -crlf converts each LF to CRLF, so a
+  # \r\n here goes out as \r\r\n. SMTP forgives the stray CR on a verb like
+  # EHLO, but base64 does not: the username line came back
+  # "535 Invalid base64 data in continued response", which reads exactly like
+  # a wrong password and is not one.
+  printf 'EHLO %s\n' "$EHLO";         sleep 2
+  printf 'AUTH LOGIN\n';            sleep 1
+  printf '%s\n' "$U64";             sleep 1
+  printf '%s\n' "$P64";             sleep 3
   if [ -n "$FROM" ]; then
-    printf 'MAIL FROM:<%s>\r\n' "$FROM"; sleep 2
+    printf 'MAIL FROM:<%s>\n' "$FROM"; sleep 2
     if [ "$SEND_TEST" = yes ]; then
-      printf 'RCPT TO:<%s>\r\n' "$TO"; sleep 2
-      printf 'DATA\r\n';               sleep 2
-      printf 'From: %s <%s>\r\n' "$FROM_NAME" "$FROM"
-      printf 'To: <%s>\r\n' "$TO"
-      printf 'Subject: 64theatre SMTP test\r\n'
-      printf 'Content-Type: text/plain; charset=utf-8\r\n'
-      printf '\r\n'
-      printf 'If you are reading this, ticket delivery works.\r\n'
-      printf 'Sent by mail-check.sh at %s UTC.\r\n' "$(date -u +%FT%TZ)"
-      printf '.\r\n';                  sleep 3
+      printf 'RCPT TO:<%s>\n' "$TO"; sleep 2
+      printf 'DATA\n';               sleep 2
+      printf 'From: %s <%s>\n' "$FROM_NAME" "$FROM"
+      printf 'To: <%s>\n' "$TO"
+      printf 'Subject: 64theatre SMTP test\n'
+      printf 'Content-Type: text/plain; charset=utf-8\n'
+      printf '\n'
+      printf 'If you are reading this, ticket delivery works.\n'
+      printf 'Sent by mail-check.sh at %s UTC.\n' "$(date -u +%FT%TZ)"
+      printf '.\n';                  sleep 3
     else
-      printf 'RSET\r\n';               sleep 1
+      printf 'RSET\n';               sleep 1
     fi
   fi
-  printf 'QUIT\r\n';                   sleep 1
+  printf 'QUIT\n';                   sleep 1
 } | openssl s_client -starttls smtp -connect "$HOST:$PORT" -crlf -quiet 2>/dev/null \
   > "$TRANSCRIPT"
 fi
