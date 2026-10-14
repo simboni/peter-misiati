@@ -1,0 +1,300 @@
+diff --git a/.env.example b/.env.example
+index 61ecb0a..2c0d50d 100644
+--- a/.env.example
++++ b/.env.example
+@@ -33,10 +33,6 @@ SEED_DEMO=false
+ RESET_ADMIN=
+ 
+ # ---- Optional — leave blank until you're ready ----------------------------
+-# Email (password reset, receipts). See DEPLOYMENT.md.
+-RESEND_API_KEY=
+-MAIL_FROM=Fit Generations Gym <no-reply@fitgenerationsgym.com>
+-
+ # M-Pesa (Safaricom Daraja).
+ MPESA_ENV=
+ MPESA_CONSUMER_KEY=
+@@ -44,3 +40,47 @@ MPESA_CONSUMER_SECRET=
+ MPESA_SHORTCODE=
+ MPESA_PASSKEY=
+ MPESA_CALLBACK_TOKEN=
++
++# --- Email -------------------------------------------------------------------
++# Two ways to send; SMTP wins when both are set.
++#
++# SMTP sends through a real mailbox, so mail leaves as info@yourdomain and a
++# member hitting reply reaches a person. That is the reason to prefer it.
++# The trade is volume: mailbox plans cap daily sends, and a month-end run of
++# invoices to every member can reach the cap — at which point the rest fail
++# silently. Watch the logs the first time a full run goes out.
++#
++# SMTP_USER is the FULL address. A bare "info" authenticates against nothing
++# and the server refuses to relay, which presents as "receiving works but
++# sending does not".
++# Hostinger: smtp.hostinger.com, port 465 (SSL) or 587 (STARTTLS).
++SMTP_HOST=
++SMTP_PORT=587
++SMTP_USER=
++SMTP_PASS=
++SMTP_SECURE=
++MAIL_FROM="Fit Generations Gym <info@fitgenerationsgym.com>"
++
++# Resend — HTTP API, no mailbox. Used only when SMTP is unset.
++RESEND_API_KEY=
++
++# --- PayHero (recommended) ---------------------------------------------------
++# STK push that settles straight into the gym's bank account. The member still
++# approves an M-Pesa prompt — "bank" is where the money lands, not how they pay.
++# A bank paybill cannot raise a prompt by itself; that is the gap PayHero fills,
++# and it needs no Safaricom shortcode approval.
++#
++# Leave PAYMENTS_PROVIDER blank to use whichever is configured (PayHero first).
++# USERNAME/PASSWORD are API credentials from the dashboard, NOT the login.
++# CHANNEL_ID is under Payment Channels — use the BANK channel.
++# CALLBACK_TOKEN is a secret path segment; without it anyone who guesses a
++# CheckoutRequestID can mark an invoice paid. Generate: openssl rand -hex 16
++# DISPLAY_NAME is the name shown on the member's prompt — it is the collecting
++# paybill's, not the gym's, so the portal says it in advance.
++PAYMENTS_PROVIDER=
++PAYHERO_BASE_URL=https://backend.payhero.co.ke
++PAYHERO_USERNAME=
++PAYHERO_PASSWORD=
++PAYHERO_CHANNEL_ID=
++PAYHERO_CALLBACK_TOKEN=
++PAYHERO_DISPLAY_NAME=
+diff --git a/docker-compose.behind-proxy.yml b/docker-compose.behind-proxy.yml
+index 5b5a471..7ff8c32 100644
+--- a/docker-compose.behind-proxy.yml
++++ b/docker-compose.behind-proxy.yml
+@@ -43,12 +43,37 @@ services:
+       RESET_ADMIN: ${RESET_ADMIN:-}
+       RESEND_API_KEY: ${RESEND_API_KEY:-}
+       MAIL_FROM: ${MAIL_FROM:-}
++      # SMTP — sends through a real mailbox, so members see info@ in the From
++      # line and can simply reply. Takes precedence over Resend when set.
++      # SMTP_USER must be the FULL address: a bare local part authenticates
++      # against nothing and the server refuses to relay.
++      SMTP_HOST: ${SMTP_HOST:-}
++      SMTP_PORT: ${SMTP_PORT:-587}
++      SMTP_USER: ${SMTP_USER:-}
++      SMTP_PASS: ${SMTP_PASS:-}
++      SMTP_SECURE: ${SMTP_SECURE:-}
+       MPESA_ENV: ${MPESA_ENV:-}
+       MPESA_CONSUMER_KEY: ${MPESA_CONSUMER_KEY:-}
+       MPESA_CONSUMER_SECRET: ${MPESA_CONSUMER_SECRET:-}
+       MPESA_SHORTCODE: ${MPESA_SHORTCODE:-}
+       MPESA_PASSKEY: ${MPESA_PASSKEY:-}
+       MPESA_CALLBACK_TOKEN: ${MPESA_CALLBACK_TOKEN:-}
++      # PayHero — STK push that settles to the gym's bank account, with no
++      # Safaricom shortcode needed. These MUST be listed here: Docker passes a
++      # container only what the compose file names, and leaving a payment
++      # block out of this list is what made an identical gateway inert on the
++      # theatre deploy while its .env looked perfectly correct.
++      PAYMENTS_PROVIDER: ${PAYMENTS_PROVIDER:-}
++      PAYHERO_BASE_URL: ${PAYHERO_BASE_URL:-https://backend.payhero.co.ke}
++      PAYHERO_USERNAME: ${PAYHERO_USERNAME:-}
++      PAYHERO_PASSWORD: ${PAYHERO_PASSWORD:-}
++      # The payment channel money lands in. Use the BANK channel, or takings
++      # sit in a PayHero wallet instead of the gym's account.
++      PAYHERO_CHANNEL_ID: ${PAYHERO_CHANNEL_ID:-}
++      PAYHERO_CALLBACK_TOKEN: ${PAYHERO_CALLBACK_TOKEN:-}
++      # The business name the member reads on the prompt. It belongs to the
++      # collecting paybill, not the gym, so the portal names it in advance.
++      PAYHERO_DISPLAY_NAME: ${PAYHERO_DISPLAY_NAME:-}
+     depends_on:
+       fitgen-db:
+         condition: service_healthy
+@@ -57,6 +82,10 @@ services:
+       - internal  # reach the database
+     expose:
+       - "3000"
++    # The shared box has no swap, so an uncapped container does not slow the
++    # machine down — the kernel kills whichever process it picks, which may be
++    # another client's database rather than the one that leaked.
++    mem_limit: 1g
+ 
+   fitgen-db:
+     image: postgres:16-alpine
+@@ -70,6 +99,7 @@ services:
+       - pgdata:/var/lib/postgresql/data
+     networks:
+       - internal  # deliberately NOT on edge — nothing else can reach it
++    mem_limit: 512m
+     healthcheck:
+       test: ["CMD-SHELL", "pg_isready -U fitgen"]
+       interval: 10s
+diff --git a/package-lock.json b/package-lock.json
+index 2496cb5..73c5feb 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -9,8 +9,10 @@
+       "version": "0.1.0",
+       "dependencies": {
+         "@electric-sql/pglite": "^0.5.4",
++        "@types/nodemailer": "^8.0.2",
+         "drizzle-orm": "^0.45.2",
+         "next": "16.2.10",
++        "nodemailer": "^10.1.1",
+         "postgres": "^3.4.9",
+         "react": "19.2.4",
+         "react-dom": "19.2.4"
+@@ -2464,12 +2466,20 @@
+       "version": "20.19.43",
+       "resolved": "https://registry.npmjs.org/@types/node/-/node-20.19.43.tgz",
+       "integrity": "sha512-6oYBAi5ikg4Pl+kGsoYtawUMBT2zZMCvPNF7pVLnHZfd1zf38DRiWn/gT01RYCdUqkv7Fhr+C9ot4/tb+2sVvA==",
+-      "dev": true,
+       "license": "MIT",
+       "dependencies": {
+         "undici-types": "~6.21.0"
+       }
+     },
++    "node_modules/@types/nodemailer": {
++      "version": "8.0.2",
++      "resolved": "https://registry.npmjs.org/@types/nodemailer/-/nodemailer-8.0.2.tgz",
++      "integrity": "sha512-c7M5ox8p0nEOfbJ2E9Qcmt8/QCu/VzsiAhzBiZbvky2PhKZDHpKB3sQHBM5MEZNkCfBOaS6S9//AGPRTNB7IaA==",
++      "license": "MIT",
++      "dependencies": {
++        "@types/node": "*"
++      }
++    },
+     "node_modules/@types/react": {
+       "version": "19.2.17",
+       "resolved": "https://registry.npmjs.org/@types/react/-/react-19.2.17.tgz",
+@@ -6295,6 +6305,15 @@
+         "node": ">=18"
+       }
+     },
++    "node_modules/nodemailer": {
++      "version": "10.1.1",
++      "resolved": "https://registry.npmjs.org/nodemailer/-/nodemailer-10.1.1.tgz",
++      "integrity": "sha512-pbqZRoeYUO+1E8TJ/11WeY4D2EVujj1hsYjz3qff/vUFDtGnmi7p3iqzTFslYOfQ6PnjVcWxx/CIUSHCSrO/QA==",
++      "license": "MIT-0",
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
+     "node_modules/object-assign": {
+       "version": "4.1.1",
+       "resolved": "https://registry.npmjs.org/object-assign/-/object-assign-4.1.1.tgz",
+@@ -8097,7 +8116,6 @@
+       "version": "6.21.0",
+       "resolved": "https://registry.npmjs.org/undici-types/-/undici-types-6.21.0.tgz",
+       "integrity": "sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==",
+-      "dev": true,
+       "license": "MIT"
+     },
+     "node_modules/unrs-resolver": {
+diff --git a/package.json b/package.json
+index 53a10e4..3bc8017 100644
+--- a/package.json
++++ b/package.json
+@@ -12,8 +12,10 @@
+   },
+   "dependencies": {
+     "@electric-sql/pglite": "^0.5.4",
++    "@types/nodemailer": "^8.0.2",
+     "drizzle-orm": "^0.45.2",
+     "next": "16.2.10",
++    "nodemailer": "^10.1.1",
+     "postgres": "^3.4.9",
+     "react": "19.2.4",
+     "react-dom": "19.2.4"
+diff --git a/src/lib/services/messaging.ts b/src/lib/services/messaging.ts
+index 81338ec..f227e0b 100644
+--- a/src/lib/services/messaging.ts
++++ b/src/lib/services/messaging.ts
+@@ -1,8 +1,19 @@
+ import "server-only";
+ 
+-/* Outbound messaging abstraction. A no-op logger runs by default; set
+-   RESEND_API_KEY later and the Resend provider activates with zero code
+-   changes elsewhere. Same shape will hold an SMS/WhatsApp provider. */
++/* Outbound messaging abstraction.
++
++   Three providers, picked in this order:
++
++     SMTP    when SMTP_HOST and SMTP_USER are set — sends through a real
++             mailbox, so mail leaves as info@<the gym's domain> and replies
++             come back to a human rather than to a no-reply void.
++     Resend  when RESEND_API_KEY is set — HTTP API, no mailbox needed.
++     Log     otherwise, so every flow still works in development.
++
++   SMTP is first because a mailbox the gym already pays for is the thing
++   members should see in the From line. Its limits are the trade: mailbox
++   plans cap daily sends, which a burst of monthly invoices can reach — see
++   the note on sendEmail. */
+ 
+ export type OutMessage = { to: string; subject: string; body: string; html?: string; channel: "email" | "sms" };
+ 
+@@ -18,6 +29,49 @@ class LogProvider implements MessageProvider {
+   }
+ }
+ 
++class SmtpProvider implements MessageProvider {
++  async send(m: OutMessage) {
++    try {
++      // Imported here rather than at module scope so the dependency is only
++      // pulled in when SMTP is actually the chosen provider.
++      const nodemailer = (await import("nodemailer")).default;
++
++      const port = Number(process.env.SMTP_PORT || 587);
++      const transport = nodemailer.createTransport({
++        host: process.env.SMTP_HOST,
++        port,
++        // 465 is implicit TLS; 587 starts plain and upgrades with STARTTLS.
++        // Getting this backwards is the usual cause of a silent hang.
++        secure: process.env.SMTP_SECURE
++          ? process.env.SMTP_SECURE === "true"
++          : port === 465,
++        auth: {
++          // The FULL address, not the local part. A bare "info" authenticates
++          // against nothing and the server refuses to relay — which looks
++          // exactly like "receiving works but sending does not".
++          user: process.env.SMTP_USER,
++          pass: process.env.SMTP_PASS,
++        },
++      });
++
++      const info = await transport.sendMail({
++        from: process.env.MAIL_FROM || process.env.SMTP_USER,
++        to: m.to,
++        subject: m.subject,
++        text: m.body,
++        ...(m.html ? { html: m.html } : {}),
++      });
++
++      return { ok: true, id: info.messageId };
++    } catch (e) {
++      // Worth a line in the log: a mailbox that has hit its daily cap fails
++      // here and nowhere else, and the message says so.
++      console.error("[msg:smtp] send failed", e instanceof Error ? e.message : e);
++      return { ok: false };
++    }
++  }
++}
++
+ class ResendProvider implements MessageProvider {
+   async send(m: OutMessage) {
+     try {
+@@ -42,13 +96,19 @@ class ResendProvider implements MessageProvider {
+   }
+ }
+ 
+-/** True once a real email provider is wired up (RESEND_API_KEY set). */
++/** True once a real email provider is wired up. */
+ export function emailConfigured(): boolean {
+-  return Boolean(process.env.RESEND_API_KEY);
++  return smtpConfigured() || Boolean(process.env.RESEND_API_KEY);
++}
++
++function smtpConfigured(): boolean {
++  return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+ }
+ 
+ export function messageProvider(): MessageProvider {
+-  return process.env.RESEND_API_KEY ? new ResendProvider() : new LogProvider();
++  if (smtpConfigured()) return new SmtpProvider();
++  if (process.env.RESEND_API_KEY) return new ResendProvider();
++  return new LogProvider();
+ }
+ 
+ /** Convenience: send one email (falls back to logging when unconfigured). */
