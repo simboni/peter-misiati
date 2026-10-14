@@ -1,0 +1,46 @@
+# INTERNAL static file server for keysa.org.
+#
+# Plain HTTP on :80 inside the `edge` network — edge-caddy terminates TLS on
+# the public side, so no domain name appears here.
+#
+# NOT the shared deploy/contabo/static-site/Caddyfile, for two reasons: that
+# one carries another site's redirect (/news.html -> /blog.html), and it is
+# written for flat .html files. This is a Next.js static export, where every
+# route is a directory holding index.html.
+
+:80 {
+	root * /srv/site
+
+	encode zstd gzip
+
+	# Next export writes /about/index.html, not /about.html. Trying the
+	# directory form FIRST matters: with the flat form first, a stray
+	# about.html would silently shadow the real route.
+	try_files {path} {path}/index.html {path}.html
+	file_server
+
+	# Translated from the site's Netlify `_headers`, which only Netlify
+	# reads. Without this they are simply lost on any other host.
+	header {
+		X-Frame-Options "DENY"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+
+	# Next hashes these filenames, so the content at a given URL never
+	# changes and a year is safe. Everything else stays revalidated, or a
+	# content fix would not reach anyone who had already visited.
+	header /_next/static/* Cache-Control "public, max-age=31536000, immutable"
+
+	handle_errors {
+		rewrite * /404.html
+		file_server
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

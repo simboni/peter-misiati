@@ -1,0 +1,14 @@
+# keysa.org — KeYSA, Kenya Youths Support Association. Static site.
+#
+# www is CANONICAL here, which is the opposite way round from the other sites
+# on this box. The build writes https://www.keysa.org into its Open Graph,
+# Twitter and JSON-LD metadata, so serving the apex as canonical would leave
+# every social preview pointing at a URL that redirects.
+
+keysa.org {
+	redir https://www.keysa.org{uri} permanent
+}
+
+www.keysa.org {
+	reverse_proxy keysa-web:80
+}
