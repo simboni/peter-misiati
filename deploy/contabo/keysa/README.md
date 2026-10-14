@@ -1,6 +1,6 @@
 # KeYSA on the Contabo box
 
-Source: **github.com/simboni/keysa-website**
+Source: **github.com/simboni/keysa**
 Compose project **`keysa`** · container `keysa-web` · domain `www.keysa.org`
 
 Moving keysa.org off Netlify. The site is a Next.js static export with no
@@ -25,7 +25,7 @@ bash /srv/smp-portfolio/repo/deploy/contabo/preflight.sh keysa
 docker ps --format '{{.Names}}\t{{.Status}}' > /root/before-keysa.txt
 
 mkdir -p /srv/keysa
-git clone --depth 1 https://github.com/simboni/keysa-website /srv/keysa/repo
+git clone --depth 1 https://github.com/simboni/keysa /srv/keysa/repo
 cp /srv/smp-portfolio/repo/deploy/contabo/static-site/compose.yml /srv/keysa/
 cp /srv/smp-portfolio/repo/deploy/contabo/keysa/Caddyfile /srv/keysa/
 cp /srv/smp-portfolio/repo/deploy/contabo/keysa/env.example /srv/keysa/.env
