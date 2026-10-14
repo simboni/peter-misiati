@@ -1,19 +1,65 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { currentUser } from "@/lib/auth";
+import { currentUser, can } from "@/lib/auth";
 import { all, get } from "@/lib/db";
 import { formatKes, formatQty, businessDate } from "@/lib/units";
-import { Stat, SectionLabel, Card, Chip, Alert } from "@/components/ui";
+import { Stat, SectionLabel, Card, Chip, Alert, Empty } from "@/components/ui";
 import { usersOnDemoPin } from "@/lib/users";
+import {
+  stockStatement,
+  statementRange,
+  readStatementPeriod,
+  topMovers,
+} from "@/lib/stock-statement";
+import {
+  StatementPeriods,
+  StatementFlow,
+  StatementTable,
+  StatementCaption,
+} from "@/components/stock-statement";
 
 export const dynamic = "force-dynamic";
 
-export default async function HomePage() {
+export default async function HomePage(props: {
+  // The front page carries the stock statement now, and a statement is always
+  // about a period — so the page has to be able to be asked for one.
+  searchParams: Promise<{ period?: string; from?: string; to?: string }>;
+}) {
   const user = await currentUser();
   if (!user) redirect("/login");
 
   const owner = user.role === "owner";
   const today = businessDate();
+
+  /*
+    OPENING → BOUGHT → MADE → SOLD → USED → ADJUSTED → CLOSING.
+
+    The question the shop closes its books on, and the one figure the system
+    could not produce: everything it held was either "right now" (the stock
+    list) or "one item's history" (the stock card).
+
+    Here in summary and in full on its own page. The summary is the shop total
+    in money and the handful of things that actually moved — a front page with
+    forty rows of unchanged stock on it is a front page nobody reads.
+  */
+  const sp = await props.searchParams;
+  const period = readStatementPeriod(sp);
+  const stockRange = statementRange(period, today, sp.from, sp.to);
+  const statement = stockStatement(stockRange);
+  const movers = topMovers(statement, 8);
+  const seesCost = can(user, "cost");
+  const statementHref = (() => {
+    const q = new URLSearchParams({ period });
+    if (period === "custom") {
+      q.set("from", stockRange.from);
+      q.set("to", stockRange.to);
+    }
+    return `/stock/statement?${q.toString()}`;
+  })();
+  // "today" / "yesterday" read as English in a sentence; a custom range does
+  // not, and "in this period" is the honest thing to say about one.
+  const whenWord =
+    period === "today" ? "today" : period === "yesterday" ? "yesterday" : "in this period";
 
   // Sales are stored in UTC; group them in shop time or the evening's takings
   // land on tomorrow's report and the cash count won't agree.
@@ -191,6 +237,54 @@ export default async function HomePage() {
         ))}
       </div>
       </div>
+      </div>
+
+      {/*
+        THE STOCK STATEMENT.
+
+        Below the two columns and across the whole page on purpose: eight
+        columns of figures squeezed into a half-width column is a table nobody
+        can read, and this is the thing the owner opens the page for.
+      */}
+      <div id="stock" className="mt-5">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+          <SectionLabel>Stock movement</SectionLabel>
+          <Link href={statementHref} className="text-sm font-bold text-brand-dark">
+            Every item →
+          </Link>
+        </div>
+
+        <div className="mb-2.5">
+          <StatementPeriods action="/" current={period} range={stockRange} anchor="#stock" />
+        </div>
+
+        <div className="mb-1.5">
+          <StatementCaption range={stockRange} />
+        </div>
+
+        {seesCost ? (
+          <div className="mb-3">
+            <StatementFlow totals={statement.totals} uncosted={statement.uncosted} />
+          </div>
+        ) : null}
+
+        {movers.length ? (
+          <>
+            <StatementTable rows={movers} />
+            <p className="mt-2 text-[11px] text-muted">
+              {statement.movedCount === movers.length
+                ? `Everything that moved ${whenWord}.`
+                : `The ${movers.length} biggest of ${statement.movedCount} things that moved ${whenWord}.`}{" "}
+              <Link href={statementHref} className="font-bold text-brand-dark">
+                See every item →
+              </Link>
+            </p>
+          </>
+        ) : (
+          <Card>
+            <Empty>Nothing moved on the shelf {whenWord}.</Empty>
+          </Card>
+        )}
       </div>
     </div>
   );
