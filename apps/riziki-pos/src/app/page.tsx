@@ -10,6 +10,11 @@ import {
   statementRange,
   readStatementPeriod,
   topMovers,
+  sortRows,
+  isStatementSort,
+  isSortDirection,
+  type StatementSort,
+  type SortDirection,
 } from "@/lib/stock-statement";
 import {
   StatementPeriods,
@@ -25,7 +30,13 @@ export const dynamic = "force-dynamic";
 export default async function HomePage(props: {
   // The front page carries the stock statement now, and a statement is always
   // about a period — so the page has to be able to be asked for one.
-  searchParams: Promise<{ period?: string; from?: string; to?: string }>;
+  searchParams: Promise<{
+    period?: string;
+    from?: string;
+    to?: string;
+    sort?: string;
+    dir?: string;
+  }>;
 }) {
   const user = await currentUser();
   if (!user) redirect("/login");
@@ -48,7 +59,20 @@ export default async function HomePage(props: {
   const period = readStatementPeriod(sp);
   const stockRange = statementRange(period, today, sp.from, sp.to);
   const statement = stockStatement(stockRange);
-  const movers = topMovers(statement, 8);
+  /*
+    The eight that matter, and which eight is the owner's call.
+
+    Untouched, the list is ranked by what MOVED, which is the right default for
+    a front page — a drum that sat still all month is not news. Press a column
+    and it becomes the eight biggest by that column instead, which is the same
+    question asked a different way: the biggest sellers, or the eight items
+    carrying the adjustment nobody can explain.
+  */
+  const sort: StatementSort | null = isStatementSort(sp.sort) ? sp.sort : null;
+  const dir: SortDirection = isSortDirection(sp.dir) ? sp.dir : sort === "name" ? "asc" : "desc";
+  const movers = sort
+    ? sortRows(statement.rows, sort, dir).slice(0, 8)
+    : topMovers(statement, 8);
   const seesCost = can(user, "cost");
   /*
     The takings for the same period, from the sales record.
@@ -58,14 +82,21 @@ export default async function HomePage(props: {
     same function.
   */
   const stockProfit = seesCost ? profitSummary(stockRange) : null;
-  const statementHref = (() => {
+  const stockParams = (extra: Record<string, string> = {}) => {
     const q = new URLSearchParams({ period });
     if (period === "custom") {
       q.set("from", stockRange.from);
       q.set("to", stockRange.to);
     }
-    return `/stock/statement?${q.toString()}`;
-  })();
+    for (const [k, v] of Object.entries(extra)) q.set(k, v);
+    return q;
+  };
+  // The sort travels to the full list, so "see every item" shows the same order.
+  const statementHref = `/stock/statement?${stockParams(
+    sort ? { sort, dir } : {},
+  ).toString()}`;
+  const sortHref = (col: StatementSort, next: SortDirection) =>
+    `/?${stockParams({ sort: col, dir: next }).toString()}#stock`;
   // "today" / "yesterday" read as English in a sentence; a custom range does
   // not, and "in this period" is the honest thing to say about one.
   const whenWord =
@@ -265,7 +296,13 @@ export default async function HomePage(props: {
         </div>
 
         <div className="mb-2.5">
-          <StatementPeriods action="/" current={period} range={stockRange} anchor="#stock" />
+          <StatementPeriods
+            action="/"
+            current={period}
+            range={stockRange}
+            anchor="#stock"
+            keep={sort ? { sort, dir } : {}}
+          />
         </div>
 
         <div className="mb-1.5">
@@ -288,11 +325,18 @@ export default async function HomePage(props: {
 
         {movers.length ? (
           <>
-            <StatementTable rows={movers} />
+            <StatementTable
+              rows={movers}
+              sort={sort ?? undefined}
+              dir={dir}
+              hrefFor={sortHref}
+            />
             <p className="mt-2 text-[11px] text-muted">
-              {statement.movedCount === movers.length
-                ? `Everything that moved ${whenWord}.`
-                : `The ${movers.length} biggest of ${statement.movedCount} things that moved ${whenWord}.`}{" "}
+              {sort
+                ? `The ${movers.length} biggest by ${sort === "name" ? "name" : sort}, of ${statement.rows.length} items.`
+                : statement.movedCount === movers.length
+                  ? `Everything that moved ${whenWord}.`
+                  : `The ${movers.length} biggest of ${statement.movedCount} things that moved ${whenWord}.`}{" "}
               <Link href={statementHref} className="font-bold text-brand-dark">
                 See every item →
               </Link>

@@ -25,11 +25,14 @@ export function StatementPeriods({
   current,
   range,
   anchor = "",
+  keep = {},
 }: {
   action: string;
   current: StatementPeriod;
   range: DateRange;
   anchor?: string;
+  /** Anything that must survive a change of date — the sort, for one. */
+  keep?: Record<string, string>;
 }) {
   const href = (p: StatementPeriod) => {
     const q = new URLSearchParams({ period: p });
@@ -37,6 +40,7 @@ export function StatementPeriods({
       q.set("from", range.from);
       q.set("to", range.to);
     }
+    for (const [k, v] of Object.entries(keep)) if (v) q.set(k, v);
     return `${action}?${q.toString()}${anchor}`;
   };
 
@@ -62,6 +66,9 @@ export function StatementPeriods({
       {current === "custom" ? (
         <form action={action} className="mt-2 flex flex-wrap items-end gap-2">
           <input type="hidden" name="period" value="custom" />
+          {Object.entries(keep).map(([k, v]) =>
+            v ? <input key={k} type="hidden" name={k} value={v} /> : null,
+          )}
           <label className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted">
             <span className="block">From</span>
             <input
@@ -222,6 +229,41 @@ function Qty({
  * forty kilos go" is always "which entries", and that screen has them.
  */
 /**
+ * The sort arrows, drawn rather than typed.
+ *
+ * They were characters — ⇅ for "this can be sorted", ▲▼ for the live one — and
+ * on the shop's Windows desktop they could not be seen at all. Two reasons, and
+ * both had to go: the idle pair was `text-line`, which is #dde8e8 on a #f2f7f7
+ * header and about 1.2:1 against it, and ⇅ (U+21C5) is not in every font
+ * Windows reaches for, so where the colour did not lose it the typeface could.
+ *
+ * An inline SVG has no font to miss and no glyph to substitute. It renders the
+ * same on the counter desktop as on a phone, and the colours below are muted
+ * and brand — both of which pass against this header at this size.
+ */
+function SortArrow({ state }: { state: "idle" | "asc" | "desc" }) {
+  const up = state === "asc";
+  const down = state === "desc";
+  const live = up || down;
+  return (
+    <svg
+      width="9"
+      height="12"
+      viewBox="0 0 9 12"
+      aria-hidden
+      // 75%, not less: muted at 60% lands near 2.6:1 on this header, under the
+      // 3:1 a control that is not text has to clear to be seen on a bright
+      // counter screen.
+      className={live ? "text-brand" : "text-muted opacity-75"}
+      style={{ flex: "none" }}
+    >
+      <path d="M4.5 0.5 L8 4.5 L1 4.5 Z" fill="currentColor" opacity={down ? 0.25 : 1} />
+      <path d="M4.5 11.5 L1 7.5 L8 7.5 Z" fill="currentColor" opacity={up ? 0.25 : 1} />
+    </svg>
+  );
+}
+
+/**
  * A column heading that sorts.
  *
  * A link and not a button: the sort lives in the URL, so the back button
@@ -230,8 +272,9 @@ function Qty({
  * column you are already on flips the direction, which is what every table
  * anybody has used does.
  *
- * The faint ⇅ on the other columns is there to say they can be pressed at all.
- * Without it the only sortable-looking column is the one already sorted.
+ * The idle arrows sit on every sortable column on purpose. Without them the
+ * only column that looks pressable is the one already sorted, and nobody finds
+ * the feature.
  */
 function SortTh({
   label,
@@ -253,6 +296,7 @@ function SortTh({
   const active = sort === col;
   // Numbers open on biggest-first, names on A–Z: that is what each is asked for.
   const next: SortDirection = active ? (dir === "desc" ? "asc" : "desc") : col === "name" ? "asc" : "desc";
+  const state = active ? (dir === "asc" ? "asc" : "desc") : "idle";
 
   return (
     <Th align={align}>
@@ -260,14 +304,13 @@ function SortTh({
         href={hrefFor(col, next)}
         scroll={false}
         aria-sort={active ? (dir === "asc" ? "ascending" : "descending") : "none"}
-        className={`inline-flex items-center gap-1 whitespace-nowrap hover:text-ink ${
-          active ? "text-ink" : ""
+        title={`Sort by ${label.toLowerCase()}`}
+        className={`inline-flex min-h-8 items-center gap-1 whitespace-nowrap rounded-md px-1 -mx-1 hover:bg-white hover:text-ink ${
+          active ? "font-extrabold text-ink" : ""
         }`}
       >
         {align === "right" ? null : <span>{label}</span>}
-        <span aria-hidden className={active ? "" : "text-line"}>
-          {active ? (dir === "asc" ? "▲" : "▼") : "⇅"}
-        </span>
+        <SortArrow state={state} />
         {align === "right" ? <span>{label}</span> : null}
       </Link>
     </Th>
