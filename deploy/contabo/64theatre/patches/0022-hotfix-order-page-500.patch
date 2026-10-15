@@ -1,0 +1,51 @@
+diff --git a/resources/views/orders/show.blade.php b/resources/views/orders/show.blade.php
+index 8f7dcb4..956b6f8 100644
+--- a/resources/views/orders/show.blade.php
++++ b/resources/views/orders/show.blade.php
+@@ -206,9 +206,11 @@ function failed(msg) {
+                     icon.phone.hidden = true; icon.tick.hidden = true; icon.warn.hidden = false;
+                     head.textContent = 'Still confirming';
+                     // Read from a data attribute rather than interpolating
+-                    // Blade into JavaScript. {{ }} escapes quotes for HTML,
+-                    // and inside a <script> that is a syntax error which kills
+-                    // the whole block — poller, retry button and all.
++                    // Blade into JavaScript: a Blade echo escapes quotes for
++                    // HTML, and inside a <script> that is a syntax error which
++                    // kills the whole block — poller, retry button and all.
++                    // (Do not write the echo delimiters in this comment. Blade
++                    //  compiles them here too, which is how this page 500ed.)
+                     var lookup = document.createElement('a');
+                     lookup.href = ps.dataset.lookup;
+                     lookup.textContent = 'My tickets';
+diff --git a/tests/Feature/OrderShowRenderTest.php b/tests/Feature/OrderShowRenderTest.php
+new file mode 100644
+index 0000000..27f56e9
+--- /dev/null
++++ b/tests/Feature/OrderShowRenderTest.php
+@@ -0,0 +1,26 @@
++<?php
++
++namespace Tests\Feature;
++
++use App\Models\TicketType;
++use App\Services\Checkout;
++use Illuminate\Foundation\Testing\RefreshDatabase;
++use Illuminate\Support\Facades\Queue;
++use Tests\TestCase;
++
++class OrderShowRenderTest extends TestCase
++{
++    use RefreshDatabase;
++
++    public function test_the_page_a_buyer_lands_on_after_the_stk_push_renders(): void
++    {
++        Queue::fake();
++        $type = TicketType::factory()->create(['price_cents' => 50000]);
++
++        $order = app(Checkout::class)->startOrder(
++            items: [$type->id => 2], phone: '0712345678', name: 'Jane',
++        );
++
++        $this->get('/orders/'.$order->uuid)->assertOk();
++    }
++}
