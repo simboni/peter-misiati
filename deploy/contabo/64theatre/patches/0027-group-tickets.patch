@@ -1,0 +1,927 @@
+diff --git a/app/Filament/Resources/TicketTypes/Schemas/TicketTypeForm.php b/app/Filament/Resources/TicketTypes/Schemas/TicketTypeForm.php
+index e55dacb..aa63cb0 100644
+--- a/app/Filament/Resources/TicketTypes/Schemas/TicketTypeForm.php
++++ b/app/Filament/Resources/TicketTypes/Schemas/TicketTypeForm.php
+@@ -48,7 +48,33 @@ public static function configure(Schema $schema): Schema
+                     ->dehydrated(false)
+                     ->helperText('Set by the system as tickets sell.'),
+                 TextInput::make('max_per_order')
+-                    ->numeric(),
++                    ->numeric()
++                    ->helperText('Leave empty for no limit. Set it to 1 on a group type, or a buyer can take ten groups in one go.'),
++
++                // A group is an ordinary ticket type that admits more than one
++                // person. Everything else — the oversell guard, the sales
++                // window, promo codes, the box office — works unchanged.
++                TextInput::make('admits')
++                    ->label('People admitted per ticket')
++                    ->numeric()
++                    ->minValue(1)
++                    ->maxValue(100)
++                    ->default(1)
++                    ->required()
++                    ->live()
++                    ->helperText('1 for a normal ticket. 8 for a group of eight — one purchase, eight codes, each scanned separately at the door.'),
++
++                TextInput::make('group_label')
++                    ->label('Group blurb')
++                    ->maxLength(120)
++                    ->visible(fn ($get): bool => (int) $get('admits') > 1)
++                    ->helperText('Shown on the website beside the price. e.g. "Group of 8 — save 20%".'),
++
++                Toggle::make('collect_member_names')
++                    ->label('Ask for member names after payment')
++                    ->default(true)
++                    ->visible(fn ($get): bool => (int) $get('admits') > 1)
++                    ->helperText('Names are optional and collected after the sale — a blank name still scans. Nobody fills in eight names before paying.'),
+                 DateTimePicker::make('sales_start_at'),
+                 DateTimePicker::make('sales_end_at'),
+                 Toggle::make('requires_id_at_gate')
+diff --git a/app/Http/Controllers/GroupRosterController.php b/app/Http/Controllers/GroupRosterController.php
+new file mode 100644
+index 0000000..a2260db
+--- /dev/null
++++ b/app/Http/Controllers/GroupRosterController.php
+@@ -0,0 +1,57 @@
++<?php
++
++namespace App\Http\Controllers;
++
++use App\Models\TicketGroup;
++use App\Services\GroupRoster;
++use Illuminate\Http\RedirectResponse;
++use Illuminate\Http\Request;
++use Illuminate\View\View;
++
++/**
++ * The page a group organiser fills in after buying.
++ *
++ * Reached by the group's uuid — a capability URL, the same unguessable public
++ * reference the order page uses. No login: the person who books a school trip
++ * is rarely the person with the account, and a password wall here would mean
++ * the names never get entered at all.
++ */
++class GroupRosterController extends Controller
++{
++    public function show(string $uuid): View
++    {
++        $group = $this->find($uuid);
++
++        return view('groups.roster', ['group' => $group]);
++    }
++
++    public function update(Request $request, string $uuid, GroupRoster $roster): RedirectResponse
++    {
++        $group = $this->find($uuid);
++
++        $validated = $request->validate([
++            'label' => ['nullable', 'string', 'max:120'],
++            'names' => ['array'],
++            'names.*' => ['nullable', 'string', 'max:80'],
++        ]);
++
++        if (array_key_exists('label', $validated)) {
++            $group->update(['label' => $validated['label'] ?: null]);
++        }
++
++        $written = $roster->fill($group, $validated['names'] ?? []);
++
++        return redirect()
++            ->route('groups.roster', $group->uuid)
++            ->with('saved', $written === 0
++                ? 'Nothing changed.'
++                : $written.' '.($written === 1 ? 'name' : 'names').' saved.');
++    }
++
++    private function find(string $uuid): TicketGroup
++    {
++        return TicketGroup::where('uuid', $uuid)
++            ->with(['tickets.ticketType', 'performance.event', 'performance.venue', 'order'])
++            ->firstOrFail();
++    }
++}
+diff --git a/app/Models/Order.php b/app/Models/Order.php
+index b484021..0a2fb7d 100644
+--- a/app/Models/Order.php
++++ b/app/Models/Order.php
+@@ -40,6 +40,17 @@ public function items(): HasMany
+         return $this->hasMany(OrderItem::class);
+     }
+ 
++    public function groups(): HasMany
++    {
++        return $this->hasMany(TicketGroup::class);
++    }
++
++    /** People this order admits, counting each group as its size. */
++    public function headcount(): int
++    {
++        return $this->items->sum(fn ($i) => $i->quantity * max((int) ($i->ticketType?->admits ?? 1), 1));
++    }
++
+     public function tickets(): HasMany
+     {
+         return $this->hasMany(Ticket::class);
+diff --git a/app/Models/Ticket.php b/app/Models/Ticket.php
+index 5c538eb..9486ddd 100644
+--- a/app/Models/Ticket.php
++++ b/app/Models/Ticket.php
+@@ -15,6 +15,12 @@ protected function casts(): array
+         return ['redeemed_at' => 'datetime', 'sold_at' => 'datetime'];
+     }
+ 
++    /** Set when this seat is part of a group booking. */
++    public function group(): BelongsTo
++    {
++        return $this->belongsTo(TicketGroup::class, 'group_id');
++    }
++
+     public function order(): BelongsTo
+     {
+         return $this->belongsTo(Order::class);
+diff --git a/app/Models/TicketGroup.php b/app/Models/TicketGroup.php
+new file mode 100644
+index 0000000..082d277
+--- /dev/null
++++ b/app/Models/TicketGroup.php
+@@ -0,0 +1,74 @@
++<?php
++
++namespace App\Models;
++
++use Illuminate\Database\Eloquent\Model;
++use Illuminate\Database\Eloquent\Relations\BelongsTo;
++use Illuminate\Database\Eloquent\Relations\HasMany;
++
++/**
++ * One group sold: a school party, a family, a company block.
++ *
++ * It owns no money. The price lives on the order and the order item, in one
++ * place, as it does for every other sale — this row exists to hold the roster
++ * and to answer "how many of this group have come in".
++ */
++class TicketGroup extends Model
++{
++    protected $guarded = [];
++
++    protected function casts(): array
++    {
++        return [
++            'roster_filled_at' => 'datetime',
++            'size' => 'integer',
++        ];
++    }
++
++    public function order(): BelongsTo
++    {
++        return $this->belongsTo(Order::class);
++    }
++
++    public function orderItem(): BelongsTo
++    {
++        return $this->belongsTo(OrderItem::class);
++    }
++
++    public function ticketType(): BelongsTo
++    {
++        return $this->belongsTo(TicketType::class);
++    }
++
++    public function performance(): BelongsTo
++    {
++        return $this->belongsTo(Performance::class);
++    }
++
++    public function tickets(): HasMany
++    {
++        return $this->hasMany(Ticket::class, 'group_id');
++    }
++
++    /** How many of the party are already inside. */
++    public function admitted(): int
++    {
++        return $this->tickets()->where('status', 'redeemed')->count();
++    }
++
++    public function remainingToAdmit(): int
++    {
++        return max($this->size - $this->admitted(), 0);
++    }
++
++    /** Names still blank. A blank name is allowed in and is not an error. */
++    public function unnamed(): int
++    {
++        return $this->tickets()->whereNull('holder_name')->count();
++    }
++
++    public function displayLabel(): string
++    {
++        return $this->label ?: ($this->order?->customer?->name ?: 'Group of '.$this->size);
++    }
++}
+diff --git a/app/Models/TicketType.php b/app/Models/TicketType.php
+index ba9e56d..e79bf0a 100644
+--- a/app/Models/TicketType.php
++++ b/app/Models/TicketType.php
+@@ -18,6 +18,8 @@ protected function casts(): array
+             'sales_start_at' => 'datetime',
+             'sales_end_at' => 'datetime',
+             'requires_id_at_gate' => 'boolean',
++            'admits' => 'integer',
++            'collect_member_names' => 'boolean',
+         ];
+     }
+ 
+@@ -26,6 +28,18 @@ public function performance(): BelongsTo
+         return $this->belongsTo(Performance::class);
+     }
+ 
++    public function isGroup(): bool
++    {
++        return (int) $this->admits > 1;
++    }
++
++    /** Seats left expressed in PEOPLE, not units sold. A group type
++        with 3 units left and admits 8 can still seat 24. */
++    public function remainingPeople(): int
++    {
++        return $this->remaining() * max((int) $this->admits, 1);
++    }
++
+     public function remaining(): int
+     {
+         return max(0, $this->quantity_total - $this->quantity_sold);
+diff --git a/app/Services/Checkout.php b/app/Services/Checkout.php
+index b239bd9..f044f8d 100644
+--- a/app/Services/Checkout.php
++++ b/app/Services/Checkout.php
+@@ -11,6 +11,7 @@
+ use App\Models\Payment;
+ use App\Models\PromoCode;
+ use App\Models\Ticket;
++use App\Models\TicketGroup;
+ use App\Models\TicketType;
+ use Illuminate\Support\Facades\DB;
+ use Illuminate\Support\Str;
+@@ -145,22 +146,55 @@ public function startDonation(int $amountCents, string $phone, ?string $name = n
+      */
+     public function confirm(Order $order, Payment $payment): Order
+     {
++        $order->loadMissing('items.ticketType');
++
+         $order = DB::transaction(function () use ($order, $payment) {
+             $payment->update(['status' => 'confirmed']);
+             $order->update(['status' => 'paid', 'expires_at' => null]);
+ 
+             foreach ($order->items as $item) {
++                // How many people one unit of this type admits. 1 for every
++                // ordinary ticket, so this loop is unchanged for them.
++                $admits = max((int) ($item->ticketType?->admits ?? 1), 1);
++
+                 for ($i = 0; $i < $item->quantity; $i++) {
+-                    Ticket::create([
+-                        'uuid' => (string) Str::uuid(),
+-                        'order_id' => $order->id,
+-                        'ticket_type_id' => $item->ticket_type_id,
+-                        'performance_id' => $order->performance_id,
+-                        'short_code' => strtoupper(Str::random(8)),
+-                        'holder_phone' => $order->customer?->phone,
+-                        'holder_name' => $order->customer?->name,
+-                        'status' => 'issued',
+-                    ]);
++                    // A group buys one unit and gets `admits` tickets, bound
++                    // together so the door can see the party rather than eight
++                    // unrelated strangers. The TicketGroup owns no money — the
++                    // price stays on the order item, in one place.
++                    $group = $admits > 1
++                        ? TicketGroup::create([
++                            'uuid' => (string) Str::uuid(),
++                            'organiser_id' => $order->organiser_id,
++                            'order_id' => $order->id,
++                            'order_item_id' => $item->id,
++                            'ticket_type_id' => $item->ticket_type_id,
++                            'performance_id' => $order->performance_id,
++                            'size' => $admits,
++                            'contact_name' => $order->customer?->name,
++                            'contact_phone' => $order->customer?->phone,
++                        ])
++                        : null;
++
++                    for ($seat = 0; $seat < $admits; $seat++) {
++                        Ticket::create([
++                            'uuid' => (string) Str::uuid(),
++                            'order_id' => $order->id,
++                            'ticket_type_id' => $item->ticket_type_id,
++                            'performance_id' => $order->performance_id,
++                            'group_id' => $group?->id,
++                            'short_code' => strtoupper(Str::random(8)),
++                            'holder_phone' => $order->customer?->phone,
++                            // Only the buyer's own seat carries their name. The
++                            // rest are blank until the roster is filled in, and
++                            // a blank name still scans — the door must never be
++                            // the place a missing name is discovered.
++                            'holder_name' => ($group === null || $seat === 0)
++                                ? $order->customer?->name
++                                : null,
++                            'status' => 'issued',
++                        ]);
++                    }
+                 }
+             }
+ 
+diff --git a/app/Services/GroupRoster.php b/app/Services/GroupRoster.php
+new file mode 100644
+index 0000000..392bfce
+--- /dev/null
++++ b/app/Services/GroupRoster.php
+@@ -0,0 +1,74 @@
++<?php
++
++namespace App\Services;
++
++use App\Models\AuditLog;
++use App\Models\TicketGroup;
++use Illuminate\Support\Facades\DB;
++
++/**
++ * Writing the names of a group's members onto their tickets.
++ *
++ * Names arrive AFTER payment, on the roster page, not during checkout. Eight
++ * name fields in a checkout that currently asks for two would cost more sales
++ * than the names are worth, and a school genuinely does not have the list on
++ * the day it books. So a group is sold first and named later, and every ticket
++ * must scan whether or not it has a name on it.
++ */
++class GroupRoster
++{
++    /**
++     * @param  array<int|string, string|null>  $names  ticket id => name
++     * @return int how many were written
++     */
++    public function fill(TicketGroup $group, array $names, ?int $byUserId = null): int
++    {
++        $written = 0;
++
++        DB::transaction(function () use ($group, $names, $byUserId, &$written) {
++            // Only this group's tickets, looked up fresh. A posted id from
++            // another group would otherwise rename somebody else's ticket.
++            $tickets = $group->tickets()->get()->keyBy('id');
++
++            foreach ($names as $ticketId => $name) {
++                $ticket = $tickets->get((int) $ticketId);
++
++                if (! $ticket) {
++                    continue;
++                }
++
++                // A ticket already used is a person already through the door.
++                // Renaming it would reassign a seat that has been sat in, and
++                // is the one edit that can turn a roster into a dispute.
++                if ($ticket->status !== 'issued') {
++                    continue;
++                }
++
++                $clean = trim((string) $name);
++                $clean = $clean === '' ? null : mb_substr($clean, 0, 80);
++
++                if ($ticket->holder_name === $clean) {
++                    continue;
++                }
++
++                $ticket->update(['holder_name' => $clean]);
++                $written++;
++            }
++
++            $group->update(['roster_filled_at' => now()]);
++
++            if ($written > 0) {
++                AuditLog::create([
++                    'user_id' => $byUserId,
++                    'organiser_id' => $group->organiser_id,
++                    'action' => 'group.roster_updated',
++                    'subject_type' => TicketGroup::class,
++                    'subject_id' => $group->id,
++                    'changes' => ['names_written' => $written, 'group_size' => $group->size],
++                ]);
++            }
++        });
++
++        return $written;
++    }
++}
+diff --git a/database/migrations/2026_10_16_100001_add_group_tickets.php b/database/migrations/2026_10_16_100001_add_group_tickets.php
+new file mode 100644
+index 0000000..a2f3943
+--- /dev/null
++++ b/database/migrations/2026_10_16_100001_add_group_tickets.php
+@@ -0,0 +1,74 @@
++<?php
++
++use Illuminate\Database\Migrations\Migration;
++use Illuminate\Database\Schema\Blueprint;
++use Illuminate\Support\Facades\Schema;
++
++/**
++ * Group tickets — one purchase that admits several people.
++ *
++ * A group is a TICKET TYPE with `admits > 1`, not a new kind of order. That
++ * choice is what makes this cheap: it inherits the atomic oversell guard, the
++ * sales window, max_per_order, the promo engine, the public stepper, the box
++ * office and every report, and it needs NO change to the payment path at all.
++ *
++ * The roster is one Ticket per member, carrying the existing holder_name.
++ * The alternative — a single ticket admitting N — would need a partial
++ * redemption state machine, would break the UNIQUE(checkins.ticket_id)
++ * constraint that makes admission exactly-once, and would turn "4 of 8 have
++ * arrived" into a bespoke query. N tickets gives all of that for free, and a
++ * blank name still scans.
++ */
++return new class extends Migration
++{
++    public function up(): void
++    {
++        Schema::table('ticket_types', function (Blueprint $table) {
++            // People admitted per ticket sold. 1 is an ordinary ticket, so
++            // every existing row keeps behaving exactly as it does today.
++            $table->unsignedInteger('admits')->default(1)->after('max_per_order');
++            $table->boolean('collect_member_names')->default(false)->after('admits');
++            $table->string('group_label')->nullable()->after('collect_member_names');
++        });
++
++        Schema::create('ticket_groups', function (Blueprint $table) {
++            $table->id();
++            // Capability URL for the roster page — the same unguessable public
++            // reference pattern orders already use.
++            $table->uuid('uuid')->unique();
++            $table->foreignId('organiser_id')->constrained();
++            $table->foreignId('order_id')->constrained();
++            $table->foreignId('order_item_id')->constrained();
++            $table->foreignId('ticket_type_id')->constrained();
++            $table->foreignId('performance_id')->constrained();
++            $table->string('label')->nullable();            // "Kibabii School, Form 4"
++            // Frozen at issue, deliberately denormalised: changing the ticket
++            // type later must not retro-resize a group already sold.
++            $table->unsignedInteger('size');
++            $table->string('contact_name')->nullable();
++            $table->string('contact_phone')->nullable();
++            $table->timestamp('roster_filled_at')->nullable();
++            $table->timestamps();
++            $table->index(['performance_id']);
++        });
++
++        Schema::table('tickets', function (Blueprint $table) {
++            $table->foreignId('group_id')->nullable()->after('performance_id')
++                ->constrained('ticket_groups')->nullOnDelete();
++            $table->index(['group_id']);
++        });
++    }
++
++    public function down(): void
++    {
++        Schema::table('tickets', function (Blueprint $table) {
++            $table->dropConstrainedForeignId('group_id');
++        });
++
++        Schema::dropIfExists('ticket_groups');
++
++        Schema::table('ticket_types', function (Blueprint $table) {
++            $table->dropColumn(['admits', 'collect_member_names', 'group_label']);
++        });
++    }
++};
+diff --git a/resources/views/events/show.blade.php b/resources/views/events/show.blade.php
+index 08a9a3a..efaa608 100644
+--- a/resources/views/events/show.blade.php
++++ b/resources/views/events/show.blade.php
+@@ -141,20 +141,26 @@
+                     @foreach ($performance->ticketTypes as $type)
+                         <div class="trow" data-price="{{ (int) ($type->price_cents / 100) }}">
+                             <div class="tname">{{ $type->name }}
++                                @if ($type->isGroup())
++                                    <small>{{ $type->group_label ?: 'Admits '.$type->admits.' people — one purchase, '.$type->admits.' codes' }}</small>
++                                @endif
+                                 @if ($type->requires_id_at_gate)<small>ID required at the gate</small>@endif
+                                 <small class="tleft-inline">
+                                     @if ($type->remaining() > 0)
+-                                        <span class="tleft">{{ $type->remaining() }} left</span>
++                                        {{-- Group stock reads in PARTIES, not people. "3 left" beside
++                                             a group of eight means three groups, and saying "24 left"
++                                             would have somebody expecting to buy a single seat. --}}
++                                        <span class="tleft">{{ $type->remaining() }} {{ $type->isGroup() ? ($type->remaining() === 1 ? 'group left' : 'groups left') : 'left' }}</span>
+                                     @else
+                                         <span class="soldout">Sold out</span>
+                                     @endif
+                                 </small>
+                             </div>
+                             <span class="tprice">KES {{ number_format($type->price_cents / 100) }}</span>
+-                            <div class="stepper" data-max="{{ min(10, $type->remaining()) }}">
++                            <div class="stepper" data-max="{{ min($type->max_per_order ?? ($type->isGroup() ? 1 : 10), $type->remaining()) }}">
+                                 <button type="button" data-d="-1" aria-label="Fewer {{ $type->name }} tickets" {{ $type->remaining() === 0 ? 'disabled' : '' }}>−</button>
+                                 <input class="qty" type="number" name="quantities[{{ $type->id }}]"
+-                                       value="0" min="0" max="{{ min(10, $type->remaining()) }}"
++                                       value="0" min="0" max="{{ min($type->max_per_order ?? ($type->isGroup() ? 1 : 10), $type->remaining()) }}"
+                                        {{ $type->remaining() === 0 ? 'disabled' : '' }}
+                                        aria-label="Quantity for {{ $type->name }}">
+                                 <button type="button" data-d="1" aria-label="More {{ $type->name }} tickets" {{ $type->remaining() === 0 ? 'disabled' : '' }}>+</button>
+diff --git a/resources/views/groups/roster.blade.php b/resources/views/groups/roster.blade.php
+new file mode 100644
+index 0000000..329d3fe
+--- /dev/null
++++ b/resources/views/groups/roster.blade.php
+@@ -0,0 +1,92 @@
++@extends('layout')
++
++@section('title', 'Your group — 64theatre')
++
++@section('content')
++<div class="wrap" style="padding-top:40px; max-width:720px">
++
++    <h2 class="sec">Your group</h2>
++
++    @if (session('saved'))
++        <div class="note ok-note">{{ session('saved') }}</div>
++    @endif
++
++    <div class="summary" style="margin-bottom:18px">
++        <dl>
++            <dt>Show</dt>
++            <dd>{{ $group->performance?->event?->title ?? 'Performance' }}</dd>
++            <dt>When</dt>
++            <dd>{{ $group->performance?->starts_at?->format('D j M Y · g:i A') ?? '—' }}</dd>
++            <dt>Venue</dt>
++            <dd>{{ $group->performance?->venue?->name ?? '—' }}</dd>
++            <dt>Admits</dt>
++            <dd>{{ $group->size }} {{ $group->size === 1 ? 'person' : 'people' }}</dd>
++        </dl>
++    </div>
++
++    <p style="color:var(--dim); font-size:.92rem; line-height:1.6">
++        Each person below has their own code, so your group can arrive separately
++        and go in one at a time. Names are optional — a blank one still scans.
++        Fill them in if it helps you keep track at the door.
++    </p>
++
++    <form method="POST" action="{{ route('groups.roster.update', $group->uuid) }}" style="margin-top:22px">
++        @csrf
++
++        <div class="field">
++            <label for="label">Group name (optional)</label>
++            <input id="label" name="label" type="text" maxlength="120"
++                   value="{{ old('label', $group->label) }}"
++                   placeholder="e.g. Kibabii School, Form 4">
++        </div>
++
++        <table class="roster" style="width:100%; border-collapse:collapse; margin-top:18px">
++            <thead>
++                <tr style="text-align:left; color:var(--dim); font-size:.78rem; letter-spacing:.06em">
++                    <th style="padding:8px 0">#</th>
++                    <th style="padding:8px 10px">Name</th>
++                    <th style="padding:8px 0">Code</th>
++                    <th style="padding:8px 0">Status</th>
++                </tr>
++            </thead>
++            <tbody>
++                @foreach ($group->tickets as $i => $ticket)
++                    @php $used = $ticket->status !== 'issued'; @endphp
++                    <tr style="border-top:1px solid var(--line)">
++                        <td style="padding:10px 0; color:var(--dim)">{{ $i + 1 }}</td>
++                        <td style="padding:10px 10px">
++                            {{-- A used ticket is a person already through the
++                                 door. Renaming it would reassign a seat that
++                                 has been sat in, so the field is closed. --}}
++                            <input type="text" name="names[{{ $ticket->id }}]" maxlength="80"
++                                   value="{{ old('names.'.$ticket->id, $ticket->holder_name) }}"
++                                   placeholder="{{ $used ? '' : 'Name (optional)' }}"
++                                   @disabled($used)
++                                   style="width:100%">
++                        </td>
++                        <td style="padding:10px 0; font-family:monospace; letter-spacing:2px">
++                            {{ $ticket->short_code }}
++                        </td>
++                        <td style="padding:10px 0; font-size:.82rem; color:{{ $used ? 'var(--lamp)' : 'var(--dim)' }}">
++                            {{ $used ? 'admitted' : 'not yet in' }}
++                        </td>
++                    </tr>
++                @endforeach
++            </tbody>
++        </table>
++
++        <button class="btn" type="submit" style="margin-top:20px">Save names</button>
++    </form>
++
++    <p style="margin-top:26px">
++        <a href="{{ route('orders.show', $group->order->uuid) }}">← Back to your order</a>
++        &nbsp;·&nbsp;
++        <a href="{{ route('orders.print', $group->order->uuid) }}">🖨 Print all tickets</a>
++    </p>
++
++    <p style="margin-top:14px; color:var(--dim); font-size:.82rem">
++        Keep this page — it is how you come back to your group.
++        {{ $group->admitted() }} of {{ $group->size }} admitted so far.
++    </p>
++</div>
++@endsection
+diff --git a/resources/views/orders/show.blade.php b/resources/views/orders/show.blade.php
+index 956b6f8..61ec9a4 100644
+--- a/resources/views/orders/show.blade.php
++++ b/resources/views/orders/show.blade.php
+@@ -242,6 +242,24 @@ function failed(msg) {
+         <div class="note ok-note"><strong>Paid.</strong> Tickets below — also sent to {{ $order->customer?->phone }}.</div>
+     @endif
+ 
++    {{-- A group buyer needs the roster before the ticket list, because the
++         list is eight near-identical codes and the roster is what makes sense
++         of them. --}}
++    @if ($order->status === 'paid' && $order->groups->isNotEmpty())
++        <h2 class="sec" style="margin-top:26px">Your {{ $order->groups->count() === 1 ? 'group' : 'groups' }}</h2>
++        @foreach ($order->groups as $group)
++            <div class="summary" style="margin-bottom:12px">
++                <dl>
++                    <dt>{{ $group->displayLabel() }}</dt>
++                    <dd>{{ $group->size }} people · {{ $group->admitted() }} admitted</dd>
++                </dl>
++                <p style="margin:10px 0 0">
++                    <a href="{{ route('groups.roster', $group->uuid) }}">Name the members →</a>
++                </p>
++            </div>
++        @endforeach
++    @endif
++
+     @if ($order->status === 'paid' && $order->tickets->isNotEmpty())
+         <h2 class="sec" style="margin-top:26px">Your tickets</h2>
+         <p><a class="btn" style="width:auto;display:inline-block;text-decoration:none" href="{{ route('orders.print', $order->uuid) }}">🖨 Print tickets / Save PDF</a></p>
+diff --git a/routes/web.php b/routes/web.php
+index 31f86e1..523c4b7 100644
+--- a/routes/web.php
++++ b/routes/web.php
+@@ -3,6 +3,7 @@
+ use App\Http\Controllers\DonationController;
+ use App\Http\Controllers\EventController;
+ use App\Http\Controllers\Gate\GateAuthController;
++use App\Http\Controllers\GroupRosterController;
+ use App\Http\Controllers\Gate\GateScannerController;
+ use App\Http\Controllers\Gate\GateSellController;
+ use App\Http\Controllers\OrderController;
+@@ -22,6 +23,13 @@
+ Route::get('/my-tickets', [OrderController::class, 'lookupForm'])->name('orders.lookup.form');
+ Route::post('/my-tickets', [OrderController::class, 'lookup'])->name('orders.lookup');
+ 
++// Naming the members of a group booking. Reached by the group's uuid, with
++// no login: whoever organises a school trip is rarely whoever holds the
++// account, and a password wall here means the names never arrive.
++Route::get('/groups/{uuid}', [GroupRosterController::class, 'show'])->name('groups.roster');
++Route::post('/groups/{uuid}', [GroupRosterController::class, 'update'])
++    ->middleware('throttle:20,1')->name('groups.roster.update');
++
+ // Support 64 Theatre — donations run through the same payment pipeline.
+ Route::get('/donate', [DonationController::class, 'create'])->name('donate.create');
+ Route::post('/donate', [DonationController::class, 'store'])->name('donate.store');
+diff --git a/tests/Feature/GroupTicketTest.php b/tests/Feature/GroupTicketTest.php
+new file mode 100644
+index 0000000..15bed65
+--- /dev/null
++++ b/tests/Feature/GroupTicketTest.php
+@@ -0,0 +1,243 @@
++<?php
++
++namespace Tests\Feature;
++
++use App\Models\Event;
++use App\Models\Order;
++use App\Models\Organiser;
++use App\Models\Payment;
++use App\Models\Performance;
++use App\Models\TicketGroup;
++use App\Models\TicketType;
++use App\Models\Venue;
++use App\Services\Checkout;
++use App\Exceptions\SoldOutException;
++use Illuminate\Foundation\Testing\RefreshDatabase;
++use Tests\TestCase;
++
++class GroupTicketTest extends TestCase
++{
++    use RefreshDatabase;
++
++    private function performance(): Performance
++    {
++        $organiser = Organiser::create(['name' => 'Test', 'slug' => 'test']);
++        $venue = Venue::create(['organiser_id' => $organiser->id, 'name' => 'Hall', 'town' => 'Eldoret']);
++        // events has no venue_id — the venue hangs off the performance.
++        $event = Event::create([
++            'organiser_id' => $organiser->id,
++            'title' => 'Show', 'slug' => 'show-'.uniqid(),
++            'category' => 'theatre', 'status' => 'published',
++        ]);
++
++        return Performance::create([
++            'event_id' => $event->id, 'venue_id' => $venue->id,
++            'starts_at' => now()->addWeek(), 'status' => 'on_sale',
++        ]);
++    }
++
++    private function settle(Order $order): Order
++    {
++        $payment = Payment::create([
++            'order_id' => $order->id, 'gateway' => 'cash', 'gateway_ref' => 'T-'.uniqid(),
++            'amount_cents' => $order->total_cents, 'status' => 'initiated',
++        ]);
++
++        return app(Checkout::class)->confirm($order, $payment);
++    }
++
++    public function test_a_group_ticket_issues_one_ticket_per_member(): void
++    {
++        $performance = $this->performance();
++        $group = TicketType::create([
++            'performance_id' => $performance->id, 'name' => 'Group of 8',
++            'price_cents' => 1200000, 'quantity_total' => 5, 'admits' => 8,
++        ]);
++
++        $order = app(Checkout::class)->startOrder(
++            items: [$group->id => 1], phone: '0712345678', name: 'Kibabii School',
++        );
++        $order = $this->settle($order);
++
++        // One unit sold, eight people admitted.
++        $this->assertSame(8, $order->tickets()->count());
++        $this->assertSame(1, TicketGroup::count());
++        $this->assertSame(8, TicketGroup::first()->size);
++
++        // Every seat belongs to the group, so the door sees a party.
++        $this->assertSame(8, $order->tickets()->whereNotNull('group_id')->count());
++
++        // The buyer holds one named seat; the rest wait for the roster, and a
++        // blank name must never block admission.
++        $this->assertSame(1, $order->tickets()->whereNotNull('holder_name')->count());
++        $this->assertSame(7, TicketGroup::first()->unnamed());
++    }
++
++    public function test_an_ordinary_ticket_is_completely_unaffected(): void
++    {
++        $performance = $this->performance();
++        $regular = TicketType::create([
++            'performance_id' => $performance->id, 'name' => 'Regular',
++            'price_cents' => 50000, 'quantity_total' => 20,
++        ]);
++
++        $order = $this->settle(app(Checkout::class)->startOrder(
++            items: [$regular->id => 3], phone: '0712345678', name: 'Jane',
++        ));
++
++        $this->assertSame(3, $order->tickets()->count());
++        $this->assertSame(0, TicketGroup::count());
++        $this->assertSame(0, $order->tickets()->whereNotNull('group_id')->count());
++        // The default must be 1, or every historic ticket type changes meaning.
++        $this->assertSame(1, (int) $regular->fresh()->admits);
++    }
++
++    public function test_the_oversell_guard_still_counts_units_not_people(): void
++    {
++        $performance = $this->performance();
++        $group = TicketType::create([
++            'performance_id' => $performance->id, 'name' => 'Group of 8',
++            'price_cents' => 1200000, 'quantity_total' => 2, 'admits' => 8,
++        ]);
++
++        app(Checkout::class)->startOrder(items: [$group->id => 2], phone: '0712345678');
++
++        // The pool is two units. A third must be refused even though only
++        // sixteen people have been seated.
++        $this->expectException(SoldOutException::class);
++        app(Checkout::class)->startOrder(items: [$group->id => 1], phone: '0722222222');
++    }
++
++    public function test_remaining_people_reports_seats_not_units(): void
++    {
++        $performance = $this->performance();
++        $group = TicketType::create([
++            'performance_id' => $performance->id, 'name' => 'Group of 8',
++            'price_cents' => 1200000, 'quantity_total' => 5, 'admits' => 8,
++        ]);
++
++        $this->assertSame(5, $group->remaining());
++        $this->assertSame(40, $group->remainingPeople());
++        $this->assertTrue($group->isGroup());
++    }
++
++    public function test_two_groups_in_one_order_do_not_merge(): void
++    {
++        $performance = $this->performance();
++        $group = TicketType::create([
++            'performance_id' => $performance->id, 'name' => 'Group of 4',
++            'price_cents' => 600000, 'quantity_total' => 9, 'admits' => 4,
++        ]);
++
++        $order = $this->settle(app(Checkout::class)->startOrder(
++            items: [$group->id => 2], phone: '0712345678', name: 'Two families',
++        ));
++
++        // Two separate parties, four seats each — not one group of eight.
++        $this->assertSame(2, TicketGroup::count());
++        $this->assertSame(8, $order->tickets()->count());
++        foreach (TicketGroup::all() as $g) {
++            $this->assertSame(4, $g->tickets()->count());
++        }
++    }
++
++    public function test_the_roster_page_opens_and_names_save(): void
++    {
++        $performance = $this->performance();
++        $type = TicketType::create([
++            'performance_id' => $performance->id, 'name' => 'Group of 4',
++            'price_cents' => 600000, 'quantity_total' => 5, 'admits' => 4,
++        ]);
++
++        $order = $this->settle(app(Checkout::class)->startOrder(
++            items: [$type->id => 1], phone: '0712345678', name: 'Kibabii School',
++        ));
++
++        $group = TicketGroup::first();
++        $this->get('/groups/'.$group->uuid)->assertOk();
++
++        $ids = $group->tickets()->orderBy('id')->pluck('id')->all();
++
++        $this->post('/groups/'.$group->uuid, [
++            'label' => 'Kibabii School, Form 4',
++            'names' => [
++                $ids[0] => 'Mercy Chebet',
++                $ids[1] => 'Brian Kiprop',
++                $ids[2] => '',          // blank is allowed and must still scan
++                $ids[3] => '   ',       // whitespace counts as blank
++            ],
++        ])->assertRedirect();
++
++        $this->assertSame('Kibabii School, Form 4', $group->fresh()->label);
++        $this->assertSame('Mercy Chebet', $group->tickets()->find($ids[0])->holder_name);
++        $this->assertNull($group->tickets()->find($ids[2])->holder_name);
++        $this->assertNull($group->tickets()->find($ids[3])->holder_name);
++        $this->assertNotNull($group->fresh()->roster_filled_at);
++    }
++
++    public function test_a_ticket_already_admitted_cannot_be_renamed(): void
++    {
++        $performance = $this->performance();
++        $type = TicketType::create([
++            'performance_id' => $performance->id, 'name' => 'Group of 2',
++            'price_cents' => 300000, 'quantity_total' => 5, 'admits' => 2,
++        ]);
++
++        $order = $this->settle(app(Checkout::class)->startOrder(
++            items: [$type->id => 1], phone: '0712345678', name: 'Family',
++        ));
++
++        $group = TicketGroup::first();
++        $used = $group->tickets()->first();
++        $used->update(['status' => 'redeemed', 'holder_name' => 'Already inside']);
++
++        $this->post('/groups/'.$group->uuid, ['names' => [$used->id => 'Someone else']]);
++
++        // Renaming a used ticket reassigns a seat that has been sat in.
++        $this->assertSame('Already inside', $used->fresh()->holder_name);
++    }
++
++    public function test_names_cannot_be_written_onto_another_groups_tickets(): void
++    {
++        $performance = $this->performance();
++        $type = TicketType::create([
++            'performance_id' => $performance->id, 'name' => 'Group of 2',
++            'price_cents' => 300000, 'quantity_total' => 5, 'admits' => 2,
++        ]);
++
++        $this->settle(app(Checkout::class)->startOrder(items: [$type->id => 1], phone: '0712345678'));
++        $this->settle(app(Checkout::class)->startOrder(items: [$type->id => 1], phone: '0722222222'));
++
++        [$mine, $theirs] = TicketGroup::orderBy('id')->get()->all();
++        $victim = $theirs->tickets()->first();
++
++        $this->post('/groups/'.$mine->uuid, ['names' => [$victim->id => 'Hijacked']]);
++
++        $this->assertNotSame('Hijacked', $victim->fresh()->holder_name);
++    }
++
++    public function test_an_unknown_group_is_a_404_not_a_leak(): void
++    {
++        $this->get('/groups/'.\Illuminate\Support\Str::uuid())->assertNotFound();
++    }
++
++    public function test_headcount_counts_people_across_mixed_items(): void
++    {
++        $performance = $this->performance();
++        $regular = TicketType::create([
++            'performance_id' => $performance->id, 'name' => 'Regular',
++            'price_cents' => 50000, 'quantity_total' => 20,
++        ]);
++        $group = TicketType::create([
++            'performance_id' => $performance->id, 'name' => 'Group of 8',
++            'price_cents' => 1200000, 'quantity_total' => 5, 'admits' => 8,
++        ]);
++
++        $order = app(Checkout::class)->startOrder(
++            items: [$regular->id => 2, $group->id => 1], phone: '0712345678',
++        );
++
++        // Two singles plus one group of eight is ten bodies, not three tickets.
++        $this->assertSame(10, $order->fresh()->load('items.ticketType')->headcount());
++    }
++}

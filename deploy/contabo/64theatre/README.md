@@ -784,6 +784,80 @@ additive change, and the SQLite data can be migrated across.
 - Always use `-f /srv/64theatre/compose.yml` so a command can never act on
   another project.
 
+## Group tickets (patch 0027)
+
+**Do not deploy this on a show night.** It adds a migration, and a launch is
+not the moment. Apply it on a quiet morning.
+
+```bash
+cd /srv/64theatre/repo && git pull
+git apply --check /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0027-group-tickets.patch \
+  && git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0027-group-tickets.patch
+cd /srv/64theatre && docker compose up -d --build --force-recreate
+docker exec 64theatre php artisan migrate --force
+```
+
+### What a group is
+
+**A ticket type that admits more than one person.** Not a new kind of order, not
+a separate booking model. Set `admits` to 8 on a ticket type and it becomes a
+group of eight.
+
+That choice is what makes it cheap and safe: it inherits the atomic oversell
+guard, the sales window, `max_per_order`, promo codes, the public stepper, the
+box office, the admin and every report — and it changes **nothing** in the
+payment path. A group order is an order.
+
+Selling one unit issues `admits` tickets, bound to a `ticket_groups` row, each
+with its own code. The door scans each person separately, so the existing
+`UNIQUE(checkins.ticket_id)` constraint still makes admission exactly-once and
+"four of eight have arrived" is a count, not a bespoke query.
+
+### Names come after payment
+
+A roster page at `/groups/{uuid}` — a capability URL, like the order page, with
+no login, because whoever organises a school trip is rarely whoever holds the
+account.
+
+Putting eight name fields into a checkout that currently asks for two would
+cost more sales than the names are worth, and a school does not have the list
+on the day it books. **A blank name still scans.** The door is never the place
+a missing name is discovered.
+
+Two rules protect the door, both tested:
+
+- A ticket already admitted **cannot be renamed** — that would reassign a seat
+  somebody has already sat in.
+- Names can only be written onto the group's **own** tickets, so a posted id
+  from another group cannot rename a stranger's ticket.
+
+### Setting one up
+
+Ticket types → new type → **People admitted per ticket** = 8. Two more fields
+appear: a public blurb ("Group of 8 — save 20%") and whether to ask for member
+names.
+
+Set **max per order to 1** on a group type. Otherwise the stepper's default cap
+of ten lets one buyer take eighty seats in a click.
+
+Stock reads in **parties, not people**: "3 left" beside a group of eight means
+three groups. Saying "24 left" would have somebody expecting a single seat.
+
+### What it does not do
+
+`BoxOffice::createBatch()` — printed gate stock — bypasses `Checkout::confirm()`
+and so produces no group and no roster. Do not put a group type into a printed
+batch until that is handled.
+
+There is also no venue capacity check anywhere in this app, and groups make
+that matter more: a group type with 20 units of 8 adds 160 bodies nobody
+counted. The per-type guard still holds; the house was simply never guarded.
+
+Verified: 10 tests covering issuance, the sell-out boundary under contention,
+two groups in one order staying separate, the roster round trip, and both door
+rules. Full suite at the same 3 pre-existing failures, and the load test still
+clean with the new fan-out in `confirm()`.
+
 ## Memory, and what the load test is really measuring
 
 `compose.yml` caps the app at **1GB**, raised from 512MB.
