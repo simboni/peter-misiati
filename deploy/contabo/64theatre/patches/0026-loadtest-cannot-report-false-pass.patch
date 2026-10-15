@@ -1,0 +1,40 @@
+diff --git a/deploy/loadtest/run.sh b/deploy/loadtest/run.sh
+index 084e2ca..ecf4821 100755
+--- a/deploy/loadtest/run.sh
++++ b/deploy/loadtest/run.sh
+@@ -41,9 +41,28 @@ OK=$(grep -c '^OK' results.txt || true)
+ SOLD=$(grep -c '^SOLDOUT' results.txt || true)
+ ERR=$(grep -c '^ERROR' results.txt || true)
+ 
+-printf '  sold %s   sold-out %s   ERRORS %s\n' "$OK" "$SOLD" "$ERR"
++# EVERY buyer must account for itself. Counting only the lines we recognise
++# made a run where 291 of 300 processes died report "0 errors" and PASS —
++# they were killed before printing anything, most likely by the container's
++# memory limit, and the harness called that success. A test that cannot tell
++# "nobody failed" from "nobody ran" is worse than no test.
++ACCOUNTED=$((OK + SOLD + ERR))
++MISSING=$((BUYERS - ACCOUNTED))
++
++printf '  sold %s   sold-out %s   errors %s   VANISHED %s   (of %s)\n' \
++    "$OK" "$SOLD" "$ERR" "$MISSING" "$BUYERS"
++
+ [ "$ERR" -gt 0 ] && { echo "  --- errors ---"; grep '^ERROR' results.txt | sed 's/ [0-9]*$//' | sort | uniq -c | head -5; }
+ 
++if [ "$MISSING" -ne 0 ]; then
++    echo "  --- $MISSING buyers produced no result. Anything they did say: ---"
++    grep -vE '^(OK|SOLDOUT|ERROR)' results.txt | sort | uniq -c | sort -rn | head -5
++    echo "  Most often this is memory: each buyer boots the whole framework, so"
++    echo "  N at a time needs roughly N x 50MB. Inside a container capped at"
++    echo "  512MB that ceiling arrives around 8 concurrent, long before SQLite"
++    echo "  is the limit. Lower the concurrency, or run this on the host."
++fi
++
+ grep '^OK' results.txt | awk '{print $2}' | sort -n | awk 'NR>0{a[NR]=$1} END {if (NR) printf "  latency ms: median %d  p95 %d  max %d\n", a[int(NR*0.5)], a[int(NR*0.95)], a[NR]}'
+ 
+ php -r '
+@@ -57,4 +76,5 @@ exit($over ? 1 : 0);
+ ' || exit 1
+ 
+ [ "$ERR" -eq 0 ] || { echo "  errors occurred — buyers would have been turned away"; exit 1; }
++[ "$MISSING" -eq 0 ] || { echo "  FAIL: $MISSING buyers never reported. This run proves nothing."; exit 1; }
+ echo "  PASS"
