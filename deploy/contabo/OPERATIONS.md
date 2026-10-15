@@ -23,14 +23,37 @@ bash /srv/smp-portfolio/repo/deploy/contabo/backup.sh --install-cron
 Run each by hand before installing its cron job. A scheduled job you have
 never watched run is a scheduled job you are assuming works.
 
-**Then check that root's mail reaches you.** `status.sh --quiet` prints
-nothing when everything passes and prints failures when they happen, so cron
-mails you only when something is wrong. If that mail goes nowhere, the whole
-arrangement is a tree falling in an empty forest.
+### Alerts
+
+**There is no MTA on this box**, so cron's own mail goes nowhere. `status.sh`
+sends its own, over SMTP with curl, through the same Brevo relay the apps use.
+Create `/etc/contabo-alert.env` first:
 
 ```bash
-echo "test" | mail -s "box alert test" you@example.com
+cat > /etc/contabo-alert.env <<'EOF'
+SMTP_HOST=smtp-relay.brevo.com
+SMTP_PORT=587
+SMTP_USER=<the Brevo SMTP login, the generated …@smtp-brevo.com>
+SMTP_PASS=<an SMTP key, xsmtpsib-…>
+ALERT_FROM="Box monitor <info@fitgenerationsgym.com>"
+ALERT_TO=you@example.com
+EOF
+chmod 600 /etc/contabo-alert.env
+
+bash status.sh --test-alert
 ```
+
+`chmod 600` is not cosmetic: that file is a working mail credential, and
+anything that can read it can send as your domain.
+
+`--install-cron` refuses to report success without a working alert config, and
+sends a test message as part of installing. A monitor that cannot reach anyone
+is not a monitor.
+
+Mail only goes out when something fails. The same set of failures repeats at
+most every six hours, a **new** failure alerts immediately even while an old
+one is open, and a single "recovered" message is sent when it clears —
+silence after an alert otherwise reads exactly like the check having died.
 
 ## The routine
 

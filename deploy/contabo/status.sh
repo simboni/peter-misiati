@@ -25,12 +25,65 @@ QUIET=no
 
 FAILURES=0
 WARNINGS=0
+FAIL_TEXT=""
 
 say()  { [ "$QUIET" = yes ] || printf '%s\n' "$*"; }
 head_() { [ "$QUIET" = yes ] || printf '\n\033[1;36m== %s\033[0m\n' "$1"; }
 ok()   { [ "$QUIET" = yes ] || printf '  \033[1;32m✓\033[0m %s\n' "$1"; }
 warn() { printf '  \033[1;33m!\033[0m %s\n' "$1"; WARNINGS=$((WARNINGS + 1)); }
-bad()  { printf '  \033[1;31m×\033[0m %s\n' "$1"; FAILURES=$((FAILURES + 1)); }
+bad()  { printf '  \033[1;31m×\033[0m %s\n' "$1"; FAILURES=$((FAILURES + 1)); FAIL_TEXT="${FAIL_TEXT}- $1
+"; }
+
+# --- alerting --------------------------------------------------------------
+#
+# This box has no MTA, so cron's own mail goes nowhere — a monitor that cannot
+# reach anybody is not a monitor. Mail is sent here instead, over SMTP with
+# curl, using the same Brevo relay the apps already use.
+#
+# Credentials come from ALERT_ENV_FILE (default /etc/contabo-alert.env):
+#
+#   SMTP_HOST=smtp-relay.brevo.com
+#   SMTP_PORT=587
+#   SMTP_USER=<Brevo SMTP login, the generated ...@smtp-brevo.com>
+#   SMTP_PASS=<an SMTP key, xsmtpsib-...>
+#   ALERT_FROM="Box monitor <info@fitgenerationsgym.com>"
+#   ALERT_TO=you@example.com
+#
+# chmod 600 it: this file is a working mail credential.
+ALERT_ENV_FILE=${ALERT_ENV_FILE:-/etc/contabo-alert.env}
+STATE_DIR=${STATE_DIR:-/var/lib/contabo-status}
+# Same failures, at most one mail every 6 hours. Checking every 15 minutes and
+# mailing every time would be 96 messages a day about one dead container, and
+# the next real alert would arrive in a folder nobody opens.
+REALERT_SECONDS=${REALERT_SECONDS:-21600}
+
+send_alert() {
+  local subject="$1" body="$2"
+  [ -f "$ALERT_ENV_FILE" ] || return 1
+  # shellcheck disable=SC1090
+  set -a; . "$ALERT_ENV_FILE"; set +a
+  [ -n "${SMTP_USER:-}" ] && [ -n "${SMTP_PASS:-}" ] && [ -n "${ALERT_TO:-}" ] || return 1
+  command -v curl >/dev/null || return 1
+
+  local msg; msg=$(mktemp)
+  {
+    printf 'From: %s\n' "${ALERT_FROM:-$SMTP_USER}"
+    printf 'To: %s\n' "$ALERT_TO"
+    printf 'Subject: %s\n' "$subject"
+    printf 'Content-Type: text/plain; charset=utf-8\n\n'
+    printf '%s\n' "$body"
+  } > "$msg"
+
+  curl --silent --show-error --ssl-reqd \
+    --url "smtp://${SMTP_HOST:-smtp-relay.brevo.com}:${SMTP_PORT:-587}" \
+    --user "$SMTP_USER:$SMTP_PASS" \
+    --mail-from "$(printf '%s' "${ALERT_FROM:-$SMTP_USER}" | sed -E 's/.*<(.*)>.*/\1/')" \
+    --mail-rcpt "$ALERT_TO" \
+    --upload-file "$msg" >/dev/null 2>&1
+  local rc=$?
+  rm -f "$msg"
+  return $rc
+}
 
 # --- install the cron job and exit ----------------------------------------
 if [ "${1:-}" = "--install-cron" ]; then
@@ -39,14 +92,34 @@ if [ "${1:-}" = "--install-cron" ]; then
   if crontab -l 2>/dev/null | grep -Fq "$SELF --quiet"; then
     echo "Already installed:"
     crontab -l | grep -F "$SELF"
-    exit 0
+  else
+    ( crontab -l 2>/dev/null; echo "$LINE" ) | crontab -
+    echo "Installed: checks every 15 minutes."
   fi
-  # --quiet prints nothing when everything passes, so cron stays silent and
-  # mails only when there is something wrong. A job that mails every run is a
-  # job whose mail gets filtered, and then nobody sees the one that matters.
-  ( crontab -l 2>/dev/null; echo "$LINE" ) | crontab -
-  echo "Installed. Checks every 15 minutes; mails root only on failure."
-  echo "Make sure root's mail actually reaches you, or this is a tree falling in a forest."
+
+  if [ -f "$ALERT_ENV_FILE" ]; then
+    echo "Alert config found at $ALERT_ENV_FILE — testing it now."
+    if send_alert "Box monitor: test" "If you are reading this, alerts work. $(date -u +%FT%TZ)"; then
+      echo "Test message accepted by the relay. Check your inbox and spam."
+    else
+      echo "COULD NOT SEND. Fix $ALERT_ENV_FILE — until then nothing will reach you."
+      exit 1
+    fi
+  else
+    echo
+    echo "NO ALERT CONFIG. The check will run and tell nobody."
+    echo "There is no MTA on this box, so cron mail goes nowhere."
+    echo "Create $ALERT_ENV_FILE (chmod 600) with SMTP_USER, SMTP_PASS and"
+    echo "ALERT_TO, then re-run this to send a test. See OPERATIONS.md."
+    exit 1
+  fi
+  exit 0
+fi
+
+if [ "${1:-}" = "--test-alert" ]; then
+  send_alert "Box monitor: test" "Test from $(hostname -f 2>/dev/null || hostname) at $(date -u +%FT%TZ)" \
+    && echo "Accepted by the relay — check your inbox." \
+    || { echo "Failed. Check $ALERT_ENV_FILE."; exit 1; }
   exit 0
 fi
 
@@ -231,9 +304,38 @@ else
 fi
 
 # --- verdict ---------------------------------------------------------------
+HOST=$(hostname -f 2>/dev/null || hostname)
+mkdir -p "$STATE_DIR" 2>/dev/null
+STAMP="$STATE_DIR/last-alert"
+# The alert is keyed on WHAT is wrong, not on the fact that something is. A new
+# failure appearing while an old one is still open must not be swallowed by the
+# re-alert window, or the first fault masks every one after it.
+FINGERPRINT=$(printf '%s' "$FAIL_TEXT" | cksum | tr -d ' ')
+
 if [ "$FAILURES" -gt 0 ]; then
-  printf '\n\033[1;31m%s failure(s), %s warning(s) — %s\033[0m\n' "$FAILURES" "$WARNINGS" "$(hostname -f 2>/dev/null || hostname)"
+  printf '\n\033[1;31m%s failure(s), %s warning(s) — %s\033[0m\n' "$FAILURES" "$WARNINGS" "$HOST"
+
+  prev_fp=""; prev_at=0
+  [ -f "$STAMP" ] && read -r prev_fp prev_at < "$STAMP" 2>/dev/null
+  now=$(date +%s)
+  age=$((now - ${prev_at:-0}))
+
+  if [ "$FINGERPRINT" != "${prev_fp:-}" ] || [ "$age" -ge "$REALERT_SECONDS" ]; then
+    if send_alert "[$HOST] $FAILURES failing" "$FAIL_TEXT
+Checked $(date -u +%FT%TZ)
+
+This repeats at most every $((REALERT_SECONDS / 3600))h while unchanged.
+Run on the box for detail:  bash $(readlink -f "$0")"; then
+      printf '%s %s\n' "$FINGERPRINT" "$now" > "$STAMP"
+    fi
+  fi
   exit 1
+fi
+
+# Recovered: say so once, then forget. Silence after an alert is ambiguous —
+# it reads the same as the check having died.
+if [ -f "$STAMP" ]; then
+  send_alert "[$HOST] recovered" "Everything is serving again as of $(date -u +%FT%TZ)." && rm -f "$STAMP"
 fi
 
 if [ "$WARNINGS" -gt 0 ]; then
