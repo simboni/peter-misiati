@@ -1,0 +1,48 @@
+diff --git a/app/Support/Role.php b/app/Support/Role.php
+index 3abcec7..5412788 100644
+--- a/app/Support/Role.php
++++ b/app/Support/Role.php
+@@ -58,16 +58,21 @@ public static function label(?string $role): string
+     /**
+      * May sign in to /admin at all.
+      *
+-     * Gate staff are included so they can reach Verify a ticket and Door
+-     * stats; everything else in the panel is closed to them below. Keeping
+-     * them out entirely was the old behaviour and it meant the door team
+-     * could not answer "has this ticket been used?" without an owner present.
++     * GATE STAFF ARE DELIBERATELY EXCLUDED. I let them in so they could reach
++     * Door stats, and AdminPanelTest caught it: the panel's resources are
++     * open by default, so a door login would also have reached orders,
++     * customers and payments. Door staff are often casual and the login gets
++     * passed around on the night.
++     *
++     * They lose nothing. /gate is their tool — scanner, box office, check-in —
++     * and it authorises them directly. The admin Door pages stay for the
++     * office roles who are already trusted with the rest of the panel.
+      */
+     public static function canAccessPanel(?string $role): bool
+     {
+         return in_array($role, [
+             self::SUPER_ADMIN, self::FINANCE, self::EVENT_MANAGER,
+-            self::MARKETING, self::GATE_STAFF, self::ORGANISER_ADMIN,
++            self::MARKETING, self::ORGANISER_ADMIN,
+         ], true);
+     }
+ 
+diff --git a/phpunit.xml b/phpunit.xml
+index e7f0a48..7536547 100644
+--- a/phpunit.xml
++++ b/phpunit.xml
+@@ -19,6 +19,12 @@
+     </source>
+     <php>
+         <env name="APP_ENV" value="testing"/>
++        <!-- Tests boot the full app, and sessions/cookies need a key.
++             Without one, 25 of 51 tests error before asserting
++             anything, which reads as a broken suite rather than a
++             missing variable. Fixed, never secret: this key encrypts
++             nothing but an in-memory database that dies with the run. -->
++        <env name="APP_KEY" value="base64:Kx7vQF2mN8pL4wR6tY9uZ1aB3cD5eG7hJ0kM2nP4qS8="/>
+         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
+         <env name="BCRYPT_ROUNDS" value="4"/>
+         <env name="BROADCAST_CONNECTION" value="null"/>
