@@ -1,0 +1,234 @@
+diff --git a/config/database.php b/config/database.php
+index abbb88e..5f4dc5a 100644
+--- a/config/database.php
++++ b/config/database.php
+@@ -38,10 +38,32 @@
+             'database' => env('DB_DATABASE', database_path('database.sqlite')),
+             'prefix' => '',
+             'foreign_key_constraints' => env('DB_FOREIGN_KEYS', true),
+-            'busy_timeout' => null,
+-            'journal_mode' => null,
+-            'synchronous' => null,
+-            'transaction_mode' => 'DEFERRED',
++
++            /*
++             * SQLITE UNDER A TICKET RUSH.
++             *
++             * Measured, not guessed: 100 purchases with 20 in flight, against
++             * the stock defaults above (all null, DEFERRED), completed 26 and
++             * failed 74 with "database is locked". Nothing was oversold — the
++             * conditional increment held — but three quarters of buyers were
++             * simply turned away.
++             *
++             * busy_timeout  a writer WAITS for the lock instead of failing on
++             *               the spot. Null means fail immediately, which is
++             *               what produced those 74 errors.
++             * journal_mode  WAL lets readers carry on while a write is in
++             *               progress. The default journal blocks them.
++             * transaction_mode  IMMEDIATE takes the write lock when the
++             *               transaction opens. Under DEFERRED, two
++             *               transactions can both hold read locks and then
++             *               deadlock trying to upgrade — unavoidable contention
++             *               becomes an error rather than a queue.
++             * synchronous   NORMAL is the documented safe pairing with WAL.
++             */
++            'busy_timeout' => env('DB_BUSY_TIMEOUT', 10000),
++            'journal_mode' => env('DB_JOURNAL_MODE', 'WAL'),
++            'synchronous' => env('DB_SYNCHRONOUS', 'NORMAL'),
++            'transaction_mode' => env('DB_TRANSACTION_MODE', 'IMMEDIATE'),
+         ],
+ 
+         'mysql' => [
+diff --git a/deploy/loadtest/buyer.php b/deploy/loadtest/buyer.php
+new file mode 100644
+index 0000000..5e98af1
+--- /dev/null
++++ b/deploy/loadtest/buyer.php
+@@ -0,0 +1,28 @@
++<?php
++$root = '/home/user/64theatre-platform';
++require $root.'/vendor/autoload.php';
++$app = require $root.'/bootstrap/app.php';
++putenv('DB_CONNECTION=sqlite'); putenv('DB_DATABASE='.getenv('SIM_DB'));
++$app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
++config(['database.default'=>'sqlite','database.connections.sqlite.database'=>getenv('SIM_DB')]);
++
++$typeId = (int) getenv('SIM_TYPE');
++$n      = $argv[1] ?? '0';
++$phone  = '07'.str_pad((string) (10000000 + (int) $n), 8, '0', STR_PAD_LEFT);
++$t0 = microtime(true);
++
++try {
++    $order = app(App\Services\Checkout::class)->startOrder(
++        items: [$typeId => 1], phone: $phone, name: 'Buyer '.$n,
++    );
++    $payment = App\Models\Payment::create([
++        'order_id'=>$order->id,'gateway'=>'cash','gateway_ref'=>'SIM-'.$n,
++        'amount_cents'=>$order->total_cents,'status'=>'initiated',
++    ]);
++    app(App\Services\Checkout::class)->confirm($order, $payment);
++    printf("OK %.0f\n", (microtime(true)-$t0)*1000);
++} catch (App\Exceptions\SoldOutException $e) {
++    printf("SOLDOUT %.0f\n", (microtime(true)-$t0)*1000);
++} catch (\Throwable $e) {
++    printf("ERROR|%s|%s %.0f\n", get_class($e), substr(str_replace("\n",' ',$e->getMessage()),0,70), (microtime(true)-$t0)*1000);
++}
+diff --git a/deploy/loadtest/run.sh b/deploy/loadtest/run.sh
+new file mode 100755
+index 0000000..084e2ca
+--- /dev/null
++++ b/deploy/loadtest/run.sh
+@@ -0,0 +1,60 @@
++#!/usr/bin/env bash
++# ---------------------------------------------------------------------------
++# run.sh — sell N tickets at once and see what actually happens.
++#
++#   bash deploy/loadtest/run.sh                  100 buyers, 20 at a time
++#   bash deploy/loadtest/run.sh 200 150 40       buyers, seats, concurrency
++#
++# Real parallelism: each buyer is its own PHP process against a shared SQLite
++# file, so this reproduces genuine lock contention rather than simulating it.
++#
++# WHAT IT TOUCHES: a throwaway database under /tmp. It never reads or writes
++# the live one. Run it on any machine with the repo and composer installed.
++#
++# WHY IT EXISTS. With SQLite's stock settings this suite completed 26 of 100
++# sales and failed 74 with "database is locked" — no overselling, but three
++# quarters of buyers turned away during a rush. config/database.php now sets
++# busy_timeout, WAL and IMMEDIATE transactions, and the same run completes
++# 100 of 100. Re-run it after any change to that config, or to the checkout.
++# ---------------------------------------------------------------------------
++set -uo pipefail
++cd "$(dirname "$0")"
++
++BUYERS=${1:-100}
++STOCK=${2:-100}
++PAR=${3:-20}
++
++export SIM_DB="${TMPDIR:-/tmp}/64theatre-loadtest-$$.sqlite"
++export SIM_STOCK="$STOCK"
++trap 'rm -f "$SIM_DB" "$SIM_DB-wal" "$SIM_DB-shm" results.txt' EXIT
++
++: > "$SIM_DB"
++SIM_TYPE=$(php setup.php) || { echo "setup failed — is composer installed?"; exit 1; }
++export SIM_TYPE
++
++echo "$BUYERS buyers, $STOCK seats, $PAR at a time"
++START=$(date +%s)
++seq 1 "$BUYERS" | xargs -P "$PAR" -I{} php buyer.php {} > results.txt 2>&1
++echo "wall clock: $(( $(date +%s) - START ))s"
++
++OK=$(grep -c '^OK' results.txt || true)
++SOLD=$(grep -c '^SOLDOUT' results.txt || true)
++ERR=$(grep -c '^ERROR' results.txt || true)
++
++printf '  sold %s   sold-out %s   ERRORS %s\n' "$OK" "$SOLD" "$ERR"
++[ "$ERR" -gt 0 ] && { echo "  --- errors ---"; grep '^ERROR' results.txt | sed 's/ [0-9]*$//' | sort | uniq -c | head -5; }
++
++grep '^OK' results.txt | awk '{print $2}' | sort -n | awk 'NR>0{a[NR]=$1} END {if (NR) printf "  latency ms: median %d  p95 %d  max %d\n", a[int(NR*0.5)], a[int(NR*0.95)], a[NR]}'
++
++php -r '
++$db = new PDO("sqlite:".getenv("SIM_DB"));
++$r = $db->query("select quantity_total, quantity_sold from ticket_types")->fetch();
++$t = $db->query("select count(*) c from tickets")->fetch();
++$over = $r["quantity_sold"] > $r["quantity_total"];
++printf("  stock %d, sold %d, tickets issued %d\n", $r["quantity_total"], $r["quantity_sold"], $t["c"]);
++echo $over ? "  *** OVERSOLD — STOP AND INVESTIGATE ***\n" : "  no overselling\n";
++exit($over ? 1 : 0);
++' || exit 1
++
++[ "$ERR" -eq 0 ] || { echo "  errors occurred — buyers would have been turned away"; exit 1; }
++echo "  PASS"
+diff --git a/deploy/loadtest/setup.php b/deploy/loadtest/setup.php
+new file mode 100644
+index 0000000..3ebcf65
+--- /dev/null
++++ b/deploy/loadtest/setup.php
+@@ -0,0 +1,17 @@
++<?php
++$root = '/home/user/64theatre-platform';
++require $root.'/vendor/autoload.php';
++$app = require $root.'/bootstrap/app.php';
++putenv('DB_CONNECTION=sqlite'); putenv('DB_DATABASE='.getenv('SIM_DB'));
++$_ENV['DB_CONNECTION']='sqlite'; $_ENV['DB_DATABASE']=getenv('SIM_DB');
++$app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
++config(['database.default'=>'sqlite','database.connections.sqlite.database'=>getenv('SIM_DB')]);
++
++Illuminate\Support\Facades\Artisan::call('migrate:fresh', ['--force'=>true]);
++$type = App\Models\TicketType::factory()->create([
++    'price_cents' => 50000,
++    'quantity_total' => (int) getenv('SIM_STOCK'),
++    'quantity_sold' => 0,
++    'max_per_order' => null,
++]);
++echo $type->id;
+diff --git a/tests/Feature/OrderShowRenderTest.php b/tests/Feature/OrderShowRenderTest.php
+index 27f56e9..51d99f4 100644
+--- a/tests/Feature/OrderShowRenderTest.php
++++ b/tests/Feature/OrderShowRenderTest.php
+@@ -23,4 +23,65 @@ public function test_the_page_a_buyer_lands_on_after_the_stk_push_renders(): voi
+ 
+         $this->get('/orders/'.$order->uuid)->assertOk();
+     }
++
++    /**
++     * The real path. A live purchase has an `initiated` payment, which selects
++     * a different branch of the page than an order with none — the branch the
++     * buyer actually sees after the STK prompt goes out. Testing only the
++     * no-payment case is how a fault here survived a passing test.
++     */
++    public function test_the_page_renders_once_a_prompt_has_been_sent(): void
++    {
++        Queue::fake();
++        $type = TicketType::factory()->create(['price_cents' => 50000]);
++
++        $order = app(Checkout::class)->startOrder(
++            items: [$type->id => 2], phone: '0712345678', name: 'Jane',
++        );
++
++        \App\Models\Payment::create([
++            'order_id' => $order->id,
++            'gateway' => 'aggregator',
++            'gateway_ref' => 'ws_CO_'.uniqid(),
++            'payer_phone' => '254712345678',
++            'amount_cents' => $order->total_cents,
++            'status' => 'initiated',
++        ]);
++
++        $this->get('/orders/'.$order->uuid)->assertOk();
++    }
++
++    /** And the branch where the prompt could not be sent at all. */
++    public function test_the_page_renders_when_the_prompt_failed(): void
++    {
++        Queue::fake();
++        $type = TicketType::factory()->create(['price_cents' => 50000]);
++
++        $order = app(Checkout::class)->startOrder(
++            items: [$type->id => 1], phone: '0712345678', name: 'Jane',
++        );
++
++        $this->withSession(['payment_error' => 'Could not start your payment.'])
++            ->get('/orders/'.$order->uuid)
++            ->assertOk();
++    }
++
++    /** And a paid order, which renders the tickets. */
++    public function test_the_page_renders_once_paid(): void
++    {
++        Queue::fake();
++        $type = TicketType::factory()->create(['price_cents' => 50000]);
++
++        $order = app(Checkout::class)->startOrder(
++            items: [$type->id => 2], phone: '0712345678', name: 'Jane',
++        );
++
++        $payment = \App\Models\Payment::create([
++            'order_id' => $order->id, 'gateway' => 'cash', 'gateway_ref' => 'X-'.uniqid(),
++            'amount_cents' => $order->total_cents, 'status' => 'initiated',
++        ]);
++        app(Checkout::class)->confirm($order, $payment);
++
++        $this->get('/orders/'.$order->uuid)->assertOk();
++    }
+ }
