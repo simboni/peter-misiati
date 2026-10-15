@@ -1,0 +1,40 @@
+diff --git a/deploy/loadtest/setup.php b/deploy/loadtest/setup.php
+index 0d8201f..c5d5652 100644
+--- a/deploy/loadtest/setup.php
++++ b/deploy/loadtest/setup.php
+@@ -11,10 +11,33 @@
+ config(['database.default'=>'sqlite','database.connections.sqlite.database'=>getenv('SIM_DB')]);
+ 
+ Illuminate\Support\Facades\Artisan::call('migrate:fresh', ['--force'=>true]);
+-$type = App\Models\TicketType::factory()->create([
++// Built by hand, NOT with factories. Factories need fakerphp/faker, which is
++// a dev dependency and is stripped from the production image by --no-dev — so
++// a factory-based fixture runs on a laptop and dies in the container, which is
++// precisely where this most needs to run.
++$organiser = App\Models\Organiser::create(['name' => 'Load test', 'slug' => 'load-test-'.uniqid()]);
++
++$venue = App\Models\Venue::create([
++    'organiser_id' => $organiser->id, 'name' => 'Load test hall', 'town' => 'Eldoret',
++]);
++
++$event = App\Models\Event::create([
++    'organiser_id' => $organiser->id,
++    'title' => 'Load test', 'slug' => 'load-test-'.uniqid(),
++    'category' => 'theatre', 'status' => 'published',
++]);
++
++$performance = App\Models\Performance::create([
++    'event_id' => $event->id, 'venue_id' => $venue->id,
++    'starts_at' => now()->addWeek(), 'status' => 'on_sale',
++]);
++
++$type = App\Models\TicketType::create([
++    'performance_id' => $performance->id,
++    'name' => 'Regular',
+     'price_cents' => 50000,
+     'quantity_total' => (int) getenv('SIM_STOCK'),
+     'quantity_sold' => 0,
+-    'max_per_order' => null,
+ ]);
++
+ echo $type->id;
