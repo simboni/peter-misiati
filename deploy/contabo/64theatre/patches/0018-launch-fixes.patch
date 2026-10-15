@@ -1,0 +1,733 @@
+diff --git a/app/Filament/Forms/Components/OpenSelect.php b/app/Filament/Forms/Components/OpenSelect.php
+new file mode 100644
+index 0000000..ee6bace
+--- /dev/null
++++ b/app/Filament/Forms/Components/OpenSelect.php
+@@ -0,0 +1,74 @@
++<?php
++
++namespace App\Filament\Forms\Components;
++
++use Filament\Forms\Components\TextInput;
++use Illuminate\Support\Facades\DB;
++
++/**
++ * A field you can type a new value into, which also suggests the ones already
++ * in use.
++ *
++ * The problem: category and language are plain string columns, but the form
++ * offered a fixed list, so a show that was not theatre, a festival, a workshop
++ * or a concert had to be filed as "Other". The column never needed a migration
++ * to accept a new value — only the form stood in the way.
++ *
++ * WHY A TEXT INPUT AND NOT A SELECT. The obvious move is a Select with
++ * createOptionForm, as VenuePicker uses. That works for a venue because the
++ * option becomes a real row, so it is in the list the next time it is read.
++ * A bare string has no row: Filament puts an implicit `in:` validation rule on
++ * a single-value Select built from its own options, so a value typed into a
++ * create-option modal is rejected on save for not being in the list it was
++ * never added to. The "+" button becomes a dead end that fails at the last
++ * step.
++ *
++ * A TextInput carries no such rule, and `datalist` is already how this
++ * codebase does pick-or-type — see the ticket-type name field in CreateEvent
++ * and PerformancesRelationManager.
++ *
++ * The suggestions are the seeded list PLUS every distinct value already stored,
++ * so a category somebody adds once is offered to everybody afterwards and the
++ * vocabulary converges instead of sprawling.
++ */
++class OpenSelect
++{
++    /**
++     * @param  array<string, string>  $seeded  value => label (labels are for
++     *                                         readability at the call site;
++     *                                         the stored value is the key)
++     */
++    public static function make(string $name, string $table, string $column, array $seeded = []): TextInput
++    {
++        return TextInput::make($name)
++            ->datalist(fn (): array => self::suggestions($table, $column, $seeded))
++            ->maxLength(60)
++            ->helperText('Pick one of the suggestions, or type a new one.');
++    }
++
++    /**
++     * @param  array<string, string>  $seeded
++     * @return array<int, string>
++     */
++    public static function suggestions(string $table, string $column, array $seeded): array
++    {
++        $existing = [];
++
++        try {
++            $existing = DB::table($table)
++                ->select($column)
++                ->whereNotNull($column)
++                ->where($column, '!=', '')
++                ->distinct()
++                ->orderBy($column)
++                ->pluck($column)
++                ->all();
++        } catch (\Throwable) {
++            // A missing table during a fresh install must not take the form
++            // down; the seeded list is a perfectly good fallback.
++            $existing = [];
++        }
++
++        return array_values(array_unique(array_merge(array_keys($seeded), $existing)));
++    }
++}
+diff --git a/app/Filament/Pages/DoorStats.php b/app/Filament/Pages/DoorStats.php
+index dc0a537..23ec6b8 100644
+--- a/app/Filament/Pages/DoorStats.php
++++ b/app/Filament/Pages/DoorStats.php
+@@ -45,7 +45,7 @@ class DoorStats extends Page
+ 
+     public static function canAccess(): bool
+     {
+-        return in_array(auth()->user()?->role, ['super_admin', 'admin', 'finance', 'gate'], true);
++        return \App\Support\Role::canWorkTheDoor(auth()->user()?->role);
+     }
+ 
+     public function mount(): void
+diff --git a/app/Filament/Pages/VerifyTicket.php b/app/Filament/Pages/VerifyTicket.php
+index 1269447..c912f38 100644
+--- a/app/Filament/Pages/VerifyTicket.php
++++ b/app/Filament/Pages/VerifyTicket.php
+@@ -53,7 +53,7 @@ class VerifyTicket extends Page
+ 
+     public static function canAccess(): bool
+     {
+-        return in_array(auth()->user()?->role, ['super_admin', 'admin', 'finance', 'gate'], true);
++        return \App\Support\Role::canWorkTheDoor(auth()->user()?->role);
+     }
+ 
+     public function mount(): void
+diff --git a/app/Filament/Resources/Events/Schemas/EventForm.php b/app/Filament/Resources/Events/Schemas/EventForm.php
+index 319f97f..aa21b85 100644
+--- a/app/Filament/Resources/Events/Schemas/EventForm.php
++++ b/app/Filament/Resources/Events/Schemas/EventForm.php
+@@ -48,22 +48,23 @@ public static function components(): array
+                     ->imageEditor()
+                     ->helperText('Portrait works best (3:4). Shows on the website cards, hero and event page.')
+                     ->columnSpanFull(),
+-                Select::make('category')
+-                    ->options([
+-                        'theatre' => 'Theatre',
+-                        'festival' => 'Festival / carnival',
+-                        'workshop' => 'Workshop / training',
+-                        'concert' => 'Concert',
+-                        'other' => 'Other',
+-                    ])
++                // Open lists: the column is a plain string, so a category or
++                // language that is not offered can simply be added from the
++                // dropdown, and is then suggested to everybody afterwards.
++                \App\Filament\Forms\Components\OpenSelect::make('category', 'events', 'category', [
++                    'theatre' => 'Theatre',
++                    'festival' => 'Festival / carnival',
++                    'workshop' => 'Workshop / training',
++                    'concert' => 'Concert',
++                    'other' => 'Other',
++                ])
+                     ->required()
+                     ->default('theatre'),
+-                Select::make('language')
+-                    ->options([
+-                        'Kalenjin' => 'Kalenjin',
+-                        'Kiswahili' => 'Kiswahili',
+-                        'English' => 'English',
+-                    ])
++                \App\Filament\Forms\Components\OpenSelect::make('language', 'events', 'language', [
++                    'Kalenjin' => 'Kalenjin',
++                    'Kiswahili' => 'Kiswahili',
++                    'English' => 'English',
++                ])
+                     ->placeholder('Mixed / other'),
+                 Select::make('status')
+                     ->options([
+@@ -77,8 +78,38 @@ public static function components(): array
+                     ->helperText('Only published events appear on the website.'),
+                 Select::make('organiser_id')
+                     ->relationship('organiser', 'name')
++                    ->searchable()
++                    ->preload()
+                     ->required()
+-                    ->default(1),
++                    ->default(1)
++                    // A visiting organiser turning up with a show should not
++                    // mean abandoning a half-filled event form.
++                    ->createOptionForm([
++                        TextInput::make('name')->required()->maxLength(120),
++                    ])
++                    // `organisers.slug` is NOT NULL and unique, and the model
++                    // does not derive one. Filament's default create would
++                    // insert name only and hit a constraint violation, so the
++                    // slug is built here — the same reason VenuePicker spells
++                    // out every non-nullable column rather than relying on the
++                    // default.
++                    ->createOptionUsing(function (array $data): int {
++                        $name = trim($data['name']);
++                        $base = \Illuminate\Support\Str::slug($name) ?: 'organiser';
++                        $slug = $base;
++
++                        // Two organisers can legitimately share a name; the
++                        // slug cannot, and a clash here would surface as a
++                        // raw SQL error in the modal.
++                        for ($i = 2; \App\Models\Organiser::where('slug', $slug)->exists(); $i++) {
++                            $slug = $base.'-'.$i;
++                        }
++
++                        return \App\Models\Organiser::create([
++                            'name' => $name,
++                            'slug' => $slug,
++                        ])->getKey();
++                    }),
+                 Toggle::make('is_free')
+                     ->label('Free event (RSVP only)'),
+                 Toggle::make('is_private')
+diff --git a/app/Filament/Resources/Orders/OrderResource.php b/app/Filament/Resources/Orders/OrderResource.php
+index cfa0cca..59a8400 100644
+--- a/app/Filament/Resources/Orders/OrderResource.php
++++ b/app/Filament/Resources/Orders/OrderResource.php
+@@ -43,7 +43,7 @@ public static function getEloquentQuery(): Builder
+      */
+     public static function canCreate(): bool
+     {
+-        return in_array(auth()->user()?->role, ['super_admin', 'admin', 'finance', 'gate'], true);
++        return \App\Support\Role::canHandleMoney(auth()->user()?->role);
+     }
+ 
+     public static function form(Schema $schema): Schema
+diff --git a/app/Filament/Resources/Users/Schemas/UserForm.php b/app/Filament/Resources/Users/Schemas/UserForm.php
+index c08ac53..043abe0 100644
+--- a/app/Filament/Resources/Users/Schemas/UserForm.php
++++ b/app/Filament/Resources/Users/Schemas/UserForm.php
+@@ -2,36 +2,84 @@
+ 
+ namespace App\Filament\Resources\Users\Schemas;
+ 
+-use Filament\Forms\Components\DateTimePicker;
++use App\Support\Role;
++use Filament\Forms\Components\Select;
+ use Filament\Forms\Components\TextInput;
+ use Filament\Forms\Components\Toggle;
++use Filament\Schemas\Components\Section;
+ use Filament\Schemas\Schema;
+ 
++/**
++ * Adding somebody to the team.
++ *
++ * The generated form typed `role` into a free-text box. That column is a
++ * database ENUM, so a typo threw; and `role` was not mass-assignable, so even
++ * a correct value was silently discarded and every new user came out as an
++ * event manager whatever was entered. Both are fixed — this is a dropdown of
++ * the only six values the column accepts, and the model now accepts the field.
++ *
++ * Each option says what the role can reach, because "event_manager" means
++ * nothing to the person doing the hiring. The authority behind those words is
++ * App\Support\Role, which the pages and resources actually check, so the
++ * description and the enforcement cannot drift apart.
++ */
+ class UserForm
+ {
+     public static function configure(Schema $schema): Schema
+     {
+         return $schema
+             ->components([
+-                TextInput::make('name')
+-                    ->required(),
+-                TextInput::make('email')
+-                    ->label('Email address')
+-                    ->email()
+-                    ->required(),
+-                DateTimePicker::make('email_verified_at'),
+-                TextInput::make('password')
+-                    ->password()
+-                    ->required(),
+-                TextInput::make('organiser_id')
+-                    ->numeric(),
+-                TextInput::make('role')
+-                    ->required()
+-                    ->default('event_manager'),
+-                TextInput::make('phone')
+-                    ->tel(),
+-                Toggle::make('two_factor_required')
+-                    ->required(),
++                Section::make('Who they are')
++                    ->schema([
++                        TextInput::make('name')->required(),
++                        TextInput::make('email')
++                            ->label('Email address')
++                            ->email()
++                            ->required()
++                            // They sign in with it, so a duplicate should be a
++                            // message on the form, not an SQL error on save.
++                            ->unique(ignoreRecord: true),
++                        TextInput::make('phone')->tel(),
++                    ])
++                    ->columns(2),
++
++                Section::make('What they can do')
++                    ->schema([
++                        Select::make('role')
++                            ->label('Role')
++                            ->options(Role::options())
++                            ->default(Role::EVENT_MANAGER)
++                            ->required()
++                            ->native(false)
++                            ->helperText('Gate staff see only the door screens. Only an administrator can add or change people.'),
++
++                        Select::make('organiser_id')
++                            ->label('Organiser')
++                            ->relationship('organiser', 'name')
++                            ->searchable()
++                            ->preload()
++                            ->helperText('Leave empty for your own team. Set it only for a visiting organiser.'),
++
++                        Toggle::make('two_factor_required')
++                            ->label('Require two-factor sign-in')
++                            ->default(false),
++                    ])
++                    ->columns(2),
++
++                Section::make('Sign-in')
++                    ->schema([
++                        TextInput::make('password')
++                            ->password()
++                            ->revealable()
++                            ->minLength(10)
++                            // Required when creating, optional when editing.
++                            // Without this, opening a user to correct their
++                            // phone number would demand a new password, and an
++                            // empty box would overwrite the existing one.
++                            ->required(fn (string $operation): bool => $operation === 'create')
++                            ->dehydrated(fn (?string $state): bool => filled($state))
++                            ->helperText('At least 10 characters. Leave blank when editing to keep the current one.'),
++                    ]),
+             ]);
+     }
+ }
+diff --git a/app/Filament/Resources/Users/UserResource.php b/app/Filament/Resources/Users/UserResource.php
+index 7d6cd25..d8b703f 100644
+--- a/app/Filament/Resources/Users/UserResource.php
++++ b/app/Filament/Resources/Users/UserResource.php
+@@ -16,6 +16,16 @@
+ 
+ class UserResource extends Resource
+ {
++    /**
++     * Staff accounts decide who can take money and who can open the door, so
++     * this is the one resource restricted to administrators. Without it
++     * anybody who could reach the panel could promote themselves.
++     */
++    public static function canAccess(): bool
++    {
++        return \App\Support\Role::canManagePeople(auth()->user()?->role);
++    }
++
+     protected static ?string $model = User::class;
+ 
+     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedUsers;
+diff --git a/app/Http/Controllers/OrderController.php b/app/Http/Controllers/OrderController.php
+index 5c5b944..19c32f2 100644
+--- a/app/Http/Controllers/OrderController.php
++++ b/app/Http/Controllers/OrderController.php
+@@ -138,23 +138,26 @@ public function status(string $uuid, PaymentGateway $gateway): JsonResponse
+ 
+             // Below ~6s the gateway almost always answers "pending" and the
+             // call is wasted; the buyer has not finished typing a PIN yet.
+-            if ($payment && $payment->created_at->diffInSeconds(now()) >= 6) {
++            // Cache::add is an atomic "once per ten seconds, per payment"
++            // gate. The previous lock was released the moment the call
++            // returned, so two browser pollers — and this page had two —
++            // could each trigger an upstream request, and its ten-second TTL
++            // was shorter than the unbounded call it was guarding.
++            //
++            // The callback is what normally settles an order. This upstream
++            // poll is the fallback for when it does not arrive, so throttling
++            // it costs nothing and protects the worker pool at a full house.
++            if ($payment
++                && $payment->created_at->diffInSeconds(now()) >= 6
++                && Cache::add('order-poll:'.$payment->id, 1, 10)) {
+                 try {
+-                    $lock = Cache::lock('order-poll:'.$payment->id, 10);
+-
+-                    if ($lock->get()) {
+-                        try {
+-                            $result = $gateway->pollStatus($payment);
+-
+-                            if ($result === 'success') {
+-                                app(Checkout::class)->confirm($payment->order, $payment);
+-                                $order->refresh();
+-                            } elseif ($result === 'failed') {
+-                                $payment->update(['status' => 'failed']);
+-                            }
+-                        } finally {
+-                            $lock->release();
+-                        }
++                    $result = $gateway->pollStatus($payment);
++
++                    if ($result === 'success') {
++                        app(Checkout::class)->confirm($payment->order, $payment);
++                        $order->refresh();
++                    } elseif ($result === 'failed') {
++                        $payment->update(['status' => 'failed']);
+                     }
+                 } catch (\Throwable $e) {
+                     // A gateway that is down must not take the buyer's page
+diff --git a/app/Models/User.php b/app/Models/User.php
+index d655081..fd61193 100644
+--- a/app/Models/User.php
++++ b/app/Models/User.php
+@@ -12,13 +12,17 @@
+ use Illuminate\Foundation\Auth\User as Authenticatable;
+ use Illuminate\Notifications\Notifiable;
+ 
+-#[Fillable(['name', 'email', 'password'])]
++// `role` and `organiser_id` MUST be here. Without them Model::create()
++// silently discards both, so a user created in the admin took the column
++// default no matter which role was chosen — which is exactly what was
++// happening, and why nobody could make a gate account.
++#[Fillable(['name', 'email', 'password', 'role', 'organiser_id', 'phone', 'two_factor_required'])]
+ #[Hidden(['password', 'remember_token'])]
+ class User extends Authenticatable implements FilamentUser
+ {
+     public function canAccessPanel(Panel $panel): bool
+     {
+-        return in_array($this->role, ['super_admin', 'finance', 'event_manager', 'marketing'], true);
++        return \App\Support\Role::canAccessPanel($this->role);
+     }
+ 
+     /** @use HasFactory<UserFactory> */
+@@ -29,6 +33,12 @@ public function canAccessPanel(Panel $panel): bool
+      *
+      * @return array<string, string>
+      */
++    /** Set only for a visiting organiser; null means our own team. */
++    public function organiser(): \Illuminate\Database\Eloquent\Relations\BelongsTo
++    {
++        return $this->belongsTo(Organiser::class);
++    }
++
+     protected function casts(): array
+     {
+         return [
+diff --git a/app/Payments/PayHeroGateway.php b/app/Payments/PayHeroGateway.php
+index 0808881..63fdf23 100644
+--- a/app/Payments/PayHeroGateway.php
++++ b/app/Payments/PayHeroGateway.php
+@@ -281,10 +281,22 @@ public function pollStatus(Payment $payment): ?string
+             return null;
+         }
+ 
++        // A TIMEOUT IS NOT OPTIONAL HERE. This runs inside the buyer's own
++        // page request: the browser polls /orders/{uuid}/status every few
++        // seconds and that handler calls this. Without a bound, a slow PayHero
++        // leaves the fetch hanging and the buyer watches a spinner long after
++        // their money has gone — which is exactly what was reported. Worse, at
++        // a full house every hanging poll holds a PHP-FPM worker, so a slow
++        // gateway can take the whole site down rather than just one page.
++        //
++        // Eight seconds is well past PayHero's normal response and well short
++        // of the buyer giving up.
+         $response = Http::withBasicAuth(
+             (string) config('services.payhero.username'),
+             (string) config('services.payhero.password'),
+         )
++            ->timeout(8)
++            ->connectTimeout(4)
+             ->acceptJson()
+             ->get($this->base().'/'.ltrim((string) config('services.payhero.status_path'), '/'), [
+                 'reference' => $reference,
+diff --git a/app/Support/Role.php b/app/Support/Role.php
+new file mode 100644
+index 0000000..3abcec7
+--- /dev/null
++++ b/app/Support/Role.php
+@@ -0,0 +1,111 @@
++<?php
++
++namespace App\Support;
++
++/**
++ * Who someone is, and what that lets them do.
++ *
++ * One list, in one place. Before this, the role vocabulary existed in four
++ * places that disagreed: the database enum allowed six values, while three
++ * access checks tested for `admin` and `gate` — neither of which the column
++ * can store. Those checks could therefore never pass for anybody, and real
++ * `gate_staff` were excluded from the very Door pages built for them.
++ *
++ * The values here are exactly the enum's. Adding one means a migration, which
++ * is the point: the database and the code cannot drift apart again.
++ */
++class Role
++{
++    public const SUPER_ADMIN = 'super_admin';
++
++    public const FINANCE = 'finance';
++
++    public const EVENT_MANAGER = 'event_manager';
++
++    public const MARKETING = 'marketing';
++
++    public const GATE_STAFF = 'gate_staff';
++
++    public const ORGANISER_ADMIN = 'organiser_admin';
++
++    /** For a dropdown: value => what it means in plain words. */
++    public static function options(): array
++    {
++        return [
++            self::SUPER_ADMIN => 'Administrator — everything, including users and settings',
++            self::FINANCE => 'Finance — money, orders, refunds and reports',
++            self::EVENT_MANAGER => 'Event manager — events, performances, tickets and the door',
++            self::MARKETING => 'Marketing — promo codes and campaigns, no financials',
++            self::GATE_STAFF => 'Gate staff — the door only: scan, sell and check in',
++            self::ORGANISER_ADMIN => 'Visiting organiser — their own events only',
++        ];
++    }
++
++    /** Short label for a table cell or badge. */
++    public static function label(?string $role): string
++    {
++        return match ($role) {
++            self::SUPER_ADMIN => 'Administrator',
++            self::FINANCE => 'Finance',
++            self::EVENT_MANAGER => 'Event manager',
++            self::MARKETING => 'Marketing',
++            self::GATE_STAFF => 'Gate staff',
++            self::ORGANISER_ADMIN => 'Visiting organiser',
++            default => $role ?? '—',
++        };
++    }
++
++    /**
++     * May sign in to /admin at all.
++     *
++     * Gate staff are included so they can reach Verify a ticket and Door
++     * stats; everything else in the panel is closed to them below. Keeping
++     * them out entirely was the old behaviour and it meant the door team
++     * could not answer "has this ticket been used?" without an owner present.
++     */
++    public static function canAccessPanel(?string $role): bool
++    {
++        return in_array($role, [
++            self::SUPER_ADMIN, self::FINANCE, self::EVENT_MANAGER,
++            self::MARKETING, self::GATE_STAFF, self::ORGANISER_ADMIN,
++        ], true);
++    }
++
++    /** Door screens: verifying a ticket, admitting, and the live count. */
++    public static function canWorkTheDoor(?string $role): bool
++    {
++        return in_array($role, [
++            self::SUPER_ADMIN, self::EVENT_MANAGER, self::GATE_STAFF, self::FINANCE,
++        ], true);
++    }
++
++    /** Taking money: orders, payments, refunds. */
++    public static function canHandleMoney(?string $role): bool
++    {
++        return in_array($role, [
++            self::SUPER_ADMIN, self::FINANCE, self::EVENT_MANAGER, self::GATE_STAFF,
++        ], true);
++    }
++
++    /** Creating and editing what is on sale. */
++    public static function canManageProgramme(?string $role): bool
++    {
++        return in_array($role, [
++            self::SUPER_ADMIN, self::EVENT_MANAGER, self::ORGANISER_ADMIN,
++        ], true);
++    }
++
++    /** Promo codes and campaigns. */
++    public static function canMarket(?string $role): bool
++    {
++        return in_array($role, [
++            self::SUPER_ADMIN, self::MARKETING, self::EVENT_MANAGER,
++        ], true);
++    }
++
++    /** Creating staff and changing what they can reach. */
++    public static function canManagePeople(?string $role): bool
++    {
++        return $role === self::SUPER_ADMIN;
++    }
++}
+diff --git a/resources/views/donate/thanks.blade.php b/resources/views/donate/thanks.blade.php
+index 64a59ac..664f220 100644
+--- a/resources/views/donate/thanks.blade.php
++++ b/resources/views/donate/thanks.blade.php
+@@ -58,15 +58,37 @@
+ </div>
+ 
+ @unless ($paid)
++<div id="ty-wait" class="ty-ref" style="margin-top:14px">Waiting for your M-Pesa confirmation…</div>
+ <script>
+     (function () {
+-        var url = "{{ route('orders.status', $order->uuid) }}";
++        var url  = "{{ route('orders.status', $order->uuid) }}";
++        var note = document.getElementById('ty-wait');
+         var tries = 0;
++
++        function stop(timer, message) {
++            clearInterval(timer);
++            if (note) note.textContent = message;
++        }
++
+         var timer = setInterval(function () {
+-            if (++tries > 40) return clearInterval(timer); // ~2 min
+-            fetch(url).then(function (r) { return r.json(); }).then(function (d) {
+-                if (d.status === 'paid') { clearInterval(timer); location.reload(); }
+-            }).catch(function () {});
++            // Two minutes, then say something. The old loop checked only for
++            // 'paid': a cancelled or refused prompt left it counting silently
++            // to forty and then stopping, so the donor watched a page that
++            // never resolved and never explained itself. That was the stuck
++            // screen being reported.
++            if (++tries > 40) {
++                return stop(timer, 'Still confirming. If your M-Pesa message says the payment went through, it has reached us — nothing more is needed.');
++            }
++
++            fetch(url, {headers: {'Accept': 'application/json'}})
++                .then(function (r) { return r.json(); })
++                .then(function (d) {
++                    if (d.status === 'paid') { clearInterval(timer); location.reload(); return; }
++                    if (d.status === 'cancelled' || d.payment === 'failed') {
++                        stop(timer, 'That payment did not go through — the prompt was cancelled, timed out, or M-Pesa was busy. You can try again whenever you like.');
++                    }
++                })
++                .catch(function () {});
+         }, 3000);
+     })();
+ </script>
+diff --git a/resources/views/orders/lookup.blade.php b/resources/views/orders/lookup.blade.php
+index 0b3cb04..0055822 100644
+--- a/resources/views/orders/lookup.blade.php
++++ b/resources/views/orders/lookup.blade.php
+@@ -25,8 +25,18 @@
+         @forelse ($orders as $order)
+             <div class="summary" style="margin-bottom:14px">
+                 <dl>
+-                    <dt>Show</dt><dd>{{ $order->performance->event->title }}</dd>
+-                    <dt>When</dt><dd>{{ $order->performance->starts_at->format('D j M Y · g:i A') }}</dd>
++                    {{-- A donation has no performance. Calling ->format() on
++                         that null is fatal in PHP, and one donation in these
++                         results used to take the whole page down — including
++                         this buyer's real tickets. --}}
++                    @if ($order->isDonation())
++                        <dt>Donation</dt><dd>Thank you for supporting 64 Theatre</dd>
++                        <dt>Amount</dt><dd>KES {{ number_format($order->total_cents / 100) }}</dd>
++                        <dt>Given</dt><dd>{{ $order->created_at->format('D j M Y') }}</dd>
++                    @elseif ($order->performance)
++                        <dt>Show</dt><dd>{{ $order->performance->event?->title ?? 'Performance' }}</dd>
++                        <dt>When</dt><dd>{{ $order->performance->starts_at?->format('D j M Y · g:i A') ?? '—' }}</dd>
++                    @endif
+                     <dt>Status</dt>
+                     <dd><span class="status {{ $order->status === 'paid' ? 'paid' : 'awaiting' }}">{{ str_replace('_', ' ', $order->status) }}</span></dd>
+                     @foreach ($order->tickets as $ticket)
+diff --git a/resources/views/orders/show.blade.php b/resources/views/orders/show.blade.php
+index ef282da..8f7dcb4 100644
+--- a/resources/views/orders/show.blade.php
++++ b/resources/views/orders/show.blade.php
+@@ -56,6 +56,7 @@
+ 
+         <div class="ps" id="ps" data-state="{{ $failed || ! $attempt ? 'failed' : 'prompted' }}"
+              data-poll="{{ route('orders.status', $order->uuid) }}"
++             data-lookup="{{ route('orders.lookup.form') }}"
+              data-retry="{{ route('orders.retry', $order->uuid) }}">
+             <div class="ps-art">
+                 <span class="ps-ring" aria-hidden="true"></span>
+@@ -193,7 +194,33 @@ function failed(msg) {
+             // Backs off rather than hammering: the status route now asks
+             // PayHero directly, so every poll is an upstream call.
+             let wait = 2500;
++            const giveUpAt = Date.now() + 180000;
++
+             (function poll() {
++                // A loop with no end is how a buyer ends up staring at a
++                // spinner after their money has already left. Three minutes is
++                // far longer than any real prompt; past that, say something
++                // true and give them somewhere to go.
++                if (Date.now() > giveUpAt) {
++                    ps.dataset.state = 'failed';
++                    icon.phone.hidden = true; icon.tick.hidden = true; icon.warn.hidden = false;
++                    head.textContent = 'Still confirming';
++                    // Read from a data attribute rather than interpolating
++                    // Blade into JavaScript. {{ }} escapes quotes for HTML,
++                    // and inside a <script> that is a syntax error which kills
++                    // the whole block — poller, retry button and all.
++                    var lookup = document.createElement('a');
++                    lookup.href = ps.dataset.lookup;
++                    lookup.textContent = 'My tickets';
++                    sub.textContent = 'If you were charged, your ticket is safe — find it under ';
++                    sub.appendChild(lookup);
++                    sub.appendChild(document.createTextNode(', or reload this page.'));
++                    if (chip) chip.hidden = true;
++                    if (barw) barw.hidden = true;
++                    if (acts) acts.hidden = false;
++                    return;
++                }
++
+                 setTimeout(() => {
+                     fetch(ps.dataset.poll, {headers: {'Accept': 'application/json'}})
+                         .then(r => r.json())
+@@ -210,7 +237,7 @@ function failed(msg) {
+         </script>
+ 
+     @elseif ($order->status === 'paid')
+-        <div class="note ok-note"><strong>Paid.</strong> Tickets below — also sent to {{ $order->customer->phone }}.</div>
++        <div class="note ok-note"><strong>Paid.</strong> Tickets below — also sent to {{ $order->customer?->phone }}.</div>
+     @endif
+ 
+     @if ($order->status === 'paid' && $order->tickets->isNotEmpty())
+@@ -231,14 +258,19 @@ function failed(msg) {
+             <dt>Status</dt>
+             <dd><span class="status {{ $order->status === 'paid' ? 'paid' : 'awaiting' }}">
+                 {{ str_replace('_', ' ', $order->status) }}</span></dd>
++            {{-- Null-safe throughout. Not for donations — those never reach
++                 this view, OrderController::show() returns donate.thanks
++                 first — but for BOX OFFICE orders, which BoxOffice::sell
++                 creates with customer_id null, and for any order whose
++                 performance has since been removed. --}}
+             <dt>Show</dt>
+-            <dd>{{ $order->performance->event->title }}</dd>
++            <dd>{{ $order->performance?->event?->title ?? 'Performance' }}</dd>
+             <dt>When</dt>
+-            <dd>{{ $order->performance->starts_at->format('D j M Y · g:i A') }}</dd>
++            <dd>{{ $order->performance?->starts_at?->format('D j M Y · g:i A') ?? '—' }}</dd>
+             <dt>Venue</dt>
+-            <dd>{{ $order->performance->venue->name }}, {{ $order->performance->venue->town }}</dd>
++            <dd>{{ $order->performance?->venue?->name ?? '—' }}{{ $order->performance?->venue?->town ? ', '.$order->performance->venue->town : '' }}</dd>
+             @foreach ($order->items as $item)
+-                <dt>{{ $item->ticketType->name }} × {{ $item->quantity }}</dt>
++                <dt>{{ $item->ticketType?->name ?? 'Ticket' }} × {{ $item->quantity }}</dt>
+                 <dd>KES {{ number_format($item->unit_price_cents * $item->quantity / 100) }}</dd>
+             @endforeach
+             <dt>Total</dt>
+@@ -248,16 +280,10 @@ function failed(msg) {
+         </dl>
+     </div>
+ </div>
+-@if ($order->status === 'awaiting_payment')
+-<script>
+-    (function poll() {
+-        setTimeout(function () {
+-            fetch('{{ route('orders.status', $order->uuid) }}')
+-                .then(r => r.json())
+-                .then(d => d.status !== 'awaiting_payment' ? location.reload() : poll())
+-                .catch(poll);
+-        }, 4000);
+-    })();
+-</script>
+-@endif
++{{-- There was a second poller here, hitting the same endpoint every four
++     seconds alongside the payment card's own loop. Two loops meant twice the
++     upstream calls to PayHero for one buyer, and this one could never finish:
++     it reloads only when `status` changes, so a payment that FAILED — status
++     stays awaiting_payment — left it running for ever. The payment card above
++     handles both outcomes and stops. --}}
+ @endsection

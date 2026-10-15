@@ -783,3 +783,91 @@ additive change, and the SQLite data can be migrated across.
 - `mem_limit: 512m`, so a runaway process can't starve the box.
 - Always use `-f /srv/64theatre/compose.yml` so a command can never act on
   another project.
+
+## Launch fixes (patch 0018)
+
+```bash
+cd /srv/64theatre/repo && git pull
+git apply --check /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0018-launch-fixes.patch \
+  && git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0018-launch-fixes.patch
+cd /srv/64theatre && docker compose up -d --build --force-recreate
+docker exec 64theatre php artisan optimize:clear
+```
+
+Apply **after** 0017 — it builds on it.
+
+### The stuck payment screen
+
+Not settlement. Money was arriving and orders were settling correctly; the
+page simply never said so.
+
+`PayHeroGateway::pollStatus()` had **no timeout**. It runs inside the buyer's
+own page request — the browser polls `/orders/{uuid}/status` every few seconds
+and that handler calls PayHero — so a slow gateway left the fetch hanging and
+the buyer watched a spinner long after their money had gone. At a full house
+every hanging poll also holds a PHP-FPM worker, so this could have taken the
+whole site down rather than one page. Now 8s, with a 4s connect timeout.
+
+`orders/show.blade.php` ran **two** pollers against the same endpoint. The
+second reloaded only when `status` changed, so a FAILED payment — where status
+stays `awaiting_payment` — left it looping for ever. Removed.
+
+The `Cache::lock` throttle was released the instant the call returned and its
+TTL was shorter than the unbounded call it guarded. Replaced with an atomic
+once-per-10s-per-payment gate. The callback is what normally settles an order;
+this poll is only the fallback for when it does not arrive.
+
+The remaining loop now gives up after 3 minutes and says so, rather than
+spinning for ever.
+
+### Donations: the thank-you page never resolved
+
+Donations do **not** render `orders/show.blade.php` — `OrderController::show()`
+returns `donate.thanks` first. That page had its own poller which checked
+**only** for `paid`: a cancelled or refused prompt left it counting silently to
+forty and then stopping, so the donor watched a page that never resolved and
+never explained itself. It now reports failure and times out with an honest
+message.
+
+### Ticket lookup 500
+
+`orders/lookup.blade.php` called `$order->performance->starts_at->format()`,
+and `OrderController::lookup()` has no `type` filter — so donations appear in
+those results and donations have `performance_id = NULL`. Reading a property on
+null is a PHP warning, but **calling a method on it is fatal**, so one donation
+took down the whole results page including that buyer's real tickets.
+
+### Roles and privileges
+
+`role` was missing from the User model's `#[Fillable]`, so Filament **silently
+discarded it** and every user created in the admin came out as `event_manager`
+whatever was chosen. Three access checks tested for `admin` and `gate`, neither
+of which the enum can store, so `DoorStats`, `VerifyTicket` and order creation
+could never pass for anybody.
+
+`App\Support\Role` is now the single list, matching the enum exactly. The user
+form is a dropdown that says what each role reaches, and `UserResource` is
+restricted to administrators — previously anyone who could reach the panel
+could promote themselves.
+
+### Open dropdowns
+
+`category` and `language` are plain string columns that only looked fixed
+because the form hard-coded the list. They are now type-or-pick fields whose
+suggestions include every value already in use, so a category added once is
+offered to everybody afterwards. Organiser can be created inline.
+
+> **A Select was the wrong tool here and is worth remembering.** Filament puts
+> an implicit `in:` rule on a single-value Select built from its own options,
+> so a value typed into a create-option modal is rejected on save for not being
+> in the list it was never added to. That is fine for the venue picker, whose
+> new option becomes a real row. For a bare string the right control is a text
+> input with a datalist — which is what the ticket-type name field already
+> does.
+
+### Known gap, not fixed here
+
+**There is no refund path.** `Ledger::postRefund()` exists and is never called;
+a refund is a human picking "Refunded" from a dropdown and nothing observes it
+— no ticket voided, no ledger entry. The ledger overstates cash after any
+refund. Avoid refunds until this is built.
