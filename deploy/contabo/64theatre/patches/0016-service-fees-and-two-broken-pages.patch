@@ -1,0 +1,849 @@
+diff --git a/app/Filament/Pages/DoorStats.php b/app/Filament/Pages/DoorStats.php
+new file mode 100644
+index 0000000..dc0a537
+--- /dev/null
++++ b/app/Filament/Pages/DoorStats.php
+@@ -0,0 +1,130 @@
++<?php
++
++namespace App\Filament\Pages;
++
++use App\Models\Checkin;
++use App\Models\Performance;
++use App\Models\Ticket;
++use BackedEnum;
++use Filament\Forms\Components\Select;
++use Filament\Pages\Page;
++use Filament\Schemas\Components\EmbeddedSchema;
++use Filament\Schemas\Components\Form;
++use Filament\Schemas\Components\Section;
++use Filament\Schemas\Components\Text;
++use Filament\Schemas\Schema;
++use Filament\Support\Icons\Heroicon;
++
++/**
++ * How full the house is, right now.
++ *
++ * REPLACES A BROKEN MENU ITEM. The Door menu linked "Door stats" straight at
++ * route('gate.stats'), which is a JSON endpoint for the scanner's own polling
++ * and needs a performance_id it was never given. Clicking it showed the office
++ * {"checked_in":0,"issued":0} — raw JSON, always zero, no way back. A menu
++ * item must point at a page; that was my mistake and this is the page.
++ *
++ * Deliberately read-only. Admitting and verifying already have their own
++ * screens, and a count somebody is watching during a performance should not
++ * also be a place where a ticket can be spent by a mis-click.
++ */
++class DoorStats extends Page
++{
++    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedChartBar;
++
++    protected static string|\UnitEnum|null $navigationGroup = 'Door';
++
++    protected static ?int $navigationSort = 4;
++
++    protected static ?string $title = 'Door stats';
++
++    protected static ?string $slug = 'door-stats';
++
++    /** @var array<string, mixed>|null */
++    public ?array $data = [];
++
++    public static function canAccess(): bool
++    {
++        return in_array(auth()->user()?->role, ['super_admin', 'admin', 'finance', 'gate'], true);
++    }
++
++    public function mount(): void
++    {
++        $this->form->fill([
++            // Tonight's performance, not the newest record. Yesterday is still
++            // offered because a late-night show is settled the next morning.
++            'performance_id' => Performance::query()
++                ->where('starts_at', '>=', now()->subDay())
++                ->orderBy('starts_at')
++                ->value('id'),
++        ]);
++    }
++
++    public function form(Schema $schema): Schema
++    {
++        return $schema
++            ->components([
++                Select::make('performance_id')
++                    ->label('Performance')
++                    ->live()
++                    ->native(false)
++                    ->options(fn (): array => Performance::with('event')
++                        ->orderByDesc('starts_at')
++                        ->limit(60)
++                        ->get()
++                        ->mapWithKeys(fn (Performance $p): array => [
++                            $p->id => ($p->event?->title ?? 'Performance')
++                                .' — '.$p->starts_at?->format('D j M, H:i'),
++                        ])
++                        ->all()),
++            ])
++            ->statePath('data');
++    }
++
++    /** @return array<string, int|string> */
++    public function figures(): array
++    {
++        $id = (int) ($this->data['performance_id'] ?? 0);
++
++        if ($id === 0) {
++            return [];
++        }
++
++        $issued = Ticket::where('performance_id', $id)->whereIn('status', ['issued', 'redeemed'])->count();
++        $in = Checkin::where('performance_id', $id)->count();
++
++        return [
++            'issued' => $issued,
++            'in' => $in,
++            'out' => max($issued - $in, 0),
++            // Guarded: a performance with nothing issued would divide by zero,
++            // and an empty house is exactly when somebody opens this page.
++            'pct' => $issued > 0 ? (int) round($in / $issued * 100) : 0,
++        ];
++    }
++
++    public function content(Schema $schema): Schema
++    {
++        return $schema->components([
++            Form::make([EmbeddedSchema::make('form')])->id('form'),
++
++            Section::make('Tonight')
++                ->visible(fn (): bool => $this->figures() !== [])
++                ->schema([
++                    Text::make(function (): string {
++                        $f = $this->figures();
++
++                        return $f === []
++                            ? ''
++                            : "{$f['in']} of {$f['issued']} admitted ({$f['pct']}%) · {$f['out']} still to arrive";
++                    }),
++                ]),
++
++            Section::make()
++                ->visible(fn (): bool => $this->figures() === [])
++                ->schema([
++                    Text::make('Choose a performance to see how many have come in.'),
++                ]),
++        ]);
++    }
++}
+diff --git a/app/Filament/Pages/PaymentMethods.php b/app/Filament/Pages/PaymentMethods.php
+index 4c9cbb3..8fe0b97 100644
+--- a/app/Filament/Pages/PaymentMethods.php
++++ b/app/Filament/Pages/PaymentMethods.php
+@@ -5,9 +5,12 @@
+ use App\Models\AuditLog;
+ use App\Models\Setting;
+ use App\Support\PaymentSettings;
++use App\Support\PayHeroWallet;
++use App\Support\ServiceFeeSettings;
+ use BackedEnum;
+ use Filament\Actions\Action;
+ use Filament\Forms\Components\Select;
++use Filament\Forms\Components\TextInput;
+ use Filament\Forms\Components\Toggle;
+ use Filament\Notifications\Notification;
+ use Filament\Pages\Page;
+@@ -57,6 +60,10 @@ public function mount(): void
+             'gateway' => PaymentSettings::gateway(),
+             'online_enabled' => PaymentSettings::onlineEnabled(),
+             'offline_enabled' => PaymentSettings::offlineEnabled(),
++            'fee_percent' => ServiceFeeSettings::percent(),
++            'fee_flat' => ServiceFeeSettings::flatCents() / 100,
++            'platform_monthly' => ServiceFeeSettings::platformMonthlyCents() / 100,
++            'wallet_floor' => ServiceFeeSettings::walletFloorCents() / 100,
+         ]);
+     }
+ 
+@@ -97,6 +104,24 @@ public function form(Schema $schema): Schema
+                                 .'. These payments are NOT matched to an order automatically — the account number identifies the theatre, not the order — so somebody has to reconcile them by hand. Leave this off until you have a process for that.',
+                             ),
+                     ]),
++                Section::make('What it costs us to take money')
++                    ->description('Drives the Service fees panel on the dashboard.')
++                    ->schema([
++                        TextInput::make('fee_percent')
++                            ->label('Gateway fee (% of each collection)')
++                            ->numeric()->minValue(0)->maxValue(100)->step('0.01')->default(0)
++                            ->helperText('The agreed rate. Fees are ESTIMATED from it, because PayHero reports cost: 0 on this account — a figure taken from the callbacks would be confidently wrong.'),
++                        TextInput::make('fee_flat')
++                            ->label('Gateway fee (flat, per transaction, KES)')
++                            ->numeric()->minValue(0)->default(0),
++                        TextInput::make('platform_monthly')
++                            ->label('Platform & support (per month, KES)')
++                            ->numeric()->minValue(0)->default(0),
++                        TextInput::make('wallet_floor')
++                            ->label('Warn when the service wallet falls below (KES)')
++                            ->numeric()->minValue(0)->default(200)
++                            ->helperText('PayHero spends a PREPAID service wallet to send each prompt, separate from the money collected. An empty one refuses every prompt while the credentials and channel still look perfect — so it is worth being warned before a show, not during one.'),
++                    ]),
+             ])
+             ->statePath('data');
+     }
+@@ -132,6 +157,18 @@ public function save(): void
+         Setting::put(PaymentSettings::KEY_ONLINE_ENABLED, $data['online_enabled'] ? '1' : '0');
+         Setting::put(PaymentSettings::KEY_OFFLINE_ENABLED, $data['offline_enabled'] ? '1' : '0');
+ 
++        // Entered in shillings because that is what the agreement is written
++        // in; stored in cents because that is what every other amount in this
++        // app is, and one mixed unit is all it takes to be 100x out.
++        Setting::put(ServiceFeeSettings::KEY_PERCENT, (string) ((float) ($data['fee_percent'] ?? 0)));
++        Setting::put(ServiceFeeSettings::KEY_FLAT_CENTS, (string) (int) round(((float) ($data['fee_flat'] ?? 0)) * 100));
++        Setting::put(ServiceFeeSettings::KEY_PLATFORM_MONTHLY_CENTS, (string) (int) round(((float) ($data['platform_monthly'] ?? 0)) * 100));
++        Setting::put(ServiceFeeSettings::KEY_WALLET_FLOOR_CENTS, (string) (int) round(((float) ($data['wallet_floor'] ?? 0)) * 100));
++
++        // The dashboard caches the balance for five minutes; somebody who has
++        // just topped up should not have to wait it out.
++        PayHeroWallet::forget();
++
+         AuditLog::create([
+             'user_id' => auth()->id(),
+             'organiser_id' => auth()->user()?->organiser_id,
+diff --git a/app/Filament/Resources/Orders/Pages/CreateOrder.php b/app/Filament/Resources/Orders/Pages/CreateOrder.php
+index 0e21da3..79f99a1 100644
+--- a/app/Filament/Resources/Orders/Pages/CreateOrder.php
++++ b/app/Filament/Resources/Orders/Pages/CreateOrder.php
+@@ -2,10 +2,109 @@
+ 
+ namespace App\Filament\Resources\Orders\Pages;
+ 
++use App\Exceptions\SoldOutException;
+ use App\Filament\Resources\Orders\OrderResource;
++use App\Models\Payment;
++use App\Services\Checkout;
++use Filament\Notifications\Notification;
+ use Filament\Resources\Pages\CreateRecord;
++use Illuminate\Database\Eloquent\Model;
++use Illuminate\Support\Str;
+ 
++/**
++ * Creating an order from the office.
++ *
++ * The record is NOT built here. Everything that makes an order real — the
++ * oversell guard, promo validation, customer de-duplication by phone, the
++ * uuid, the totals and the tickets themselves — lives in Checkout, which the
++ * website and the box office already use. This page only translates the form
++ * into that call, so the desk and the website cannot drift apart.
++ */
+ class CreateOrder extends CreateRecord
+ {
+     protected static string $resource = OrderResource::class;
++
++    protected function handleRecordCreation(array $data): Model
++    {
++        // ticket_type_id => quantity, summed rather than assigned so two rows
++        // of the same type do not silently overwrite each other.
++        $items = [];
++
++        foreach ($data['lines'] ?? [] as $line) {
++            $id = (int) ($line['ticket_type_id'] ?? 0);
++            $qty = (int) ($line['quantity'] ?? 0);
++
++            if ($id > 0 && $qty > 0) {
++                $items[$id] = ($items[$id] ?? 0) + $qty;
++            }
++        }
++
++        if ($items === []) {
++            Notification::make()->title('Add at least one ticket')->danger()->send();
++            $this->halt();
++        }
++
++        try {
++            $order = app(Checkout::class)->startOrder(
++                items: $items,
++                phone: (string) $data['phone'],
++                name: $data['name'] ?? null,
++                channel: $data['channel'] ?? 'box_office',
++                marketingConsent: false,
++                promoCode: ($data['promo_code'] ?? null) ?: null,
++                email: ($data['email'] ?? null) ?: null,
++            );
++        } catch (SoldOutException $e) {
++            // The guard that matters: without it the desk can sell a seat the
++            // website has already sold.
++            Notification::make()
++                ->title('Not enough tickets left')
++                ->body($e->getMessage())
++                ->danger()
++                ->send();
++            $this->halt();
++        }
++
++        if (! ($data['mark_paid'] ?? false)) {
++            Notification::make()
++                ->title('Order created, unpaid')
++                ->body('No tickets are issued until it is paid.')
++                ->warning()
++                ->send();
++
++            return $order;
++        }
++
++        $payment = Payment::create([
++            'order_id' => $order->id,
++            // Only ever a method a human can genuinely vouch for — M-Pesa is
++            // kept out of the form for the same reason.
++            'gateway' => $data['payment_method'] ?? 'cash',
++            'gateway_ref' => ($data['payment_reference'] ?? null) ?: 'DESK-'.strtoupper(Str::random(8)),
++            'payer_phone' => $data['phone'],
++            'amount_cents' => $order->total_cents,
++            'status' => 'initiated',
++        ]);
++
++        $order = app(Checkout::class)->confirm($order, $payment);
++
++        Notification::make()
++            ->title('Paid — tickets issued')
++            ->body($order->tickets()->count().' ticket(s) for KES '.number_format($order->total_cents / 100).'.')
++            ->success()
++            ->send();
++
++        return $order;
++    }
++
++    // Suppressed: the messages above already said what happened, with numbers.
++    protected function getCreatedNotification(): ?Notification
++    {
++        return null;
++    }
++
++    protected function getRedirectUrl(): string
++    {
++        return static::getResource()::getUrl('view', ['record' => $this->getRecord()]);
++    }
+ }
+diff --git a/app/Filament/Resources/Orders/Schemas/OrderForm.php b/app/Filament/Resources/Orders/Schemas/OrderForm.php
+index af7aade..ebd2916 100644
+--- a/app/Filament/Resources/Orders/Schemas/OrderForm.php
++++ b/app/Filament/Resources/Orders/Schemas/OrderForm.php
+@@ -2,46 +2,198 @@
+ 
+ namespace App\Filament\Resources\Orders\Schemas;
+ 
+-use Filament\Forms\Components\DateTimePicker;
++use App\Models\Performance;
++use App\Models\TicketType;
++use Filament\Forms\Components\Repeater;
+ use Filament\Forms\Components\Select;
+ use Filament\Forms\Components\TextInput;
++use Filament\Forms\Components\Toggle;
++use Filament\Schemas\Components\Section;
+ use Filament\Schemas\Schema;
+ 
++/**
++ * Taking an order at the desk.
++ *
++ * WHAT THIS REPLACED, AND WHY IT COULD NOT WORK. The generated form exposed
++ * the orders table as-is: it asked a human to invent a UUID, typed `channel`
++ * and `status` into free text when both are database ENUMs — one typo and the
++ * insert throws — offered performances as bare numeric ids, wanted the money
++ * in cents, and, having collected all that, created an order with no tickets
++ * attached to it. An order without tickets is not an order.
++ *
++ * So the form now asks what a person at a desk actually knows — which
++ * performance, how many of what, whose phone number — and CreateOrder hands it
++ * to the same Checkout service the website and the box office use. That
++ * service holds the oversell guard, the promo rules, customer de-duplication
++ * and ticket issuing. Reimplementing any of that here would mean a second
++ * copy of the rules that quietly disagrees with the first.
++ */
+ class OrderForm
+ {
+     public static function configure(Schema $schema): Schema
+     {
+         return $schema
+             ->components([
+-                TextInput::make('uuid')
+-                    ->label('UUID')
+-                    ->required(),
+-                Select::make('organiser_id')
+-                    ->relationship('organiser', 'name')
+-                    ->required(),
+-                Select::make('customer_id')
+-                    ->relationship('customer', 'name'),
+-                Select::make('performance_id')
+-                    ->relationship('performance', 'id')
+-                    ->required(),
+-                TextInput::make('subtotal_cents')
+-                    ->required()
+-                    ->numeric(),
+-                TextInput::make('fees_cents')
+-                    ->required()
+-                    ->numeric()
+-                    ->default(0),
+-                TextInput::make('total_cents')
+-                    ->required()
+-                    ->numeric(),
+-                TextInput::make('promo_code'),
+-                TextInput::make('channel')
+-                    ->required()
+-                    ->default('online'),
+-                TextInput::make('status')
+-                    ->required()
+-                    ->default('pending'),
+-                DateTimePicker::make('expires_at'),
++                Section::make('What they are buying')
++                    ->visibleOn('create')
++                    ->schema([
++                        Select::make('performance_id')
++                            ->label('Performance')
++                            ->required()
++                            ->live()
++                            ->native(false)
++                            ->searchable()
++                            ->options(fn (): array => Performance::with('event')
++                                ->where('starts_at', '>=', now()->subWeek())
++                                ->orderBy('starts_at')
++                                ->limit(100)
++                                ->get()
++                                ->mapWithKeys(fn (Performance $p): array => [
++                                    $p->id => ($p->event?->title ?? 'Performance')
++                                        .' — '.$p->starts_at?->format('D j M Y, H:i'),
++                                ])
++                                ->all())
++                            // Changing the performance invalidates every line
++                            // below it; leaving them would sell tickets for one
++                            // show against another.
++                            ->afterStateUpdated(fn ($set) => $set('lines', [])),
++
++                        Repeater::make('lines')
++                            ->label('Tickets')
++                            ->required()
++                            ->minItems(1)
++                            ->addActionLabel('Add a ticket type')
++                            ->schema([
++                                Select::make('ticket_type_id')
++                                    ->label('Type')
++                                    ->required()
++                                    ->native(false)
++                                    ->options(function ($get): array {
++                                        $performance = $get('../../performance_id');
++
++                                        if (! $performance) {
++                                            return [];
++                                        }
++
++                                        return TicketType::where('performance_id', $performance)
++                                            ->orderBy('price_cents')
++                                            ->get()
++                                            ->mapWithKeys(fn (TicketType $t): array => [
++                                                $t->id => $t->name.' — KES '.number_format($t->price_cents / 100)
++                                                    .' ('.$t->remaining().' left)',
++                                            ])
++                                            ->all();
++                                    })
++                                    ->helperText(fn ($get): string => $get('../../performance_id')
++                                        ? ''
++                                        : 'Choose a performance first.'),
++
++                                TextInput::make('quantity')
++                                    ->label('How many')
++                                    ->numeric()
++                                    ->required()
++                                    ->minValue(1)
++                                    ->maxValue(50)
++                                    ->default(1),
++                            ])
++                            ->columns(2),
++                    ]),
++
++                Section::make('Who it is for')
++                    ->visibleOn('create')
++                    ->schema([
++                        TextInput::make('phone')
++                            ->label('Phone')
++                            ->required()
++                            ->tel()
++                            // The same rule the box office uses. The phone is
++                            // the identity here: it de-duplicates the customer
++                            // and it is where the ticket goes.
++                            ->rule('regex:/^(?:\+?254|0)?(7|1)\d{8}$/')
++                            ->helperText('07…, 01… or +2547… — this is how the ticket reaches them.'),
++                        TextInput::make('name')->label('Name'),
++                        TextInput::make('email')->label('Email')->email(),
++                        TextInput::make('promo_code')->label('Promo code'),
++                    ])
++                    ->columns(2),
++
++                Section::make('How it was paid')
++                    ->visibleOn('create')
++                    ->schema([
++                        Select::make('channel')
++                            ->label('Taken at')
++                            ->required()
++                            ->native(false)
++                            // A Select, not free text: `channel` is an enum
++                            // column and anything else is an SQL error.
++                            ->options([
++                                'box_office' => 'Box office / desk',
++                                'invoice' => 'Invoice',
++                                'online' => 'Online',
++                            ])
++                            ->default('box_office'),
++
++                        Toggle::make('mark_paid')
++                            ->label('Money already received')
++                            ->default(true)
++                            ->live()
++                            ->helperText('On: tickets are issued now. Off: the order waits unpaid and nothing is issued.'),
++
++                        Select::make('payment_method')
++                            ->label('Received as')
++                            ->native(false)
++                            ->options(['cash' => 'Cash', 'bank_transfer' => 'Bank transfer'])
++                            ->default('cash')
++                            ->visible(fn ($get): bool => (bool) $get('mark_paid'))
++                            // M-Pesa is absent deliberately: an STK payment is
++                            // confirmed by its webhook when the money lands.
++                            // Letting an operator declare one received is how a
++                            // theatre issues tickets for money it never got.
++                            ->helperText('M-Pesa is not here on purpose — those confirm themselves from the gateway.'),
++
++                        TextInput::make('payment_reference')
++                            ->label('Reference')
++                            ->visible(fn ($get): bool => (bool) $get('mark_paid'))
++                            ->helperText('Receipt or slip number, if there is one.'),
++                    ])
++                    ->columns(2),
++
++                /* --------------------------------------------------------- */
++                /* Editing an order that already exists. The money and the
++                   buyer are settled facts: changing a total here would not
++                   change the tickets, the payments, or anything the customer
++                   is holding — so they are shown, not edited. */
++                Section::make('Order')
++                    ->visibleOn('edit')
++                    ->schema([
++                        Select::make('status')
++                            ->label('Status')
++                            ->native(false)
++                            ->required()
++                            ->options([
++                                'pending' => 'Pending',
++                                'awaiting_payment' => 'Awaiting payment',
++                                'paid' => 'Paid',
++                                'cancelled' => 'Cancelled',
++                                'refunded' => 'Refunded',
++                                'expired' => 'Expired',
++                            ])
++                            ->helperText('Marking an order paid here does NOT issue tickets — a real payment or the box office does that.'),
++                        Select::make('channel')
++                            ->label('Taken at')
++                            ->native(false)
++                            ->required()
++                            ->options([
++                                'online' => 'Online',
++                                'box_office' => 'Box office / desk',
++                                'invoice' => 'Invoice',
++                            ]),
++                        TextInput::make('uuid')->label('Reference')->disabled(),
++                        TextInput::make('promo_code')->label('Promo code')->disabled(),
++                        TextInput::make('subtotal_cents')->label('Subtotal (cents)')->numeric()->disabled(),
++                        TextInput::make('total_cents')->label('Total (cents)')->numeric()->disabled(),
++                    ])
++                    ->columns(2),
+             ]);
+     }
+ }
+diff --git a/app/Filament/Widgets/ServiceFees.php b/app/Filament/Widgets/ServiceFees.php
+new file mode 100644
+index 0000000..810fbaf
+--- /dev/null
++++ b/app/Filament/Widgets/ServiceFees.php
+@@ -0,0 +1,93 @@
++<?php
++
++namespace App\Filament\Widgets;
++
++use App\Models\Payment;
++use App\Support\PayHeroWallet;
++use App\Support\ServiceFeeSettings;
++use Filament\Widgets\StatsOverviewWidget;
++use Filament\Widgets\StatsOverviewWidget\Stat;
++
++/**
++ * What taking money costs — the other side of SalesOverview.
++ *
++ * Revenue without its cost of collection flatters every figure above it, and
++ * the prepaid service wallet is the one balance that silently stops a show
++ * selling. Both belong where the office already looks.
++ *
++ * Fees are an ESTIMATE from the agreed rate, and say so. PayHero's callbacks
++ * on this account report `cost: 0`, so a figure claimed as actual would be
++ * confidently wrong — see ServiceFeeSettings.
++ */
++class ServiceFees extends StatsOverviewWidget
++{
++    protected static ?int $sort = 4;
++
++    protected function getStats(): array
++    {
++        $wallet = PayHeroWallet::service();
++        $floor = ServiceFeeSettings::walletFloorCents();
++
++        $walletStat = match (true) {
++            $wallet === null => Stat::make('Service wallet', 'Unavailable')
++                ->description('PayHero could not be reached, or no credentials are set')
++                ->color('gray'),
++
++            $wallet['status'] !== null && $wallet['status'] !== 'ACTIVE' => Stat::make(
++                'Service wallet',
++                'KES '.number_format($wallet['balance_cents'] / 100),
++            )
++                ->description('Wallet is '.$wallet['status'].', not ACTIVE — prompts may be refused')
++                ->color('danger'),
++
++            $wallet['balance_cents'] < $floor => Stat::make(
++                'Service wallet',
++                'KES '.number_format($wallet['balance_cents'] / 100),
++            )
++                // The failure this prevents: an empty service wallet refuses
++                // every prompt while everything else still looks healthy.
++                ->description('Low — top up or M-Pesa prompts will stop')
++                ->color('danger'),
++
++            default => Stat::make('Service wallet', 'KES '.number_format($wallet['balance_cents'] / 100))
++                ->description('Prepaid balance PayHero spends per prompt')
++                ->color('success'),
++        };
++
++        if (! ServiceFeeSettings::anyRateSet()) {
++            return [
++                $walletStat,
++                Stat::make('Service fees', 'Not set')
++                    ->description('Enter the rates under Sales → Payment methods')
++                    ->color('gray'),
++            ];
++        }
++
++        // Only money that actually moved through the gateway carries a gateway
++        // fee. Cash at the door costs PayHero nothing and billing it would be
++        // wrong.
++        $base = Payment::where('status', 'confirmed')->whereIn('gateway', ['mpesa_stk', 'aggregator', 'card']);
++
++        $monthAmounts = (clone $base)->whereBetween('created_at', [now()->startOfMonth(), now()->endOfMonth()])
++            ->pluck('amount_cents');
++        $allAmounts = (clone $base)->pluck('amount_cents');
++
++        $feeOf = fn ($amounts) => $amounts->sum(fn (int $c) => ServiceFeeSettings::feeOnCents($c));
++
++        $monthFees = $feeOf($monthAmounts) + ServiceFeeSettings::platformMonthlyCents();
++        $allFees = $feeOf($allAmounts);
++
++        $rate = rtrim(rtrim(number_format(ServiceFeeSettings::percent(), 2), '0'), '.');
++        $flat = ServiceFeeSettings::flatCents();
++
++        return [
++            $walletStat,
++            Stat::make('Fees this month (est.)', 'KES '.number_format($monthFees / 100))
++                ->description($monthAmounts->count().' gateway payments · '.$rate.'%'
++                    .($flat > 0 ? ' + KES '.number_format($flat / 100).' each' : '')
++                    .(ServiceFeeSettings::platformMonthlyCents() > 0 ? ' + monthly fee' : '')),
++            Stat::make('Gateway fees to date (est.)', 'KES '.number_format($allFees / 100))
++                ->description('Excludes cash — only money that went through the gateway'),
++        ];
++    }
++}
+diff --git a/app/Providers/Filament/AdminPanelProvider.php b/app/Providers/Filament/AdminPanelProvider.php
+index b196b31..760c837 100644
+--- a/app/Providers/Filament/AdminPanelProvider.php
++++ b/app/Providers/Filament/AdminPanelProvider.php
+@@ -94,11 +94,6 @@ public function panel(Panel $panel): Panel
+                     ->icon(Heroicon::OutlinedBuildingStorefront)
+                     ->sort(3)
+                     ->url(fn (): string => route('gate.sell'), shouldOpenInNewTab: true),
+-                NavigationItem::make('Door stats')
+-                    ->group('Door')
+-                    ->icon(Heroicon::OutlinedChartBar)
+-                    ->sort(4)
+-                    ->url(fn (): string => route('gate.stats'), shouldOpenInNewTab: true),
+             ])
+             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\Filament\Resources')
+             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\Filament\Pages')
+diff --git a/app/Support/PayHeroWallet.php b/app/Support/PayHeroWallet.php
+new file mode 100644
+index 0000000..2e00787
+--- /dev/null
++++ b/app/Support/PayHeroWallet.php
+@@ -0,0 +1,96 @@
++<?php
++
++namespace App\Support;
++
++use Illuminate\Support\Facades\Cache;
++use Illuminate\Support\Facades\Http;
++use Illuminate\Support\Facades\Log;
++
++/**
++ * The prepaid SERVICE wallet balance, read from PayHero.
++ *
++ * This is the number that stops a show selling. PayHero spends the service
++ * wallet to send each STK prompt — separate from the money being collected —
++ * and an empty one refuses every prompt while the credentials, the channel and
++ * the callbacks all still look perfect. It is the least obvious failure in the
++ * whole payment path, so it belongs on the dashboard rather than in a script
++ * somebody remembers to run.
++ *
++ * THREE RULES, because this is a live third-party call on a page load:
++ *   · cached for five minutes — a dashboard refresh must not hammer PayHero;
++ *   · a short timeout — a slow gateway must not hold the admin open;
++ *   · every failure returns null, never an exception. An unreachable API is a
++ *     "balance unavailable" note, not a broken dashboard.
++ *
++ * The response shape was confirmed against the live account: a list of wallet
++ * objects, each tagged `wallet_type`, holding `available_balance`. It is NOT a
++ * flat `service_balance` key, which is the obvious guess and is wrong.
++ */
++class PayHeroWallet
++{
++    private const CACHE_KEY = 'payhero:service_wallet';
++
++    private const TTL_SECONDS = 300;
++
++    /** @return array{balance_cents:int,status:?string}|null */
++    public static function service(): ?array
++    {
++        if (! config('services.payhero.username') || ! config('services.payhero.password')) {
++            return null;
++        }
++
++        return Cache::remember(self::CACHE_KEY, self::TTL_SECONDS, fn () => self::fetch());
++    }
++
++    public static function forget(): void
++    {
++        Cache::forget(self::CACHE_KEY);
++    }
++
++    /** @return array{balance_cents:int,status:?string}|null */
++    private static function fetch(): ?array
++    {
++        try {
++            $response = Http::withBasicAuth(
++                (string) config('services.payhero.username'),
++                (string) config('services.payhero.password'),
++            )
++                ->timeout(8)
++                ->acceptJson()
++                ->get(rtrim((string) config('services.payhero.base_url'), '/').'/api/v2/wallets');
++
++            if (! $response->successful()) {
++                return null;
++            }
++
++            $body = $response->json();
++
++            // The endpoint has been seen returning a bare list, and a list
++            // wrapped under `data` or `wallets`. Accept all three rather than
++            // betting on one.
++            $rows = is_array($body) && array_is_list($body)
++                ? $body
++                : ($body['data'] ?? $body['wallets'] ?? [$body]);
++
++            foreach ($rows as $wallet) {
++                if (! is_array($wallet) || ($wallet['wallet_type'] ?? null) !== 'service_wallet') {
++                    continue;
++                }
++
++                return [
++                    // PayHero reports whole shillings; the rest of this app
++                    // counts in cents and mixing the two silently is how a
++                    // balance reads 100× too low.
++                    'balance_cents' => (int) round(((float) ($wallet['available_balance'] ?? 0)) * 100),
++                    'status' => $wallet['wallet_status'] ?? null,
++                ];
++            }
++
++            return null;
++        } catch (\Throwable $e) {
++            Log::warning('payhero.wallet_lookup_failed', ['error' => $e->getMessage()]);
++
++            return null;
++        }
++    }
++}
+diff --git a/app/Support/ServiceFeeSettings.php b/app/Support/ServiceFeeSettings.php
+new file mode 100644
+index 0000000..d6cf79f
+--- /dev/null
++++ b/app/Support/ServiceFeeSettings.php
+@@ -0,0 +1,71 @@
++<?php
++
++namespace App\Support;
++
++use App\Models\Setting;
++
++/**
++ * What it costs 64 Theatre to take money — the gateway's cut and the platform
++ * fee — expressed as rates the office enters, not numbers somebody asserts.
++ *
++ * WHY RATES AND NOT RECORDED COSTS. PayHero does not reliably report a
++ * per-transaction cost back to us: the callbacks observed on this account
++ * carry `cost: 0`, so a figure read from them would be confidently wrong.
++ * What IS known is the agreed rate, so the fee is derived from confirmed
++ * payments at that rate and labelled an estimate, which is honest. If PayHero
++ * ever starts returning a real cost, prefer it over this.
++ *
++ * Rates default to zero. A charge nobody has agreed must never appear by
++ * itself on a dashboard somebody makes decisions from.
++ */
++class ServiceFeeSettings
++{
++    public const KEY_PERCENT = 'fees.gateway_percent';
++
++    public const KEY_FLAT_CENTS = 'fees.gateway_flat_cents';
++
++    public const KEY_PLATFORM_MONTHLY_CENTS = 'fees.platform_monthly_cents';
++
++    public const KEY_WALLET_FLOOR_CENTS = 'fees.wallet_floor_cents';
++
++    /** Percentage of each collection taken by the gateway. */
++    public static function percent(): float
++    {
++        return (float) (Setting::get(self::KEY_PERCENT) ?? 0);
++    }
++
++    /** Flat charge per transaction, in cents. */
++    public static function flatCents(): int
++    {
++        return (int) (Setting::get(self::KEY_FLAT_CENTS) ?? 0);
++    }
++
++    /** Monthly platform/support fee, in cents. */
++    public static function platformMonthlyCents(): int
++    {
++        return (int) (Setting::get(self::KEY_PLATFORM_MONTHLY_CENTS) ?? 0);
++    }
++
++    /**
++     * Below this the service wallet is called low on the dashboard.
++     *
++     * PayHero spends the SERVICE wallet to send each prompt, and an empty one
++     * refuses every request while the credentials and channel still look
++     * perfect — so this is a warning worth having before a show, not after.
++     */
++    public static function walletFloorCents(): int
++    {
++        return (int) (Setting::get(self::KEY_WALLET_FLOOR_CENTS) ?? 20000);
++    }
++
++    /** Estimated fee on one collection, in cents. */
++    public static function feeOnCents(int $amountCents): int
++    {
++        return (int) round($amountCents * self::percent() / 100) + self::flatCents();
++    }
++
++    public static function anyRateSet(): bool
++    {
++        return self::percent() > 0 || self::flatCents() > 0 || self::platformMonthlyCents() > 0;
++    }
++}

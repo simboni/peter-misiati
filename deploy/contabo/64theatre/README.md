@@ -657,6 +657,86 @@ and Brevo stops sending rather than queueing — a buyer simply gets no ticket.
 A show selling a few hundred tickets wants either its own account or a paid
 plan.
 
+## What it costs to take money (patch 0016)
+
+```bash
+cd /srv/64theatre/repo && git pull
+git apply --check /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0016-service-fees-and-two-broken-pages.patch \
+  && git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0016-service-fees-and-two-broken-pages.patch
+docker compose -f /srv/64theatre/compose.yml up -d --build
+docker exec 64theatre-app php artisan optimize:clear
+```
+
+A **Service fees** panel on the dashboard, beside the sales figures, and its
+parameters under **Sales → Payment methods**. Three stats:
+
+- **Service wallet** — the live PayHero balance. This is the one that stops a
+  show selling: PayHero spends a *prepaid* service wallet to send each prompt,
+  separate from the money being collected, and an empty one refuses every
+  prompt while the credentials, the channel and the callbacks all still look
+  perfect. It goes red below a floor you set.
+- **Fees this month**, **gateway fees to date** — estimated at the agreed rate,
+  over confirmed gateway payments only. Cash at the door is excluded; it costs
+  PayHero nothing.
+
+**They are estimates and the screen says so.** PayHero's callbacks on this
+account report `cost: 0`, so a figure presented as actual would be confidently
+wrong. The rate you enter is the thing actually known, so the fee is derived
+from it. If PayHero ever starts returning a real cost, prefer that.
+
+The wallet lookup is cached for five minutes, times out in eight seconds, and
+returns "Unavailable" on any failure. A third-party call on a dashboard must
+not be able to take the dashboard down. Saving the settings clears that cache,
+so a top-up shows immediately.
+
+Rates default to zero — nothing is charged until somebody enters it.
+
+## Two pages that did not work
+
+### Door stats
+
+The Door menu linked **Door stats** straight at `route('gate.stats')`. That
+route is a JSON endpoint the scanner polls, and it needs a `performance_id` it
+was never given — so the office got `{"checked_in":0,"issued":0}`, always zero,
+with no way back. My mistake, in patch 0009: a menu item has to point at a
+page.
+
+There is now a real **Door → Door stats** page: pick a performance, see how
+many of the issued tickets have come in, the percentage, and how many are
+still to arrive. Read-only on purpose — admitting and verifying have their own
+screens, and a count somebody watches during a performance should not also be
+somewhere a ticket can be spent by a mis-click.
+
+### Creating an order from the admin
+
+The form was generated from the database table and could not have worked. It
+asked a human to invent a **UUID**; it typed `channel` and `status` into free
+text when both are **enum** columns, so one typo throws; it listed performances
+as bare numeric ids; it wanted the money in **cents**; and after all that it
+created an order with **no tickets attached**.
+
+It now asks what someone at a desk knows — which performance, how many of what
+type, whose phone number — and hands it to the same `Checkout` service the
+website and the box office already use. That service owns the oversell guard,
+promo validation, customer de-duplication by phone, the uuid, the totals and
+ticket issuing. Writing any of that again here would mean a second copy of the
+rules that quietly disagrees with the first.
+
+**M-Pesa is deliberately not a payment option on that form.** An STK payment is
+confirmed by its webhook when the money actually lands; letting an operator
+declare one received is how a theatre issues tickets for money it never got.
+Cash and bank transfer are there, because a person can vouch for those.
+
+On the edit screen, status and channel are now dropdowns rather than free text,
+and the money fields are shown but not editable — changing a total there would
+not change the tickets, the payments, or anything the customer is holding.
+
+> **Not verified at runtime.** This repo has no `vendor/` in my working copy,
+> so I could lint the PHP and check every Filament call against existing usage
+> in this codebase, but I could not boot the panel. Open the three screens
+> after deploying — dashboard, Door stats, and creating one order — before
+> trusting them in front of a customer.
+
 ## Upgrading to production
 
 Apply `0002` **before** this section, or the first thing a production install
