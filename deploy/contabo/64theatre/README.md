@@ -784,6 +784,50 @@ additive change, and the SQLite data can be migrated across.
 - Always use `-f /srv/64theatre/compose.yml` so a command can never act on
   another project.
 
+## Memory, and what the load test is really measuring
+
+`compose.yml` caps the app at **1GB**, raised from 512MB.
+
+PHP-FPM spawns a worker per concurrent request and each boots the framework at
+roughly 50MB, so 512MB ceilinged real throughput at about eight simultaneous
+buyers — and when it was reached the kernel killed workers rather than queueing
+them. That is a worse failure than slowness: the buyer gets nothing.
+
+It surfaced through `deploy/loadtest/run.sh`. Thirty concurrent purchases
+inside the container left 291 of 300 processes killed before they printed
+anything, while the harness happily reported PASS. Both are fixed — the limit
+is 1GB, and the harness now reconciles every buyer and fails on a shortfall.
+
+Pick up the new limit with a re-copy, not just a rebuild — the limit lives in
+the compose file, not the image:
+
+```bash
+cp /srv/smp-portfolio/repo/deploy/contabo/64theatre/compose.yml /srv/64theatre/
+cd /srv/64theatre && docker compose up -d --force-recreate
+docker inspect 64theatre --format '{{.HostConfig.Memory}}'   # 1073741824
+```
+
+### Running the load test
+
+```bash
+docker exec 64theatre bash deploy/loadtest/run.sh 200 150 8
+```
+
+Buyers, seats, concurrency. **Inside the container keep concurrency at or
+below 8** even at 1GB: each simulated buyer is a full framework boot, so the
+test competes for memory with the FPM workers it is meant to be measuring.
+For a realistic picture of a rush, run it on the host against a checkout of
+the repo instead, where nothing is capped.
+
+Measured on an uncapped machine: **1000 sales at 25 concurrent completed with
+zero errors and nothing oversold**, median 592ms, p95 2.9s. At 50 concurrent
+ten buyers were turned away with "database is locked" — that is SQLite's
+ceiling, and it is the reason to move to Postgres if a single on-sale moment
+is ever expected to draw a crowd.
+
+Read `VANISHED` in the output before anything else. If it is not 0 the run did
+not happen and the other numbers mean nothing.
+
 ## Launch fixes (patch 0018)
 
 ```bash

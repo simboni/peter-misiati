@@ -111,7 +111,18 @@ services:
       - 64theatre-storage:/var/www/html/storage/app
     networks:
       - edge
-    mem_limit: 512m
+    # 1GB, not 512MB. PHP-FPM spawns a worker per concurrent request and
+    # each boots the framework at roughly 50MB, so 512MB caps real
+    # throughput at about eight simultaneous buyers — and the kernel
+    # kills workers rather than queueing them. Found with the load test:
+    # 30 concurrent purchases inside this container left 291 of 300
+    # processes killed before they printed anything.
+    #
+    # The box has ~9GB free and this is the app that takes money on a
+    # show night, so the headroom belongs here. Still capped, because an
+    # uncapped container on a swapless box gets another client's database
+    # killed instead of itself.
+    mem_limit: 1g
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/up || exit 1"]
       interval: 30s
