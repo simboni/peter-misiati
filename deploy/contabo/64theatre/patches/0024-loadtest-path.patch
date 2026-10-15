@@ -1,0 +1,28 @@
+diff --git a/deploy/loadtest/buyer.php b/deploy/loadtest/buyer.php
+index 5e98af1..1b4d68a 100644
+--- a/deploy/loadtest/buyer.php
++++ b/deploy/loadtest/buyer.php
+@@ -1,5 +1,8 @@
+ <?php
+-$root = '/home/user/64theatre-platform';
++// Derived, never hardcoded: this runs from the repo on a laptop and
++// from /var/www/html inside the container, and a fixed path works in
++// exactly one of those.
++$root = dirname(__DIR__, 2);
+ require $root.'/vendor/autoload.php';
+ $app = require $root.'/bootstrap/app.php';
+ putenv('DB_CONNECTION=sqlite'); putenv('DB_DATABASE='.getenv('SIM_DB'));
+diff --git a/deploy/loadtest/setup.php b/deploy/loadtest/setup.php
+index 3ebcf65..0d8201f 100644
+--- a/deploy/loadtest/setup.php
++++ b/deploy/loadtest/setup.php
+@@ -1,5 +1,8 @@
+ <?php
+-$root = '/home/user/64theatre-platform';
++// Derived, never hardcoded: this runs from the repo on a laptop and
++// from /var/www/html inside the container, and a fixed path works in
++// exactly one of those.
++$root = dirname(__DIR__, 2);
+ require $root.'/vendor/autoload.php';
+ $app = require $root.'/bootstrap/app.php';
+ putenv('DB_CONNECTION=sqlite'); putenv('DB_DATABASE='.getenv('SIM_DB'));
