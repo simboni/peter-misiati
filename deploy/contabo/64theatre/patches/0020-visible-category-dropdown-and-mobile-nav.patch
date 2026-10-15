@@ -1,0 +1,227 @@
+diff --git a/app/Filament/Forms/Components/OpenSelect.php b/app/Filament/Forms/Components/OpenSelect.php
+index ee6bace..b09254f 100644
+--- a/app/Filament/Forms/Components/OpenSelect.php
++++ b/app/Filament/Forms/Components/OpenSelect.php
+@@ -2,55 +2,71 @@
+ 
+ namespace App\Filament\Forms\Components;
+ 
++use Filament\Forms\Components\Select;
+ use Filament\Forms\Components\TextInput;
+ use Illuminate\Support\Facades\DB;
+ 
+ /**
+- * A field you can type a new value into, which also suggests the ones already
+- * in use.
++ * A dropdown you can add to.
+  *
+- * The problem: category and language are plain string columns, but the form
+- * offered a fixed list, so a show that was not theatre, a festival, a workshop
+- * or a concert had to be filed as "Other". The column never needed a migration
+- * to accept a new value — only the form stood in the way.
++ * Category and language are plain string columns, but the form offered a fixed
++ * list, so a show that was not theatre, a festival, a workshop or a concert had
++ * to be filed as "Other". The column never needed a migration to accept a new
++ * value — only the form stood in the way.
+  *
+- * WHY A TEXT INPUT AND NOT A SELECT. The obvious move is a Select with
+- * createOptionForm, as VenuePicker uses. That works for a venue because the
+- * option becomes a real row, so it is in the list the next time it is read.
+- * A bare string has no row: Filament puts an implicit `in:` validation rule on
+- * a single-value Select built from its own options, so a value typed into a
+- * create-option modal is rejected on save for not being in the list it was
+- * never added to. The "+" button becomes a dead end that fails at the last
+- * step.
++ * THE PART THAT IS NOT OBVIOUS. A Select validates its own state with an
++ * implicit `in:` rule, and `Select::getInValidationRuleValues()` returns an
++ * empty allow-list — which rejects everything — when `getOptionLabel()` comes
++ * back blank. A value typed into the create-option modal is not in the options
++ * list, so its label is blank, so saving fails with "the selected category is
++ * invalid" on a field the user just created.
+  *
+- * A TextInput carries no such rule, and `datalist` is already how this
+- * codebase does pick-or-type — see the ticket-type name field in CreateEvent
+- * and PerformancesRelationManager.
++ * `getOptionLabelUsing()` is the way out: when it is set, getOptionLabel()
++ * defers to it, the label is non-blank for ANY value, and the method returns
++ * null — meaning no `in:` rule is attached at all. The dropdown then behaves
++ * like a dropdown and still accepts a new entry.
+  *
+- * The suggestions are the seeded list PLUS every distinct value already stored,
+- * so a category somebody adds once is offered to everybody afterwards and the
+- * vocabulary converges instead of sprawling.
++ * A TextInput with a datalist also accepts anything, and was the first thing
++ * tried here. It was wrong for a different reason: datalist suggestions stay
++ * hidden until the user types, so from the client's side the dropdown had
++ * simply vanished.
++ *
++ * Suggestions are the seeded list plus every distinct value already stored, so
++ * a category added once is offered to everybody afterwards and the vocabulary
++ * converges instead of sprawling.
+  */
+ class OpenSelect
+ {
+     /**
+-     * @param  array<string, string>  $seeded  value => label (labels are for
+-     *                                         readability at the call site;
+-     *                                         the stored value is the key)
++     * @param  array<string, string>  $seeded  value => label
+      */
+-    public static function make(string $name, string $table, string $column, array $seeded = []): TextInput
++    public static function make(string $name, string $table, string $column, array $seeded = []): Select
+     {
+-        return TextInput::make($name)
+-            ->datalist(fn (): array => self::suggestions($table, $column, $seeded))
+-            ->maxLength(60)
+-            ->helperText('Pick one of the suggestions, or type a new one.');
++        return Select::make($name)
++            ->native(false)
++            ->searchable()
++            ->options(fn (): array => self::options($table, $column, $seeded))
++            // Load-bearing: see the note above. Without this, anything added
++            // through the + button is rejected on save.
++            ->getOptionLabelUsing(fn (mixed $value): ?string => filled($value) ? (string) $value : null)
++            ->createOptionForm([
++                TextInput::make($column)
++                    ->label('Name')
++                    ->required()
++                    ->maxLength(60),
++            ])
++            // The "new option" is just the string itself — there is no row to
++            // create, which is exactly why the venue picker's approach does not
++            // transfer here.
++            ->createOptionUsing(fn (array $data): string => trim((string) ($data[$column] ?? '')))
++            ->createOptionModalHeading('Add a new '.$name);
+     }
+ 
+     /**
+      * @param  array<string, string>  $seeded
+-     * @return array<int, string>
++     * @return array<string, string>
+      */
+-    public static function suggestions(string $table, string $column, array $seeded): array
++    public static function options(string $table, string $column, array $seeded): array
+     {
+         $existing = [];
+ 
+@@ -69,6 +85,16 @@ public static function suggestions(string $table, string $column, array $seeded)
+             $existing = [];
+         }
+ 
+-        return array_values(array_unique(array_merge(array_keys($seeded), $existing)));
++        $options = $seeded;
++
++        foreach ($existing as $value) {
++            if (! array_key_exists($value, $options)) {
++                // Stored values are shown exactly as they were typed. Guessing
++                // a prettier label would make the list disagree with the data.
++                $options[$value] = $value;
++            }
++        }
++
++        return $options;
+     }
+ }
+diff --git a/resources/views/layout.blade.php b/resources/views/layout.blade.php
+index 5bb3cbc..eef6fa8 100644
+--- a/resources/views/layout.blade.php
++++ b/resources/views/layout.blade.php
+@@ -55,6 +55,36 @@
+         }
+         .top nav a.cta:hover{background:var(--lamp-bright); color:#2A1500}
+ 
++        /* Donate as a quieter pill than Get Tickets: clearly a button, clearly
++           not the primary action. On a phone it is the only way the audience
++           finds it, so it must read as tappable rather than as body text. */
++        .top nav a.give{
++            color:var(--lamp); border:1px solid rgba(232,163,61,.5);
++            padding:7px 14px; border-radius:100px; font-weight:600;
++        }
++        .top nav a.give:hover{color:#2A1500; background:var(--lamp)}
++
++        /* The overflow menu. <details> gives a dropdown with no JavaScript —
++           it still opens if a script fails, and it is keyboard-accessible
++           without any ARIA wiring of ours. */
++        .menu{display:none; position:relative}
++        .menu > summary{
++            list-style:none; cursor:pointer; color:var(--bone); padding:6px 8px;
++            border:1px solid var(--line); border-radius:10px; line-height:1;
++        }
++        .menu > summary::-webkit-details-marker{display:none}
++        .menu > summary svg{display:block; width:20px; height:20px; stroke:currentColor; fill:none; stroke-width:1.8}
++        .menu[open] > summary{border-color:rgba(232,163,61,.5)}
++        .menu-panel{
++            position:absolute; right:0; top:calc(100% + 10px); min-width:190px; z-index:60;
++            background:#1b1317; border:1px solid var(--line); border-radius:14px; padding:6px;
++            box-shadow:0 18px 40px rgba(0,0,0,.45);
++        }
++        .top nav .menu-panel a{
++            display:block; padding:11px 14px; border-radius:9px; font-size:.95rem; color:var(--bone);
++        }
++        .top nav .menu-panel a:hover{background:rgba(232,163,61,.12); color:var(--lamp)}
++
+         /* ── kenyan bead strip (brand signature) ── */
+         .beads{height:5px; background:
+             repeating-linear-gradient(90deg,
+@@ -120,9 +150,22 @@
+ 
+         @media (max-width:560px){
+             .top-inner{padding:12px 14px}
+-            .top nav{gap:12px}
+-            .top nav a.hide-sm{display:none}
+-            .top nav a.cta{padding:8px 16px; font-size:.8rem}
++            .top nav{gap:9px}
++            /* Secondary links move into the menu. Donate does NOT — hiding it
++               here is what made it invisible on every phone, and it is the
++               ask on the night. */
++            .top nav a.in-menu{display:none}
++            .menu{display:block}
++            .brand{font-size:1.08rem}
++            .top nav a.cta{padding:8px 14px; font-size:.78rem}
++            .top nav a.give{padding:7px 12px; font-size:.78rem}
++        }
++        /* Smallest handsets: the brand yields space before the buttons do. */
++        @media (max-width:360px){
++            .brand{font-size:.98rem}
++            .top nav{gap:7px}
++            .top nav a.cta{padding:7px 11px; font-size:.74rem}
++            .top nav a.give{padding:6px 10px; font-size:.74rem}
+         }
+         @media (prefers-reduced-motion: reduce){
+             *,*::before,*::after{animation-duration:.01ms !important; animation-iteration-count:1 !important; transition-duration:.01ms !important}
+@@ -137,10 +180,23 @@
+     <div class="top-inner">
+         <a class="brand" href="{{ route('events.index') }}">64<span>THEATRE</span></a>
+         <nav>
+-            <a class="hide-sm" href="{{ route('events.index') }}">What's On</a>
+-            <a href="{{ route('orders.lookup.form') }}">My Tickets</a>
+-            <a class="hide-sm" href="{{ route('donate.create') }}">Donate</a>
++            <a class="in-menu" href="{{ route('events.index') }}">What's On</a>
++            <a class="in-menu" href="{{ route('orders.lookup.form') }}">My Tickets</a>
++            <a class="give" href="{{ route('donate.create') }}">Donate</a>
+             <a class="cta" href="{{ route('events.index') }}#whats-on">Get Tickets</a>
++
++            <details class="menu">
++                <summary aria-label="Menu" title="Menu">
++                    <svg viewBox="0 0 24 24" aria-hidden="true" stroke-linecap="round">
++                        <path d="M4 7h16M4 12h16M4 17h16"/>
++                    </svg>
++                </summary>
++                <div class="menu-panel">
++                    <a href="{{ route('events.index') }}">What's On</a>
++                    <a href="{{ route('orders.lookup.form') }}">My Tickets</a>
++                    <a href="{{ route('donate.create') }}">Donate</a>
++                </div>
++            </details>
+         </nav>
+     </div>
+ </header>
+@@ -154,7 +210,7 @@
+             <p>Eldoret's home of live theatre. Stories in Kalenjin, Kiswahili and English — staged with heart since 2014.</p>
+         </div>
+         <div class="foot-links">
+-            <a class="hide-sm" href="{{ route('events.index') }}">What's On</a>
++            <a href="{{ route('events.index') }}">What's On</a>
+             <a href="{{ route('orders.lookup.form') }}">My Tickets</a>
+             <a href="{{ route('donate.create') }}">Donate</a>
+             <a href="https://www.instagram.com/64theatre/" rel="noopener">Instagram</a>
