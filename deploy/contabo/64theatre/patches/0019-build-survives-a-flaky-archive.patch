@@ -1,0 +1,30 @@
+diff --git a/Dockerfile b/Dockerfile
+index 8894d72..1c6d488 100644
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -5,12 +5,24 @@ FROM ghcr.io/serversideup/php:8.4-fpm-nginx AS app
+ USER root
+ 
+ # QR generation needs GD (bacon-qr-code SVG path is pure PHP, GD is belt-and-braces)
+-RUN install-php-extensions gd intl
++# git is needed for composer's --prefer-source fallback below. Without it
++# a dist download failure is fatal, because Composer 2 will not fall back
++# to cloning when it has no git — which is how a launch-eve build failed
++# four times on one package's archive 404ing.
++RUN install-php-extensions gd intl \
++    && apt-get update \
++    && apt-get install -y --no-install-recommends git \
++    && rm -rf /var/lib/apt/lists/*
+ 
+ WORKDIR /var/www/html
+ COPY --chown=www-data:www-data . .
+ 
++# GitHub's archive endpoints (codeload legacy.zip) intermittently 404 for a
++# commit that git itself serves perfectly well. Cloning is slower, so it is
++# the fallback rather than the default — but a build that cannot survive one
++# flaky archive is a build that fails on the morning it is needed.
+ RUN composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction \
++    || composer install --no-dev --prefer-source --optimize-autoloader --no-interaction \
+     && mkdir -p storage/app storage/framework/cache storage/framework/sessions storage/framework/views storage/logs bootstrap/cache \
+     && chmod -R ug+rwX storage bootstrap/cache \
+     && chown -R www-data:www-data storage bootstrap/cache
