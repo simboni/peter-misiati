@@ -731,6 +731,25 @@ On the edit screen, status and channel are now dropdowns rather than free text,
 and the money fields are shown but not editable — changing a total there would
 not change the tickets, the payments, or anything the customer is holding.
 
+Patch **0017** is the other half of this and is required: `OrderResource`
+declared `canCreate(): false`, so Filament blocked the create route and hid the
+action — the form could be perfect and the page still would not open. It was
+false for a good reason, since the generated form could not produce a valid
+order; now that creating goes through `Checkout`, it is opened to the roles
+that handle money (`super_admin`, `admin`, `finance`, `gate`), matching the
+Door screens. Donations and Tickets stay read-only.
+
+```bash
+git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0017-allow-creating-an-order.patch
+cd /srv/64theatre && docker compose up -d --build --force-recreate
+```
+
+**`--force-recreate` is not optional.** Compose reuses a running container when
+it judges nothing changed, and this app's code is baked into the image — only
+`storage/app` is a volume. A rebuild without a recreate leaves the old code
+serving, and the summary line reads `Running` rather than `Started`. That one
+word is the difference between deployed and not.
+
 > **Not verified at runtime.** This repo has no `vendor/` in my working copy,
 > so I could lint the PHP and check every Filament call against existing usage
 > in this codebase, but I could not boot the panel. Open the three screens

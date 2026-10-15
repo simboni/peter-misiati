@@ -1,0 +1,25 @@
+diff --git a/app/Filament/Resources/Orders/OrderResource.php b/app/Filament/Resources/Orders/OrderResource.php
+index 7f41286..cfa0cca 100644
+--- a/app/Filament/Resources/Orders/OrderResource.php
++++ b/app/Filament/Resources/Orders/OrderResource.php
+@@ -31,9 +31,19 @@ public static function getEloquentQuery(): Builder
+         return parent::getEloquentQuery()->where('type', 'ticket');
+     }
+ 
++    /**
++     * Orders were read-only here because the generated create form could not
++     * produce a valid one — it wanted a hand-typed UUID and issued no tickets.
++     * Now that creating goes through Checkout, the same service the website
++     * and the box office use, taking an order at the desk is a real operation
++     * and the people who handle money may do it.
++     *
++     * Not everyone: an order moves stock and issues tickets, so it is the
++     * desk-and-office roles, matching the Door screens.
++     */
+     public static function canCreate(): bool
+     {
+-        return false;
++        return in_array(auth()->user()?->role, ['super_admin', 'admin', 'finance', 'gate'], true);
+     }
+ 
+     public static function form(Schema $schema): Schema
