@@ -1,0 +1,155 @@
+diff --git a/app/Filament/Resources/Events/RelationManagers/PerformancesRelationManager.php b/app/Filament/Resources/Events/RelationManagers/PerformancesRelationManager.php
+index e9c7ad1..4e4573a 100644
+--- a/app/Filament/Resources/Events/RelationManagers/PerformancesRelationManager.php
++++ b/app/Filament/Resources/Events/RelationManagers/PerformancesRelationManager.php
+@@ -8,6 +8,7 @@
+ use Filament\Actions\EditAction;
+ use Filament\Forms\Components\DateTimePicker;
+ use Filament\Forms\Components\Repeater;
++use Filament\Schemas\Components\Utilities\Get;
+ use Filament\Forms\Components\TextInput;
+ use Filament\Forms\Components\Toggle;
+ use Filament\Forms\Components\Select;
+@@ -89,7 +90,49 @@ public function form(Schema $schema): Schema
+                     TextInput::make('max_per_order')
+                         ->label('Max per order')
+                         ->numeric()
+-                        ->minValue(1),
++                        ->minValue(1)
++                        ->helperText('Blank for no limit. Set it to 1 on a group, or one buyer takes ten groups in a click.'),
++
++                    /*
++                     * GROUP TICKETS. They belong here because this is the
++                     * screen people actually use.
++                     *
++                     * Patch 0027 put these fields on TicketTypeResource's
++                     * form and 0030 added them to the TicketTypes relation
++                     * manager. Both are off the sidebar, and the relation
++                     * manager lives on the performance's own page, which
++                     * nothing links to — so there were two copies of the
++                     * fields and no route to either. Categories are set in
++                     * THIS repeater, inside the performance modal, reached
++                     * from Edit event.
++                     *
++                     * A group is an ordinary ticket type that admits more
++                     * than one person. The oversell guard, the sales window,
++                     * promo codes and the box office all work unchanged.
++                     */
++                    TextInput::make('admits')
++                        ->label('People admitted per ticket')
++                        ->numeric()
++                        ->minValue(1)
++                        ->maxValue(100)
++                        ->default(1)
++                        ->required()
++                        ->live(onBlur: true)
++                        ->helperText('1 for a normal ticket. 8 for a group of eight — one purchase, eight codes, each scanned separately at the door. The price above is for the WHOLE group, and "how many exist" counts groups, not seats.'),
++
++                    TextInput::make('group_label')
++                        ->label('Group blurb')
++                        ->maxLength(120)
++                        ->placeholder('Group of 8 — save 20%')
++                        ->visible(fn (Get $get): bool => (int) $get('admits') > 1)
++                        ->helperText('Shown on the website beside the price.'),
++
++                    Toggle::make('collect_member_names')
++                        ->label('Ask for member names after payment')
++                        ->default(true)
++                        ->visible(fn (Get $get): bool => (int) $get('admits') > 1)
++                        ->helperText('Optional, and collected after the sale — a blank name still scans. Nobody fills in eight names before paying.'),
++
+                     Toggle::make('requires_id_at_gate')
+                         ->label('Requires ID at the gate'),
+                 ])
+diff --git a/tests/Feature/GroupTicketTest.php b/tests/Feature/GroupTicketTest.php
+index 4917bef..719b8af 100644
+--- a/tests/Feature/GroupTicketTest.php
++++ b/tests/Feature/GroupTicketTest.php
+@@ -3,6 +3,8 @@
+ namespace Tests\Feature;
+ 
+ use App\Exceptions\SoldOutException;
++use App\Filament\Resources\Events\Pages\EditEvent;
++use App\Filament\Resources\Events\RelationManagers\PerformancesRelationManager;
+ use App\Filament\Resources\Performances\Pages\EditPerformance;
+ use App\Filament\Resources\Performances\RelationManagers\TicketTypesRelationManager;
+ use App\Models\Event;
+@@ -255,6 +257,78 @@ public function test_headcount_counts_people_across_mixed_items(): void
+      * prices are edited inside the performance they belong to. So everything
+      * below the admin worked perfectly and there was nowhere to switch it on.
+      */
++    /**
++     * Creating a group through the screen somebody is actually looking at.
++     *
++     * This is the third place the group fields have been put, and the first
++     * one that is reachable. Categories are set in a Repeater inside the
++     * performance modal of the Performances relation manager, reached from
++     * Edit event. TicketTypeResource's form is off the sidebar, and the
++     * TicketTypes relation manager lives on the performance's own page, which
++     * nothing in the interface links to — so the earlier two had no route.
++     *
++     * So this test opens the event edit page, exactly as a person does.
++     */
++    public function test_a_group_can_be_created_from_the_event_edit_screen(): void
++    {
++        $performance = $this->performance();
++        $event = $performance->event;
++        $admin = User::factory()->create(['role' => 'super_admin']);
++
++        Livewire::actingAs($admin)
++            ->test(PerformancesRelationManager::class, [
++                'ownerRecord' => $event,
++                'pageClass' => EditEvent::class,
++            ])
++            ->callAction(TestAction::make('edit')->table($performance), [
++                'venue_id' => $performance->venue_id,
++                'starts_at' => $performance->starts_at->format('Y-m-d H:i'),
++                'status' => 'on_sale',
++                'ticketTypes' => [
++                    [
++                        'name' => 'Group of 8',
++                        'price_kes' => 12000,
++                        'quantity_total' => 5,
++                        'max_per_order' => 1,
++                        'admits' => 8,
++                        'group_label' => 'Group of 8 — save 20%',
++                        'collect_member_names' => true,
++                    ],
++                ],
++            ])
++            ->assertHasNoActionErrors();
++
++        $type = TicketType::where('performance_id', $performance->id)->firstOrFail();
++        $this->assertSame(8, (int) $type->admits);
++        $this->assertSame('Group of 8 — save 20%', $type->group_label);
++        $this->assertTrue((bool) $type->collect_member_names);
++        // Shillings in the form, integer cents in the column.
++        $this->assertSame(1200000, (int) $type->price_cents);
++    }
++
++    public function test_a_normal_category_from_that_screen_still_admits_one(): void
++    {
++        $performance = $this->performance();
++        $admin = User::factory()->create(['role' => 'super_admin']);
++
++        Livewire::actingAs($admin)
++            ->test(PerformancesRelationManager::class, [
++                'ownerRecord' => $performance->event,
++                'pageClass' => EditEvent::class,
++            ])
++            ->callAction(TestAction::make('edit')->table($performance), [
++                'venue_id' => $performance->venue_id,
++                'starts_at' => $performance->starts_at->format('Y-m-d H:i'),
++                'status' => 'on_sale',
++                'ticketTypes' => [
++                    ['name' => 'Regular', 'price_kes' => 500, 'quantity_total' => 50, 'admits' => 1],
++                ],
++            ])
++            ->assertHasNoActionErrors();
++
++        $this->assertSame(1, (int) TicketType::where('performance_id', $performance->id)->firstOrFail()->admits);
++    }
++
+     public function test_a_group_can_be_created_from_the_performance_screen(): void
+     {
+         $performance = $this->performance();

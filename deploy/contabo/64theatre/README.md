@@ -784,6 +784,146 @@ additive change, and the SQLite data can be migrated across.
 - Always use `-f /srv/64theatre/compose.yml` so a command can never act on
   another project.
 
+## Where group tickets actually are (patch 0032)
+
+**Apply this instead of relying on 0030.** No migration, safe on a show night.
+
+```bash
+cd /srv/64theatre/repo && git pull
+git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0032-group-fields-in-the-performance-modal.patch
+cd /srv/64theatre && docker compose up -d --build --force-recreate
+```
+
+### The path
+
+**Events → open the event → Performances → Edit → "Tickets & prices"**
+
+Categories are set in a repeater inside that performance modal. Open a
+category and the group fields are at the bottom:
+
+| Field | What to put |
+| --- | --- |
+| **Category** | Group of 8 |
+| **Price (KES)** | the price of the **whole group** — 12000, not per head |
+| **How many exist** | the number of **groups** — 5 means 5 groups, 40 people |
+| **Max per order** | `1` |
+| **People admitted per ticket** | `8` — this is what makes it a group |
+| **Group blurb** | appears once admits is above 1 |
+| **Ask for member names** | leave on |
+
+### Why this took three goes
+
+The group fields had been added **twice** to forms nobody can open:
+
+- **0027** put them on `TicketTypeResource`'s form. That resource is off the
+  sidebar by design — a flat list of every price the theatre has ever set is
+  not how anyone looks for one.
+- **0030** added them to the `TicketTypes` relation manager, which lives on the
+  performance's **own page**. That page is also off the sidebar, and nothing in
+  the interface links to it: the Performances list edits in a **modal**. So the
+  column there would tell you a performance had four ticket categories with no
+  way to open them.
+
+The screen people actually use is the repeater in the performance modal, and
+that is where they are now. The earlier two copies are harmless and reachable
+by URL, so nothing was removed.
+
+**The lesson, written down because it cost two patches:** a field is not
+shipped when the form has it. It is shipped when a test drives the screen a
+person opens. The group tests all proved the machinery — fan-out, roster,
+oversell guard, headcount, website blurb — and none of them proved the feature
+could be switched on. There is now a test that opens the event edit page and
+creates a group through the modal, and it fails if the fields are not there.
+
+## Referral review fixes (patch 0031)
+
+**Apply this with 0029. Do not run 0029 on its own** — one of these is a way
+for anyone to take the public site down with a URL.
+
+```bash
+cd /srv/64theatre/repo && git pull
+git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0031-referral-review-fixes.patch
+cd /srv/64theatre && docker compose up -d --build --force-recreate
+docker compose exec app php artisan migrate --force
+```
+
+An adversarial review of 0029 found these. Each one is now covered by a test
+that fails without the fix.
+
+### Anyone could 500 every public page with a URL
+
+`?ref[]=ABCD` makes the query parameter an **array**. `blank(['ABCD'])` is
+false, so the guard let it through, and casting an array to a string is a PHP
+warning that Laravel rethrows as an exception — an HTTP 500. The referral
+middleware runs on the **whole web group**, so that was the homepage and every
+event page of a live ticket shop, brought down deliberately with a URL or by
+accident by a mangled share link. It fired with the programme switched **off**
+too, because the enabled check sat inside the function being called.
+
+A crafted `ref[]=` **cookie** did the same to the checkout POST itself.
+
+This is the reason 0029 must not go out alone.
+
+### A clawback was collected for ever
+
+When commission had already been paid on a ticket that was later refunded, the
+amount was recorded as owed back — and nothing ever marked it settled. The
+seller's page subtracted it from **every future payout, indefinitely**: one
+KES 100 clawback shorted them KES 100 on every payout run they ever had.
+
+Worse, the two screens disagreed. The seller's page showed the net while the
+admin showed the gross, and the payout action summed the gross — so the office
+over-paid from one figure while the seller was under-reported against another,
+for the same money.
+
+Now there is a column recording how much of each clawback has been recovered,
+and the payout action does the netting itself: **the figure in the confirm
+dialog is the figure to send**, per seller, and the debt is cleared once. A
+clawback larger than the payout stays partly outstanding rather than becoming
+a debt nobody is told about. Needs the migration above.
+
+### Knowing a seller's phone number got you their earnings page
+
+Submitting an already-registered number redirected straight to that seller's
+dashboard — and the dashboard URL is the only credential that page has, and it
+never rotates. So anyone in the group chat where she shared her link could
+type her number into the signup form and get permanent access to her page, her
+name and her negotiated rate. No new row was created, so nothing in the logs
+said it had happened.
+
+Now the link is **emailed** to the address on the account, and the reply says
+the same thing whether or not the number was registered. With no email on
+file, the box office sends it — they can read it off the admin. The seller's
+page no longer prints a phone number at all.
+
+### "Erase event and all sales" was broken
+
+Group tickets (0027) and referral commissions (0029) both added tables
+pointing at `orders`, and neither was added to the delete order. Purging an
+event that had sold **one** group ticket or **one** referred ticket failed on a
+foreign key — and those are exactly the events that button exists for. It was
+inside a transaction so nothing was half-deleted; the operator just got an
+unexplained error on an action with no alternative. There are now four tests
+over that path, so the next feature that adds such a table breaks a test
+instead.
+
+### Smaller ones
+
+- **Editing a seller's phone crashed** when the new number collided with
+  another only after normalisation — uniqueness was checked on the raw text
+  while normalising happened after validation. It is the single most likely
+  edit on that form. Now refused with a message naming who holds the number.
+- **"House rate" and "KES 0" rendered as blank cells.** Filament skips the
+  formatter entirely when a value is null, so those branches never ran. A
+  blank "Owed now" reads the same as zero.
+- **The scheduler's promotion pass skipped rows.** It paged by offset while
+  changing the column it filtered on, so each page after the first jumped past
+  rows it never looked at. Self-healing on the next run, but "most of them,
+  eventually" is a poor property for a list of money owed.
+- **The "pay commission on donations" toggle could never work** — the donation
+  checkout carries no referral at all — so it has been removed rather than
+  left promising an operator something the code cannot do.
+
 ## Group fields where you can see them (patch 0030)
 
 ```bash
