@@ -1,0 +1,184 @@
+diff --git a/app/Filament/Resources/Events/RelationManagers/PerformancesRelationManager.php b/app/Filament/Resources/Events/RelationManagers/PerformancesRelationManager.php
+index 4e4573a..5b08ae7 100644
+--- a/app/Filament/Resources/Events/RelationManagers/PerformancesRelationManager.php
++++ b/app/Filament/Resources/Events/RelationManagers/PerformancesRelationManager.php
+@@ -8,11 +8,12 @@
+ use Filament\Actions\EditAction;
+ use Filament\Forms\Components\DateTimePicker;
+ use Filament\Forms\Components\Repeater;
+-use Filament\Schemas\Components\Utilities\Get;
++use Filament\Forms\Components\Select;
+ use Filament\Forms\Components\TextInput;
+ use Filament\Forms\Components\Toggle;
+-use Filament\Forms\Components\Select;
+ use Filament\Resources\RelationManagers\RelationManager;
++use Filament\Schemas\Components\Utilities\Get;
++use Filament\Schemas\Components\Utilities\Set;
+ use Filament\Schemas\Schema;
+ use Filament\Tables\Columns\TextColumn;
+ use Filament\Tables\Table;
+@@ -118,6 +119,27 @@ public function form(Schema $schema): Schema
+                         ->default(1)
+                         ->required()
+                         ->live(onBlur: true)
++                        /*
++                         * Turning a category into a group switches name
++                         * collection ON.
++                         *
++                         * `->default(true)` on the toggle below only applies
++                         * to a brand new row, and the column's default is
++                         * false — so taking an existing "Regular" and making
++                         * it admit eight left the switch reading off, and the
++                         * buyer was never offered the roster. The operator
++                         * had no reason to look: nothing on screen said the
++                         * feature was half on.
++                         *
++                         * Only on the 1 → many transition, so an operator who
++                         * deliberately turns it off does not have it switched
++                         * back on under them next time they touch the field.
++                         */
++                        ->afterStateUpdated(function ($state, $old, Set $set): void {
++                            if ((int) $state > 1 && (int) $old <= 1) {
++                                $set('collect_member_names', true);
++                            }
++                        })
+                         ->helperText('1 for a normal ticket. 8 for a group of eight — one purchase, eight codes, each scanned separately at the door. The price above is for the WHOLE group, and "how many exist" counts groups, not seats.'),
+ 
+                     TextInput::make('group_label')
+diff --git a/app/Http/Controllers/OrderController.php b/app/Http/Controllers/OrderController.php
+index 020829b..0f3d31f 100644
+--- a/app/Http/Controllers/OrderController.php
++++ b/app/Http/Controllers/OrderController.php
+@@ -101,7 +101,13 @@ public function store(Request $request, Checkout $checkout, PaymentGateway $gate
+     public function show(string $uuid): View
+     {
+         $order = Order::where('uuid', $uuid)
+-            ->with(['items.ticketType', 'tickets.ticketType', 'performance.event', 'performance.venue', 'customer'])
++            // groups.ticketType, because the page now asks each group's type
++            // whether member names are wanted. Without it that is one query
++            // per group on an order that may hold several.
++            ->with([
++                'items.ticketType', 'tickets.ticketType', 'groups.ticketType',
++                'performance.event', 'performance.venue', 'customer',
++            ])
+             ->firstOrFail();
+ 
+         if ($order->isDonation()) {
+diff --git a/resources/views/orders/show.blade.php b/resources/views/orders/show.blade.php
+index 61ec9a4..4825236 100644
+--- a/resources/views/orders/show.blade.php
++++ b/resources/views/orders/show.blade.php
+@@ -253,9 +253,17 @@ function failed(msg) {
+                     <dt>{{ $group->displayLabel() }}</dt>
+                     <dd>{{ $group->size }} people · {{ $group->admitted() }} admitted</dd>
+                 </dl>
+-                <p style="margin:10px 0 0">
+-                    <a href="{{ route('groups.roster', $group->uuid) }}">Name the members →</a>
+-                </p>
++                {{-- The ticket type's "ask for member names" switch is what
++                     this reads. It was stored, cast, and consulted nowhere —
++                     so a theatre that turned it off was asked anyway and the
++                     switch was decoration. The panel above stays either way:
++                     knowing your group exists, and how many of you are in, is
++                     useful whether or not anybody is named. --}}
++                @if ($group->ticketType?->collect_member_names)
++                    <p style="margin:10px 0 0">
++                        <a href="{{ route('groups.roster', $group->uuid) }}">Name the members →</a>
++                    </p>
++                @endif
+             </div>
+         @endforeach
+     @endif
+diff --git a/tests/Feature/GroupTicketTest.php b/tests/Feature/GroupTicketTest.php
+index 719b8af..3aec715 100644
+--- a/tests/Feature/GroupTicketTest.php
++++ b/tests/Feature/GroupTicketTest.php
+@@ -269,6 +269,88 @@ public function test_headcount_counts_people_across_mixed_items(): void
+      *
+      * So this test opens the event edit page, exactly as a person does.
+      */
++    /**
++     * The "ask for member names" switch has to actually do something.
++     *
++     * It was stored, cast on the model, and read nowhere — so a theatre that
++     * turned it off was asked for names anyway, and the switch was decoration.
++     * Same class of problem as a settings toggle that cannot reach the code
++     * it claims to control.
++     */
++    public function test_the_roster_is_offered_when_names_are_wanted(): void
++    {
++        $performance = $this->performance();
++        $type = TicketType::create([
++            'performance_id' => $performance->id, 'name' => 'Group of 4',
++            'price_cents' => 180000, 'quantity_total' => 5, 'admits' => 4,
++            'collect_member_names' => true,
++        ]);
++
++        $order = $this->settle(app(Checkout::class)->startOrder(
++            items: [$type->id => 1], phone: '0712345678', name: 'School',
++        ));
++
++        $this->get('/orders/'.$order->uuid)
++            ->assertOk()
++            ->assertSee('Name the members', escape: false);
++    }
++
++    public function test_the_roster_is_not_offered_when_names_are_not_wanted(): void
++    {
++        $performance = $this->performance();
++        $type = TicketType::create([
++            'performance_id' => $performance->id, 'name' => 'Group of 4',
++            'price_cents' => 180000, 'quantity_total' => 5, 'admits' => 4,
++            'collect_member_names' => false,
++        ]);
++
++        $order = $this->settle(app(Checkout::class)->startOrder(
++            items: [$type->id => 1], phone: '0712345678', name: 'School',
++        ));
++
++        $response = $this->get('/orders/'.$order->uuid)->assertOk();
++        $response->assertDontSee('Name the members', escape: false);
++        // The group panel itself stays — how many of you are in is useful
++        // whether or not anybody is named.
++        $response->assertSee('4 people', escape: false);
++    }
++
++    public function test_making_a_category_a_group_switches_name_collection_on(): void
++    {
++        $performance = $this->performance();
++        $admin = User::factory()->create(['role' => 'super_admin']);
++
++        // An ordinary category that already exists, carrying the column's
++        // default of false. Raising admits used to leave the switch reading
++        // off, so the buyer was never offered the roster and nothing on
++        // screen said the feature was only half on.
++        TicketType::create([
++            'performance_id' => $performance->id, 'name' => 'Regular',
++            'price_cents' => 50000, 'quantity_total' => 100,
++        ]);
++
++        $component = Livewire::actingAs($admin)
++            ->test(PerformancesRelationManager::class, [
++                'ownerRecord' => $performance->event,
++                'pageClass' => EditEvent::class,
++            ])
++            ->mountAction(TestAction::make('edit')->table($performance));
++
++        // The repeater keys its items by uuid, so the path has to be read
++        // back rather than guessed.
++        $data = $component->get('mountedActions.0.data');
++        $key = array_key_first($data['ticketTypes']);
++        $this->assertFalse((bool) $data['ticketTypes'][$key]['collect_member_names']);
++
++        // Typing 8 and leaving the field, which is what ->live(onBlur) does.
++        $component->set("mountedActions.0.data.ticketTypes.{$key}.admits", 8);
++
++        $this->assertTrue(
++            (bool) $component->get("mountedActions.0.data.ticketTypes.{$key}.collect_member_names"),
++            'Turning a category into a group must switch name collection on.',
++        );
++    }
++
+     public function test_a_group_can_be_created_from_the_event_edit_screen(): void
+     {
+         $performance = $this->performance();

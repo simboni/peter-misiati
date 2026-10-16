@@ -784,6 +784,34 @@ additive change, and the SQLite data can be migrated across.
 - Always use `-f /srv/64theatre/compose.yml` so a command can never act on
   another project.
 
+## The member-names switch (patch 0033)
+
+No migration. Apply it with 0032.
+
+```bash
+cd /srv/64theatre/repo && git pull
+git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0033-member-names-switch.patch
+cd /srv/64theatre && docker compose up -d --build --force-recreate
+```
+
+Found by opening the admin in a browser and looking at it, which is how this
+should have been checked two patches ago.
+
+**"Ask for member names after payment" did nothing.** It was saved on the
+ticket type, cast on the model, and read nowhere — so a theatre that switched
+it off was asked for names anyway. It now controls whether the buyer is
+offered the roster link on their order page. The group panel itself stays
+either way: how many of your party are in is worth knowing whether or not
+anybody is named.
+
+**And it read as off on every group.** The form declared it on by default, but
+a default only applies to a brand new row, and the column's default is false.
+So taking an existing "Regular" and setting it to admit eight left the switch
+off, the buyer was never offered the roster, and nothing on screen said the
+feature was half on. Raising **People admitted per ticket** above 1 now
+switches it on — only on that transition, so switching it off deliberately
+stays off.
+
 ## Where group tickets actually are (patch 0032)
 
 **Apply this instead of relying on 0030.** No migration, safe on a show night.
