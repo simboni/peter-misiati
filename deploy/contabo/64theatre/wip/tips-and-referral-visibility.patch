@@ -1,0 +1,1841 @@
+diff --git a/app/Filament/Resources/Events/EventResource.php b/app/Filament/Resources/Events/EventResource.php
+index 1701e52..84d956d 100644
+--- a/app/Filament/Resources/Events/EventResource.php
++++ b/app/Filament/Resources/Events/EventResource.php
+@@ -5,6 +5,7 @@
+ use App\Filament\Resources\Events\Pages\CreateEvent;
+ use App\Filament\Resources\Events\Pages\EditEvent;
+ use App\Filament\Resources\Events\Pages\ListEvents;
++use App\Filament\Resources\Events\RelationManagers\CastRelationManager;
+ use App\Filament\Resources\Events\RelationManagers\PerformancesRelationManager;
+ use App\Filament\Resources\Events\Schemas\EventForm;
+ use App\Filament\Resources\Events\Tables\EventsTable;
+@@ -37,6 +38,7 @@ public static function getRelations(): array
+     {
+         return [
+             PerformancesRelationManager::class,
++            CastRelationManager::class,
+         ];
+     }
+ 
+diff --git a/app/Filament/Resources/Events/RelationManagers/CastRelationManager.php b/app/Filament/Resources/Events/RelationManagers/CastRelationManager.php
+new file mode 100644
+index 0000000..1a9347a
+--- /dev/null
++++ b/app/Filament/Resources/Events/RelationManagers/CastRelationManager.php
+@@ -0,0 +1,195 @@
++<?php
++
++namespace App\Filament\Resources\Events\RelationManagers;
++
++use App\Models\CastMember;
++use App\Support\Phone;
++use App\Support\TipSettings;
++use Filament\Actions\Action;
++use Filament\Actions\CreateAction;
++use Filament\Actions\DeleteAction;
++use Filament\Actions\EditAction;
++use Filament\Forms\Components\TextInput;
++use Filament\Forms\Components\Toggle;
++use Filament\Notifications\Notification;
++use Filament\Resources\RelationManagers\RelationManager;
++use Filament\Schemas\Components\Utilities\Get;
++use Filament\Schemas\Schema;
++use Filament\Tables\Columns\TextColumn;
++use Filament\Tables\Table;
++
++/**
++ * Who was on stage, and who the audience may send money to.
++ *
++ * Optional. A production with no cast entered still sells tickets and still
++ * takes tips — they go to the company and the theatre shares them out. This
++ * is the step that lets the audience name somebody instead.
++ *
++ * The cast belongs to the PRODUCTION, not to one night: re-typing it per
++ * performance is how the Thursday list ends up different from the Friday one.
++ */
++class CastRelationManager extends RelationManager
++{
++    protected static string $relationship = 'castMembers';
++
++    protected static ?string $title = 'Cast & tipping';
++
++    public function form(Schema $schema): Schema
++    {
++        return $schema->components([
++            TextInput::make('name')
++                ->label('Name')
++                ->required()
++                ->maxLength(120),
++            TextInput::make('role_name')
++                ->label('Character played')
++                ->maxLength(120)
++                ->helperText('What the audience will look for. They rarely know the performer\'s own name — they know "Mama Grace".'),
++
++            /*
++             * THE TWO SAFEGUARDING FIELDS.
++             *
++             * Both are checked in CastMember::isTippable(), which is the only
++             * thing the public list is built from, so no screen can forget
++             * one. They are explained here rather than in a policy document
++             * because the person typing the cast in is the person who knows
++             * the answers.
++             */
++            Toggle::make('is_minor')
++                ->label('Under 18')
++                ->live()
++                ->helperText('NEVER listed publicly, whatever else is set. A child\'s name beside a "send money" button is not something an adult\'s tick-box can authorise. Tips meant for them come to the theatre to pass on.'),
++
++            Toggle::make('has_consented')
++                ->label('Has agreed to be listed for tipping')
++                ->dehydrated(false)
++                ->visible(fn (Get $get): bool => ! $get('is_minor'))
++                ->helperText('A cast list typed in by a stage manager is not consent. Ask them.')
++                ->afterStateHydrated(fn (Toggle $component, ?CastMember $record) => $component->state(
++                    $record?->consent_at !== null,
++                )),
++
++            TextInput::make('payout_phone')
++                ->label('M-Pesa number for paying them')
++                ->maxLength(20)
++                ->visible(fn (Get $get): bool => ! $get('is_minor'))
++                ->helperText('Used by hand when the theatre pays tips out. Nothing here sends money.'),
++            TextInput::make('mpesa_name')
++                ->label('Name on that M-Pesa number')
++                ->maxLength(120)
++                ->visible(fn (Get $get): bool => ! $get('is_minor'))
++                ->helperText('Check it against the M-Pesa confirmation before sending.'),
++
++            TextInput::make('sort_order')
++                ->label('Order in the list')
++                ->numeric()
++                ->default(0)
++                ->helperText('Low numbers first. Leave at 0 to sort by name.'),
++        ])->columns(2);
++    }
++
++    public function table(Table $table): Table
++    {
++        return $table
++            ->recordTitleAttribute('name')
++            ->defaultSort('sort_order')
++            ->columns([
++                TextColumn::make('name')
++                    ->searchable()
++                    ->description(fn (CastMember $r): ?string => $r->role_name),
++                TextColumn::make('status')
++                    ->label('Listed publicly')
++                    ->badge()
++                    ->state(fn (CastMember $r): string => $r->isTippable() ? 'yes' : 'no')
++                    ->color(fn (string $state): string => $state === 'yes' ? 'success' : 'gray')
++                    // The reason, right beside the answer. "No" with no
++                    // explanation is the kind of thing somebody fixes by
++                    // guessing.
++                    ->description(fn (CastMember $r): ?string => $r->whyNotTippable()),
++                TextColumn::make('payout_phone')
++                    ->label('Pay to')
++                    ->placeholder('not set')
++                    ->formatStateUsing(fn (string $state): string => Phone::forHumans($state)),
++                TextColumn::make('tips_total')
++                    ->label('Tips received')
++                    ->alignEnd()
++                    ->state(fn (CastMember $r): string => 'KES '.number_format($r->tipsTotalCents() / 100)),
++            ])
++            ->headerActions([
++                CreateAction::make()
++                    ->label('Add cast member')
++                    ->mutateDataUsing(fn (array $data): array => self::normalise($data)),
++            ])
++            ->recordActions([
++                /*
++                 * One click, confirmed, because it is the switch that puts
++                 * somebody's name on a public payment page.
++                 */
++                Action::make('list')
++                    ->label('List publicly')
++                    ->icon('heroicon-o-check-circle')
++                    ->color('success')
++                    ->visible(fn (CastMember $r): bool => ! $r->is_minor && ! $r->isTippable())
++                    ->requiresConfirmation()
++                    ->modalHeading('List this person for tipping')
++                    ->modalDescription('Their name goes on the public tipping page for this production. Only do this if they have agreed to it.')
++                    ->action(function (CastMember $r): void {
++                        $r->update(['status' => 'active', 'consent_at' => $r->consent_at ?? now()]);
++                        Notification::make()->title($r->name.' is now listed')->success()->send();
++                    }),
++
++                Action::make('unlist')
++                    ->label('Hide')
++                    ->icon('heroicon-o-eye-slash')
++                    ->color('gray')
++                    ->visible(fn (CastMember $r): bool => $r->isTippable())
++                    ->requiresConfirmation()
++                    ->modalDescription('Takes them off the public tipping page. Tips already received are unaffected.')
++                    ->action(function (CastMember $r): void {
++                        $r->update(['status' => 'hidden']);
++                        Notification::make()->title($r->name.' is hidden')->success()->send();
++                    }),
++
++                EditAction::make()->mutateDataUsing(fn (array $data): array => self::normalise($data)),
++                DeleteAction::make()
++                    // A cast member with tips against them is referenced by
++                    // orders. Hiding is what "remove from the list" means.
++                    ->visible(fn (CastMember $r): bool => $r->tips()->doesntExist()),
++            ])
++            ->emptyStateHeading(TipSettings::enabled()
++                ? 'No cast entered'
++                : 'Tipping is switched off')
++            ->emptyStateDescription(TipSettings::enabled()
++                ? 'Optional. Without a cast list the tipping page still works — tips go to the company and the theatre shares them out.'
++                : 'Turn it on under Settings → All settings → Tipping, and this list becomes the public one.');
++    }
++
++    /**
++     * Consent is a timestamp, not a checkbox, because "when did they agree"
++     * is the question that gets asked and a boolean cannot answer it.
++     */
++    private static function normalise(array $data): array
++    {
++        $consented = (bool) ($data['has_consented'] ?? false);
++        unset($data['has_consented']);
++
++        $data['consent_at'] = $consented ? ($data['consent_at'] ?? now()) : null;
++        $data['status'] = $consented ? 'active' : 'pending';
++
++        if (filled($data['payout_phone'] ?? null)) {
++            $data['payout_phone'] = Phone::normalise($data['payout_phone']) ?? trim((string) $data['payout_phone']);
++        }
++
++        // A minor carries no payout number and is never listed. Blanking it
++        // here means the rule holds even if the fields were filled before the
++        // toggle was set.
++        if (! empty($data['is_minor'])) {
++            $data['payout_phone'] = null;
++            $data['mpesa_name'] = null;
++            $data['consent_at'] = null;
++            $data['status'] = 'pending';
++        }
++
++        return $data;
++    }
++}
+diff --git a/app/Filament/Resources/ReferralCommissions/Pages/ListReferralCommissions.php b/app/Filament/Resources/ReferralCommissions/Pages/ListReferralCommissions.php
+index 7e65425..5c7e06b 100644
+--- a/app/Filament/Resources/ReferralCommissions/Pages/ListReferralCommissions.php
++++ b/app/Filament/Resources/ReferralCommissions/Pages/ListReferralCommissions.php
+@@ -35,6 +35,22 @@ public function getSubheading(): ?string
+                 .' (commission paid on sales later refunded — deducted automatically on the next payout, per seller)';
+         }
+ 
++        /*
++         * Sales that came through a link and earned nothing.
++         *
++         * Surfaced here because "my seller says their commission is missing"
++         * is the support question this feature generates, and the answer is
++         * almost always a rule working correctly and silently.
++         */
++        $declined = \App\Models\Order::whereNotNull('referral_declined_reason')
++            ->whereDoesntHave('referralCommission')
++            ->count();
++
++        if ($declined > 0) {
++            $line .= ' · '.$declined.' referred '.($declined === 1 ? 'sale' : 'sales')
++                .' earned nothing — open a seller to see why (usually they bought it themselves)';
++        }
++
+         return $line.'. Money goes out by M-Pesa, by hand; this records it.';
+     }
+ }
+diff --git a/app/Filament/Resources/Referrers/Tables/ReferrersTable.php b/app/Filament/Resources/Referrers/Tables/ReferrersTable.php
+index 612132b..e0940ab 100644
+--- a/app/Filament/Resources/Referrers/Tables/ReferrersTable.php
++++ b/app/Filament/Resources/Referrers/Tables/ReferrersTable.php
+@@ -30,7 +30,10 @@ public static function configure(Table $table): Table
+                 ->withSum(
+                     ['commissions as payable_cents' => fn (Builder $q) => $q->where('status', 'payable')],
+                     'amount_cents',
+-                ))
++                )
++                ->withCount(['orders as declined_count' => fn (Builder $q) => $q
++                    ->whereNotNull('referral_declined_reason')
++                    ->whereDoesntHave('referralCommission')]))
+             ->defaultSort('created_at', 'desc')
+             ->columns([
+                 TextColumn::make('name')
+@@ -100,6 +103,23 @@ public static function configure(Table $table): Table
+                             ? 'KES '.number_format($owed / 100).' owed back already deducted'
+                             : 'KES '.number_format($owed / 100).' owed back — more than is due, so send nothing';
+                     }),
++                /*
++                 * Sales their link brought in that earned nothing. Without
++                 * this column the office has no answer to "where is my
++                 * commission?" except to guess.
++                 */
++                TextColumn::make('declined_count')
++                    ->label('Earned nothing')
++                    ->alignEnd()
++                    ->default(0)
++                    ->formatStateUsing(fn (int|string $state): string => (int) $state === 0 ? '—' : (string) $state)
++                    ->description(fn (Referrer $r): ?string => ($o = \App\Models\Order::where('referrer_id', $r->id)
++                        ->whereNotNull('referral_declined_reason')
++                        ->whereDoesntHave('referralCommission')
++                        ->latest('id')->first())
++                            ? \Illuminate\Support\Str::limit($o->referral_declined_reason, 54)
++                            : null)
++                    ->toggleable(),
+                 TextColumn::make('created_at')
+                     ->label('Signed up')
+                     ->date()
+diff --git a/app/Http/Controllers/OrderController.php b/app/Http/Controllers/OrderController.php
+index 0f3d31f..4f02b74 100644
+--- a/app/Http/Controllers/OrderController.php
++++ b/app/Http/Controllers/OrderController.php
+@@ -110,7 +110,9 @@ public function show(string $uuid): View
+             ])
+             ->firstOrFail();
+ 
+-        if ($order->isDonation()) {
++        // A tip is not a ticket order and has no tickets to show. It goes to
++        // the same thank-you page as a donation, which knows the difference.
++        if ($order->isDonation() || $order->isTip()) {
+             return view('donate.thanks', ['order' => $order]);
+         }
+ 
+diff --git a/app/Http/Controllers/ReferralController.php b/app/Http/Controllers/ReferralController.php
+index 287dd14..dd79e98 100644
+--- a/app/Http/Controllers/ReferralController.php
++++ b/app/Http/Controllers/ReferralController.php
+@@ -104,9 +104,27 @@ public function dashboard(string $uuid): View
+             ->limit(100)
+             ->get();
+ 
++        /*
++         * Sales that came through their link and earned nothing.
++         *
++         * Without this the page is a lie by omission: somebody tests their own
++         * link, buys a ticket, and sees an empty table — which reads as "the
++         * link does not work", not as "that sale was yours and so does not
++         * count". The reason was recorded at the moment the decision was made;
++         * this is where it gets read.
++         */
++        $declined = \App\Models\Order::where('referrer_id', $referrer->id)
++            ->whereNotNull('referral_declined_reason')
++            ->whereDoesntHave('referralCommission')
++            ->with('performance.event')
++            ->latest('id')
++            ->limit(20)
++            ->get();
++
+         return view('referrals.dashboard', [
+             'referrer' => $referrer,
+             'commissions' => $commissions,
++            'declined' => $declined,
+             'link' => url('/').'?ref='.$referrer->code,
+             'ratePercent' => (float) ($referrer->commission_percent ?? ReferralSettings::percent()),
+             'holdHours' => ReferralSettings::holdHours(),
+diff --git a/app/Http/Controllers/TipController.php b/app/Http/Controllers/TipController.php
+new file mode 100644
+index 0000000..3c67fb2
+--- /dev/null
++++ b/app/Http/Controllers/TipController.php
+@@ -0,0 +1,110 @@
++<?php
++
++namespace App\Http\Controllers;
++
++use App\Models\CastMember;
++use App\Models\Performance;
++use App\Payments\PaymentGateway;
++use App\Services\Tips;
++use App\Support\PaymentSettings;
++use App\Support\TipSettings;
++use Illuminate\Http\RedirectResponse;
++use Illuminate\Http\Request;
++use Illuminate\Support\Facades\Log;
++use Illuminate\View\View;
++
++/**
++ * Tipping a performer, from a QR code in the programme or on the wall.
++ *
++ * Reached by the performance's uuid — a capability URL, like the order page
++ * and the group roster. No login: this is read by somebody standing in a
++ * foyer with their coat on, and anything more than "tap, choose, pay" gets
++ * abandoned.
++ *
++ * 404 while tipping is switched off, for the same reason the seller signup
++ * does: a page that still took money for a programme nobody has agreed to run
++ * would be collecting it with nowhere defined for it to go.
++ */
++class TipController extends Controller
++{
++    /** Suggested amounts (KES), shown as one-tap chips. */
++    public const PRESETS = [100, 200, 500, 1000];
++
++    public function show(string $uuid, Tips $tips): View
++    {
++        abort_unless(TipSettings::enabled(), 404);
++
++        $performance = $this->find($uuid);
++
++        return view('tips.create', [
++            'performance' => $performance,
++            'cast' => $tips->tippableFor($performance),
++            'presets' => self::PRESETS,
++            'allowFreeText' => TipSettings::allowFreeText(),
++            'minKes' => (int) (TipSettings::minCents() / 100),
++            'maxKes' => (int) (TipSettings::maxCents() / 100),
++        ]);
++    }
++
++    public function store(Request $request, string $uuid, Tips $tips, PaymentGateway $gateway): RedirectResponse
++    {
++        abort_unless(TipSettings::enabled(), 404);
++
++        $performance = $this->find($uuid);
++
++        $validated = $request->validate([
++            'amount' => ['required', 'integer',
++                'min:'.(int) (TipSettings::minCents() / 100),
++                'max:'.(int) (TipSettings::maxCents() / 100)],
++            'phone' => ['required', 'regex:/^(?:\+?254|0)?(7|1)\d{8}$/'],
++            'cast_member_id' => ['nullable', 'integer'],
++            'for_name' => ['nullable', 'string', 'max:80'],
++            'message' => ['nullable', 'string', 'max:300'],
++            'name' => ['nullable', 'string', 'max:120'],
++        ], [], ['amount' => 'tip amount']);
++
++        if (! PaymentSettings::onlineEnabled()) {
++            return back()->withErrors([
++                'amount' => 'Payments are temporarily unavailable. Please try again shortly.',
++            ])->withInput();
++        }
++
++        // Looked up rather than trusted: Tips::start re-checks that this
++        // person may be tipped at all, which is where the under-18 rule bites.
++        $castMember = $validated['cast_member_id']
++            ? CastMember::find($validated['cast_member_id'])
++            : null;
++
++        $order = $tips->start(
++            performance: $performance,
++            amountCents: (int) $validated['amount'] * 100,
++            phone: $validated['phone'],
++            castMember: $castMember,
++            forName: $validated['for_name'] ?? null,
++            message: $validated['message'] ?? null,
++            name: $validated['name'] ?? null,
++        );
++
++        try {
++            $payment = $gateway->initiate($order, $validated['phone']);
++        } catch (\Throwable $e) {
++            Log::error('tip.initiate_failed', ['order' => $order->uuid, 'error' => $e->getMessage()]);
++
++            return redirect()->route('orders.show', $order->uuid)
++                ->with('payment_error', 'We could not start your payment. Please try again shortly.');
++        }
++
++        if ($url = $gateway->authorizationUrl($payment)) {
++            return redirect()->away($url);
++        }
++
++        return redirect()->route('orders.show', $order->uuid);
++    }
++
++    private function find(string $uuid): Performance
++    {
++        return Performance::where('uuid', $uuid)
++            ->with(['event', 'venue'])
++            ->firstOrFail();
++    }
++}
+diff --git a/app/Models/CastMember.php b/app/Models/CastMember.php
+new file mode 100644
+index 0000000..4cc6c02
+--- /dev/null
++++ b/app/Models/CastMember.php
+@@ -0,0 +1,82 @@
++<?php
++
++namespace App\Models;
++
++use Illuminate\Database\Eloquent\Model;
++use Illuminate\Database\Eloquent\Relations\BelongsTo;
++use Illuminate\Database\Eloquent\Relations\HasMany;
++
++/**
++ * Somebody the audience watched, and may want to send money to.
++ *
++ * Not a User and not a Referrer: a cast member has no login and no code. They
++ * are a name on a list that the theatre keeps, and a payout number the theatre
++ * uses by hand.
++ */
++class CastMember extends Model
++{
++    protected $guarded = [];
++
++    protected function casts(): array
++    {
++        return [
++            'is_minor' => 'boolean',
++            'consent_at' => 'datetime',
++        ];
++    }
++
++    public function event(): BelongsTo
++    {
++        return $this->belongsTo(Event::class);
++    }
++
++    /** Tips are orders, so this is the money left for this person. */
++    public function tips(): HasMany
++    {
++        return $this->hasMany(Order::class);
++    }
++
++    /**
++     * THE SAFEGUARDING CHECK, in one place so no screen can forget it.
++     *
++     * Three conditions, and all of them have to hold before a name goes on a
++     * public page beside a button that sends money:
++     *
++     *   · active — the theatre has not hidden them
++     *   · consented — they agreed to be listed. A cast list typed in by a
++     *     stage manager is not consent.
++     *   · not a minor — never, whatever the consent record says. A child's
++     *     name next to "send money" is not something an adult's tick-box can
++     *     authorise. Tips meant for them go to the theatre to pass on.
++     */
++    public function isTippable(): bool
++    {
++        return $this->status === 'active'
++            && $this->consent_at !== null
++            && ! $this->is_minor;
++    }
++
++    /** Why this person is not on the public list, in words. */
++    public function whyNotTippable(): ?string
++    {
++        return match (true) {
++            $this->is_minor => 'Under 18 — never listed publicly. Tips meant for them come to the theatre to pass on.',
++            $this->consent_at === null => 'Has not agreed to be listed yet.',
++            $this->status !== 'active' => 'Hidden by the theatre.',
++            default => null,
++        };
++    }
++
++    /** What the audience should see: the character, then the person. */
++    public function displayName(): string
++    {
++        return $this->role_name
++            ? $this->role_name.' — '.$this->name
++            : $this->name;
++    }
++
++    public function tipsTotalCents(): int
++    {
++        return (int) $this->tips()->where('type', 'tip')->where('status', 'paid')->sum('total_cents');
++    }
++}
+diff --git a/app/Models/Event.php b/app/Models/Event.php
+index 60dde92..936fda3 100644
+--- a/app/Models/Event.php
++++ b/app/Models/Event.php
+@@ -36,6 +36,12 @@ public function organiser(): BelongsTo
+         return $this->belongsTo(Organiser::class);
+     }
+ 
++    /** The company for this production, for the tipping page. */
++    public function castMembers(): HasMany
++    {
++        return $this->hasMany(CastMember::class);
++    }
++
+     public function performances(): HasMany
+     {
+         return $this->hasMany(Performance::class);
+diff --git a/app/Models/Order.php b/app/Models/Order.php
+index 11f636e..1226386 100644
+--- a/app/Models/Order.php
++++ b/app/Models/Order.php
+@@ -5,6 +5,7 @@
+ use Illuminate\Database\Eloquent\Model;
+ use Illuminate\Database\Eloquent\Relations\BelongsTo;
+ use Illuminate\Database\Eloquent\Relations\HasMany;
++use Illuminate\Database\Eloquent\Relations\HasOne;
+ 
+ class Order extends Model
+ {
+@@ -35,6 +36,34 @@ public function performance(): BelongsTo
+         return $this->belongsTo(Performance::class);
+     }
+ 
++    /** The commission this order earned, if any. */
++    public function referralCommission(): HasOne
++    {
++        return $this->hasOne(ReferralCommission::class);
++    }
++
++    /** Set on a tip, when the audience picked somebody from the cast list. */
++    public function castMember(): BelongsTo
++    {
++        return $this->belongsTo(CastMember::class);
++    }
++
++    public function isTip(): bool
++    {
++        return $this->type === 'tip';
++    }
++
++    /**
++     * Who a tip was left for, however they were identified — a cast member,
++     * a name somebody typed, or nobody in particular.
++     */
++    public function tipRecipient(): string
++    {
++        return $this->castMember?->displayName()
++            ?? $this->tip_for_name
++            ?? 'the company';
++    }
++
+     public function items(): HasMany
+     {
+         return $this->hasMany(OrderItem::class);
+diff --git a/app/Models/Performance.php b/app/Models/Performance.php
+index df47a90..56e9d4f 100644
+--- a/app/Models/Performance.php
++++ b/app/Models/Performance.php
+@@ -6,6 +6,7 @@
+ use Illuminate\Database\Eloquent\Model;
+ use Illuminate\Database\Eloquent\Relations\BelongsTo;
+ use Illuminate\Database\Eloquent\Relations\HasMany;
++use Illuminate\Support\Str;
+ 
+ class Performance extends Model
+ {
+@@ -18,6 +19,27 @@ protected function casts(): array
+         return ['starts_at' => 'datetime', 'doors_open_at' => 'datetime'];
+     }
+ 
++    /**
++     * Every performance gets a public id.
++     *
++     * The migration backfilled the ones that already existed. Without this,
++     * every performance created afterwards would have a null uuid — and
++     * because SQLite lets a unique index hold any number of nulls, nothing
++     * would complain. The tipping link for that night would simply 404,
++     * discovered by an audience already putting their coats on.
++     */
++    protected static function booted(): void
++    {
++        static::creating(function (self $performance): void {
++            $performance->uuid ??= (string) Str::uuid();
++        });
++    }
++
++    public function castMembers(): HasMany
++    {
++        return $this->hasMany(CastMember::class, 'event_id', 'event_id');
++    }
++
+     public function event(): BelongsTo
+     {
+         return $this->belongsTo(Event::class);
+diff --git a/app/Models/Referrer.php b/app/Models/Referrer.php
+index 1b62a28..747a80d 100644
+--- a/app/Models/Referrer.php
++++ b/app/Models/Referrer.php
+@@ -31,6 +31,12 @@ public function commissions(): HasMany
+         return $this->hasMany(ReferralCommission::class);
+     }
+ 
++    /** Every order their link brought in, earning or not. */
++    public function orders(): HasMany
++    {
++        return $this->hasMany(Order::class);
++    }
++
+     public function customer(): BelongsTo
+     {
+         return $this->belongsTo(Customer::class);
+diff --git a/app/Services/Checkout.php b/app/Services/Checkout.php
+index dfdf654..7966068 100644
+--- a/app/Services/Checkout.php
++++ b/app/Services/Checkout.php
+@@ -210,7 +210,14 @@ public function confirm(Order $order, Payment $payment): Order
+                     ->increment('used_count');
+             }
+ 
+-            app(Ledger::class)->postSale($order, $payment);
++            // A tip is money the theatre is HOLDING for a performer, not money
++            // it has earned, so it posts to a liability rather than to sales.
++            // The branch belongs here, at the single point every path settles
++            // through, because a tip counted as takings overstates income by
++            // exactly what is owed out — every night of the run.
++            $order->type === 'tip'
++                ? app(Ledger::class)->postTip($order, $payment)
++                : app(Ledger::class)->postSale($order, $payment);
+ 
+             // Inside the transaction: a commission must not survive a
+             // sale that rolled back. One hook, so every path that
+diff --git a/app/Services/Ledger.php b/app/Services/Ledger.php
+index bbecbd6..bddd062 100644
+--- a/app/Services/Ledger.php
++++ b/app/Services/Ledger.php
+@@ -39,6 +39,64 @@ public function postSale(Order $order, Payment $payment): void
+         // fees_cents debits sales / credits platform_fees per organiser agreement.
+     }
+ 
++    /**
++     * A tip is not income.
++     *
++     * The theatre collects it and owes it onward to a performer, so it credits
++     * `tips_payable` — a liability — and never `sales`. Posting a tip as a
++     * sale would overstate the theatre's takings by exactly the amount it has
++     * to hand over, and the error compounds every night of the run.
++     *
++     * Handing it over is the other half, and it is done by hand: postTipPayout.
++     */
++    public function postTip(Order $order, Payment $payment): void
++    {
++        $base = [
++            'organiser_id' => $order->organiser_id,
++            'order_id' => $order->id,
++            'payment_id' => $payment->id,
++        ];
++
++        LedgerEntry::create($base + [
++            'account' => 'cash',
++            'debit_cents' => $payment->amount_cents,
++            'memo' => "Tip {$payment->gateway} {$payment->gateway_ref}",
++        ]);
++
++        LedgerEntry::create($base + [
++            'account' => 'tips_payable',
++            'credit_cents' => $order->total_cents,
++            'memo' => 'Tip for '.($order->castMember?->name ?? $order->tip_for_name ?? 'the company'),
++        ]);
++    }
++
++    /**
++     * The theatre has handed a tip over: cash leaves, the liability clears.
++     *
++     * Recorded after the M-Pesa has gone out, never before — nothing in this
++     * application sends money.
++     */
++    public function postTipPayout(Order $order, int $amountCents, string $memo): void
++    {
++        $base = [
++            'organiser_id' => $order->organiser_id,
++            'order_id' => $order->id,
++            'payment_id' => null,
++        ];
++
++        LedgerEntry::create($base + [
++            'account' => 'tips_payable',
++            'debit_cents' => $amountCents,
++            'memo' => $memo,
++        ]);
++
++        LedgerEntry::create($base + [
++            'account' => 'cash',
++            'credit_cents' => $amountCents,
++            'memo' => $memo,
++        ]);
++    }
++
+     public function postRefund(Order $order, Payment $payment, int $amountCents, string $memo): void
+     {
+         $base = [
+diff --git a/app/Services/LinkQr.php b/app/Services/LinkQr.php
+new file mode 100644
+index 0000000..cb96739
+--- /dev/null
++++ b/app/Services/LinkQr.php
+@@ -0,0 +1,28 @@
++<?php
++
++namespace App\Services;
++
++use BaconQrCode\Renderer\Image\SvgImageBackEnd;
++use BaconQrCode\Renderer\ImageRenderer;
++use BaconQrCode\Renderer\RendererStyle\RendererStyle;
++use BaconQrCode\Writer;
++
++/**
++ * A QR code for a plain URL.
++ *
++ * TicketQr exists already but it signs a ticket payload and takes a Ticket —
++ * it is about proving a ticket is real at a door. A tipping poster just needs
++ * somebody's phone to open a link, with nothing to verify, so reusing it would
++ * mean bending a security primitive into a convenience one.
++ */
++class LinkQr
++{
++    public function svg(string $url, int $size = 260): string
++    {
++        $writer = new Writer(new ImageRenderer(new RendererStyle($size), new SvgImageBackEnd));
++
++        // The XML declaration has to go: this is inlined into a page that
++        // already has one, and a second breaks the render.
++        return preg_replace('/^<\?xml[^>]*\?>\s*/', '', $writer->writeString($url));
++    }
++}
+diff --git a/app/Services/Referrals.php b/app/Services/Referrals.php
+index e8fab1d..b62ef67 100644
+--- a/app/Services/Referrals.php
++++ b/app/Services/Referrals.php
+@@ -128,7 +128,9 @@ public function byCode(mixed $code): ?Referrer
+      */
+     public function accrue(Order $order, Payment $payment): ?ReferralCommission
+     {
+-        if (! ReferralSettings::enabled() || ! $order->referrer_id) {
++        // Nobody's link brought this sale, so there is nobody to explain
++        // anything to. Every other exit below records WHY.
++        if (! $order->referrer_id) {
+             return null;
+         }
+ 
+@@ -136,24 +138,34 @@ public function accrue(Order $order, Payment $payment): ?ReferralCommission
+             return null;    // already earned; never twice
+         }
+ 
++        if (! ReferralSettings::enabled()) {
++            return $this->decline($order, 'The referral programme was switched off when this sale was paid.');
++        }
++
+         $referrer = $order->referrer;
+ 
+-        if (! $referrer?->isActive() || $this->isSelfReferral($order, $referrer)) {
+-            return null;
++        if (! $referrer?->isActive()) {
++            return $this->decline($order, $referrer === null
++                ? 'The seller’s record could not be found.'
++                : 'The seller was not approved yet when this sale was paid. Approving them does not backdate it.');
++        }
++
++        if ($why = $this->selfReferralReason($order, $referrer)) {
++            return $this->decline($order, $why);
+         }
+ 
+         if ($order->type === 'donation' && ! ReferralSettings::onDonations()) {
+-            return null;
++            return $this->decline($order, 'Donations do not earn commission.');
+         }
+ 
+         if ($order->promo_code && ! ReferralSettings::allowWithPromo()) {
+-            return null;
++            return $this->decline($order, 'The buyer used discount code '.$order->promo_code.', and discounted orders are set not to earn.');
+         }
+ 
+         $rate = (float) ($referrer->commission_percent ?? ReferralSettings::percent());
+ 
+         if ($rate <= 0) {
+-            return null;
++            return $this->decline($order, 'The commission rate was 0% when this sale was paid.');
+         }
+ 
+         // Based on what was COLLECTED, not what was invoiced. PayHero sends
+@@ -168,9 +180,13 @@ public function accrue(Order $order, Payment $payment): ?ReferralCommission
+         }
+ 
+         if ($amount <= 0) {
+-            return null;
++            return $this->decline($order, 'The commission worked out at less than one shilling.');
+         }
+ 
++        // Earned. Clear any reason left from a previous attempt, so the row
++        // never carries both a commission and an excuse.
++        $order->update(['referral_declined_reason' => null]);
++
+         return ReferralCommission::create([
+             'uuid' => (string) Str::uuid(),
+             'referrer_id' => $referrer->id,
+@@ -188,6 +204,21 @@ public function accrue(Order $order, Payment $payment): ?ReferralCommission
+         ]);
+     }
+ 
++    /**
++     * Write down why a referred sale earned nothing, and earn nothing.
++     *
++     * The rules were right and invisible, which is the same thing as broken to
++     * the person they affect: a seller tests their own link, buys with their
++     * own phone, sees no commission, and concludes the feature does not work.
++     * It worked exactly as designed and told nobody.
++     */
++    private function decline(Order $order, string $reason): null
++    {
++        $order->update(['referral_declined_reason' => $reason]);
++
++        return null;
++    }
++
+     /**
+      * Money went back, so the commission must not stand.
+      *
+@@ -366,19 +397,42 @@ public function promote(): int
+      * things a referrer cannot change about a purchase they made themselves.
+      */
+     public function isSelfReferral(Order $order, Referrer $referrer): bool
++    {
++        return $this->selfReferralReason($order, $referrer) !== null;
++    }
++
++    /**
++     * Somebody buying through their own link — and WHY we think so.
++     *
++     * Not an edge case: it is the first thing anyone does, because the first
++     * thing anyone does with a new link is test it. Matched on the canonical
++     * phone and the linked customer, because those are the two things a
++     * referrer cannot change about a purchase they made themselves.
++     *
++     * The reason comes back as a sentence rather than a boolean so the seller
++     * can be told. "No commission" with no explanation is why this feature
++     * looked broken.
++     */
++    public function selfReferralReason(Order $order, Referrer $referrer): ?string
+     {
+         if ($referrer->customer_id && $referrer->customer_id === $order->customer_id) {
+-            return true;
++            return 'Bought by the seller themselves — a seller cannot earn commission on their own ticket.';
+         }
+ 
+         $customerPhone = $order->customer?->phone;
+ 
+         if ($customerPhone && Phone::normaliseOrKeep($customerPhone) === Phone::normaliseOrKeep($referrer->phone)) {
+-            return true;
++            return 'Bought with the seller’s own phone number ('
++                .Phone::forHumans($customerPhone)
++                .') — a seller cannot earn on their own ticket. Ask somebody else to try the link.';
+         }
+ 
+         // A walk-up at the desk was not brought in by a link.
+-        return $order->channel === 'box_office';
++        if ($order->channel === 'box_office') {
++            return 'Sold at the box office, so no link brought the buyer in.';
++        }
++
++        return null;
+     }
+ 
+     /** The earliest a commission on this order may be handed over. */
+diff --git a/app/Services/Tips.php b/app/Services/Tips.php
+new file mode 100644
+index 0000000..53f5e99
+--- /dev/null
++++ b/app/Services/Tips.php
+@@ -0,0 +1,121 @@
++<?php
++
++namespace App\Services;
++
++use App\Models\CastMember;
++use App\Models\Customer;
++use App\Models\Order;
++use App\Models\Organiser;
++use App\Models\Performance;
++use App\Support\Phone;
++use App\Support\TipSettings;
++use Illuminate\Support\Facades\DB;
++use Illuminate\Support\Str;
++
++/**
++ * Money left for a performer after the show.
++ *
++ * A tip is an order with type='tip' — same gateway, same confirm path, same
++ * ledger — so nothing here reimplements payments. What lives here is the part
++ * that is specific: who may be tipped, and what happens when the audience
++ * names somebody the theatre has not entered.
++ */
++class Tips
++{
++    /**
++     * The cast an audience member may actually choose from.
++     *
++     * Filtered through CastMember::isTippable(), which is the one place the
++     * consent and under-18 rules live. A screen that built its own list would
++     * eventually forget one of them.
++     *
++     * @return \Illuminate\Support\Collection<int, CastMember>
++     */
++    public function tippableFor(Performance $performance)
++    {
++        return CastMember::where('event_id', $performance->event_id)
++            ->orderBy('sort_order')
++            ->orderBy('name')
++            ->get()
++            ->filter(fn (CastMember $m): bool => $m->isTippable())
++            ->values();
++    }
++
++    /**
++     * Start a tip. Returns an unpaid order for the gateway to push against.
++     *
++     * @param  CastMember|null  $castMember  who it is for, if they are on the list
++     * @param  string|null  $forName  what was typed when they are not
++     */
++    public function start(
++        Performance $performance,
++        int $amountCents,
++        string $phone,
++        ?CastMember $castMember = null,
++        ?string $forName = null,
++        ?string $message = null,
++        ?string $name = null,
++    ): Order {
++        /*
++         * RE-CHECKED HERE, not trusted from the form.
++         *
++         * The public page only lists tippable people, but the id comes back in
++         * a POST, and a POST is whatever somebody sends. Without this, naming
++         * a child's record directly in the request would attach a public
++         * payment to them — which is the single thing the under-18 rule
++         * exists to prevent.
++         */
++        if ($castMember && ! $castMember->isTippable()) {
++            $forName = $forName ?: $castMember->role_name ?: $castMember->name;
++            $castMember = null;
++        }
++
++        // The cast member has to be in THIS production. Otherwise an id from
++        // another show would credit the wrong person's total.
++        if ($castMember && $castMember->event_id !== $performance->event_id) {
++            $castMember = null;
++        }
++
++        return DB::transaction(function () use (
++            $performance, $amountCents, $phone, $castMember, $forName, $message, $name
++        ) {
++            $customer = Customer::firstOrCreate(
++                ['phone' => Phone::normaliseOrKeep($phone)],
++                ['name' => $name],
++            );
++
++            return Order::create([
++                'uuid' => (string) Str::uuid(),
++                'type' => 'tip',
++                'organiser_id' => $performance->event?->organiser_id ?? Organiser::query()->value('id'),
++                'customer_id' => $customer->id,
++                // Which night, so the theatre can tell a Thursday tip from a
++                // Saturday one when the same actor played both.
++                'performance_id' => $performance->id,
++                'cast_member_id' => $castMember?->id,
++                // Kept as typed. It is how the theatre finds out who the
++                // audience actually noticed, including people not on any list.
++                'tip_for_name' => $castMember ? null : ($forName ?: null),
++                'subtotal_cents' => $amountCents,
++                'total_cents' => $amountCents,
++                'donor_message' => $message,
++                'channel' => 'online',
++                'status' => 'awaiting_payment',
++                'expires_at' => now()->addMinutes(Checkout::HOLD_MINUTES),
++            ]);
++        });
++    }
++
++    /** Bounds, so a mistyped amount is refused rather than refunded. */
++    public function withinLimits(int $amountCents): bool
++    {
++        return $amountCents >= TipSettings::minCents()
++            && $amountCents <= TipSettings::maxCents();
++    }
++
++    /** What the theatre still owes performers, in cents. */
++    public function owedCents(int $organiserId): int
++    {
++        return app(Ledger::class)->balance($organiserId, 'tips_payable') * -1;
++    }
++}
+diff --git a/app/Support/TipSettings.php b/app/Support/TipSettings.php
+new file mode 100644
+index 0000000..a22308a
+--- /dev/null
++++ b/app/Support/TipSettings.php
+@@ -0,0 +1,58 @@
++<?php
++
++namespace App\Support;
++
++use App\Models\Setting;
++
++/**
++ * The rules for on-stage tipping.
++ *
++ * Off by default, like referrals and for the same reason: a feature that
++ * invites the public to send money to named individuals should start because
++ * somebody decided it should, not because a patch was applied.
++ */
++class TipSettings
++{
++    public const KEY_ENABLED = 'tips.enabled';
++
++    public const KEY_MIN_CENTS = 'tips.min_cents';
++
++    public const KEY_MAX_CENTS = 'tips.max_cents';
++
++    public const KEY_ALLOW_FREE_TEXT = 'tips.allow_free_text';
++
++    public static function enabled(): bool
++    {
++        return (string) (Setting::get(self::KEY_ENABLED) ?? '0') === '1';
++    }
++
++    /** Below this it costs more in gateway fees than it is worth. */
++    public static function minCents(): int
++    {
++        return max(5000, (int) (Setting::get(self::KEY_MIN_CENTS) ?? 5000));
++    }
++
++    /**
++     * A ceiling, because this page takes money from somebody who has just
++     * watched a show and is feeling generous. A mistyped amount should be
++     * refused rather than refunded.
++     */
++    public static function maxCents(): int
++    {
++        return (int) (Setting::get(self::KEY_MAX_CENTS) ?? 2000000); // KES 20,000
++    }
++
++    /**
++     * Whether somebody can type a name nobody has entered.
++     *
++     * ON by default, and this is the setting that makes the feature work on a
++     * first night. The cast list is often not in the system when the curtain
++     * comes down, and a tipping page that can only offer an empty list is a
++     * tipping page that collects nothing. What gets typed is kept as written —
++     * it is how the theatre learns who the audience actually noticed.
++     */
++    public static function allowFreeText(): bool
++    {
++        return (string) (Setting::get(self::KEY_ALLOW_FREE_TEXT) ?? '1') === '1';
++    }
++}
+diff --git a/database/migrations/2026_10_16_100004_add_on_stage_tipping.php b/database/migrations/2026_10_16_100004_add_on_stage_tipping.php
+new file mode 100644
+index 0000000..52078be
+--- /dev/null
++++ b/database/migrations/2026_10_16_100004_add_on_stage_tipping.php
+@@ -0,0 +1,103 @@
++<?php
++
++use Illuminate\Database\Migrations\Migration;
++use Illuminate\Database\Schema\Blueprint;
++use Illuminate\Support\Facades\DB;
++use Illuminate\Support\Facades\Schema;
++use Illuminate\Support\Str;
++
++/**
++ * On-stage tipping — the audience sending money to a named performer.
++ *
++ * A tip is an ORDER with type='tip', like a donation is. Same gateway, same
++ * confirm path, same ledger. What makes it different is where the money is
++ * owed: a ticket is income, a tip is money the theatre is holding for somebody
++ * else, so it posts to `tips_payable` rather than `sales`. Counting tips as
++ * takings would overstate the theatre's income by the exact amount it has to
++ * hand over.
++ *
++ * SAFEGUARDING IS A SCHEMA CONCERN HERE, NOT A POLICY DOCUMENT.
++ *
++ * Putting a performer's name on a public payment page is a thing you need
++ * their agreement for, and some of this cast are children. So:
++ *
++ *   · `consent_at` — nobody is listed publicly until it is set. A cast list
++ *     typed in by a stage manager is not consent.
++ *   · `is_minor` — never listed publicly at all, whatever the consent says. A
++ *     child's name beside a "send money" button is not something an adult's
++ *     tick-box can authorise, and routing it through the theatre instead is
++ *     the one arrangement that does not need a lawyer to explain.
++ *
++ * Both are checked in one place, CastMember::isTippable(), so a new screen
++ * cannot forget them.
++ */
++return new class extends Migration
++{
++    public function up(): void
++    {
++        // A public link per night needs a public id for the night. Performances
++        // were only ever reached through their event, so they never had one.
++        Schema::table('performances', function (Blueprint $table) {
++            $table->uuid('uuid')->nullable()->after('id');
++        });
++
++        DB::table('performances')->whereNull('uuid')->orderBy('id')
++            ->each(fn ($row) => DB::table('performances')
++                ->where('id', $row->id)
++                ->update(['uuid' => (string) Str::uuid()]));
++
++        Schema::table('performances', function (Blueprint $table) {
++            $table->unique('uuid');
++        });
++
++        Schema::create('cast_members', function (Blueprint $table) {
++            $table->id();
++            $table->uuid('uuid')->unique();
++            // The cast belongs to the PRODUCTION, not to one night. Re-typing
++            // it per performance is how the Thursday list ends up different
++            // from the Friday one.
++            $table->foreignId('event_id')->constrained()->cascadeOnDelete();
++            $table->string('name');
++            // "Mama Grace" — who the audience watched. They rarely know the
++            // performer's own name, and the tipping page is read by somebody
++            // who has just left the auditorium.
++            $table->string('role_name')->nullable();
++            $table->string('payout_phone')->nullable();
++            $table->string('mpesa_name')->nullable();
++            // See the safeguarding note above. Both are load-bearing.
++            $table->boolean('is_minor')->default(false);
++            $table->timestamp('consent_at')->nullable();
++            $table->string('status')->default('pending'); // pending|active|hidden
++            $table->unsignedSmallInteger('sort_order')->default(0);
++            $table->timestamps();
++            $table->index(['event_id', 'status']);
++        });
++
++        Schema::table('orders', function (Blueprint $table) {
++            // Null on a tip left for the company as a whole, or when the
++            // audience member typed a name nobody had entered — which is the
++            // common case on a first night and must not be refused.
++            $table->foreignId('cast_member_id')->nullable()->after('performance_id')->constrained();
++            // What they typed when there was no cast list, or nobody matched.
++            // Kept as written: it is how the theatre finds out who the
++            // audience actually noticed.
++            $table->string('tip_for_name')->nullable()->after('cast_member_id');
++            $table->index(['cast_member_id']);
++        });
++    }
++
++    public function down(): void
++    {
++        Schema::table('orders', function (Blueprint $table) {
++            $table->dropConstrainedForeignId('cast_member_id');
++            $table->dropColumn('tip_for_name');
++        });
++
++        Schema::dropIfExists('cast_members');
++
++        Schema::table('performances', function (Blueprint $table) {
++            $table->dropUnique(['uuid']);
++            $table->dropColumn('uuid');
++        });
++    }
++};
+diff --git a/database/migrations/2026_10_16_100005_record_why_a_referral_earned_nothing.php b/database/migrations/2026_10_16_100005_record_why_a_referral_earned_nothing.php
+new file mode 100644
+index 0000000..b4f14e0
+--- /dev/null
++++ b/database/migrations/2026_10_16_100005_record_why_a_referral_earned_nothing.php
+@@ -0,0 +1,37 @@
++<?php
++
++use Illuminate\Database\Migrations\Migration;
++use Illuminate\Database\Schema\Blueprint;
++use Illuminate\Support\Facades\Schema;
++
++/**
++ * Why a sale through somebody's link earned them nothing.
++ *
++ * The rules were right and completely invisible. A seller shares a link, a
++ * ticket is bought through it, and the commission simply is not there — no
++ * row, no message, nothing on their page or in the admin to say the sale was
++ * seen at all. The first person to test their own link buys with their own
++ * phone, which is exactly the case the self-referral rule refuses, and the
++ * only thing they can conclude is that the feature is broken.
++ *
++ * So the decision is recorded on the order. A rule nobody can see is
++ * indistinguishable from a bug, and this is the column that tells them apart.
++ */
++return new class extends Migration
++{
++    public function up(): void
++    {
++        Schema::table('orders', function (Blueprint $table) {
++            $table->string('referral_declined_reason', 200)
++                ->nullable()
++                ->after('referral_code');
++        });
++    }
++
++    public function down(): void
++    {
++        Schema::table('orders', function (Blueprint $table) {
++            $table->dropColumn('referral_declined_reason');
++        });
++    }
++};
+diff --git a/resources/views/donate/thanks.blade.php b/resources/views/donate/thanks.blade.php
+index 664f220..417ee30 100644
+--- a/resources/views/donate/thanks.blade.php
++++ b/resources/views/donate/thanks.blade.php
+@@ -6,6 +6,11 @@
+     $paid = $order->status === 'paid';
+     $firstName = $order->customer?->name ? \Illuminate\Support\Str::of($order->customer->name)->before(' ')->trim() : null;
+     $amount = 'KES '.number_format($order->total_cents / 100);
++    // Tips land here too. One page rather than a copy: the poller at the
++    // bottom took three goes to get right, and a second copy of it would
++    // drift from this one the first time either was touched.
++    $isTip = $order->isTip();
++    $recipient = $isTip ? $order->tipRecipient() : null;
+ @endphp
+ 
+ @section('head')
+@@ -32,10 +37,20 @@
+ <div class="ty">
+     @if ($paid)
+         <div class="ty-mark" aria-hidden="true">✦</div>
+-        <h1>Asante sana{{ $firstName ? ', '.$firstName : '' }} — you keep the <em>lights on</em></h1>
++        @if ($isTip)
++            <h1>Asante sana{{ $firstName ? ', '.$firstName : '' }} — <em>{{ $recipient }}</em> will hear about it</h1>
++        @else
++            <h1>Asante sana{{ $firstName ? ', '.$firstName : '' }} — you keep the <em>lights on</em></h1>
++        @endif
+         <div class="ty-amount">{{ $amount }}</div>
+         <p class="ty-ref">Receipt {{ $order->uuid }}</p>
+-        <p class="lede" style="margin-top:18px">Your gift funds the next production on the 64 Theatre stage.
++        <p class="lede" style="margin-top:18px">
++            @if ($isTip)
++                The theatre collects tips and passes them on, so this is not
++                counted as ticket takings.
++            @else
++                Your gift funds the next production on the 64 Theatre stage.
++            @endif
+             {{ $order->customer?->email ? 'A receipt is on its way to your email.' : '' }}</p>
+         @if ($order->donor_message)
+             <div class="ty-msg">“{{ $order->donor_message }}”</div>
+@@ -43,10 +58,10 @@
+     @else
+         <div class="pending">
+             <div class="spin" aria-hidden="true"></div>
+-            <strong>Completing your donation…</strong>
++            <strong>Completing your {{ $isTip ? 'tip' : 'donation' }}…</strong>
+             <p class="meta" style="margin:8px 0 0">If you were sent to M-Pesa or your bank, finish there — this page updates automatically once payment is confirmed.</p>
+         </div>
+-        <h1>Thank you for giving</h1>
++        <h1>{{ $isTip ? 'Thank you' : 'Thank you for giving' }}</h1>
+         <div class="ty-amount">{{ $amount }}</div>
+         <p class="ty-ref">Reference {{ $order->uuid }}</p>
+     @endif
+diff --git a/resources/views/layout.blade.php b/resources/views/layout.blade.php
+index 7fb0ba0..b704656 100644
+--- a/resources/views/layout.blade.php
++++ b/resources/views/layout.blade.php
+@@ -67,6 +67,8 @@
+         /* The overflow menu. <details> gives a dropdown with no JavaScript —
+            it still opens if a script fails, and it is keyboard-accessible
+            without any ARIA wiring of ours. */
++        .top nav a.earn{color:var(--lamp-bright); font-weight:700}
++        .top nav a.earn:hover{color:var(--lamp)}
+         .menu{display:none; position:relative}
+         .menu > summary{
+             list-style:none; cursor:pointer; color:var(--bone); padding:6px 8px;
+@@ -182,6 +184,12 @@
+         <nav>
+             <a class="in-menu" href="{{ route('events.index') }}">What's On</a>
+             <a class="in-menu" href="{{ route('orders.lookup.form') }}">My Tickets</a>
++            {{-- Only while the programme is running: the page 404s when it is
++                 off, and a dead link in the header of every page is worse than
++                 no link. --}}
++            @if (\App\Support\ReferralSettings::enabled())
++                <a class="in-menu earn" href="{{ route('referrals.join') }}">Earn With Us</a>
++            @endif
+             <a class="give" href="{{ route('donate.create') }}">Donate</a>
+             <a class="cta" href="{{ route('events.index') }}#whats-on">Get Tickets</a>
+ 
+@@ -194,6 +202,9 @@
+                 <div class="menu-panel">
+                     <a href="{{ route('events.index') }}">What's On</a>
+                     <a href="{{ route('orders.lookup.form') }}">My Tickets</a>
++                    @if (\App\Support\ReferralSettings::enabled())
++                        <a href="{{ route('referrals.join') }}">Earn With Us</a>
++                    @endif
+                     <a href="{{ route('donate.create') }}">Donate</a>
+                 </div>
+             </details>
+@@ -217,7 +228,7 @@
+                  off, and a dead link in the footer of every page is worse
+                  than no link at all. --}}
+             @if (\App\Support\ReferralSettings::enabled())
+-                <a href="{{ route('referrals.join') }}">Sell Tickets</a>
++                <a href="{{ route('referrals.join') }}">Earn With Us</a>
+             @endif
+             <a href="https://www.instagram.com/64theatre/" rel="noopener">Instagram</a>
+         </div>
+diff --git a/resources/views/referrals/dashboard.blade.php b/resources/views/referrals/dashboard.blade.php
+index f966fce..6646320 100644
+--- a/resources/views/referrals/dashboard.blade.php
++++ b/resources/views/referrals/dashboard.blade.php
+@@ -89,9 +89,16 @@
+     </p>
+ 
+     @if ($commissions->isEmpty())
+-        <p style="margin-top:26px; color:var(--dim)">
+-            Nothing yet. Share the link above — sales show up here within a
++        <p style="margin-top:26px; color:var(--dim); line-height:1.7">
++            Nothing yet. Share the link above — sales appear here within a
+             minute of someone paying.
++            @if ($declined->isEmpty())
++                <br><br>
++                <strong>Testing it yourself?</strong> Buying through your own
++                link with your own number earns nothing on purpose, and it will
++                show up below with the reason rather than as a sale. Ask
++                somebody else to try it.
++            @endif
+         </p>
+     @else
+         <h2 class="sec">Your sales</h2>
+@@ -137,6 +144,35 @@
+         </table>
+     @endif
+ 
++    @if ($declined->isNotEmpty())
++        <h2 class="sec">Sales that did not earn</h2>
++        <p style="color:var(--dim); font-size:.88rem; line-height:1.7; margin:0 0 14px">
++            These came through your link but earned nothing. The reason is
++            beside each one — most often it is simply that you bought the
++            ticket yourself.
++        </p>
++        <table style="width:100%; border-collapse:collapse; font-size:.9rem">
++            <tbody>
++                @foreach ($declined as $order)
++                    <tr style="border-top:1px solid var(--line)">
++                        <td style="padding:11px 0; color:var(--dim); white-space:nowrap; vertical-align:top">
++                            {{ $order->created_at?->format('j M') }}
++                        </td>
++                        <td style="padding:11px 10px; vertical-align:top">
++                            <div>{{ $order->performance?->event?->title ?? 'Ticket sale' }}</div>
++                            <div style="color:var(--dim); font-size:.84rem; margin-top:3px">
++                                {{ $order->referral_declined_reason }}
++                            </div>
++                        </td>
++                        <td style="padding:11px 0; text-align:right; white-space:nowrap; vertical-align:top; color:var(--dim)">
++                            KES {{ number_format($order->total_cents / 100) }}
++                        </td>
++                    </tr>
++                @endforeach
++            </tbody>
++        </table>
++    @endif
++
+     <p style="margin-top:30px; color:var(--dim); font-size:.82rem">
+         <strong>Keep this page.</strong> The address in your browser is how you
+         get back to it — there is no password. Bookmark it.
+diff --git a/resources/views/referrals/join.blade.php b/resources/views/referrals/join.blade.php
+index a3e48c0..3462063 100644
+--- a/resources/views/referrals/join.blade.php
++++ b/resources/views/referrals/join.blade.php
+@@ -5,41 +5,48 @@
+ @section('content')
+ <div class="wrap narrow" style="padding-top:40px">
+ 
+-    <h2 class="sec">Sell tickets for 64 Theatre</h2>
++    <h2 class="sec">Earn with 64 Theatre</h2>
+ 
++    <p style="color:var(--bone); font-size:1.05rem; line-height:1.6; margin:0 0 6px">
++        You already tell people what to go and see. Get paid for it.
++    </p>
+     <p style="color:var(--dim); line-height:1.7">
+-        Fill this in and you get your own link. Share it however you like —
+-        WhatsApp, Instagram, in person. When somebody buys a ticket after
+-        following your link, you earn a share of what they pay.
++        Sign up and you get a link of your own. Share it however you already
++        share things — WhatsApp, Instagram, the group chat, in person after a
++        show. Every time somebody books a ticket through your link, you earn a
++        share of what they pay. No stock to carry, no float to hold, nothing to
++        collect at the door.
+     </p>
+ 
+     <div class="summary" style="margin:22px 0">
+         <dl>
+-            <dt>Your share</dt>
+-            <dd>{{ rtrim(rtrim(number_format(\App\Support\ReferralSettings::percent(), 2), '0'), '.') }}% of each ticket sale</dd>
+-            <dt>Paid out</dt>
++            <dt>You earn</dt>
++            <dd>{{ rtrim(rtrim(number_format(\App\Support\ReferralSettings::percent(), 2), '0'), '.') }}% of every ticket sold through your link</dd>
++            <dt>Paid by</dt>
++            <dd>M-Pesa, to the number you give below</dd>
++            <dt>When</dt>
+             <dd>
+-                After the show has happened
++                After the show has been performed
+                 @if (\App\Support\ReferralSettings::holdHours() > 0)
+                     (about {{ \App\Support\ReferralSettings::holdHours() }} hours after)
+                 @endif
+             </dd>
+-            <dt>By</dt>
+-            <dd>M-Pesa, to the number you give below</dd>
++            <dt>Costs you</dt>
++            <dd>Nothing</dd>
+         </dl>
+     </div>
+ 
+     <p style="color:var(--dim); font-size:.88rem; line-height:1.7">
+-        Three things worth knowing before you sign up, so there are no
+-        arguments later:
++        Three things to know up front, so nobody is surprised later:
+     </p>
+     <ul style="color:var(--dim); font-size:.88rem; line-height:1.8; padding-left:20px">
+-        <li>You cannot earn on your own ticket. Buying through your own link
+-            pays nothing.</li>
++        <li><strong>Your own ticket does not earn.</strong> Buying through
++            your own link, with your own number, pays nothing — this is a
++            commission on people you bring, not a discount for yourself.</li>
+         <li>If a ticket is refunded, the commission on it goes too.</li>
+-        <li>We have to approve you before your link starts earning. You will
+-            get your link straight away; it begins counting once we have said
+-            yes.</li>
++        <li><strong>We approve you first.</strong> You get your link straight
++            away and can start sharing it, but it only begins earning once we
++            have said yes — usually a phone call the same day.</li>
+     </ul>
+ 
+     @if (session('sent'))
+diff --git a/resources/views/tips/create.blade.php b/resources/views/tips/create.blade.php
+new file mode 100644
+index 0000000..db21a15
+--- /dev/null
++++ b/resources/views/tips/create.blade.php
+@@ -0,0 +1,169 @@
++@extends('layout')
++
++@section('title', 'Tip the cast — '.($performance->event?->title ?? '64 Theatre'))
++
++@section('head')
++<style>
++    .tip{max-width:620px; margin:0 auto; padding:48px 22px 90px}
++    .tip-head{text-align:center; margin:0 auto 28px}
++    .tip-eyebrow{font-size:.66rem; letter-spacing:.34em; text-transform:uppercase; color:var(--lamp-bright); font-weight:800; margin:0 0 10px}
++    .tip-head h1{font-family:Georgia,serif; font-weight:700; font-size:clamp(1.8rem,5vw,2.6rem); line-height:1.05; margin:0 0 10px; text-wrap:balance}
++    .tip-head p{color:var(--dim); font-size:.96rem; margin:0; text-wrap:balance}
++
++    .tip-card{background:var(--velvet); border:1px solid var(--line); border-radius:20px; padding:26px 24px 30px;
++        background-image:radial-gradient(80% 90% at 0% 0%, rgba(232,163,61,.10), transparent 60%)}
++
++    /* who it is for */
++    .cast{display:grid; gap:9px; margin:0 0 6px}
++    .who{position:relative}
++    .who input{position:absolute; opacity:0; inset:0; cursor:pointer}
++    .who span{display:flex; align-items:baseline; gap:8px; flex-wrap:wrap;
++        border:1.5px solid var(--line); border-radius:12px; padding:13px 15px; cursor:pointer; transition:all .15s;
++        background:rgba(255,253,247,.03); font-weight:700}
++    .who span small{font-weight:600; color:var(--dim); font-size:.78rem}
++    .who input:checked + span{border-color:var(--lamp); color:var(--lamp-bright); background:rgba(232,163,61,.12);
++        box-shadow:0 0 0 3px rgba(232,163,61,.14)}
++    .who input:focus-visible + span{outline:2px solid var(--focus); outline-offset:2px}
++
++    .amounts{display:grid; grid-template-columns:repeat(4,1fr); gap:9px; margin:0 0 8px}
++    @media (max-width:420px){.amounts{grid-template-columns:repeat(2,1fr)}}
++    .amt{position:relative}
++    .amt input{position:absolute; opacity:0; inset:0; cursor:pointer}
++    .amt span{display:flex; align-items:center; justify-content:center;
++        border:1.5px solid var(--line); border-radius:12px; padding:14px 6px; cursor:pointer; transition:all .15s;
++        font-weight:800; font-size:1rem; background:rgba(255,253,247,.03)}
++    .amt input:checked + span{border-color:var(--lamp); color:var(--lamp-bright); background:rgba(232,163,61,.12);
++        box-shadow:0 0 0 3px rgba(232,163,61,.14)}
++    .amt input:focus-visible + span{outline:2px solid var(--focus); outline-offset:2px}
++
++    .custom-amt{position:relative; margin:12px 0 6px}
++    .custom-amt .ksh{position:absolute; left:16px; top:50%; transform:translateY(-50%); color:var(--dim); font-weight:800; font-size:.82rem; letter-spacing:.06em}
++    .custom-amt input{width:100%; padding:14px 16px 14px 58px; font:inherit; font-weight:800; font-size:1.1rem; color:var(--bone);
++        background:var(--velvet-2); border:1px solid var(--line); border-radius:12px}
++    .custom-amt input:focus{outline:none; border-color:var(--lamp); box-shadow:0 0 0 3px rgba(232,163,61,.18)}
++
++    .tip-card .field{margin:14px 0 0}
++    .tip-card .field input,.tip-card .field textarea{
++        width:100%; max-width:none; padding:13px 16px; font:inherit; color:var(--bone);
++        background:var(--velvet-2); border:1px solid var(--line); border-radius:10px; resize:vertical}
++    .tip-card .field textarea{min-height:68px}
++    .tip-card .field input:focus,.tip-card .field textarea:focus{outline:none; border-color:var(--lamp); box-shadow:0 0 0 3px rgba(232,163,61,.18)}
++    .tip-card .btn{width:100%; margin-top:22px; padding:16px}
++    .pay-note{text-align:center; margin:14px 0 0; color:var(--dim); font-size:.76rem; line-height:1.6}
++    .lbl{font-size:.72rem; font-weight:700; letter-spacing:.14em; text-transform:uppercase; color:var(--dim); margin:20px 0 8px}
++    .lbl:first-of-type{margin-top:0}
++</style>
++@endsection
++
++@section('content')
++<div class="tip">
++
++    <div class="tip-head">
++        <p class="tip-eyebrow">Thank the cast</p>
++        <h1>{{ $performance->event?->title ?? 'Tonight’s show' }}</h1>
++        <p>
++            {{ $performance->starts_at?->format('D j M Y · g:i A') }}
++            @if ($performance->venue?->name) · {{ $performance->venue->name }} @endif
++        </p>
++    </div>
++
++    @if ($errors->any())
++        <div class="err">
++            @foreach ($errors->all() as $error)
++                <div>{{ $error }}</div>
++            @endforeach
++        </div>
++    @endif
++
++    <form method="POST" action="{{ route('tips.store', $performance->uuid) }}" class="tip-card">
++        @csrf
++
++        <p class="lbl">Who are you thanking?</p>
++
++        <div class="cast">
++            @foreach ($cast as $member)
++                <label class="who">
++                    <input type="radio" name="cast_member_id" value="{{ $member->id }}"
++                           @checked(old('cast_member_id') == $member->id)>
++                    <span>
++                        {{ $member->role_name ?: $member->name }}
++                        @if ($member->role_name)
++                            <small>{{ $member->name }}</small>
++                        @endif
++                    </span>
++                </label>
++            @endforeach
++
++            {{-- The company option is always offered. Somebody who loved the
++                 whole thing should not have to pick a favourite, and on a
++                 first night it may be the only option there is. --}}
++            <label class="who">
++                <input type="radio" name="cast_member_id" value=""
++                       @checked(old('cast_member_id') === '' || ($cast->isEmpty() && ! old('cast_member_id')))>
++                <span>The whole company <small>shared out by the theatre</small></span>
++            </label>
++        </div>
++
++        @if ($allowFreeText)
++            <div class="field">
++                <label for="for_name" style="font-size:.72rem; letter-spacing:.14em; text-transform:uppercase; color:var(--dim)">
++                    Or name someone
++                </label>
++                <input id="for_name" name="for_name" type="text" maxlength="80"
++                       value="{{ old('for_name') }}"
++                       placeholder="{{ $cast->isEmpty() ? 'The actor who played…' : 'Someone not on the list' }}">
++            </div>
++        @endif
++
++        <p class="lbl">How much?</p>
++
++        <div class="amounts">
++            @foreach ($presets as $preset)
++                <label class="amt">
++                    <input type="radio" name="amount" value="{{ $preset }}" @checked(old('amount') == $preset)>
++                    <span>{{ number_format($preset) }}</span>
++                </label>
++            @endforeach
++        </div>
++
++        <div class="custom-amt">
++            <span class="ksh">KES</span>
++            {{-- A number field rather than a fifth chip: the preset chips and
++                 this box write the same `amount`, and whichever is touched
++                 last wins, which is what somebody expects. --}}
++            <input type="number" name="amount" inputmode="numeric"
++                   min="{{ $minKes }}" max="{{ $maxKes }}"
++                   value="{{ old('amount') }}"
++                   placeholder="Another amount">
++        </div>
++
++        <p style="color:var(--dim); font-size:.76rem; margin:6px 0 0">
++            Anything from KES {{ number_format($minKes) }} to KES {{ number_format($maxKes) }}.
++        </p>
++
++        <div class="field">
++            <label for="phone" style="font-size:.72rem; letter-spacing:.14em; text-transform:uppercase; color:var(--dim)">
++                Your M-Pesa number
++            </label>
++            <input id="phone" name="phone" type="tel" inputmode="tel" autocomplete="tel" required
++                   maxlength="20" value="{{ old('phone') }}" placeholder="07XX XXX XXX">
++        </div>
++
++        <div class="field">
++            <label for="message" style="font-size:.72rem; letter-spacing:.14em; text-transform:uppercase; color:var(--dim)">
++                Say something (optional)
++            </label>
++            <textarea id="message" name="message" maxlength="300"
++                      placeholder="What you loved about it">{{ old('message') }}</textarea>
++        </div>
++
++        <button class="btn" type="submit">Send a tip</button>
++
++        <p class="pay-note">
++            You will get an M-Pesa prompt on that number.<br>
++            The theatre collects tips and passes them on — they are not counted
++            as ticket takings.
++        </p>
++    </form>
++</div>
++@endsection
+diff --git a/routes/web.php b/routes/web.php
+index 4cfe099..1c6ac9d 100644
+--- a/routes/web.php
++++ b/routes/web.php
+@@ -8,6 +8,7 @@
+ use App\Http\Controllers\GroupRosterController;
+ use App\Http\Controllers\OrderController;
+ use App\Http\Controllers\ReferralController;
++use App\Http\Controllers\TipController;
+ use App\Http\Controllers\Webhooks\DarajaCallbackController;
+ use App\Http\Controllers\Webhooks\KopoKopoCallbackController;
+ use App\Http\Controllers\Webhooks\PayHeroCallbackController;
+@@ -40,6 +41,13 @@
+     ->middleware('throttle:10,1')->name('referrals.register');
+ Route::get('/r/{uuid}', [ReferralController::class, 'dashboard'])->name('referrals.dashboard');
+ 
++// Tipping the cast, from a QR code in the programme or on the foyer wall.
++// Reached by the performance's uuid — which night, so a Thursday tip can be
++// told from a Saturday one when the same actor played both.
++Route::get('/tip/{uuid}', [TipController::class, 'show'])->name('tips.show');
++Route::post('/tip/{uuid}', [TipController::class, 'store'])
++    ->middleware('throttle:20,1')->name('tips.store');
++
+ // Support 64 Theatre — donations run through the same payment pipeline.
+ Route::get('/donate', [DonationController::class, 'create'])->name('donate.create');
+ Route::post('/donate', [DonationController::class, 'store'])->name('donate.store');
+diff --git a/tests/Feature/ReferralPublicTest.php b/tests/Feature/ReferralPublicTest.php
+index f827bc0..2a5db47 100644
+--- a/tests/Feature/ReferralPublicTest.php
++++ b/tests/Feature/ReferralPublicTest.php
+@@ -132,6 +132,44 @@ public function test_the_reply_says_the_same_thing_with_no_email_on_file(): void
+         Mail::assertNothingSent();
+     }
+ 
++    public function test_the_seller_page_explains_a_sale_that_earned_nothing(): void
++    {
++        $ref = app(Referrals::class)->register(['name' => 'Mercy', 'phone' => '0712345678']);
++        $ref->update(['status' => 'active']);
++
++        $type = TicketType::factory()->create(['price_cents' => 50000, 'quantity_total' => 20]);
++
++        // The seller testing their own link, which is what everybody does
++        // first and is exactly the case that earns nothing.
++        $order = app(\App\Services\Checkout::class)->startOrder(
++            items: [$type->id => 1], phone: '0712345678', referrer: $ref,
++        );
++        $payment = \App\Models\Payment::create([
++            'order_id' => $order->id, 'gateway' => 'cash', 'gateway_ref' => 'S-'.uniqid(),
++            'amount_cents' => $order->total_cents, 'status' => 'initiated',
++        ]);
++        app(\App\Services\Checkout::class)->confirm($order, $payment);
++
++        $this->get(route('referrals.dashboard', $ref->uuid))
++            ->assertOk()
++            ->assertSee('Sales that did not earn')
++            ->assertSee('own phone number', escape: false);
++    }
++
++    public function test_the_front_end_offers_the_programme_when_it_is_on(): void
++    {
++        $this->get('/')->assertOk()->assertSee('Earn With Us');
++    }
++
++    public function test_the_front_end_does_not_offer_it_when_it_is_off(): void
++    {
++        Setting::put(ReferralSettings::KEY_ENABLED, '0');
++
++        // A dead link in the header of every page is worse than no link: the
++        // signup route 404s while the programme is off.
++        $this->get('/')->assertOk()->assertDontSee('Earn With Us');
++    }
++
+     /**
+      * `?ref[]=X` makes the query parameter an ARRAY, which `blank()` lets
+      * through and a string cast turns into a 500. This middleware runs on the
+diff --git a/tests/Feature/ReferralTest.php b/tests/Feature/ReferralTest.php
+index ea86d55..f611bce 100644
+--- a/tests/Feature/ReferralTest.php
++++ b/tests/Feature/ReferralTest.php
+@@ -274,6 +274,96 @@ public function test_the_figures_on_a_sellers_page_add_up(): void
+         $this->assertSame(10000, $ref->outstandingClawbackCents());
+     }
+ 
++    /**
++     * The rules were right and silent, which to the person affected is the
++     * same as broken. A seller tests their own link, buys a ticket, sees
++     * nothing, and concludes the feature does not work.
++     */
++    public function test_a_self_referred_sale_says_why_it_earned_nothing(): void
++    {
++        $type = TicketType::factory()->create(['price_cents' => 50000, 'quantity_total' => 20]);
++        $ref = $this->referrer(['phone' => '254712345678']);
++
++        $order = $this->buy($type, $ref, phone: '0712345678');
++
++        $this->assertSame(0, ReferralCommission::count());
++        $reason = (string) $order->fresh()->referral_declined_reason;
++        $this->assertStringContainsString('own phone number', $reason);
++        // The number is named, so it is obvious which one clashed.
++        $this->assertStringContainsString('0712 345 678', $reason);
++    }
++
++    public function test_an_unapproved_seller_says_why(): void
++    {
++        $type = TicketType::factory()->create(['price_cents' => 50000, 'quantity_total' => 20]);
++        $order = $this->buy($type, $this->referrer(['status' => 'pending']));
++
++        $this->assertStringContainsString(
++            'not approved yet', (string) $order->fresh()->referral_declined_reason,
++        );
++    }
++
++    public function test_a_zero_rate_says_why(): void
++    {
++        Setting::put(ReferralSettings::KEY_PERCENT, '0');
++        $type = TicketType::factory()->create(['price_cents' => 50000, 'quantity_total' => 20]);
++        $order = $this->buy($type, $this->referrer());
++
++        $this->assertStringContainsString(
++            'rate was 0%', (string) $order->fresh()->referral_declined_reason,
++        );
++    }
++
++    public function test_the_programme_being_off_says_why(): void
++    {
++        Setting::put(ReferralSettings::KEY_ENABLED, '0');
++        $type = TicketType::factory()->create(['price_cents' => 50000, 'quantity_total' => 20]);
++        $order = $this->buy($type, $this->referrer());
++
++        $this->assertStringContainsString(
++            'switched off', (string) $order->fresh()->referral_declined_reason,
++        );
++    }
++
++    public function test_a_promo_coded_sale_names_the_code(): void
++    {
++        $type = TicketType::factory()->create(['price_cents' => 50000, 'quantity_total' => 20]);
++        PromoCode::factory()->create([
++            'organiser_id' => $type->performance->event->organiser_id,
++            'code' => 'HALF', 'type' => 'percent', 'value' => 50,
++        ]);
++
++        $order = app(Checkout::class)->startOrder(
++            items: [$type->id => 2], phone: '0799888777',
++            promoCode: 'HALF', referrer: $this->referrer(),
++        );
++        $payment = Payment::create([
++            'order_id' => $order->id, 'gateway' => 'cash', 'gateway_ref' => 'P-'.uniqid(),
++            'amount_cents' => $order->total_cents, 'status' => 'initiated',
++        ]);
++        app(Checkout::class)->confirm($order, $payment);
++
++        $this->assertStringContainsString('HALF', (string) $order->fresh()->referral_declined_reason);
++    }
++
++    public function test_a_sale_that_earns_carries_no_excuse(): void
++    {
++        $type = TicketType::factory()->create(['price_cents' => 50000, 'quantity_total' => 20]);
++        $order = $this->buy($type, $this->referrer(), phone: '0799888777');
++
++        $this->assertSame(1, ReferralCommission::count());
++        $this->assertNull($order->fresh()->referral_declined_reason);
++    }
++
++    public function test_an_unreferred_sale_records_nothing_at_all(): void
++    {
++        $type = TicketType::factory()->create(['price_cents' => 50000, 'quantity_total' => 20]);
++        $order = $this->buy($type, null);
++
++        // Nobody's link brought it, so there is nobody to explain anything to.
++        $this->assertNull($order->fresh()->referral_declined_reason);
++    }
++
+     public function test_a_promo_coded_order_earns_nothing_unless_allowed(): void
+     {
+         $type = TicketType::factory()->create(['price_cents' => 50000]);

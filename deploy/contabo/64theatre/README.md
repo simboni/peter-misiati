@@ -21,6 +21,40 @@ Postgres, no Redis, no worker — the staging config runs jobs inline.
 
 ---
 
+## Before a show — can we sell tickets today?
+
+```bash
+bash /srv/smp-portfolio/repo/deploy/contabo/64theatre/showtime.sh
+```
+
+Exits 0 only when a real buyer could complete a real purchase right now.
+Every check is a read: it starts nothing, stops nothing, changes no setting.
+
+**It is not status.sh.** That one answers "are the containers up" across the
+whole box, and it can be entirely green while this app cannot take a single
+shilling. These are the failures that stay invisible until an audience is
+standing there with their phones out:
+
+| Check | The failure it catches |
+| --- | --- |
+| Anything on sale | No upcoming performance set to *on sale*, or every category sold out |
+| Gateway | Set to `fake` (issues real tickets for no money), credentials missing, or pointed at a **sandbox** — payments look fine and no money moves |
+| PayHero service wallet | The **prepaid** wallet that sends each prompt is empty. Every STK push is refused while the credentials and channel still look perfect |
+| Email | Set to `log` — ticket emails reach nobody |
+| Scheduler | Never installed, so abandoned checkouts hold their seats off sale permanently |
+| `?ref[]=` crash | Patch 0029 deployed without 0031 — anyone can 500 the whole site with a URL |
+| SQLite tuning | Patch 0023 not applied, so a rush refuses buyers instantly |
+| The door | No staff account can scan; any account still on the default password |
+| Backups | Nothing written in 48 hours — lose the database today and every ticket sold goes with it |
+
+Run it with `--quiet` from cron and it says nothing unless something is wrong.
+
+To try it against a checkout rather than the live box:
+
+```bash
+LOCAL_APP_DIR=/path/to/checkout bash showtime.sh
+```
+
 ## Updating the box — one command
 
 ```bash
