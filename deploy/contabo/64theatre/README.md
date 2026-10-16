@@ -784,6 +784,62 @@ additive change, and the SQLite data can be migrated across.
 - Always use `-f /srv/64theatre/compose.yml` so a command can never act on
   another project.
 
+## Refunds (patch 0028)
+
+```bash
+cd /srv/64theatre/repo && git pull
+git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0028-refunds.patch
+cd /srv/64theatre && docker compose up -d --build --force-recreate
+```
+
+No migration. Safe on any day.
+
+### What was wrong
+
+**There was no refund path.** `Ledger::postRefund()` existed and had never been
+called from anywhere in the codebase. A refund was an admin picking "Refunded"
+from a status dropdown, which changed one word on one row: the tickets still
+scanned, the seats never came back on sale, and the ledger went on reporting
+cash the theatre no longer had.
+
+### What happens now
+
+**Refund** and **Cancel** are buttons on the order, and the status dropdown no
+longer offers either — if it did, the one route that does this properly could
+be walked around by accident.
+
+A refund does four things as one piece, or none of them:
+
+- the tickets become `refunded`, so the gate stops admitting them (it only
+  ever redeems status `issued`)
+- the seats go back on sale
+- the reversal is posted to the ledger
+- the reason and the person are recorded in the audit log
+
+**Cancel** is the unpaid equivalent — a held booking the buyer walked away
+from. Seats return, nothing is posted, because no money moved. A paid order
+cannot be cancelled this way; it has to be refunded, so the money is recorded.
+
+**It does not send the money.** You still pay the customer by M-Pesa. This
+records it so the books and the door agree with what you did.
+
+Refunding is limited to **finance and administrators**. Cancelling an unpaid
+order is open to the desk roles.
+
+### Deliberate limits
+
+**Full refunds only.** A part refund needs a column to remember how much went
+back, and inventing one now would be guessing at a policy nobody has set.
+
+**A ticket already used is left alone.** Somebody watched the show on it;
+rewriting it to refunded would erase the fact that they came in and leave the
+door's record disagreeing with the order.
+
+Verified by 9 tests: the ledger entries, seats returning, a refunded ticket
+failing at the gate, refunding twice posting once, a used ticket surviving,
+an unpaid order refusing to be refunded, a paid order refusing to be
+cancelled, resale after a sell-out, and stock never going negative.
+
 ## Group tickets (patch 0027)
 
 **Do not deploy this on a show night.** It adds a migration, and a launch is

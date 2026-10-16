@@ -1,0 +1,455 @@
+diff --git a/app/Filament/Resources/Orders/Pages/ViewOrder.php b/app/Filament/Resources/Orders/Pages/ViewOrder.php
+index fab3390..8f41390 100644
+--- a/app/Filament/Resources/Orders/Pages/ViewOrder.php
++++ b/app/Filament/Resources/Orders/Pages/ViewOrder.php
+@@ -3,8 +3,14 @@
+ namespace App\Filament\Resources\Orders\Pages;
+ 
+ use App\Filament\Resources\Orders\OrderResource;
++use App\Services\Refunds;
++use App\Support\Role;
++use Filament\Actions\Action;
+ use Filament\Actions\EditAction;
++use Filament\Forms\Components\Textarea;
++use Filament\Notifications\Notification;
+ use Filament\Resources\Pages\ViewRecord;
++use Filament\Support\Icons\Heroicon;
+ 
+ class ViewOrder extends ViewRecord
+ {
+@@ -14,6 +20,76 @@ protected function getHeaderActions(): array
+     {
+         return [
+             EditAction::make(),
++
++            /*
++             * Refunding is a real operation, not a status change. It kills the
++             * tickets, returns the seats to sale, posts the reversal to the
++             * ledger and records who decided — all of it, or none of it.
++             *
++             * Finance and administrators only: this hands money back.
++             */
++            Action::make('refund')
++                ->label('Refund')
++                ->icon(Heroicon::OutlinedArrowUturnLeft)
++                ->color('danger')
++                ->visible(fn (): bool => $this->getRecord()->status === 'paid'
++                    && in_array(auth()->user()?->role, [Role::SUPER_ADMIN, Role::FINANCE], true))
++                ->schema([
++                    Textarea::make('reason')
++                        ->label('Why?')
++                        ->required()
++                        ->maxLength(200)
++                        // A refund with no stated reason is unanswerable three
++                        // months later when somebody asks about the figure.
++                        ->helperText('Recorded against the order. "Show cancelled", "duplicate payment", "customer could not attend".'),
++                ])
++                ->requiresConfirmation()
++                ->modalHeading('Refund this order')
++                ->modalDescription('The tickets stop working, the seats go back on sale, and the reversal is posted to the ledger. The money itself you send by M-Pesa — this records it.')
++                ->action(function (array $data, Refunds $refunds): void {
++                    try {
++                        $order = $refunds->refund($this->getRecord(), $data['reason'], auth()->id());
++                    } catch (\Throwable $e) {
++                        Notification::make()->title('Not refunded')->body($e->getMessage())->danger()->send();
++
++                        return;
++                    }
++
++                    Notification::make()
++                        ->title('Refunded')
++                        ->body('KES '.number_format($order->total_cents / 100)
++                            .' reversed. Send the money by M-Pesa if you have not already.')
++                        ->success()
++                        ->send();
++                }),
++
++            /*
++             * Cancelling is the unpaid equivalent: a held booking the buyer
++             * walked away from. No money moved, so nothing is posted — the
++             * seats simply go back.
++             */
++            Action::make('cancelOrder')
++                ->label('Cancel')
++                ->icon(Heroicon::OutlinedXCircle)
++                ->color('gray')
++                ->visible(fn (): bool => in_array($this->getRecord()->status, ['pending', 'awaiting_payment'], true)
++                    && Role::canHandleMoney(auth()->user()?->role))
++                ->schema([
++                    Textarea::make('reason')->label('Why?')->required()->maxLength(200),
++                ])
++                ->requiresConfirmation()
++                ->modalDescription('Releases the seats back on sale. Nothing is posted to the ledger because no money was taken.')
++                ->action(function (array $data, Refunds $refunds): void {
++                    try {
++                        $refunds->cancel($this->getRecord(), $data['reason'], auth()->id());
++                    } catch (\Throwable $e) {
++                        Notification::make()->title('Not cancelled')->body($e->getMessage())->danger()->send();
++
++                        return;
++                    }
++
++                    Notification::make()->title('Cancelled')->body('The seats are back on sale.')->success()->send();
++                }),
+         ];
+     }
+ }
+diff --git a/app/Filament/Resources/Orders/Schemas/OrderForm.php b/app/Filament/Resources/Orders/Schemas/OrderForm.php
+index ebd2916..40dd6ef 100644
+--- a/app/Filament/Resources/Orders/Schemas/OrderForm.php
++++ b/app/Filament/Resources/Orders/Schemas/OrderForm.php
+@@ -170,15 +170,20 @@ public static function configure(Schema $schema): Schema
+                             ->label('Status')
+                             ->native(false)
+                             ->required()
++                            // Refunded and cancelled are deliberately absent.
++                            // Setting either here would change one word and
++                            // nothing else: the tickets would still scan, the
++                            // seats would not return to sale, and the ledger
++                            // would go on reporting money the theatre no
++                            // longer has. Use the Refund and Cancel actions on
++                            // the order, which do all of it as one piece.
+                             ->options([
+                                 'pending' => 'Pending',
+                                 'awaiting_payment' => 'Awaiting payment',
+                                 'paid' => 'Paid',
+-                                'cancelled' => 'Cancelled',
+-                                'refunded' => 'Refunded',
+                                 'expired' => 'Expired',
+                             ])
+-                            ->helperText('Marking an order paid here does NOT issue tickets — a real payment or the box office does that.'),
++                            ->helperText('Marking an order paid here does NOT issue tickets — a real payment or the box office does that. To refund or cancel, use the buttons on the order itself.'),
+                         Select::make('channel')
+                             ->label('Taken at')
+                             ->native(false)
+diff --git a/app/Services/Refunds.php b/app/Services/Refunds.php
+new file mode 100644
+index 0000000..93155f2
+--- /dev/null
++++ b/app/Services/Refunds.php
+@@ -0,0 +1,144 @@
++<?php
++
++namespace App\Services;
++
++use App\Models\AuditLog;
++use App\Models\Order;
++use App\Models\Ticket;
++use App\Models\TicketType;
++use Illuminate\Database\Eloquent\ModelNotFoundException;
++use Illuminate\Support\Facades\DB;
++
++/**
++ * Giving money back.
++ *
++ * Until now there was no refund path at all. `Ledger::postRefund()` existed
++ * and was never called from anywhere; a refund was an admin picking
++ * "Refunded" from a dropdown, which changed one word on one row. The tickets
++ * still scanned, the seats never returned to sale, and the ledger went on
++ * reporting cash the theatre no longer had.
++ *
++ * So this is the ONE path. The status dropdown no longer offers refunded or
++ * cancelled — if it did, the single route that does this properly could be
++ * walked around by accident.
++ *
++ * Four things have to happen together or none of them should:
++ *   · the tickets stop working — the gate only redeems status 'issued'
++ *   · the seats go back on sale
++ *   · the ledger records money leaving
++ *   · somebody's name is attached to the decision
++ *
++ * FULL REFUNDS ONLY. A part refund needs a column to remember how much went
++ * back, and inventing one now would be guessing at a policy nobody has set.
++ * When the theatre needs it, that is a migration and a conversation, not a
++ * quiet behaviour change here.
++ */
++class Refunds
++{
++    /**
++     * Refund a paid order: money back, tickets dead, seats resellable.
++     *
++     * @throws ModelNotFoundException when the order was never paid
++     */
++    public function refund(Order $order, string $reason, ?int $byUserId = null): Order
++    {
++        if (in_array($order->status, ['refunded', 'cancelled'], true)) {
++            return $order;   // already done; never post twice
++        }
++
++        $payment = $order->payments()->where('status', 'confirmed')->latest('id')->first();
++
++        if (! $payment) {
++            throw new ModelNotFoundException(
++                'That order has no confirmed payment, so there is nothing to refund. Cancel it instead.',
++            );
++        }
++
++        return DB::transaction(function () use ($order, $payment, $reason, $byUserId) {
++            $this->killTickets($order);
++            $this->returnSeats($order);
++
++            $payment->update(['status' => 'reversed']);
++            $order->update(['status' => 'refunded']);
++
++            // The entry that was never being written. Without it the books
++            // show the sale and not its reversal.
++            app(Ledger::class)->postRefund(
++                $order, $payment, $payment->amount_cents, 'Refund: '.$reason,
++            );
++
++            $this->record($order, 'order.refunded', $reason, $byUserId, $payment->amount_cents);
++
++            return $order->refresh();
++        });
++    }
++
++    /**
++     * Cancel an order that was never paid — a held booking the buyer walked
++     * away from. No money moved, so nothing is posted to the ledger; the
++     * seats simply go back.
++     */
++    public function cancel(Order $order, string $reason, ?int $byUserId = null): Order
++    {
++        if (in_array($order->status, ['refunded', 'cancelled'], true)) {
++            return $order;
++        }
++
++        if ($order->payments()->where('status', 'confirmed')->exists()) {
++            throw new ModelNotFoundException(
++                'That order has been paid. Refund it rather than cancelling, so the money is recorded.',
++            );
++        }
++
++        return DB::transaction(function () use ($order, $reason, $byUserId) {
++            $this->killTickets($order);
++            $this->returnSeats($order);
++            $order->update(['status' => 'cancelled']);
++            $this->record($order, 'order.cancelled', $reason, $byUserId, 0);
++
++            return $order->refresh();
++        });
++    }
++
++    /**
++     * Tickets already used are left alone. Somebody watched the show on that
++     * ticket; rewriting it to "refunded" would erase the fact that they came
++     * in, and the door's own record would then disagree with the order.
++     */
++    private function killTickets(Order $order): void
++    {
++        Ticket::where('order_id', $order->id)
++            ->where('status', 'issued')
++            ->update(['status' => 'refunded']);
++    }
++
++    /**
++     * Put the seats back on sale. Guarded against going below zero: a stock
++     * figure that cannot be negative is worth more than a tidy subtraction,
++     * because the oversell check reads it on every purchase.
++     */
++    private function returnSeats(Order $order): void
++    {
++        foreach ($order->items as $item) {
++            TicketType::whereKey($item->ticket_type_id)
++                ->where('quantity_sold', '>=', $item->quantity)
++                ->decrement('quantity_sold', $item->quantity);
++        }
++    }
++
++    private function record(Order $order, string $action, string $reason, ?int $byUserId, int $cents): void
++    {
++        AuditLog::create([
++            'user_id' => $byUserId,
++            'organiser_id' => $order->organiser_id,
++            'action' => $action,
++            'subject_type' => Order::class,
++            'subject_id' => $order->id,
++            'changes' => [
++                'reason' => $reason,
++                'amount_cents' => $cents,
++                'order' => $order->uuid,
++            ],
++        ]);
++    }
++}
+diff --git a/tests/Feature/RefundTest.php b/tests/Feature/RefundTest.php
+new file mode 100644
+index 0000000..de189e7
+--- /dev/null
++++ b/tests/Feature/RefundTest.php
+@@ -0,0 +1,175 @@
++<?php
++
++namespace Tests\Feature;
++
++use App\Models\LedgerEntry;
++use App\Models\Order;
++use App\Models\Payment;
++use App\Models\Ticket;
++use App\Models\TicketType;
++use App\Services\Checkout;
++use App\Services\GateCheckin;
++use App\Services\Refunds;
++use Illuminate\Database\Eloquent\ModelNotFoundException;
++use Illuminate\Foundation\Testing\RefreshDatabase;
++use Illuminate\Support\Facades\Queue;
++use Tests\TestCase;
++
++class RefundTest extends TestCase
++{
++    use RefreshDatabase;
++
++    private function paidOrder(int $qty = 2, int $stock = 20): array
++    {
++        Queue::fake();
++        $type = TicketType::factory()->create(['price_cents' => 50000, 'quantity_total' => $stock]);
++
++        $order = app(Checkout::class)->startOrder(
++            items: [$type->id => $qty], phone: '0712345678', name: 'Jane',
++        );
++        $payment = Payment::create([
++            'order_id' => $order->id, 'gateway' => 'cash', 'gateway_ref' => 'R-'.uniqid(),
++            'amount_cents' => $order->total_cents, 'status' => 'initiated',
++        ]);
++        $order = app(Checkout::class)->confirm($order, $payment);
++
++        return [$order->fresh(), $type->fresh()];
++    }
++
++    public function test_a_refund_kills_the_tickets_returns_the_seats_and_posts_the_ledger(): void
++    {
++        [$order, $type] = $this->paidOrder(qty: 2, stock: 20);
++
++        $this->assertSame(2, (int) $type->quantity_sold);
++
++        app(Refunds::class)->refund($order, 'Show cancelled');
++
++        $order->refresh();
++        $this->assertSame('refunded', $order->status);
++
++        // Tickets stop working — the gate only ever redeems status 'issued'.
++        $this->assertSame(2, $order->tickets()->where('status', 'refunded')->count());
++        $this->assertSame(0, $order->tickets()->where('status', 'issued')->count());
++
++        // Seats go back on sale.
++        $this->assertSame(0, (int) $type->fresh()->quantity_sold);
++
++        // The ledger records the money leaving — the entry that was never
++        // being written before this service existed.
++        $this->assertSame(100000, (int) LedgerEntry::where('account', 'refunds')->sum('debit_cents'));
++        $this->assertSame(100000, (int) LedgerEntry::where('account', 'cash')->sum('credit_cents'));
++
++        // And the payment is no longer counted as money held.
++        $this->assertSame('reversed', $order->payments()->first()->status);
++    }
++
++    public function test_a_refunded_ticket_will_not_scan(): void
++    {
++        [$order] = $this->paidOrder(qty: 1);
++        $ticket = $order->tickets()->first();
++
++        app(Refunds::class)->refund($order->fresh(), 'Duplicate payment');
++
++        $staff = \App\Models\User::factory()->create([
++            'role' => 'gate_staff', 'organiser_id' => $order->organiser_id,
++        ]);
++
++        $result = app(GateCheckin::class)->redeemByCode(
++            $ticket->short_code, $ticket->performance_id, $staff,
++        );
++
++        // Anything but a successful admission. A refunded ticket getting
++        // somebody through the door is the failure that matters here.
++        $this->assertNotSame('ok', $result['status'] ?? null);
++        $this->assertSame('refunded', $ticket->fresh()->status);
++    }
++
++    public function test_refunding_twice_does_not_post_twice(): void
++    {
++        [$order] = $this->paidOrder(qty: 2);
++
++        app(Refunds::class)->refund($order->fresh(), 'First');
++        app(Refunds::class)->refund($order->fresh(), 'Second');
++
++        $this->assertSame(1, LedgerEntry::where('account', 'refunds')->count());
++        $this->assertSame(1, \App\Models\AuditLog::where('action', 'order.refunded')->count());
++    }
++
++    public function test_a_ticket_already_used_is_left_alone(): void
++    {
++        [$order] = $this->paidOrder(qty: 2);
++        $used = $order->tickets()->first();
++        $used->update(['status' => 'redeemed', 'redeemed_at' => now()]);
++
++        app(Refunds::class)->refund($order->fresh(), 'Partial no-show');
++
++        // Somebody watched the show on that ticket. Rewriting it would erase
++        // the fact that they came in.
++        $this->assertSame('redeemed', $used->fresh()->status);
++        $this->assertSame(1, $order->tickets()->where('status', 'refunded')->count());
++    }
++
++    public function test_an_unpaid_order_cannot_be_refunded(): void
++    {
++        Queue::fake();
++        $type = TicketType::factory()->create(['price_cents' => 50000]);
++        $order = app(Checkout::class)->startOrder(items: [$type->id => 1], phone: '0712345678');
++
++        $this->expectException(ModelNotFoundException::class);
++        app(Refunds::class)->refund($order, 'Nothing to give back');
++    }
++
++    public function test_cancelling_an_unpaid_order_returns_the_seats_without_touching_the_ledger(): void
++    {
++        Queue::fake();
++        $type = TicketType::factory()->create(['price_cents' => 50000, 'quantity_total' => 10]);
++        $order = app(Checkout::class)->startOrder(items: [$type->id => 3], phone: '0712345678');
++
++        $this->assertSame(3, (int) $type->fresh()->quantity_sold);
++
++        app(Refunds::class)->cancel($order, 'Buyer changed their mind');
++
++        $this->assertSame('cancelled', $order->fresh()->status);
++        $this->assertSame(0, (int) $type->fresh()->quantity_sold);
++        // No money moved, so nothing belongs in the ledger.
++        $this->assertSame(0, LedgerEntry::count());
++    }
++
++    public function test_a_paid_order_cannot_be_quietly_cancelled(): void
++    {
++        [$order] = $this->paidOrder();
++
++        // Cancelling a paid order would release the seats and leave the money
++        // unaccounted for. It has to go through refund().
++        $this->expectException(ModelNotFoundException::class);
++        app(Refunds::class)->cancel($order->fresh(), 'Trying to skip the refund');
++    }
++
++    public function test_returned_seats_can_be_sold_again(): void
++    {
++        [$order, $type] = $this->paidOrder(qty: 10, stock: 10);
++
++        // Sold out.
++        $this->assertSame(0, $type->fresh()->remaining());
++
++        app(Refunds::class)->refund($order->fresh(), 'Show moved');
++
++        $this->assertSame(10, $type->fresh()->remaining());
++        $resold = app(Checkout::class)->startOrder(items: [$type->id => 10], phone: '0722222222');
++        $this->assertNotNull($resold->id);
++    }
++
++    public function test_stock_cannot_be_driven_negative(): void
++    {
++        [$order, $type] = $this->paidOrder(qty: 2, stock: 20);
++
++        // Something else already returned the stock — a prior release, a
++        // manual correction. The refund must not take it below zero, because
++        // the oversell check reads this number on every purchase.
++        $type->update(['quantity_sold' => 0]);
++
++        app(Refunds::class)->refund($order->fresh(), 'Double release');
++
++        $this->assertSame(0, (int) $type->fresh()->quantity_sold);
++    }
++}
