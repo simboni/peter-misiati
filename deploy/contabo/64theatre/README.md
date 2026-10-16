@@ -21,6 +21,79 @@ Postgres, no Redis, no worker — the staging config runs jobs inline.
 
 ---
 
+## A slider of the shows in the hero (patch 0035)
+
+No migration. Front-of-house only — it touches one Blade template and nothing
+in the checkout, payment or gate paths.
+
+```bash
+cd /srv/smp-portfolio/repo && git pull
+bash deploy/contabo/64theatre/apply-patches.sh
+```
+
+![Hero slider, desktop](hero-desktop.png)
+![Hero slider, phone](hero-mobile.png)
+
+The hero showed one show. It now cycles the next **six**, soonest first, and
+the rest stay on the playbill below.
+
+### How it moves
+
+**CSS scroll-snap is the transport, not JavaScript.** With the script absent,
+broken, or still downloading on a bad connection, the hero is a swipeable row
+of shows with native momentum scrolling. The script only adds autoplay, the
+dots and the arrows — it cannot take away the ability to see what is on, which
+is the single thing this section exists for. Verified with JavaScript disabled:
+all six slides present and reachable.
+
+- **Phone**: swipe, or tap the dots. The arrows are hidden — the track is
+  already swipeable and a 46px circle in the corner of a phone is a worse
+  target than the whole screen.
+- **Desktop**: arrows, dots, or the arrow keys when the track has focus.
+- **Autoplay** every 7 seconds, and the active dot fills as it counts down, so
+  the page says it is about to move rather than moving under you. It stops
+  while you hover, while anything inside has keyboard focus, while a finger is
+  down, and while the tab is in the background.
+- **`prefers-reduced-motion`**: no autoplay, no drifting dust, no smooth
+  scroll. The arrows and dots still work, because somebody turning off
+  animation is not asking to be denied the other five shows.
+
+The counter and dots read their state from the **scroll position**, not from a
+variable. Swiping, dots, arrows and autoplay therefore cannot disagree about
+which slide is showing.
+
+### How it looks
+
+On a phone the poster becomes a blurred, brightened colour wash behind the
+type, with the artwork itself shown crisp beside the description.
+
+![Phone, third slide](hero-mobile-slide3.png)
+
+That is deliberate, and it took two attempts. Laid down flat behind the text
+these posters read as mud; scrimmed enough to be safe they read as nothing at
+all — the first version looked like a plain gradient. Blurred and lifted, each
+show gets its **own colour**, which is the whole point of a slider: a slide has
+to feel like a different production, not the same gradient with new words.
+
+The poster sits beside the description rather than the title. Beside the title
+it cost the headline three lines on a 390px screen.
+
+Slides are all as tall as the tallest, so the page does not jump as it
+advances, and the content is centred so a show with a one-line description does
+not sit at the top of all that height looking abandoned.
+
+### Checked
+
+Seven tests cover the markup: a slide per show, soonest first, **no dots or
+arrows when there is only one show**, the cap at six, the carousel ARIA, and
+that **no show data reaches any `<script>` body** — a title with an apostrophe
+in it has taken this site down twice, because Blade escapes `'` to `&#039;`
+and that is a SyntaxError that kills the whole file.
+
+Behaviour was driven in a real browser at 1440px and at 390px: arrows and dots
+both advance, the counter stays in sync, autoplay moves on its own, and with
+reduced motion it stays put while the arrows still work.
+
 ## Before a show — can we sell tickets today?
 
 ```bash

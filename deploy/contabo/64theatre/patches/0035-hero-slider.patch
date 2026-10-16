@@ -1,0 +1,561 @@
+diff --git a/resources/views/events/index.blade.php b/resources/views/events/index.blade.php
+index 2f49a66..6aeccb9 100644
+--- a/resources/views/events/index.blade.php
++++ b/resources/views/events/index.blade.php
+@@ -58,6 +58,125 @@
+     .stage-copy > *:nth-child(3){animation-delay:.25s}
+     .stage-copy > *:nth-child(4){animation-delay:.35s}
+     .stage-copy > *:nth-child(5){animation-delay:.45s}
++
++    /* ── hero slider ────────────────────────────────────────────────────
++       CSS scroll-snap is the transport, not JavaScript. With JS off, or
++       broken, or still loading, the hero is a swipeable row of shows with
++       native momentum scrolling. The script below only adds autoplay, the
++       dots and the arrows — it cannot break the ability to see the shows,
++       which is the one thing this section exists to do. */
++    .hero-track{
++        display:flex; width:100%;
++        overflow-x:auto; overscroll-behavior-x:contain;
++        scroll-snap-type:x mandatory; scroll-behavior:smooth;
++        -webkit-overflow-scrolling:touch;
++        scrollbar-width:none; -ms-overflow-style:none;
++    }
++    .hero-track::-webkit-scrollbar{display:none}
++    .hero-slide{
++        position:relative; flex:0 0 100%; min-width:100%;
++        scroll-snap-align:center; scroll-snap-stop:always;
++        /* Every slide is as tall as the tallest one — that is how a flex row
++           works, and it is what you want: the page must not jump as it
++           advances. Centring stops the shows with a one-line description from
++           sitting at the top of all that height looking abandoned. */
++        display:flex; align-items:center;
++    }
++    .hero-slide > .stage-inner{width:100%}
++    /* The poster, behind the words, on phones — where the tilted playbill
++       card has no room. Scrimmed hard: the type has to stay readable over
++       whatever the poster happens to be. */
++    /* Blurred and lifted, not laid down flat. These posters are dark,
++       low-contrast artwork: at full fidelity behind text they read as mud,
++       and scrimmed enough to be safe they read as nothing at all. Blurred and
++       brightened they become a colour wash that is DIFFERENT FOR EVERY SHOW,
++       which is the whole point of a slider — each slide has to feel like a
++       different production, not the same gradient with new words. */
++    .slide-bg{
++        position:absolute; inset:-12%; z-index:0;
++        background-size:cover; background-position:50% 30%;
++        filter:blur(26px) saturate(1.5) brightness(1.35);
++        opacity:.9; transform:scale(1.1);
++    }
++    .slide-bg::after{content:""; position:absolute; inset:0;
++        background:linear-gradient(180deg, rgba(19,13,16,.42) 0%, rgba(19,13,16,.62) 45%, rgba(19,13,16,.88) 100%)}
++    @media (min-width:901px){.slide-bg{display:none}}
++
++    /* The artwork itself, crisp, at a size that fits a phone. The wash above
++       sets the mood; this is the evidence there is a real poster. */
++    .slide-art{
++        display:none; position:relative; z-index:2;
++        width:104px; aspect-ratio:3/4; border-radius:10px; overflow:hidden; flex:0 0 auto;
++        border:1px solid rgba(246,238,227,.22); box-shadow:0 14px 34px rgba(0,0,0,.55);
++    }
++    .slide-art img{width:100%; height:100%; object-fit:cover; display:block}
++    /* Beside the body copy, not the title: the title is the loudest thing on
++       the slide and splitting its width to make room for a thumbnail cost it
++       three lines on a phone. Here the poster breaks up a paragraph instead,
++       which is work it can do without taking anything away. */
++    .slide-body{display:flex; gap:16px; align-items:flex-start}
++    @media (max-width:900px){
++        .slide-art{display:block}
++        /* Shorter on a phone: the dots have to be on screen with the CTA, or
++           nobody learns there is more than one show. */
++        .stage{min-height:auto}
++        .stage-inner{padding:34px 22px 58px}
++    }
++
++    /* ── controls ── */
++    .hero-nav{
++        position:absolute; z-index:5; left:0; right:0; bottom:20px;
++        display:flex; align-items:center; justify-content:center; gap:16px;
++        pointer-events:none;
++    }
++    .hero-nav > *{pointer-events:auto}
++    .hero-count{font-size:.72rem; letter-spacing:.18em; color:var(--dim); font-variant-numeric:tabular-nums}
++    .hero-count b{color:var(--lamp-bright); font-weight:800}
++    .hero-dots{display:flex; gap:8px; align-items:center}
++    .hero-dot{
++        width:9px; height:9px; padding:0; border:0; border-radius:50%; cursor:pointer;
++        background:rgba(246,238,227,.28); transition:width .3s, background .3s, border-radius .3s;
++        position:relative; overflow:hidden;
++    }
++    .hero-dot:hover{background:rgba(246,238,227,.55)}
++    .hero-dot:focus-visible{outline:2px solid var(--focus); outline-offset:3px}
++    .hero-dot[aria-current="true"]{width:34px; border-radius:20px; background:rgba(246,238,227,.22)}
++    /* The active dot fills over the dwell time, so the page tells you it is
++       about to move rather than moving under you unannounced. */
++    .hero-dot[aria-current="true"]::after{
++        content:""; position:absolute; inset:0; width:0; background:var(--lamp);
++        animation:dotfill var(--hero-dwell, 7s) linear forwards;
++    }
++    .hero[data-paused="true"] .hero-dot[aria-current="true"]::after{animation-play-state:paused}
++    @keyframes dotfill{to{width:100%}}
++
++    .hero-arrow{
++        position:absolute; top:50%; transform:translateY(-50%); z-index:5;
++        width:46px; height:46px; border-radius:50%; cursor:pointer;
++        display:grid; place-items:center;
++        background:rgba(19,13,16,.45); border:1px solid var(--line); color:var(--bone);
++        backdrop-filter:blur(6px); transition:all .2s;
++    }
++    .hero-arrow:hover{background:rgba(19,13,16,.75); border-color:var(--lamp); color:var(--lamp-bright)}
++    .hero-arrow:focus-visible{outline:2px solid var(--focus); outline-offset:3px}
++    .hero-arrow svg{width:20px; height:20px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round}
++    .hero-prev{left:18px} .hero-next{right:18px}
++    /* Thumb and finger, not a 46px target in the corner of a phone. The
++       track is swipeable, so on mobile the arrows are redundant weight. */
++    @media (max-width:900px){.hero-arrow{display:none}}
++    @media (max-width:900px){.hero-nav{bottom:14px}}
++
++    /* Motion is decoration here. Somebody who has asked their device to stop
++       animating things gets a static first slide they can still swipe. */
++    @media (prefers-reduced-motion: reduce){
++        .hero-track{scroll-behavior:auto}
++        .hero-dot[aria-current="true"]::after{animation:none; width:100%}
++        .stage::before{animation:none}
++        .dust{display:none}
++        .stage-copy > *{animation:none !important}
++        .hero-poster{animation:none !important}
++    }
++
+     /* the floating playbill poster (desktop) */
+     .hero-poster{position:relative; text-decoration:none; display:block; animation:rise .9s .3s cubic-bezier(.2,.7,.25,1) both}
+     @media (max-width:900px){.hero-poster{display:none}}
+@@ -230,8 +349,13 @@
+ 
+ @section('content')
+ @if ($featured)
+-    @php $fp = $featured->performances->first(); @endphp
+-    <section class="stage">
++    @php $slides = $events->take(6); @endphp
++    <section class="stage hero" id="hero"
++             role="region"
++             aria-roledescription="carousel"
++             aria-label="Upcoming shows"
++             data-hero
++             data-dwell="7000">
+         <div class="dust" aria-hidden="true">
+             <i style="left:18%; animation-duration:8s; animation-delay:0s"></i>
+             <i style="left:32%; animation-duration:11s; animation-delay:2.2s"></i>
+@@ -241,47 +365,212 @@
+             <i style="left:78%; animation-duration:10.5s; animation-delay:3s"></i>
+             <i style="left:88%; animation-duration:8.5s; animation-delay:5s"></i>
+         </div>
+-        <div class="stage-inner">
+-        <div class="stage-copy">
+-            <p class="now">Now Showing · Eldoret</p>
+-            <h1><em>{{ $featured->title }}</em></h1>
+-            <p class="lede">{{ \Illuminate\Support\Str::of($featured->description ?: 'A 64 Theatre production — live on stage.')->before('.') }}.</p>
+-            <div class="stubs">
+-                <span class="stub-chip"><b>{{ $fp->starts_at->format('D j M') }}</b> {{ $fp->starts_at->format('g:i A') }}</span>
+-                <span class="stub-chip">{{ $fp->venue->name }}, {{ $fp->venue->town }}</span>
+-                @if ($featured->language)<span class="stub-chip">In <b>{{ $featured->language }}</b></span>@endif
+-                @php $min = $featured->performances->flatMap->ticketTypes->min('price_cents'); @endphp
+-                @if ($featured->is_free || $min === 0)<span class="stub-chip"><b>Free entry</b></span>
+-                @elseif ($min)<span class="stub-chip">From <b>KES {{ number_format($min / 100) }}</b></span>@endif
+-            </div>
+-            <div class="hero-ctas">
+-                <a class="btn" href="{{ route('events.show', $featured->slug) }}">Get Tickets — Pay with M-Pesa</a>
+-                <a class="btn ghost" href="#whats-on">See all shows</a>
+-            </div>
+-        </div>
+-        <a class="hero-poster" href="{{ route('events.show', $featured->slug) }}" aria-hidden="true" tabindex="-1">
+-            <span class="hp-behind"></span>
+-            <span class="hp-card" @if ($featured->poster_path)
+-                  style="background:linear-gradient(180deg, rgba(19,13,16,.04) 30%, rgba(19,13,16,.85) 90%), url('{{ $featured->poster_url }}') center/cover"
+-                  @endif>
+-                <span class="hp-eyebrow">64theatre presents</span>
+-                <h3>{{ $featured->title }}</h3>
+-                <span class="hp-meta">{{ $fp->starts_at->format('D j M · g:i A') }} — {{ $fp->venue->name }}</span>
+-                <span class="hp-stub">Admit One</span>
+-            </span>
+-        </a>
++
++        <div class="hero-track" data-hero-track tabindex="0" aria-label="Shows, use the left and right arrow keys">
++            @foreach ($slides as $i => $event)
++                @php
++                    $p = $event->performances->first();
++                    $min = $event->performances->flatMap->ticketTypes->min('price_cents');
++                @endphp
++                <article class="hero-slide"
++                         role="group"
++                         aria-roledescription="slide"
++                         aria-label="{{ $i + 1 }} of {{ $slides->count() }}: {{ $event->title }}">
++
++                    @if ($event->poster_path)
++                        <div class="slide-bg" aria-hidden="true"
++                             style="background-image:url('{{ $event->poster_url }}')"></div>
++                    @endif
++
++                    <div class="stage-inner">
++                        <div class="stage-copy">
++                            <p class="now">{{ $i === 0 ? 'Now Showing' : 'Also On' }} · Eldoret</p>
++                            <h1><em>{{ $event->title }}</em></h1>
++                            <div class="slide-body">
++                                @if ($event->poster_path)
++                                    <span class="slide-art">
++                                        {{-- The first poster is the biggest thing on the page on a
++                                             phone, so it is fetched eagerly; the rest wait until
++                                             somebody swipes to them. --}}
++                                        <img src="{{ $event->poster_url }}" alt=""
++                                             loading="{{ $i === 0 ? 'eager' : 'lazy' }}"
++                                             fetchpriority="{{ $i === 0 ? 'high' : 'low' }}"
++                                             decoding="async">
++                                    </span>
++                                @endif
++                                <p class="lede">{{ \Illuminate\Support\Str::of($event->description ?: 'A 64 Theatre production — live on stage.')->before('.') }}.</p>
++                            </div>
++                            <div class="stubs">
++                                <span class="stub-chip"><b>{{ $p->starts_at->format('D j M') }}</b> {{ $p->starts_at->format('g:i A') }}</span>
++                                <span class="stub-chip">{{ $p->venue->name }}, {{ $p->venue->town }}</span>
++                                @if ($event->language)<span class="stub-chip">In <b>{{ $event->language }}</b></span>@endif
++                                @if ($event->is_free || $min === 0)
++                                    <span class="stub-chip"><b>Free entry</b></span>
++                                @elseif ($min)
++                                    <span class="stub-chip">From <b>KES {{ number_format($min / 100) }}</b></span>
++                                @endif
++                            </div>
++                            <div class="hero-ctas">
++                                <a class="btn" href="{{ route('events.show', $event->slug) }}">Get Tickets — Pay with M-Pesa</a>
++                                <a class="btn ghost" href="#whats-on">See all shows</a>
++                            </div>
++                        </div>
++
++                        <a class="hero-poster" href="{{ route('events.show', $event->slug) }}" aria-hidden="true" tabindex="-1">
++                            <span class="hp-behind"></span>
++                            <span class="hp-card" @if ($event->poster_path)
++                                  style="background:linear-gradient(180deg, rgba(19,13,16,.04) 30%, rgba(19,13,16,.85) 90%), url('{{ $event->poster_url }}') center/cover"
++                                  @endif>
++                                <span class="hp-eyebrow">64theatre presents</span>
++                                <h3>{{ $event->title }}</h3>
++                                <span class="hp-meta">{{ $p->starts_at->format('D j M · g:i A') }} — {{ $p->venue->name }}</span>
++                                <span class="hp-stub">Admit One</span>
++                            </span>
++                        </a>
++                    </div>
++                </article>
++            @endforeach
+         </div>
++
++        @if ($slides->count() > 1)
++            <button type="button" class="hero-arrow hero-prev" data-hero-prev aria-label="Previous show">
++                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
++            </button>
++            <button type="button" class="hero-arrow hero-next" data-hero-next aria-label="Next show">
++                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>
++            </button>
++
++            <div class="hero-nav">
++                <span class="hero-count" data-hero-count aria-hidden="true"><b>1</b> / {{ $slides->count() }}</span>
++                <div class="hero-dots" role="tablist" aria-label="Choose a show">
++                    @foreach ($slides as $i => $event)
++                        <button type="button" class="hero-dot" role="tab"
++                                data-hero-dot="{{ $i }}"
++                                aria-current="{{ $i === 0 ? 'true' : 'false' }}"
++                                aria-label="{{ $event->title }}"></button>
++                    @endforeach
++                </div>
++            </div>
++        @endif
+     </section>
++
+     <div class="marquee" aria-hidden="true"><span id="ticker">{{ $marquee }} ✦ KARIBU — TICKETS BY EMAIL, SHOW YOUR QR AT THE GATE ✦ {{ $marquee }}</span></div>
++
++    {{-- No Blade anywhere inside these script bodies. Every value the script
++         needs is read from a data attribute above. Blade compiles inside
++         <script> and inside JavaScript comments, and an escaped quote there
++         is a SyntaxError that kills the whole file — which has taken this
++         site down twice. --}}
+     <script>
+         (function () {
+             var t = document.getElementById('ticker');
+             if (!t) return;
+-            // constant reading pace (~65px/s) no matter how many shows are on the ticker
+             // ~32px/s — a relaxed reading pace, whatever the text length
+             t.style.animationDuration = Math.max(60, Math.round(t.scrollWidth / 32)) + 's';
+         })();
+     </script>
++
++    <script>
++        (function () {
++            var hero = document.querySelector('[data-hero]');
++            if (!hero) { return; }
++
++            var track = hero.querySelector('[data-hero-track]');
++            var slides = hero.querySelectorAll('.hero-slide');
++            var dots = hero.querySelectorAll('[data-hero-dot]');
++            var count = hero.querySelector('[data-hero-count]');
++            if (!track || slides.length < 2) { return; }
++
++            var dwell = parseInt(hero.getAttribute('data-dwell'), 10) || 7000;
++            var calm = window.matchMedia('(prefers-reduced-motion: reduce)');
++            var index = 0;
++            var timer = null;
++
++            hero.style.setProperty('--hero-dwell', dwell + 'ms');
++
++            function goTo(i, smooth) {
++                index = (i + slides.length) % slides.length;
++                track.scrollTo({
++                    left: slides[index].offsetLeft - track.offsetLeft,
++                    behavior: (smooth === false || calm.matches) ? 'auto' : 'smooth'
++                });
++            }
++
++            function paint() {
++                for (var d = 0; d < dots.length; d++) {
++                    dots[d].setAttribute('aria-current', d === index ? 'true' : 'false');
++                }
++                if (count) { count.innerHTML = '<b>' + (index + 1) + '</b> / ' + slides.length; }
++            }
++
++            function play() {
++                stop();
++                if (calm.matches) { return; }
++                hero.setAttribute('data-paused', 'false');
++                timer = setInterval(function () { goTo(index + 1); }, dwell);
++            }
++
++            function stop() {
++                if (timer) { clearInterval(timer); timer = null; }
++                hero.setAttribute('data-paused', 'true');
++            }
++
++            // The source of truth for which slide is showing is the scroll
++            // position, not a variable. Swiping, dots, arrows and autoplay all
++            // end up here, so they can never disagree about where we are.
++            var tick = null;
++            track.addEventListener('scroll', function () {
++                if (tick) { return; }
++                tick = requestAnimationFrame(function () {
++                    tick = null;
++                    var mid = track.scrollLeft + track.clientWidth / 2;
++                    var nearest = 0;
++                    var best = Infinity;
++                    for (var s = 0; s < slides.length; s++) {
++                        var c = slides[s].offsetLeft - track.offsetLeft + slides[s].clientWidth / 2;
++                        var gap = Math.abs(c - mid);
++                        if (gap < best) { best = gap; nearest = s; }
++                    }
++                    if (nearest !== index) { index = nearest; paint(); }
++                });
++            }, { passive: true });
++
++            for (var d = 0; d < dots.length; d++) {
++                (function (n) {
++                    dots[n].addEventListener('click', function () { goTo(n); play(); });
++                })(d);
++            }
++
++            var prev = hero.querySelector('[data-hero-prev]');
++            var next = hero.querySelector('[data-hero-next]');
++            if (prev) { prev.addEventListener('click', function () { goTo(index - 1); play(); }); }
++            if (next) { next.addEventListener('click', function () { goTo(index + 1); play(); }); }
++
++            track.addEventListener('keydown', function (e) {
++                if (e.key === 'ArrowRight') { e.preventDefault(); goTo(index + 1); play(); }
++                if (e.key === 'ArrowLeft') { e.preventDefault(); goTo(index - 1); play(); }
++            });
++
++            // Stop moving while somebody is reading, pointing at it, tabbing
++            // through it, or has the tab in the background.
++            hero.addEventListener('pointerenter', stop);
++            hero.addEventListener('pointerleave', play);
++            hero.addEventListener('focusin', stop);
++            hero.addEventListener('focusout', function (e) {
++                if (!hero.contains(e.relatedTarget)) { play(); }
++            });
++            hero.addEventListener('touchstart', stop, { passive: true });
++            document.addEventListener('visibilitychange', function () {
++                document.hidden ? stop() : play();
++            });
++            if (calm.addEventListener) {
++                calm.addEventListener('change', function () { calm.matches ? stop() : play(); });
++            }
++
++            paint();
++            play();
++        })();
++    </script>
+ @endif
+ 
+ <div class="wrap" id="whats-on">
+diff --git a/tests/Feature/HeroSliderTest.php b/tests/Feature/HeroSliderTest.php
+new file mode 100644
+index 0000000..2d94ba1
+--- /dev/null
++++ b/tests/Feature/HeroSliderTest.php
+@@ -0,0 +1,166 @@
++<?php
++
++namespace Tests\Feature;
++
++use App\Models\Event;
++use App\Models\Organiser;
++use App\Models\Performance;
++use App\Models\TicketType;
++use App\Models\Venue;
++use Illuminate\Foundation\Testing\RefreshDatabase;
++use Illuminate\Support\Str;
++use Tests\TestCase;
++
++/**
++ * The hero on the homepage.
++ *
++ * These assert the markup a browser needs, because the slider's behaviour
++ * lives in CSS and a small script and neither is reachable from PHPUnit. What
++ * IS worth pinning here is that every show gets a slide, that the controls are
++ * only rendered when there is more than one, and that the whole thing is still
++ * a list of shows with the script removed — which is the property that keeps a
++ * JavaScript mistake from emptying the front page of a ticket shop.
++ */
++class HeroSliderTest extends TestCase
++{
++    use RefreshDatabase;
++
++    private function show(string $title, int $daysAhead): Event
++    {
++        $organiser = Organiser::firstOrCreate(['slug' => 'test'], ['name' => 'Test']);
++        $venue = Venue::firstOrCreate(
++            ['organiser_id' => $organiser->id, 'name' => 'Hall'],
++            ['town' => 'Eldoret'],
++        );
++
++        $event = Event::create([
++            'organiser_id' => $organiser->id,
++            'title' => $title,
++            'slug' => Str::slug($title).'-'.uniqid(),
++            'category' => 'theatre',
++            'status' => 'published',
++            'description' => 'A play about '.$title.'. It is very good.',
++        ]);
++
++        $performance = Performance::create([
++            'event_id' => $event->id,
++            'venue_id' => $venue->id,
++            'starts_at' => now()->addDays($daysAhead),
++            'status' => 'on_sale',
++        ]);
++
++        TicketType::create([
++            'performance_id' => $performance->id,
++            'name' => 'Regular',
++            'price_cents' => 50000,
++            'quantity_total' => 50,
++        ]);
++
++        return $event;
++    }
++
++    public function test_every_upcoming_show_gets_a_slide(): void
++    {
++        $this->show('Oret', 3);
++        $this->show('Mvua ya Kwanza', 10);
++        $this->show('Sigana', 20);
++
++        $html = $this->get('/')->assertOk()->getContent();
++
++        $this->assertSame(3, substr_count($html, 'class="hero-slide"'));
++        $this->assertStringContainsString('Oret', $html);
++        $this->assertStringContainsString('Mvua ya Kwanza', $html);
++        $this->assertStringContainsString('Sigana', $html);
++    }
++
++    public function test_the_soonest_show_leads(): void
++    {
++        $this->show('Later', 30);
++        $this->show('Sooner', 2);
++
++        $html = $this->get('/')->assertOk()->getContent();
++
++        // "Now Showing" is the first slide's eyebrow; the rest say "Also On".
++        $this->assertLessThan(
++            strpos($html, 'Later'),
++            strpos($html, 'Sooner'),
++            'The next show to happen has to be the one the hero opens on.',
++        );
++    }
++
++    public function test_a_single_show_gets_no_controls(): void
++    {
++        $this->show('The Only Show', 5);
++
++        $html = $this->get('/')->assertOk()->getContent();
++
++        // Dots and arrows for a carousel of one are furniture that does
++        // nothing, and a dot you can press that changes nothing reads as
++        // broken.
++        //
++        // Matched on the rendered markup, not on "data-hero-dot" anywhere in
++        // the page: that string is also a selector inside the script, so the
++        // obvious assertion passes for the wrong reason and fails for one.
++        $this->assertStringNotContainsString('class="hero-nav"', $html);
++        $this->assertStringNotContainsString('<button type="button" class="hero-arrow', $html);
++        $this->assertStringContainsString('class="hero-slide"', $html);
++    }
++
++    public function test_the_hero_is_capped_so_it_cannot_grow_without_limit(): void
++    {
++        for ($i = 0; $i < 9; $i++) {
++            $this->show('Show '.$i, $i + 1);
++        }
++
++        $html = $this->get('/')->assertOk()->getContent();
++
++        // Nine shows is a long season and a hero nobody swipes to the end of.
++        // The rest are on the playbill below.
++        $this->assertSame(6, substr_count($html, 'class="hero-slide"'));
++    }
++
++    public function test_the_slides_carry_what_a_buyer_needs_to_decide(): void
++    {
++        $this->show('Oret', 3);
++
++        $html = $this->get('/')->assertOk()->getContent();
++
++        $this->assertStringContainsString('Hall, Eldoret', $html);
++        $this->assertStringContainsString('KES 500', $html);
++        $this->assertStringContainsString('Get Tickets', $html);
++    }
++
++    public function test_the_hero_is_announced_as_a_carousel(): void
++    {
++        $this->show('Oret', 3);
++        $this->show('Sigana', 9);
++
++        $html = $this->get('/')->assertOk()->getContent();
++
++        // Without these a screen reader meets six headings and no way to know
++        // five of them are hidden off to the side.
++        $this->assertStringContainsString('aria-roledescription="carousel"', $html);
++        $this->assertStringContainsString('aria-roledescription="slide"', $html);
++        $this->assertStringContainsString('aria-label="1 of 2: Oret"', $html);
++    }
++
++    public function test_no_blade_leaks_into_the_slider_script(): void
++    {
++        $this->show('Mercy\'s "Big" Night', 3);
++
++        $html = $this->get('/')->assertOk()->getContent();
++
++        // A title carrying quotes has twice taken this site down by being
++        // escaped into a <script> body — Blade turns ' into &#039;, which is
++        // a SyntaxError that kills the whole file. The slider reads every
++        // value it needs from a data attribute, so no script on the page may
++        // contain show data.
++        preg_match_all('/<script\b[^>]*>(.*?)<\/script>/s', $html, $m);
++        $this->assertNotEmpty($m[1], 'Expected the page to carry scripts.');
++
++        foreach ($m[1] as $body) {
++            $this->assertStringNotContainsString('Mercy', $body);
++            $this->assertStringNotContainsString('&#039;', $body);
++        }
++    }
++}
