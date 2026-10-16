@@ -826,8 +826,12 @@ cd /srv/64theatre && docker compose up -d --build --force-recreate
 
 **Events → open the event → Performances → Edit → "Tickets & prices"**
 
-Categories are set in a repeater inside that performance modal. Open a
-category and the group fields are at the bottom:
+![Where group tickets are set](where-group-tickets-are.png)
+
+That is the real screen, captured from the running admin — the sidebar has no
+"Ticket types" item and will not get one. Categories are set in a repeater
+inside the performance modal. Open a category and the group fields are at the
+bottom:
 
 | Field | What to put |
 | --- | --- |
