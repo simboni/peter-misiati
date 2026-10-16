@@ -47,6 +47,14 @@ else
   app() { docker exec "$CONTAINER" php artisan tinker --execute="$1" 2>/dev/null | tail -1; }
 fi
 
+# A multi-line program, fed on STDIN so no shell quoting touches the PHP.
+# Embedding it in --execute="..." is how the first attempt broke.
+if [ -n "${LOCAL_APP_DIR:-}" ]; then
+  app_script() { (cd "$LOCAL_APP_DIR" && php artisan tinker 2>/dev/null); }
+else
+  app_script() { docker exec -i "$CONTAINER" php artisan tinker 2>/dev/null; }
+fi
+
 # --- 1. is it even running -------------------------------------------------
 hdr "THE CONTAINER"
 if [ -n "${LOCAL_APP_DIR:-}" ]; then
@@ -103,7 +111,27 @@ ONSALE=$(app 'echo App\Models\TicketType::whereHas("performance", fn($q) => $q->
 if [ "${ONSALE:-0}" -gt 0 ] 2>/dev/null; then
   ok "$ONSALE ticket categor$([ "$ONSALE" = 1 ] && echo y || echo ies) on sale with tickets left"
 else
-  bad "NOTHING is on sale. Either no upcoming performance is set to 'on sale', or every category is sold out."
+  bad "NOTHING is on sale — no buyer can purchase a ticket right now."
+  # The breakdown, inline. A check that says "something is wrong" and leaves
+  # you to work out which of four things it was is a check that gets ignored.
+  say ""
+  say "    Every upcoming performance, and why each one cannot be bought:"
+  app_script <<'DIAG'
+foreach (App\Models\Performance::where('starts_at','>',now())->orderBy('starts_at')->with('event','ticketTypes')->get() as $p) {
+    echo '  '.$p->starts_at->format('D j M Y g:ia').' - '.($p->event?->title ?? 'no event')."\n";
+    if (($p->event?->status ?? '') !== 'published') { echo '      event is "'.($p->event?->status ?? '?').'", not published  <-- buyers cannot see it'."\n"; }
+    if ($p->status !== 'on_sale') { echo '      performance is "'.$p->status.'", not on_sale  <-- FIX THIS'."\n"; }
+    if ($p->ticketTypes->isEmpty()) { echo '      no ticket categories at all  <-- FIX THIS'."\n"; }
+    foreach ($p->ticketTypes as $t) {
+        $left = $t->quantity_total - $t->quantity_sold;
+        echo '      '.$t->name.': KES '.number_format($t->price_cents/100).', '.$left.' left'
+            .($left <= 0 ? '  <-- SOLD OUT' : '')
+            .($t->sales_start_at && $t->sales_start_at->isFuture() ? '  <-- sales open '.$t->sales_start_at->format('j M g:ia') : '')
+            .($t->sales_end_at && $t->sales_end_at->isPast() ? '  <-- sales closed' : '')."\n";
+    }
+}
+DIAG
+  say ""
 fi
 
 NEXT=$(app 'echo optional(App\Models\Performance::where("starts_at",">",now())->orderBy("starts_at")->first())->starts_at?->format("D j M Y g:ia") ?: "none";')
