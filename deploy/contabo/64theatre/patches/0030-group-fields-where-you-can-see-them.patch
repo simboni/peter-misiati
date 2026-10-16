@@ -1,0 +1,163 @@
+diff --git a/app/Filament/Resources/Performances/RelationManagers/TicketTypesRelationManager.php b/app/Filament/Resources/Performances/RelationManagers/TicketTypesRelationManager.php
+index f96b428..b06ae7c 100644
+--- a/app/Filament/Resources/Performances/RelationManagers/TicketTypesRelationManager.php
++++ b/app/Filament/Resources/Performances/RelationManagers/TicketTypesRelationManager.php
+@@ -52,7 +52,44 @@ public function form(Schema $schema): Schema
+             TextInput::make('max_per_order')
+                 ->label('Max per order')
+                 ->numeric()
+-                ->minValue(1),
++                ->minValue(1)
++                ->helperText('Leave empty for no limit. Set it to 1 on a group, or one buyer can take ten groups in a single click.'),
++
++            /*
++             * Group tickets. These belong HERE, not only on the hidden
++             * TicketTypeResource form. That resource is off the sidebar by
++             * design — prices are edited inside the performance they belong
++             * to — so a field that exists only there cannot be reached by
++             * anybody actually running a show. Patch 0027 put them on the
++             * wrong form and the feature was unusable from the admin.
++             *
++             * A group is an ordinary ticket type that admits more than one
++             * person. The oversell guard, the sales window, promo codes and
++             * the box office all work on it unchanged.
++             */
++            TextInput::make('admits')
++                ->label('People admitted per ticket')
++                ->numeric()
++                ->minValue(1)
++                ->maxValue(100)
++                ->default(1)
++                ->required()
++                ->live(onBlur: true)
++                ->helperText('1 for a normal ticket. 8 for a group of eight — one purchase, eight codes, each scanned separately at the door. The price above is for the WHOLE group, and "how many exist" counts groups, not seats.'),
++
++            TextInput::make('group_label')
++                ->label('Group blurb')
++                ->maxLength(120)
++                ->visible(fn ($get): bool => (int) $get('admits') > 1)
++                ->placeholder('Group of 8 — save 20%')
++                ->helperText('Shown on the website beside the price.'),
++
++            Toggle::make('collect_member_names')
++                ->label('Ask for member names after payment')
++                ->default(true)
++                ->visible(fn ($get): bool => (int) $get('admits') > 1)
++                ->helperText('Names are optional and collected after the sale — a blank one still scans. Nobody fills in eight names before paying.'),
++
+             DateTimePicker::make('sales_start_at')
+                 ->label('Sales open')
+                 ->seconds(false),
+@@ -70,7 +107,13 @@ public function table(Table $table): Table
+             ->recordTitleAttribute('name')
+             ->columns([
+                 TextColumn::make('name')
+-                    ->label('Category'),
++                    ->label('Category')
++                    // Otherwise a group is indistinguishable from a single
++                    // ticket in this list, and "Total 10" on an admits-8 type
++                    // reads as ten seats when it is eighty.
++                    ->description(fn ($record): ?string => (int) ($record->admits ?? 1) > 1
++                        ? 'group of '.$record->admits
++                        : null),
+                 TextColumn::make('price_cents')
+                     ->label('Price')
+                     ->money('KES', divideBy: 100)
+diff --git a/tests/Feature/GroupTicketTest.php b/tests/Feature/GroupTicketTest.php
+index 15bed65..4917bef 100644
+--- a/tests/Feature/GroupTicketTest.php
++++ b/tests/Feature/GroupTicketTest.php
+@@ -2,6 +2,9 @@
+ 
+ namespace Tests\Feature;
+ 
++use App\Exceptions\SoldOutException;
++use App\Filament\Resources\Performances\Pages\EditPerformance;
++use App\Filament\Resources\Performances\RelationManagers\TicketTypesRelationManager;
+ use App\Models\Event;
+ use App\Models\Order;
+ use App\Models\Organiser;
+@@ -9,10 +12,13 @@
+ use App\Models\Performance;
+ use App\Models\TicketGroup;
+ use App\Models\TicketType;
++use App\Models\User;
+ use App\Models\Venue;
+ use App\Services\Checkout;
+-use App\Exceptions\SoldOutException;
++use Filament\Actions\Testing\TestAction;
+ use Illuminate\Foundation\Testing\RefreshDatabase;
++use Illuminate\Support\Str;
++use Livewire\Livewire;
+ use Tests\TestCase;
+ 
+ class GroupTicketTest extends TestCase
+@@ -218,7 +224,7 @@ public function test_names_cannot_be_written_onto_another_groups_tickets(): void
+ 
+     public function test_an_unknown_group_is_a_404_not_a_leak(): void
+     {
+-        $this->get('/groups/'.\Illuminate\Support\Str::uuid())->assertNotFound();
++        $this->get('/groups/'.Str::uuid())->assertNotFound();
+     }
+ 
+     public function test_headcount_counts_people_across_mixed_items(): void
+@@ -240,4 +246,59 @@ public function test_headcount_counts_people_across_mixed_items(): void
+         // Two singles plus one group of eight is ten bodies, not three tickets.
+         $this->assertSame(10, $order->fresh()->load('items.ticketType')->headcount());
+     }
++
++    /**
++     * A group must be creatable from the screen somebody can actually open.
++     *
++     * This is the test that was missing. The group fields went onto
++     * TicketTypeResource's form, which is deliberately off the sidebar —
++     * prices are edited inside the performance they belong to. So everything
++     * below the admin worked perfectly and there was nowhere to switch it on.
++     */
++    public function test_a_group_can_be_created_from_the_performance_screen(): void
++    {
++        $performance = $this->performance();
++        $admin = User::factory()->create(['role' => 'super_admin']);
++
++        Livewire::actingAs($admin)
++            ->test(TicketTypesRelationManager::class, [
++                'ownerRecord' => $performance,
++                'pageClass' => EditPerformance::class,
++            ])
++            ->callAction(TestAction::make('create')->table(), [
++                'name' => 'Group of 8',
++                'price_cents' => 12000,
++                'quantity_total' => 5,
++                'max_per_order' => 1,
++                'admits' => 8,
++                'group_label' => 'Group of 8 — save 20%',
++                'collect_member_names' => true,
++            ]);
++
++        $type = TicketType::where('performance_id', $performance->id)->firstOrFail();
++        $this->assertSame(8, (int) $type->admits);
++        $this->assertSame('Group of 8 — save 20%', $type->group_label);
++        $this->assertTrue((bool) $type->collect_member_names);
++        // Entered in shillings, stored in cents, as everywhere else.
++        $this->assertSame(1200000, (int) $type->price_cents);
++    }
++
++    public function test_an_ordinary_category_created_there_still_admits_one(): void
++    {
++        $performance = $this->performance();
++        $admin = User::factory()->create(['role' => 'super_admin']);
++
++        Livewire::actingAs($admin)
++            ->test(TicketTypesRelationManager::class, [
++                'ownerRecord' => $performance,
++                'pageClass' => EditPerformance::class,
++            ])
++            ->callAction(TestAction::make('create')->table(), [
++                'name' => 'Regular',
++                'price_cents' => 500,
++                'quantity_total' => 50,
++            ]);
++
++        $this->assertSame(1, (int) TicketType::where('performance_id', $performance->id)->firstOrFail()->admits);
++    }
+ }

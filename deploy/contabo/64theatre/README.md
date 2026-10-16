@@ -784,6 +784,33 @@ additive change, and the SQLite data can be migrated across.
 - Always use `-f /srv/64theatre/compose.yml` so a command can never act on
   another project.
 
+## Group fields where you can see them (patch 0030)
+
+```bash
+cd /srv/64theatre/repo && git pull
+git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0030-group-fields-where-you-can-see-them.patch
+cd /srv/64theatre && docker compose up -d --build --force-recreate
+```
+
+No migration. Safe on any day, including a show night.
+
+**Patch 0027 added the group fields to the wrong form.** They went onto
+`TicketTypeResource`, which is deliberately off the sidebar — prices are edited
+inside the performance they belong to — so there was no screen in the admin
+where a group could actually be created. Everything underneath worked: the
+fan-out, the roster, the oversell guard, the headcount, the website blurb. The
+one switch was behind a door with no handle.
+
+They are now on **Events → the event → Performances → the performance →
+Tickets & prices**, which is the screen somebody running a show actually
+opens. The list there also marks a group ("group of 8") under the category
+name, because "Total 10" on an admits-8 type reads as ten seats when it is
+eighty.
+
+A test now creates a group **through that screen** rather than through the
+model, which is the test that was missing — the old ones all proved the
+machinery and none of them proved it could be reached.
+
 ## The scheduler was never running
 
 **Do this whether or not you want referrals.** It is not part of patch 0029 —
@@ -1039,9 +1066,17 @@ Two rules protect the door, both tested:
 
 ### Setting one up
 
-Ticket types → new type → **People admitted per ticket** = 8. Two more fields
-appear: a public blurb ("Group of 8 — save 20%") and whether to ask for member
-names.
+**Events → open the event → Performances → open the performance → Tickets &
+prices → Add category.** Then **People admitted per ticket** = 8, and two more
+fields appear: a public blurb ("Group of 8 — save 20%") and whether to ask for
+member names.
+
+> There is no "Ticket types" item in the sidebar and that is deliberate — a
+> flat list of every price on the box is useless, so they are edited inside the
+> performance they belong to. **Patch 0027 put the group fields on the hidden
+> form instead of that one**, so for a while the feature worked perfectly
+> everywhere below the admin and there was nowhere to switch it on. Fixed in
+> patch 0030.
 
 Set **max per order to 1** on a group type. Otherwise the stepper's default cap
 of ten lets one buyer take eighty seats in a click.
