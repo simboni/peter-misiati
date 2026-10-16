@@ -1,0 +1,1350 @@
+diff --git a/app/Filament/Pages/PaymentMethods.php b/app/Filament/Pages/PaymentMethods.php
+deleted file mode 100644
+index 8fe0b97..0000000
+--- a/app/Filament/Pages/PaymentMethods.php
++++ /dev/null
+@@ -1,210 +0,0 @@
+-<?php
+-
+-namespace App\Filament\Pages;
+-
+-use App\Models\AuditLog;
+-use App\Models\Setting;
+-use App\Support\PaymentSettings;
+-use App\Support\PayHeroWallet;
+-use App\Support\ServiceFeeSettings;
+-use BackedEnum;
+-use Filament\Actions\Action;
+-use Filament\Forms\Components\Select;
+-use Filament\Forms\Components\TextInput;
+-use Filament\Forms\Components\Toggle;
+-use Filament\Notifications\Notification;
+-use Filament\Pages\Page;
+-use Filament\Schemas\Components\Actions;
+-use Filament\Schemas\Components\EmbeddedSchema;
+-use Filament\Schemas\Components\Form;
+-use Filament\Schemas\Components\Section;
+-use Filament\Schemas\Components\Text;
+-use Filament\Schemas\Schema;
+-use Filament\Support\Icons\Heroicon;
+-
+-/**
+- * Turning ways of paying on and off, without a deploy.
+- *
+- * What is here and what is not is the whole design. Switches live here;
+- * credentials stay in `.env`. A form that could change where money settles
+- * would make a stolen admin session into a theft, so the gateway can be
+- * selected but never configured from the browser, and `fake` — which issues
+- * real tickets for no money — is not offered at all.
+- *
+- * Super admin only, and every change is written to the audit log with what it
+- * was before.
+- */
+-class PaymentMethods extends Page
+-{
+-    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedCreditCard;
+-
+-    protected static string|\UnitEnum|null $navigationGroup = 'Sales';
+-
+-    protected static ?int $navigationSort = 90;
+-
+-    protected static ?string $title = 'Payment methods';
+-
+-    protected static ?string $slug = 'payment-methods';
+-
+-    /** @var array<string, mixed>|null */
+-    public ?array $data = [];
+-
+-    public static function canAccess(): bool
+-    {
+-        return auth()->user()?->role === 'super_admin';
+-    }
+-
+-    public function mount(): void
+-    {
+-        $this->form->fill([
+-            'gateway' => PaymentSettings::gateway(),
+-            'online_enabled' => PaymentSettings::onlineEnabled(),
+-            'offline_enabled' => PaymentSettings::offlineEnabled(),
+-            'fee_percent' => ServiceFeeSettings::percent(),
+-            'fee_flat' => ServiceFeeSettings::flatCents() / 100,
+-            'platform_monthly' => ServiceFeeSettings::platformMonthlyCents() / 100,
+-            'wallet_floor' => ServiceFeeSettings::walletFloorCents() / 100,
+-        ]);
+-    }
+-
+-    public function form(Schema $schema): Schema
+-    {
+-        return $schema
+-            ->components([
+-                Section::make('Paying online')
+-                    ->description('How buyers pay on the website.')
+-                    ->schema([
+-                        Toggle::make('online_enabled')
+-                            ->label('Accept payments online')
+-                            ->helperText('Off: the website still shows events, but checkout is refused and nobody can start a payment. Use it when a gateway is down rather than letting buyers fail one by one.'),
+-                        Select::make('gateway')
+-                            ->label('Provider')
+-                            ->options(PaymentSettings::selectableGateways())
+-                            ->required()
+-                            ->native(false)
+-                            ->helperText('Credentials for each provider live in the server environment, not here.')
+-                            // Refuses a provider that would fail on the first
+-                            // checkout. Better to be told now than by a buyer.
+-                            ->rule(fn (): \Closure => function (string $attribute, $value, \Closure $fail): void {
+-                                if (! PaymentSettings::credentialsPresent($value)) {
+-                                    $fail('No credentials are configured for that provider. Set them in the server environment first, or nobody will be able to pay.');
+-                                }
+-                            }),
+-                        Text::make(fn (): string => self::statusLine()),
+-                    ]),
+-
+-                Section::make('Paying by hand')
+-                    ->description('M-Pesa Pay Bill details shown on an unpaid order.')
+-                    ->schema([
+-                        Toggle::make('offline_enabled')
+-                            ->label('Show Pay Bill details to buyers')
+-                            ->helperText(
+-                                'Pay Bill '.config('services.offline_payment.paybill')
+-                                .', account '.config('services.offline_payment.account')
+-                                .'. These payments are NOT matched to an order automatically — the account number identifies the theatre, not the order — so somebody has to reconcile them by hand. Leave this off until you have a process for that.',
+-                            ),
+-                    ]),
+-                Section::make('What it costs us to take money')
+-                    ->description('Drives the Service fees panel on the dashboard.')
+-                    ->schema([
+-                        TextInput::make('fee_percent')
+-                            ->label('Gateway fee (% of each collection)')
+-                            ->numeric()->minValue(0)->maxValue(100)->step('0.01')->default(0)
+-                            ->helperText('The agreed rate. Fees are ESTIMATED from it, because PayHero reports cost: 0 on this account — a figure taken from the callbacks would be confidently wrong.'),
+-                        TextInput::make('fee_flat')
+-                            ->label('Gateway fee (flat, per transaction, KES)')
+-                            ->numeric()->minValue(0)->default(0),
+-                        TextInput::make('platform_monthly')
+-                            ->label('Platform & support (per month, KES)')
+-                            ->numeric()->minValue(0)->default(0),
+-                        TextInput::make('wallet_floor')
+-                            ->label('Warn when the service wallet falls below (KES)')
+-                            ->numeric()->minValue(0)->default(200)
+-                            ->helperText('PayHero spends a PREPAID service wallet to send each prompt, separate from the money collected. An empty one refuses every prompt while the credentials and channel still look perfect — so it is worth being warned before a show, not during one.'),
+-                    ]),
+-            ])
+-            ->statePath('data');
+-    }
+-
+-    /** A plain sentence about what is actually configured right now. */
+-    private static function statusLine(): string
+-    {
+-        $gateway = PaymentSettings::gateway();
+-        $name = PaymentSettings::selectableGateways()[$gateway] ?? $gateway;
+-
+-        if (! PaymentSettings::credentialsPresent($gateway)) {
+-            return "⚠ {$name} is selected but its credentials are missing — checkout will fail.";
+-        }
+-
+-        if (PaymentSettings::isSandbox($gateway)) {
+-            return "⚠ {$name} is pointed at its TEST environment. Payments will look successful and no real money will move.";
+-        }
+-
+-        return "✓ {$name} is configured and live.";
+-    }
+-
+-    public function save(): void
+-    {
+-        $data = $this->form->getState();
+-
+-        $before = [
+-            'gateway' => PaymentSettings::gateway(),
+-            'online_enabled' => PaymentSettings::onlineEnabled(),
+-            'offline_enabled' => PaymentSettings::offlineEnabled(),
+-        ];
+-
+-        Setting::put(PaymentSettings::KEY_GATEWAY, $data['gateway']);
+-        Setting::put(PaymentSettings::KEY_ONLINE_ENABLED, $data['online_enabled'] ? '1' : '0');
+-        Setting::put(PaymentSettings::KEY_OFFLINE_ENABLED, $data['offline_enabled'] ? '1' : '0');
+-
+-        // Entered in shillings because that is what the agreement is written
+-        // in; stored in cents because that is what every other amount in this
+-        // app is, and one mixed unit is all it takes to be 100x out.
+-        Setting::put(ServiceFeeSettings::KEY_PERCENT, (string) ((float) ($data['fee_percent'] ?? 0)));
+-        Setting::put(ServiceFeeSettings::KEY_FLAT_CENTS, (string) (int) round(((float) ($data['fee_flat'] ?? 0)) * 100));
+-        Setting::put(ServiceFeeSettings::KEY_PLATFORM_MONTHLY_CENTS, (string) (int) round(((float) ($data['platform_monthly'] ?? 0)) * 100));
+-        Setting::put(ServiceFeeSettings::KEY_WALLET_FLOOR_CENTS, (string) (int) round(((float) ($data['wallet_floor'] ?? 0)) * 100));
+-
+-        // The dashboard caches the balance for five minutes; somebody who has
+-        // just topped up should not have to wait it out.
+-        PayHeroWallet::forget();
+-
+-        AuditLog::create([
+-            'user_id' => auth()->id(),
+-            'organiser_id' => auth()->user()?->organiser_id,
+-            'action' => 'settings.payment_methods_changed',
+-            'subject_type' => Setting::class,
+-            'subject_id' => null,
+-            'changes' => ['from' => $before, 'to' => [
+-                'gateway' => $data['gateway'],
+-                'online_enabled' => (bool) $data['online_enabled'],
+-                'offline_enabled' => (bool) $data['offline_enabled'],
+-            ]],
+-        ]);
+-
+-        Notification::make()
+-            ->title('Payment methods updated')
+-            ->body($data['online_enabled']
+-                ? 'Online checkout is on, through '.(PaymentSettings::selectableGateways()[$data['gateway']] ?? $data['gateway']).'.'
+-                : 'Online checkout is OFF — nobody can pay on the website.')
+-            ->success()
+-            ->send();
+-    }
+-
+-    public function content(Schema $schema): Schema
+-    {
+-        return $schema->components([
+-            Form::make([EmbeddedSchema::make('form')])
+-                ->id('form')
+-                ->livewireSubmitHandler('save')
+-                ->footer([
+-                    Actions::make([
+-                        Action::make('save')
+-                            ->label('Save changes')
+-                            ->submit('save')
+-                            ->keyBindings(['mod+s']),
+-                    ])->key('form-actions'),
+-                ]),
+-        ]);
+-    }
+-}
+diff --git a/app/Filament/Pages/ReferralProgramme.php b/app/Filament/Pages/ReferralProgramme.php
+deleted file mode 100644
+index fdc57ed..0000000
+--- a/app/Filament/Pages/ReferralProgramme.php
++++ /dev/null
+@@ -1,196 +0,0 @@
+-<?php
+-
+-namespace App\Filament\Pages;
+-
+-use App\Models\AuditLog;
+-use App\Models\Setting;
+-use App\Support\ReferralSettings;
+-use BackedEnum;
+-use Filament\Actions\Action;
+-use Filament\Forms\Components\TextInput;
+-use Filament\Forms\Components\Toggle;
+-use Filament\Notifications\Notification;
+-use Filament\Pages\Page;
+-use Filament\Schemas\Components\Actions;
+-use Filament\Schemas\Components\EmbeddedSchema;
+-use Filament\Schemas\Components\Form;
+-use Filament\Schemas\Components\Section;
+-use Filament\Schemas\Components\Text;
+-use Filament\Schemas\Schema;
+-use Filament\Support\Icons\Heroicon;
+-
+-/**
+- * The terms of the referral programme, in a place the office can change them.
+- *
+- * Everything starts off or at zero, and the switch at the top is the whole
+- * point of this page: until somebody with the authority to promise money
+- * turns it on, /sell-tickets does not exist and no link earns anything.
+- *
+- * Changing the rate affects FUTURE sales only. Every commission freezes the
+- * rate it was earned at, so a change here cannot rewrite what somebody was
+- * already told they would get.
+- *
+- * Super admin only, and every change is logged with what it was before.
+- */
+-class ReferralProgramme extends Page
+-{
+-    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedMegaphone;
+-
+-    protected static string|\UnitEnum|null $navigationGroup = 'Marketing';
+-
+-    protected static ?int $navigationSort = 22;
+-
+-    protected static ?string $title = 'Referral programme';
+-
+-    protected static ?string $slug = 'referral-programme';
+-
+-    /** @var array<string, mixed>|null */
+-    public ?array $data = [];
+-
+-    public static function canAccess(): bool
+-    {
+-        return auth()->user()?->role === 'super_admin';
+-    }
+-
+-    public function mount(): void
+-    {
+-        $this->form->fill([
+-            'enabled' => ReferralSettings::enabled(),
+-            'percent' => ReferralSettings::percent(),
+-            'hold_hours' => ReferralSettings::holdHours(),
+-            'per_order_cap' => ReferralSettings::perOrderCapCents() / 100,
+-            'allow_with_promo' => ReferralSettings::allowWithPromo(),
+-        ]);
+-    }
+-
+-    public function form(Schema $schema): Schema
+-    {
+-        return $schema
+-            ->components([
+-                Section::make('The programme')
+-                    ->description('Members of the public selling tickets for a share of the takings.')
+-                    ->schema([
+-                        Toggle::make('enabled')
+-                            ->label('Run a referral programme')
+-                            ->helperText('Off: the signup page at /sell-tickets is not reachable, existing links still take people to the site but earn nothing, and nothing new accrues. Commission already earned is untouched either way.'),
+-                        TextInput::make('percent')
+-                            ->label('House rate (% of each sale)')
+-                            ->numeric()->minValue(0)->maxValue(100)->step('0.01')->default(0)
+-                            ->helperText('What a seller earns unless they have their own negotiated rate. Applies to sales from now on — commission already earned keeps the rate it was earned at.'),
+-                        Text::make(fn (): string => self::statusLine()),
+-                    ]),
+-
+-                Section::make('When commission may be paid')
+-                    ->schema([
+-                        TextInput::make('hold_hours')
+-                            ->label('Hours after the performance before it may be paid')
+-                            ->numeric()->minValue(0)->default(48)
+-                            ->helperText('Measured from the SHOW, not the sale. A hold measured from the sale would mature on a production cancelled weeks later, and the theatre would have paid commission on tickets it then refunded.'),
+-                    ]),
+-
+-                Section::make('Limits')
+-                    ->schema([
+-                        TextInput::make('per_order_cap')
+-                            ->label('Most any single order may earn (KES)')
+-                            ->numeric()->minValue(0)->default(0)
+-                            ->helperText('0 means no cap. Without one, a single group booking at KES 12,000 becomes an unexpectedly large payment to a stranger.'),
+-                        Toggle::make('allow_with_promo')
+-                            ->label('Pay commission on discounted orders too')
+-                            ->helperText('Off by default. A promo code and a commission on the same sale can take the margin below zero; off, the attribution is dropped rather than paid quietly.'),
+-                        /*
+-                         * NOT OFFERED, deliberately.
+-                         *
+-                         * There was a toggle here. It could never have done
+-                         * anything: Checkout::startDonation() takes no
+-                         * referrer and never stamps one, and nothing else
+-                         * creates a donation order — so the branch it
+-                         * controls in accrue() is unreachable. A switch that
+-                         * tells an operator donations are now earning, while
+-                         * they are not, is worse than no switch.
+-                         *
+-                         * If the theatre ever wants it, it is a change to the
+-                         * donation path first and a toggle second.
+-                         */
+-                        Text::make('Donations never earn commission. A gift to the theatre is a different proposition from a ticket sale, and the donation checkout does not carry a referral at all.'),
+-                    ]),
+-            ])
+-            ->statePath('data');
+-    }
+-
+-    /** A plain sentence about what is actually in force. */
+-    private static function statusLine(): string
+-    {
+-        if (! ReferralSettings::enabled()) {
+-            return '○ The programme is off. /sell-tickets is not reachable and no link earns.';
+-        }
+-
+-        $rate = ReferralSettings::percent();
+-
+-        if ($rate <= 0) {
+-            return '⚠ The programme is ON but the house rate is 0%. Sellers can sign up and nothing will ever be earned, unless each has their own rate set.';
+-        }
+-
+-        return '✓ Live at '.rtrim(rtrim(number_format($rate, 2), '0'), '.').'%, held until '
+-            .ReferralSettings::holdHours().' hours after each show.';
+-    }
+-
+-    public function save(): void
+-    {
+-        $data = $this->form->getState();
+-
+-        $before = [
+-            'enabled' => ReferralSettings::enabled(),
+-            'percent' => ReferralSettings::percent(),
+-            'hold_hours' => ReferralSettings::holdHours(),
+-            'per_order_cap_cents' => ReferralSettings::perOrderCapCents(),
+-            'allow_with_promo' => ReferralSettings::allowWithPromo(),
+-        ];
+-
+-        Setting::put(ReferralSettings::KEY_ENABLED, $data['enabled'] ? '1' : '0');
+-        Setting::put(ReferralSettings::KEY_PERCENT, (string) ((float) ($data['percent'] ?? 0)));
+-        Setting::put(ReferralSettings::KEY_HOLD_HOURS, (string) (int) ($data['hold_hours'] ?? 48));
+-        // Entered in shillings, stored in cents, like every other amount here.
+-        Setting::put(ReferralSettings::KEY_PER_ORDER_CAP, (string) (int) round(((float) ($data['per_order_cap'] ?? 0)) * 100));
+-        Setting::put(ReferralSettings::KEY_ALLOW_WITH_PROMO, $data['allow_with_promo'] ? '1' : '0');
+-
+-        AuditLog::create([
+-            'user_id' => auth()->id(),
+-            'organiser_id' => auth()->user()?->organiser_id,
+-            'action' => 'settings.referral_programme_changed',
+-            'subject_type' => Setting::class,
+-            'subject_id' => null,
+-            'changes' => ['from' => $before, 'to' => [
+-                'enabled' => (bool) $data['enabled'],
+-                'percent' => (float) ($data['percent'] ?? 0),
+-                'hold_hours' => (int) ($data['hold_hours'] ?? 48),
+-                'per_order_cap_cents' => (int) round(((float) ($data['per_order_cap'] ?? 0)) * 100),
+-                'allow_with_promo' => (bool) $data['allow_with_promo'],
+-            ]],
+-        ]);
+-
+-        Notification::make()
+-            ->title('Referral programme updated')
+-            ->body($data['enabled']
+-                ? 'Live. Sellers sign up at '.url('/sell-tickets').' and need approving before they earn.'
+-                : 'Switched off. No link earns and the signup page is closed.')
+-            ->success()
+-            ->send();
+-    }
+-
+-    public function content(Schema $schema): Schema
+-    {
+-        return $schema->components([
+-            Form::make([EmbeddedSchema::make('form')])
+-                ->id('form')
+-                ->livewireSubmitHandler('save')
+-                ->footer([
+-                    Actions::make([
+-                        Action::make('save')
+-                            ->label('Save changes')
+-                            ->submit('save')
+-                            ->keyBindings(['mod+s']),
+-                    ])->key('form-actions'),
+-                ]),
+-        ]);
+-    }
+-}
+diff --git a/app/Filament/Pages/Settings.php b/app/Filament/Pages/Settings.php
+new file mode 100644
+index 0000000..cf36376
+--- /dev/null
++++ b/app/Filament/Pages/Settings.php
+@@ -0,0 +1,433 @@
++<?php
++
++namespace App\Filament\Pages;
++
++use App\Models\AuditLog;
++use App\Models\Setting;
++use App\Support\PayHeroWallet;
++use App\Support\PaymentSettings;
++use App\Support\ReferralSettings;
++use App\Support\ServiceFeeSettings;
++use BackedEnum;
++use Filament\Actions\Action;
++use Filament\Forms\Components\Select;
++use Filament\Forms\Components\TextInput;
++use Filament\Forms\Components\Toggle;
++use Filament\Notifications\Notification;
++use Filament\Pages\Page;
++use Filament\Schemas\Components\Actions;
++use Filament\Schemas\Components\EmbeddedSchema;
++use Filament\Schemas\Components\Form;
++use Filament\Schemas\Components\Section;
++use Filament\Schemas\Components\Tabs;
++use Filament\Schemas\Components\Tabs\Tab;
++use Filament\Schemas\Components\Text;
++use Filament\Schemas\Schema;
++use Filament\Support\Icons\Heroicon;
++
++/**
++ * Everything the theatre can change without a deploy, in one place.
++ *
++ * It used to be two pages in two different sidebar groups — payments and
++ * service fees under Sales, the referral programme under Marketing — and
++ * anything not on one of them was invisible. Somebody setting the place up
++ * had to be told where each switch lived, which is a poor substitute for a
++ * settings screen.
++ *
++ * WHAT IS HERE AND WHAT IS NOT IS THE WHOLE DESIGN.
++ *
++ * Switches live here. CREDENTIALS DO NOT, and that is deliberate and not
++ * negotiable: a form that could change where money settles would turn a
++ * stolen admin session into a theft. Gateway keys, the M-Pesa channel, the
++ * mail password and the SMS key stay in the server environment, and the last
++ * tab shows what is configured so you can see the state without being able to
++ * change it from a browser.
++ *
++ * Super admin only. Every save is written to the audit log with the previous
++ * values, because "it used to be 10%" is the question somebody always asks.
++ */
++class Settings extends Page
++{
++    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedCog6Tooth;
++
++    protected static string|\UnitEnum|null $navigationGroup = 'Settings';
++
++    protected static ?string $navigationLabel = 'All settings';
++
++    protected static ?int $navigationSort = 1;
++
++    protected static ?string $title = 'Settings';
++
++    protected static ?string $slug = 'settings';
++
++    /** @var array<string, mixed>|null */
++    public ?array $data = [];
++
++    public static function canAccess(): bool
++    {
++        return auth()->user()?->role === 'super_admin';
++    }
++
++    public function mount(): void
++    {
++        $this->form->fill(self::current());
++    }
++
++    /** Every value this page owns, read from where it actually lives. */
++    private static function current(): array
++    {
++        return [
++            'gateway' => PaymentSettings::gateway(),
++            'online_enabled' => PaymentSettings::onlineEnabled(),
++            'offline_enabled' => PaymentSettings::offlineEnabled(),
++
++            'fee_percent' => ServiceFeeSettings::percent(),
++            'fee_flat' => ServiceFeeSettings::flatCents() / 100,
++            'platform_monthly' => ServiceFeeSettings::platformMonthlyCents() / 100,
++            'wallet_floor' => ServiceFeeSettings::walletFloorCents() / 100,
++
++            'referrals_enabled' => ReferralSettings::enabled(),
++            'referrals_percent' => ReferralSettings::percent(),
++            'referrals_hold_hours' => ReferralSettings::holdHours(),
++            'referrals_per_order_cap' => ReferralSettings::perOrderCapCents() / 100,
++            'referrals_allow_with_promo' => ReferralSettings::allowWithPromo(),
++        ];
++    }
++
++    public function form(Schema $schema): Schema
++    {
++        return $schema
++            ->components([
++                Tabs::make('settings')->tabs([
++                    Tab::make('Taking money')
++                        ->icon(Heroicon::OutlinedCreditCard)
++                        ->schema($this->paymentFields()),
++
++                    Tab::make('What it costs us')
++                        ->icon(Heroicon::OutlinedReceiptPercent)
++                        ->schema($this->feeFields()),
++
++                    Tab::make('Selling on commission')
++                        ->icon(Heroicon::OutlinedMegaphone)
++                        ->schema($this->referralFields()),
++
++                    Tab::make('Server')
++                        ->icon(Heroicon::OutlinedServerStack)
++                        ->schema($this->serverFields()),
++                ]),
++            ])
++            ->statePath('data');
++    }
++
++    /** @return array<int, mixed> */
++    private function paymentFields(): array
++    {
++        return [
++            Section::make('Paying online')
++                ->description('How buyers pay on the website.')
++                ->schema([
++                    Toggle::make('online_enabled')
++                        ->label('Accept payments online')
++                        ->helperText('Off: the website still shows events, but checkout is refused and nobody can start a payment. Use it when a gateway is down, rather than letting buyers fail one by one.'),
++                    Select::make('gateway')
++                        ->label('Provider')
++                        ->options(PaymentSettings::selectableGateways())
++                        ->required()
++                        ->native(false)
++                        ->helperText('Credentials for each provider live in the server environment, not here.')
++                        // Refuses a provider that would fail on the first
++                        // checkout. Better to be told now than by a buyer.
++                        ->rule(fn (): \Closure => function (string $attribute, $value, \Closure $fail): void {
++                            if (! PaymentSettings::credentialsPresent($value)) {
++                                $fail('No credentials are configured for that provider. Set them in the server environment first, or nobody will be able to pay.');
++                            }
++                        }),
++                    Text::make(fn (): string => self::paymentStatusLine()),
++                ]),
++
++            Section::make('Paying by hand')
++                ->description('M-Pesa Pay Bill details shown on an unpaid order.')
++                ->schema([
++                    Toggle::make('offline_enabled')
++                        ->label('Show Pay Bill details to buyers')
++                        ->helperText(
++                            'Pay Bill '.config('services.offline_payment.paybill')
++                            .', account '.config('services.offline_payment.account')
++                            .'. These payments are NOT matched to an order automatically — the account number identifies the theatre, not the order — so somebody has to reconcile them by hand. Leave this off until you have a process for that.',
++                        ),
++                ]),
++        ];
++    }
++
++    /** @return array<int, mixed> */
++    private function feeFields(): array
++    {
++        return [
++            Section::make('What it costs us to take money')
++                ->description('Drives the Service fees panel on the dashboard.')
++                ->schema([
++                    TextInput::make('fee_percent')
++                        ->label('Gateway fee (% of each collection)')
++                        ->numeric()->minValue(0)->maxValue(100)->step('0.01')->default(0)
++                        ->helperText('The agreed rate. Fees are ESTIMATED from it, because PayHero reports cost: 0 on this account — a figure taken from the callbacks would be confidently wrong.'),
++                    TextInput::make('fee_flat')
++                        ->label('Gateway fee (flat, per transaction, KES)')
++                        ->numeric()->minValue(0)->default(0),
++                    TextInput::make('platform_monthly')
++                        ->label('Platform & support (per month, KES)')
++                        ->numeric()->minValue(0)->default(0),
++                    TextInput::make('wallet_floor')
++                        ->label('Warn when the service wallet falls below (KES)')
++                        ->numeric()->minValue(0)->default(200)
++                        ->helperText('PayHero spends a PREPAID service wallet to send each prompt, separate from the money collected. An empty one refuses every prompt while the credentials and channel still look perfect — so it is worth being warned before a show, not during one.'),
++                ]),
++        ];
++    }
++
++    /** @return array<int, mixed> */
++    private function referralFields(): array
++    {
++        return [
++            Section::make('The programme')
++                ->description('Members of the public selling tickets for a share of the takings.')
++                ->schema([
++                    Toggle::make('referrals_enabled')
++                        ->label('Run a referral programme')
++                        ->helperText('Off: the signup page at /sell-tickets is not reachable, existing links still take people to the site but earn nothing, and nothing new accrues. Commission already earned is untouched either way.'),
++                    TextInput::make('referrals_percent')
++                        ->label('House rate (% of each sale)')
++                        ->numeric()->minValue(0)->maxValue(100)->step('0.01')->default(0)
++                        ->helperText('What a seller earns unless they have their own negotiated rate. Applies to sales from now on — commission already earned keeps the rate it was earned at.'),
++                    Text::make(fn (): string => self::referralStatusLine()),
++                ]),
++
++            Section::make('When commission may be paid')
++                ->schema([
++                    TextInput::make('referrals_hold_hours')
++                        ->label('Hours after the performance before it may be paid')
++                        ->numeric()->minValue(0)->default(48)
++                        ->helperText('Measured from the SHOW, not the sale. A hold measured from the sale would mature on a production cancelled weeks later, and the theatre would have paid commission on tickets it then refunded.'),
++                ]),
++
++            Section::make('Limits')
++                ->schema([
++                    TextInput::make('referrals_per_order_cap')
++                        ->label('Most any single order may earn (KES)')
++                        ->numeric()->minValue(0)->default(0)
++                        ->helperText('0 means no cap. Without one, a single group booking at KES 12,000 becomes an unexpectedly large payment to a stranger.'),
++                    Toggle::make('referrals_allow_with_promo')
++                        ->label('Pay commission on discounted orders too')
++                        ->helperText('Off by default. A promo code and a commission on the same sale can take the margin below zero; off, the attribution is dropped rather than paid quietly.'),
++                    /*
++                     * No donations toggle. It could never have worked — the
++                     * donation checkout carries no referral at all — and a
++                     * switch that tells an operator donations are earning
++                     * while they are not is worse than no switch.
++                     */
++                    Text::make('Donations never earn commission. A gift to the theatre is a different proposition from a ticket sale, and the donation checkout does not carry a referral.'),
++                ]),
++        ];
++    }
++
++    /**
++     * Read-only. Everything on this tab lives in the server environment.
++     *
++     * It is here because "is email actually set up?" is a real question with a
++     * real answer, and the alternative is somebody guessing from whether a
++     * ticket arrived. None of it is editable from a browser on purpose: these
++     * are the values that decide where money and messages go.
++     *
++     * @return array<int, mixed>
++     */
++    private function serverFields(): array
++    {
++        return [
++            Section::make('What the server is configured with')
++                ->description('Read-only. These live in the server environment — a browser form that could change where money settles would make a stolen admin session into a theft.')
++                ->schema([
++                    Text::make(fn (): string => self::envLine()),
++                    Text::make(fn (): string => self::mailLine()),
++                    Text::make(fn (): string => self::smsLine()),
++                    Text::make(fn (): string => self::brandLine()),
++                ]),
++
++            Section::make('Scheduled work')
++                ->description('Jobs that run on a timer, not when somebody clicks.')
++                ->schema([
++                    Text::make('Releasing seats from abandoned checkouts runs every minute. Promoting referral commission to payable runs hourly. BOTH need a cron entry on the server — the container has no cron of its own. If seats are never coming back from abandoned checkouts, that is the one to check: deploy/contabo/64theatre/scheduler.sh --status'),
++                ]),
++        ];
++    }
++
++    private static function paymentStatusLine(): string
++    {
++        $gateway = PaymentSettings::gateway();
++        $name = PaymentSettings::selectableGateways()[$gateway] ?? $gateway;
++
++        if (! PaymentSettings::credentialsPresent($gateway)) {
++            return "⚠ {$name} is selected but its credentials are missing — checkout will fail.";
++        }
++
++        if (PaymentSettings::isSandbox($gateway)) {
++            return "⚠ {$name} is pointed at its TEST environment. Payments will look successful and no real money will move.";
++        }
++
++        return "✓ {$name} is configured and live.";
++    }
++
++    private static function referralStatusLine(): string
++    {
++        if (! ReferralSettings::enabled()) {
++            return '○ The programme is off. /sell-tickets is not reachable and no link earns.';
++        }
++
++        $rate = ReferralSettings::percent();
++
++        if ($rate <= 0) {
++            return '⚠ The programme is ON but the house rate is 0%. Sellers can sign up and nothing will ever be earned, unless each has their own rate set.';
++        }
++
++        return '✓ Live at '.self::trimPercent($rate).'%, held until '
++            .ReferralSettings::holdHours().' hours after each show.';
++    }
++
++    private static function envLine(): string
++    {
++        $env = app()->environment();
++        $url = config('app.url');
++
++        if ($env !== 'production') {
++            return "⚠ Running as {$env}, not production, at {$url}. Demo content may be re-seeded on every boot.";
++        }
++
++        return "✓ Production, at {$url}. Ticket QR codes and emailed links are built from that address, so it must match the public one exactly.";
++    }
++
++    private static function mailLine(): string
++    {
++        $mailer = config('mail.default');
++
++        if ($mailer === 'log') {
++            return '⚠ Email is set to "log" — ticket emails are written to the container log and delivered to NOBODY. Fine for a demo, silent failure once real tickets are sold.';
++        }
++
++        $from = config('mail.from.address');
++
++        return "✓ Email goes out through {$mailer} as {$from}. That address has to be one the provider has verified, or it rejects the message.";
++    }
++
++    private static function smsLine(): string
++    {
++        return config('services.notifications.sms_enabled')
++            ? '✓ SMS is on.'
++            : '○ SMS is off. Nothing is texted to buyers or sellers — email only.';
++    }
++
++    private static function brandLine(): string
++    {
++        $site = config('services.brand.website');
++
++        return $site
++            ? "✓ Tickets and emails link to {$site}."
++            : '○ No public website set, so tickets and emails carry no link back. Set BRAND_WEBSITE on the server.';
++    }
++
++    /** 10.00 → 10, 12.50 → 12.5. */
++    private static function trimPercent(float $value): string
++    {
++        return rtrim(rtrim(number_format($value, 2), '0'), '.');
++    }
++
++    public function save(): void
++    {
++        $data = $this->form->getState();
++        $before = self::current();
++
++        Setting::put(PaymentSettings::KEY_GATEWAY, $data['gateway']);
++        Setting::put(PaymentSettings::KEY_ONLINE_ENABLED, $data['online_enabled'] ? '1' : '0');
++        Setting::put(PaymentSettings::KEY_OFFLINE_ENABLED, $data['offline_enabled'] ? '1' : '0');
++
++        // Entered in shillings because that is what the agreement is written
++        // in; stored in cents because that is what every other amount in this
++        // app is, and one mixed unit is all it takes to be 100x out.
++        Setting::put(ServiceFeeSettings::KEY_PERCENT, (string) ((float) ($data['fee_percent'] ?? 0)));
++        Setting::put(ServiceFeeSettings::KEY_FLAT_CENTS, (string) (int) round(((float) ($data['fee_flat'] ?? 0)) * 100));
++        Setting::put(ServiceFeeSettings::KEY_PLATFORM_MONTHLY_CENTS, (string) (int) round(((float) ($data['platform_monthly'] ?? 0)) * 100));
++        Setting::put(ServiceFeeSettings::KEY_WALLET_FLOOR_CENTS, (string) (int) round(((float) ($data['wallet_floor'] ?? 0)) * 100));
++
++        Setting::put(ReferralSettings::KEY_ENABLED, $data['referrals_enabled'] ? '1' : '0');
++        Setting::put(ReferralSettings::KEY_PERCENT, (string) ((float) ($data['referrals_percent'] ?? 0)));
++        Setting::put(ReferralSettings::KEY_HOLD_HOURS, (string) (int) ($data['referrals_hold_hours'] ?? 48));
++        Setting::put(ReferralSettings::KEY_PER_ORDER_CAP, (string) (int) round(((float) ($data['referrals_per_order_cap'] ?? 0)) * 100));
++        Setting::put(ReferralSettings::KEY_ALLOW_WITH_PROMO, $data['referrals_allow_with_promo'] ? '1' : '0');
++
++        // The dashboard caches the wallet balance for five minutes; somebody
++        // who has just topped up should not have to wait it out.
++        PayHeroWallet::forget();
++
++        // Only what actually moved. A log entry listing eleven unchanged
++        // values is one nobody reads.
++        $after = self::current();
++        $changed = array_keys(array_filter(
++            $after,
++            fn ($value, $key) => ($before[$key] ?? null) != $value,
++            ARRAY_FILTER_USE_BOTH,
++        ));
++
++        if ($changed !== []) {
++            AuditLog::create([
++                'user_id' => auth()->id(),
++                'organiser_id' => auth()->user()?->organiser_id,
++                'action' => 'settings.changed',
++                'subject_type' => Setting::class,
++                'subject_id' => null,
++                'changes' => [
++                    'fields' => $changed,
++                    'from' => array_intersect_key($before, array_flip($changed)),
++                    'to' => array_intersect_key($after, array_flip($changed)),
++                ],
++            ]);
++        }
++
++        Notification::make()
++            ->title($changed === [] ? 'Nothing changed' : 'Settings saved')
++            ->body($changed === []
++                ? 'Everything was already set that way.'
++                : self::consequenceLine($after))
++            ->success()
++            ->send();
++    }
++
++    /** What the operator has just done, in a sentence about the world. */
++    private static function consequenceLine(array $now): string
++    {
++        $lines = [];
++
++        $lines[] = $now['online_enabled']
++            ? 'Online checkout is ON through '.(PaymentSettings::selectableGateways()[$now['gateway']] ?? $now['gateway']).'.'
++            : 'Online checkout is OFF — nobody can pay on the website.';
++
++        if ($now['referrals_enabled']) {
++            $lines[] = 'Referrals are live at '.self::trimPercent((float) $now['referrals_percent']).'%.';
++        }
++
++        return implode(' ', $lines);
++    }
++
++    public function content(Schema $schema): Schema
++    {
++        return $schema->components([
++            Form::make([EmbeddedSchema::make('form')])
++                ->id('form')
++                ->livewireSubmitHandler('save')
++                ->footer([
++                    Actions::make([
++                        Action::make('save')
++                            ->label('Save settings')
++                            ->submit('save')
++                            ->keyBindings(['mod+s']),
++                    ])->key('form-actions'),
++                ]),
++        ]);
++    }
++}
+diff --git a/app/Filament/Resources/Referrers/Pages/ListReferrers.php b/app/Filament/Resources/Referrers/Pages/ListReferrers.php
+index c4351f3..afd6d12 100644
+--- a/app/Filament/Resources/Referrers/Pages/ListReferrers.php
++++ b/app/Filament/Resources/Referrers/Pages/ListReferrers.php
+@@ -18,7 +18,7 @@ class ListReferrers extends ListRecords
+     public function getSubheading(): ?string
+     {
+         if (! ReferralSettings::enabled()) {
+-            return 'The referral programme is SWITCHED OFF. Links do not earn and /sell-tickets is not reachable. Turn it on under Marketing → Referral programme.';
++            return 'The referral programme is SWITCHED OFF. Links do not earn and /sell-tickets is not reachable. Turn it on under Settings → All settings → Selling on commission.';
+         }
+ 
+         return 'Anyone can sign up at '.url('/sell-tickets').' — they arrive here waiting for approval.';
+diff --git a/app/Filament/Resources/TicketTypes/Schemas/TicketTypeForm.php b/app/Filament/Resources/TicketTypes/Schemas/TicketTypeForm.php
+index aa63cb0..ea6f977 100644
+--- a/app/Filament/Resources/TicketTypes/Schemas/TicketTypeForm.php
++++ b/app/Filament/Resources/TicketTypes/Schemas/TicketTypeForm.php
+@@ -27,6 +27,8 @@ public static function configure(Schema $schema): Schema
+                     ->preload()
+                     ->required(),
+                 TextInput::make('name')
++                    ->label('Category')
++                    ->placeholder('Regular, VIP, Student, Group of 8…')
+                     ->required(),
+                 TextInput::make('price_cents')
+                     ->label('Price (KES)')
+@@ -37,9 +39,12 @@ public static function configure(Schema $schema): Schema
+                     ->formatStateUsing(fn (?int $state): ?float => $state === null ? null : $state / 100)
+                     ->dehydrateStateUsing(fn ($state): int => (int) round(((float) $state) * 100)),
+                 TextInput::make('quantity_total')
++                    ->label('How many exist')
+                     ->required()
+-                    ->numeric(),
++                    ->numeric()
++                    ->helperText('One pool shared by online and gate sales. On a group, this counts GROUPS, not seats.'),
+                 TextInput::make('quantity_sold')
++                    ->label('Sold so far')
+                     // Maintained by the sales pipeline. Typing over it would
+                     // break the shared stock pool that prevents overselling.
+                     ->numeric()
+@@ -48,6 +53,7 @@ public static function configure(Schema $schema): Schema
+                     ->dehydrated(false)
+                     ->helperText('Set by the system as tickets sell.'),
+                 TextInput::make('max_per_order')
++                    ->label('Max per order')
+                     ->numeric()
+                     ->helperText('Leave empty for no limit. Set it to 1 on a group type, or a buyer can take ten groups in one go.'),
+ 
+@@ -75,10 +81,10 @@ public static function configure(Schema $schema): Schema
+                     ->default(true)
+                     ->visible(fn ($get): bool => (int) $get('admits') > 1)
+                     ->helperText('Names are optional and collected after the sale — a blank name still scans. Nobody fills in eight names before paying.'),
+-                DateTimePicker::make('sales_start_at'),
+-                DateTimePicker::make('sales_end_at'),
++                DateTimePicker::make('sales_start_at')->label('Sales open')->seconds(false),
++                DateTimePicker::make('sales_end_at')->label('Sales close')->seconds(false),
+                 Toggle::make('requires_id_at_gate')
+-                    ->required(),
++                    ->label('Requires ID at the gate'),
+             ]);
+     }
+ }
+diff --git a/app/Filament/Resources/TicketTypes/Tables/TicketTypesTable.php b/app/Filament/Resources/TicketTypes/Tables/TicketTypesTable.php
+index 35d11ff..9ffb7af 100644
+--- a/app/Filament/Resources/TicketTypes/Tables/TicketTypesTable.php
++++ b/app/Filament/Resources/TicketTypes/Tables/TicketTypesTable.php
+@@ -2,62 +2,102 @@
+ 
+ namespace App\Filament\Resources\TicketTypes\Tables;
+ 
+-use Filament\Actions\BulkActionGroup;
+-use Filament\Actions\DeleteBulkAction;
++use App\Models\TicketType;
+ use Filament\Actions\EditAction;
+ use Filament\Tables\Columns\IconColumn;
+ use Filament\Tables\Columns\TextColumn;
++use Filament\Tables\Filters\Filter;
++use Filament\Tables\Filters\SelectFilter;
+ use Filament\Tables\Table;
++use Illuminate\Database\Eloquent\Builder;
+ 
++/**
++ * Every ticket category on the box, in one list.
++ *
++ * This resource was hidden from the sidebar on the reasoning that a flat list
++ * of every price the theatre has ever set is not how anyone looks for one —
++ * you open the show. That reasoning is sound and it was still wrong, because
++ * the person running the place went looking for "ticket types" three times
++ * and there was nothing by that name anywhere. A principle that leaves
++ * somebody unable to find the screen they need has lost its argument.
++ *
++ * So it is in the sidebar now, and the generated table it shipped with has
++ * been made readable: it used to show `performance.id` and a price in cents,
++ * which is a list you can see but cannot use.
++ */
+ class TicketTypesTable
+ {
+     public static function configure(Table $table): Table
+     {
+         return $table
++            ->modifyQueryUsing(fn (Builder $query) => $query->with('performance.event'))
++            ->defaultSort('id', 'desc')
+             ->columns([
+-                TextColumn::make('performance.id')
+-                    ->searchable(),
++                TextColumn::make('performance.event.title')
++                    ->label('Show')
++                    ->searchable()
++                    ->sortable()
++                    ->description(fn (TicketType $t): string => $t->performance?->starts_at
++                        ?->format('D j M Y · g:i A') ?? 'no performance'),
+                 TextColumn::make('name')
+-                    ->searchable(),
++                    ->label('Category')
++                    ->searchable()
++                    ->weight('bold')
++                    // A group is otherwise indistinguishable from a single
++                    // ticket here, and "Total 10" on an admits-8 type reads
++                    // as ten seats when it is eighty.
++                    ->description(fn (TicketType $t): ?string => (int) ($t->admits ?? 1) > 1
++                        ? 'group of '.$t->admits.($t->collect_member_names ? ' · names asked' : '')
++                        : null),
+                 TextColumn::make('price_cents')
+-                    ->numeric()
+-                    ->sortable(),
++                    ->label('Price')
++                    ->alignEnd()
++                    ->sortable()
++                    ->formatStateUsing(fn (int $state): string => $state === 0
++                        ? 'free'
++                        : 'KES '.number_format($state / 100)),
++                TextColumn::make('admits')
++                    ->label('Admits')
++                    ->alignEnd()
++                    ->sortable()
++                    ->default(1),
+                 TextColumn::make('quantity_total')
+-                    ->numeric()
++                    ->label('Total')
++                    ->alignEnd()
+                     ->sortable(),
+                 TextColumn::make('quantity_sold')
+-                    ->numeric()
+-                    ->sortable(),
+-                TextColumn::make('max_per_order')
+-                    ->numeric()
+-                    ->sortable(),
+-                TextColumn::make('sales_start_at')
+-                    ->dateTime()
+-                    ->sortable(),
+-                TextColumn::make('sales_end_at')
+-                    ->dateTime()
++                    ->label('Sold')
++                    ->alignEnd()
+                     ->sortable(),
++                // The number anyone actually asks the box office for.
++                TextColumn::make('remaining')
++                    ->label('Left')
++                    ->alignEnd()
++                    ->badge()
++                    ->state(fn (TicketType $t): int => $t->remaining())
++                    ->color(fn (int $state): string => $state > 0 ? 'success' : 'danger'),
+                 IconColumn::make('requires_id_at_gate')
+-                    ->boolean(),
+-                TextColumn::make('created_at')
+-                    ->dateTime()
+-                    ->sortable()
+-                    ->toggleable(isToggledHiddenByDefault: true),
+-                TextColumn::make('updated_at')
+-                    ->dateTime()
+-                    ->sortable()
++                    ->label('ID')
++                    ->boolean()
+                     ->toggleable(isToggledHiddenByDefault: true),
+             ])
+             ->filters([
+-                //
++                SelectFilter::make('event')
++                    ->label('Show')
++                    ->relationship('performance.event', 'title')
++                    ->searchable()
++                    ->preload(),
++                Filter::make('groups')
++                    ->label('Group tickets only')
++                    ->query(fn (Builder $query) => $query->where('admits', '>', 1)),
++                Filter::make('on_sale')
++                    ->label('Still has tickets left')
++                    ->query(fn (Builder $query) => $query->whereColumn('quantity_sold', '<', 'quantity_total')),
+             ])
+             ->recordActions([
+                 EditAction::make(),
+-            ])
+-            ->toolbarActions([
+-                BulkActionGroup::make([
+-                    DeleteBulkAction::make(),
+-                ]),
+             ]);
++        // No bulk delete. A ticket type with sales behind it is not a row to
++        // tick and remove — the orders and tickets referencing it outlive it.
+     }
+ }
+diff --git a/app/Filament/Resources/TicketTypes/TicketTypeResource.php b/app/Filament/Resources/TicketTypes/TicketTypeResource.php
+index 02b42b7..90ed841 100644
+--- a/app/Filament/Resources/TicketTypes/TicketTypeResource.php
++++ b/app/Filament/Resources/TicketTypes/TicketTypeResource.php
+@@ -39,15 +39,40 @@ public static function getRelations(): array
+         ];
+     }
+ 
+-    /**
+-     * Prices are edited inside the performance they belong to, so this
+-     * resource stays reachable by URL but off the sidebar.
++    protected static ?string $navigationLabel = 'Ticket types';
++
++    protected static ?string $modelLabel = 'ticket type';
++
++    protected static ?int $navigationSort = 30;
++
++    /*
++     * ON the sidebar.
++     *
++     * It was hidden, on the reasoning that prices are edited inside the
++     * performance they belong to and a flat list of every price the theatre
++     * has ever set is not how anyone looks for one. That reasoning is sound
++     * and it was still wrong: the person running the place went looking for
++     * "ticket types" three separate times and there was nothing by that name
++     * anywhere in the interface.
++     *
++     * Both routes exist now and they edit the same rows. Setting prices while
++     * scheduling a performance is still the better flow and is still there;
++     * this is for when you know what you want and want it by name — which
++     * includes every time somebody is told "set admits to 8".
+      */
+     public static function shouldRegisterNavigation(): bool
+     {
+-        return false;
++        return true;
+     }
+ 
++    /*
++     * Creating from here is allowed, because the form already asks which
++     * performance — searchable, and labelled with the show, date and venue
++     * rather than a primary key. So "New ticket type → pick the show → set
++     * People admitted per ticket to 8" is a complete route to a group, and
++     * the shortest one to describe to somebody over the phone.
++     */
++
+     public static function getPages(): array
+     {
+         return [
+diff --git a/app/Filament/Widgets/ServiceFees.php b/app/Filament/Widgets/ServiceFees.php
+index 810fbaf..a75b9ba 100644
+--- a/app/Filament/Widgets/ServiceFees.php
++++ b/app/Filament/Widgets/ServiceFees.php
+@@ -58,7 +58,7 @@ protected function getStats(): array
+             return [
+                 $walletStat,
+                 Stat::make('Service fees', 'Not set')
+-                    ->description('Enter the rates under Sales → Payment methods')
++                    ->description('Enter the rates under Settings → All settings → What it costs us')
+                     ->color('gray'),
+             ];
+         }
+diff --git a/app/Providers/AppServiceProvider.php b/app/Providers/AppServiceProvider.php
+index 51507b5..81ccd2a 100644
+--- a/app/Providers/AppServiceProvider.php
++++ b/app/Providers/AppServiceProvider.php
+@@ -68,7 +68,7 @@ private static function fakeGateway(string $requested): PaymentGateway
+         if (app()->environment('production')) {
+             throw new RuntimeException(
+                 "Refusing to use the fake payment gateway in production (PAYMENT_GATEWAY/setting was '{$requested}'). "
+-                .'Choose a real provider under Sales → Payment methods, or set PAYMENT_GATEWAY in the environment.',
++                .'Choose a real provider under Settings → All settings → Taking money, or set PAYMENT_GATEWAY in the environment.',
+             );
+         }
+ 
+diff --git a/tests/Feature/ReferralAdminTest.php b/tests/Feature/ReferralAdminTest.php
+index 90ed2ce..670086a 100644
+--- a/tests/Feature/ReferralAdminTest.php
++++ b/tests/Feature/ReferralAdminTest.php
+@@ -51,7 +51,7 @@ public function test_the_three_referral_screens_load(): void
+ 
+         $this->actingAs($this->admin())->get('/admin/referrers')->assertOk();
+         $this->actingAs($this->admin())->get('/admin/referral-commissions')->assertOk();
+-        $this->actingAs($this->admin())->get('/admin/referral-programme')->assertOk();
++        $this->actingAs($this->admin())->get('/admin/settings')->assertOk();
+     }
+ 
+     public function test_the_commission_list_loads_with_rows_on_it(): void
+@@ -89,7 +89,7 @@ public function test_gate_staff_and_door_roles_cannot_reach_any_of_it(): void
+             $user = $this->admin($role);
+             $this->actingAs($user)->get('/admin/referrers')->assertForbidden();
+             $this->actingAs($user)->get('/admin/referral-commissions')->assertForbidden();
+-            $this->actingAs($user)->get('/admin/referral-programme')->assertForbidden();
++            $this->actingAs($user)->get('/admin/settings')->assertForbidden();
+         }
+     }
+ 
+@@ -98,7 +98,7 @@ public function test_only_a_super_admin_may_change_the_terms(): void
+         // Finance can see what is owed and record a payout; changing the rate
+         // or switching the programme on is a promise to the public.
+         $this->actingAs($this->admin('finance'))->get('/admin/referral-commissions')->assertOk();
+-        $this->actingAs($this->admin('finance'))->get('/admin/referral-programme')->assertForbidden();
++        $this->actingAs($this->admin('finance'))->get('/admin/settings')->assertForbidden();
+     }
+ 
+     public function test_approving_a_seller_activates_them_and_is_logged(): void
+diff --git a/tests/Feature/SettingsPageTest.php b/tests/Feature/SettingsPageTest.php
+new file mode 100644
+index 0000000..82ab1ee
+--- /dev/null
++++ b/tests/Feature/SettingsPageTest.php
+@@ -0,0 +1,180 @@
++<?php
++
++namespace Tests\Feature;
++
++use App\Filament\Pages\Settings;
++use App\Models\Setting;
++use App\Models\User;
++use App\Support\PaymentSettings;
++use App\Support\ReferralSettings;
++use App\Support\ServiceFeeSettings;
++use Illuminate\Foundation\Testing\RefreshDatabase;
++use Livewire\Livewire;
++use Tests\TestCase;
++
++/**
++ * One settings screen, and everything on it actually saving.
++ *
++ * Settings pages fail quietly: a field that is not wired reads back its
++ * default, looks fine, and changes nothing — which is exactly how a
++ * "pay commission on donations" toggle survived that could never work. So
++ * every value here is set to something distinctive and read back through the
++ * class the rest of the app asks.
++ */
++class SettingsPageTest extends TestCase
++{
++    use RefreshDatabase;
++
++    private function admin(string $role = 'super_admin'): User
++    {
++        return User::factory()->create(['role' => $role]);
++    }
++
++    /**
++     * A provider with credentials present.
++     *
++     * The gateway field refuses a provider whose credentials are missing —
++     * better to be told here than by the first buyer — and nothing is
++     * configured in the test environment, so a settings save needs one.
++     */
++    private function withWorkingGateway(): void
++    {
++        config([
++            'services.payhero.username' => 'u',
++            'services.payhero.password' => 'p',
++            'services.payhero.channel_id' => '13962',
++            'services.payhero.base_url' => 'https://backend.payhero.co.ke',
++        ]);
++        Setting::put(PaymentSettings::KEY_GATEWAY, 'payhero');
++    }
++
++    public function test_the_settings_page_loads(): void
++    {
++        $this->actingAs($this->admin())->get('/admin/settings')->assertOk();
++    }
++
++    public function test_only_a_super_admin_may_open_it(): void
++    {
++        // Everything on this page is a promise to buyers, sellers or the
++        // books. Finance can see what is owed; it cannot change the terms.
++        foreach (['finance', 'marketing', 'event_manager', 'gate_staff'] as $role) {
++            $this->actingAs($this->admin($role))->get('/admin/settings')->assertForbidden();
++        }
++    }
++
++    public function test_every_value_on_the_page_round_trips(): void
++    {
++        $this->withWorkingGateway();
++
++        Livewire::actingAs($this->admin())
++            ->test(Settings::class)
++            ->fillForm([
++                'gateway' => 'payhero',
++                'online_enabled' => false,
++                'offline_enabled' => true,
++
++                'fee_percent' => 2.5,
++                'fee_flat' => 7,
++                'platform_monthly' => 4500,
++                'wallet_floor' => 300,
++
++                'referrals_enabled' => true,
++                'referrals_percent' => 12.5,
++                'referrals_hold_hours' => 24,
++                'referrals_per_order_cap' => 50,
++                'referrals_allow_with_promo' => true,
++            ])
++            ->call('save')
++            ->assertHasNoFormErrors();
++
++        // Read back through the classes the rest of the app uses, not the
++        // raw rows — a value stored under the wrong key would still be in
++        // the table and still be invisible to everything that matters.
++        $this->assertSame('payhero', PaymentSettings::gateway());
++        $this->assertFalse(PaymentSettings::onlineEnabled());
++        $this->assertTrue(PaymentSettings::offlineEnabled());
++
++        $this->assertSame(2.5, ServiceFeeSettings::percent());
++        // Entered in shillings, stored in cents.
++        $this->assertSame(700, ServiceFeeSettings::flatCents());
++        $this->assertSame(450000, ServiceFeeSettings::platformMonthlyCents());
++        $this->assertSame(30000, ServiceFeeSettings::walletFloorCents());
++
++        $this->assertTrue(ReferralSettings::enabled());
++        $this->assertSame(12.5, ReferralSettings::percent());
++        $this->assertSame(24, ReferralSettings::holdHours());
++        $this->assertSame(5000, ReferralSettings::perOrderCapCents());
++        $this->assertTrue(ReferralSettings::allowWithPromo());
++    }
++
++    public function test_the_form_opens_showing_what_is_already_set(): void
++    {
++        Setting::put(ReferralSettings::KEY_ENABLED, '1');
++        Setting::put(ReferralSettings::KEY_PERCENT, '15');
++        Setting::put(ServiceFeeSettings::KEY_FLAT_CENTS, '1500');
++
++        Livewire::actingAs($this->admin())
++            ->test(Settings::class)
++            ->assertFormSet([
++                'referrals_enabled' => true,
++                'referrals_percent' => 15.0,
++                'fee_flat' => 15.0,   // cents on the way in, shillings on screen
++            ]);
++    }
++
++    public function test_a_change_is_written_to_the_audit_log(): void
++    {
++        $this->withWorkingGateway();
++        $admin = $this->admin();
++
++        Livewire::actingAs($admin)
++            ->test(Settings::class)
++            ->fillForm(['referrals_percent' => 20, 'referrals_enabled' => true])
++            ->call('save')
++            ->assertHasNoFormErrors();
++
++        // "It used to be 10%" is the question somebody always asks.
++        $this->assertDatabaseHas('audit_logs', [
++            'action' => 'settings.changed',
++            'user_id' => $admin->id,
++        ]);
++    }
++
++    public function test_saving_nothing_writes_no_audit_entry(): void
++    {
++        $this->withWorkingGateway();
++
++        Livewire::actingAs($this->admin())
++            ->test(Settings::class)
++            ->call('save')
++            ->assertHasNoFormErrors();
++
++        // A log full of entries recording that nothing changed is a log
++        // nobody reads.
++        $this->assertDatabaseMissing('audit_logs', ['action' => 'settings.changed']);
++    }
++
++    public function test_a_provider_with_no_credentials_is_refused(): void
++    {
++        $this->withWorkingGateway();
++
++        Livewire::actingAs($this->admin())
++            ->test(Settings::class)
++            ->fillForm(['gateway' => 'daraja'])
++            ->call('save')
++            ->assertHasFormErrors(['gateway']);
++
++        // Better to be told here than by the first buyer.
++        $this->assertNotSame('daraja', PaymentSettings::gateway());
++    }
++
++    public function test_ticket_types_is_on_the_sidebar(): void
++    {
++        // Asked for three times and not there. The flat-list objection was
++        // sound and still lost: a screen nobody can find is not a screen.
++        $this->actingAs($this->admin())
++            ->get('/admin')
++            ->assertOk()
++            ->assertSee('Ticket types');
++    }
++}

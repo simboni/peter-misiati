@@ -784,6 +784,68 @@ additive change, and the SQLite data can be migrated across.
 - Always use `-f /srv/64theatre/compose.yml` so a command can never act on
   another project.
 
+## A settings section, and Ticket types on the sidebar (patch 0034)
+
+No migration. Safe on any day.
+
+```bash
+cd /srv/64theatre/repo && git pull
+git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0034-settings-section-and-ticket-types.patch
+cd /srv/64theatre && docker compose up -d --build --force-recreate
+```
+
+### Settings → All settings
+
+![The settings section](settings-section.png)
+
+Everything the theatre can change without a deploy is now on **one page**, in
+four tabs:
+
+| Tab | What is on it |
+| --- | --- |
+| **Taking money** | Accept payments online, which provider, show Pay Bill details |
+| **What it costs us** | Gateway % and flat fee, platform monthly, wallet warning level |
+| **Selling on commission** | Run referrals, house rate, hold hours, per-order cap, discounted orders |
+| **Server** | Read-only: environment, email, SMS, public website, scheduled work |
+
+It replaces **Sales → Payment methods** and **Marketing → Referral programme**,
+which were two pages in two different sidebar groups, with everything not on
+one of them invisible. Those two are gone; their settings are unchanged and
+carried over as they were.
+
+**Credentials are still not editable from a browser, and that is deliberate.**
+A form that could change where money settles would turn a stolen admin session
+into a theft. Gateway keys, the M-Pesa channel, the mail password and the SMS
+key stay in the server environment. The **Server** tab shows what is
+configured so you can see the state without being able to change it — whether
+email actually goes out, whether this is production, whether SMS is on.
+
+Super admin only. Every save is written to the audit log with the previous
+values, and only the fields that actually moved, because "it used to be 10%"
+is the question somebody always asks.
+
+### Ticket types, on the sidebar
+
+![Ticket types in the sidebar](ticket-types-list.png)
+
+**Programming → Ticket types.** Every category on the box in one list — show,
+category, price, admits, total, sold, left — searchable, filterable by show,
+by "group tickets only", and by "still has tickets left". **New ticket type**
+creates one: pick the performance, name it, set **People admitted per ticket**.
+
+This was hidden by an earlier decision that prices belong inside the
+performance they are for, and that a flat list of every price the theatre has
+ever set is not how anyone looks for one. The reasoning is sound and it was
+still wrong: the person running the theatre went looking for "ticket types"
+three separate times and there was nothing by that name anywhere.
+
+Both routes now exist and edit the same rows. Setting prices while scheduling
+a performance is still the better flow; this is for when you know what you
+want and want it by name.
+
+The generated table it shipped with has also been made readable — it used to
+show `performance.id` and a price in cents.
+
 ## The member-names switch (patch 0033)
 
 No migration. Apply it with 0032.
