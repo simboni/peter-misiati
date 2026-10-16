@@ -21,6 +21,50 @@ Postgres, no Redis, no worker — the staging config runs jobs inline.
 
 ---
 
+## Updating the box — one command
+
+```bash
+cd /srv/smp-portfolio/repo && git pull
+bash deploy/contabo/64theatre/apply-patches.sh --status    # look first
+bash deploy/contabo/64theatre/apply-patches.sh             # do it
+```
+
+That is the whole deploy. **Use it instead of the per-patch `git apply` lines
+in the sections below** — those are kept because they explain what each patch
+contains, not because anybody should type thirty of them.
+
+### If you deployed and nothing changed
+
+Three ways that happens, all of which this script removes:
+
+- **`git pull` in `/srv/64theatre/repo` brings nothing.** The changes are not
+  in that repo. They are patch files in the portfolio repo, applied on top. A
+  pull there succeeds, reports "Already up to date", and changes no code — it
+  looks exactly like a deploy that worked.
+- **A patch was skipped or applied out of order.** They are cumulative; one
+  missing and every later one fails.
+- **`docker compose up -d` without `--build`.** The code is copied into the
+  image at build time, so the old image keeps serving. The giveaway is the
+  compose summary saying `Running` where it should say `Started`.
+
+The script resets the checkout to the upstream commit the patches were cut
+from and applies **all** of them, every time. It does not try to work out
+which are already in: patches are cumulative, so an early one stops reversing
+cleanly as soon as a later one touches the same lines, and detection built on
+that is wrong in exactly the cases that matter. Rebuilding from the base is
+deterministic — the tree afterwards is byte-for-byte the one the patches were
+tested against — and running it twice is harmless.
+
+It then rebuilds with `--build --force-recreate`, runs migrations, and waits
+for the container to answer `/up` before claiming success.
+
+**It discards hand edits in `/srv/64theatre/repo`**, saving a diff to
+`/srv/64theatre/before-deploy/` first and printing the path. Edit the patches,
+not the box.
+
+After it finishes, **hard-refresh the admin** (ctrl-shift-R). The browser
+caches the old assets and will otherwise show you the previous screen.
+
 ## Deploy
 
 ```bash
