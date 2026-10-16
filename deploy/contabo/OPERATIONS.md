@@ -18,6 +18,8 @@ bash /srv/smp-portfolio/repo/deploy/contabo/status.sh            # look at it fi
 bash /srv/smp-portfolio/repo/deploy/contabo/status.sh --install-cron
 bash /srv/smp-portfolio/repo/deploy/contabo/backup.sh --list     # look at it first
 bash /srv/smp-portfolio/repo/deploy/contabo/backup.sh --install-cron
+bash /srv/smp-portfolio/repo/deploy/contabo/64theatre/scheduler.sh            # look at it first
+bash /srv/smp-portfolio/repo/deploy/contabo/64theatre/scheduler.sh --install-cron
 ```
 
 Run each by hand before installing its cron job. A scheduled job you have
@@ -92,6 +94,11 @@ between finding out from this script and finding out from a client.
   another client's database rather than the one at fault.
 - **Backup freshness**, because a backup job that silently stopped is
   indistinguishable from one that never existed until the day you need it.
+- **Whether 64theatre's scheduler is actually running**, judged by the age of
+  its log rather than by the crontab. A container can be green, serving and
+  healthy while the work it does on a timer has not happened for weeks: this
+  app's expired-order release had never run once, so every abandoned checkout
+  was holding its seats off sale with no error anywhere.
 
 ## The two things status.sh cannot tell you
 

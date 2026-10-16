@@ -1,0 +1,2816 @@
+diff --git a/app/Filament/Pages/ReferralProgramme.php b/app/Filament/Pages/ReferralProgramme.php
+new file mode 100644
+index 0000000..f88f1eb
+--- /dev/null
++++ b/app/Filament/Pages/ReferralProgramme.php
+@@ -0,0 +1,188 @@
++<?php
++
++namespace App\Filament\Pages;
++
++use App\Models\AuditLog;
++use App\Models\Setting;
++use App\Support\ReferralSettings;
++use BackedEnum;
++use Filament\Actions\Action;
++use Filament\Forms\Components\TextInput;
++use Filament\Forms\Components\Toggle;
++use Filament\Notifications\Notification;
++use Filament\Pages\Page;
++use Filament\Schemas\Components\Actions;
++use Filament\Schemas\Components\EmbeddedSchema;
++use Filament\Schemas\Components\Form;
++use Filament\Schemas\Components\Section;
++use Filament\Schemas\Components\Text;
++use Filament\Schemas\Schema;
++use Filament\Support\Icons\Heroicon;
++
++/**
++ * The terms of the referral programme, in a place the office can change them.
++ *
++ * Everything starts off or at zero, and the switch at the top is the whole
++ * point of this page: until somebody with the authority to promise money
++ * turns it on, /sell-tickets does not exist and no link earns anything.
++ *
++ * Changing the rate affects FUTURE sales only. Every commission freezes the
++ * rate it was earned at, so a change here cannot rewrite what somebody was
++ * already told they would get.
++ *
++ * Super admin only, and every change is logged with what it was before.
++ */
++class ReferralProgramme extends Page
++{
++    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedMegaphone;
++
++    protected static string|\UnitEnum|null $navigationGroup = 'Marketing';
++
++    protected static ?int $navigationSort = 22;
++
++    protected static ?string $title = 'Referral programme';
++
++    protected static ?string $slug = 'referral-programme';
++
++    /** @var array<string, mixed>|null */
++    public ?array $data = [];
++
++    public static function canAccess(): bool
++    {
++        return auth()->user()?->role === 'super_admin';
++    }
++
++    public function mount(): void
++    {
++        $this->form->fill([
++            'enabled' => ReferralSettings::enabled(),
++            'percent' => ReferralSettings::percent(),
++            'hold_hours' => ReferralSettings::holdHours(),
++            'per_order_cap' => ReferralSettings::perOrderCapCents() / 100,
++            'allow_with_promo' => ReferralSettings::allowWithPromo(),
++            'on_donations' => ReferralSettings::onDonations(),
++        ]);
++    }
++
++    public function form(Schema $schema): Schema
++    {
++        return $schema
++            ->components([
++                Section::make('The programme')
++                    ->description('Members of the public selling tickets for a share of the takings.')
++                    ->schema([
++                        Toggle::make('enabled')
++                            ->label('Run a referral programme')
++                            ->helperText('Off: the signup page at /sell-tickets is not reachable, existing links still take people to the site but earn nothing, and nothing new accrues. Commission already earned is untouched either way.'),
++                        TextInput::make('percent')
++                            ->label('House rate (% of each sale)')
++                            ->numeric()->minValue(0)->maxValue(100)->step('0.01')->default(0)
++                            ->helperText('What a seller earns unless they have their own negotiated rate. Applies to sales from now on — commission already earned keeps the rate it was earned at.'),
++                        Text::make(fn (): string => self::statusLine()),
++                    ]),
++
++                Section::make('When commission may be paid')
++                    ->schema([
++                        TextInput::make('hold_hours')
++                            ->label('Hours after the performance before it may be paid')
++                            ->numeric()->minValue(0)->default(48)
++                            ->helperText('Measured from the SHOW, not the sale. A hold measured from the sale would mature on a production cancelled weeks later, and the theatre would have paid commission on tickets it then refunded.'),
++                    ]),
++
++                Section::make('Limits')
++                    ->schema([
++                        TextInput::make('per_order_cap')
++                            ->label('Most any single order may earn (KES)')
++                            ->numeric()->minValue(0)->default(0)
++                            ->helperText('0 means no cap. Without one, a single group booking at KES 12,000 becomes an unexpectedly large payment to a stranger.'),
++                        Toggle::make('allow_with_promo')
++                            ->label('Pay commission on discounted orders too')
++                            ->helperText('Off by default. A promo code and a commission on the same sale can take the margin below zero; off, the attribution is dropped rather than paid quietly.'),
++                        Toggle::make('on_donations')
++                            ->label('Pay commission on donations')
++                            ->helperText('Off by default. A donation is a gift to the theatre, and paying a stranger a cut of one is a different proposition from selling a ticket.'),
++                    ]),
++            ])
++            ->statePath('data');
++    }
++
++    /** A plain sentence about what is actually in force. */
++    private static function statusLine(): string
++    {
++        if (! ReferralSettings::enabled()) {
++            return '○ The programme is off. /sell-tickets is not reachable and no link earns.';
++        }
++
++        $rate = ReferralSettings::percent();
++
++        if ($rate <= 0) {
++            return '⚠ The programme is ON but the house rate is 0%. Sellers can sign up and nothing will ever be earned, unless each has their own rate set.';
++        }
++
++        return '✓ Live at '.rtrim(rtrim(number_format($rate, 2), '0'), '.').'%, held until '
++            .ReferralSettings::holdHours().' hours after each show.';
++    }
++
++    public function save(): void
++    {
++        $data = $this->form->getState();
++
++        $before = [
++            'enabled' => ReferralSettings::enabled(),
++            'percent' => ReferralSettings::percent(),
++            'hold_hours' => ReferralSettings::holdHours(),
++            'per_order_cap_cents' => ReferralSettings::perOrderCapCents(),
++            'allow_with_promo' => ReferralSettings::allowWithPromo(),
++            'on_donations' => ReferralSettings::onDonations(),
++        ];
++
++        Setting::put(ReferralSettings::KEY_ENABLED, $data['enabled'] ? '1' : '0');
++        Setting::put(ReferralSettings::KEY_PERCENT, (string) ((float) ($data['percent'] ?? 0)));
++        Setting::put(ReferralSettings::KEY_HOLD_HOURS, (string) (int) ($data['hold_hours'] ?? 48));
++        // Entered in shillings, stored in cents, like every other amount here.
++        Setting::put(ReferralSettings::KEY_PER_ORDER_CAP, (string) (int) round(((float) ($data['per_order_cap'] ?? 0)) * 100));
++        Setting::put(ReferralSettings::KEY_ALLOW_WITH_PROMO, $data['allow_with_promo'] ? '1' : '0');
++        Setting::put(ReferralSettings::KEY_ON_DONATIONS, $data['on_donations'] ? '1' : '0');
++
++        AuditLog::create([
++            'user_id' => auth()->id(),
++            'organiser_id' => auth()->user()?->organiser_id,
++            'action' => 'settings.referral_programme_changed',
++            'subject_type' => Setting::class,
++            'subject_id' => null,
++            'changes' => ['from' => $before, 'to' => [
++                'enabled' => (bool) $data['enabled'],
++                'percent' => (float) ($data['percent'] ?? 0),
++                'hold_hours' => (int) ($data['hold_hours'] ?? 48),
++                'per_order_cap_cents' => (int) round(((float) ($data['per_order_cap'] ?? 0)) * 100),
++                'allow_with_promo' => (bool) $data['allow_with_promo'],
++                'on_donations' => (bool) $data['on_donations'],
++            ]],
++        ]);
++
++        Notification::make()
++            ->title('Referral programme updated')
++            ->body($data['enabled']
++                ? 'Live. Sellers sign up at '.url('/sell-tickets').' and need approving before they earn.'
++                : 'Switched off. No link earns and the signup page is closed.')
++            ->success()
++            ->send();
++    }
++
++    public function content(Schema $schema): Schema
++    {
++        return $schema->components([
++            Form::make([EmbeddedSchema::make('form')])
++                ->id('form')
++                ->livewireSubmitHandler('save')
++                ->footer([
++                    Actions::make([
++                        Action::make('save')
++                            ->label('Save changes')
++                            ->submit('save')
++                            ->keyBindings(['mod+s']),
++                    ])->key('form-actions'),
++                ]),
++        ]);
++    }
++}
+diff --git a/app/Filament/Resources/ReferralCommissions/Pages/ListReferralCommissions.php b/app/Filament/Resources/ReferralCommissions/Pages/ListReferralCommissions.php
+new file mode 100644
+index 0000000..a4446d3
+--- /dev/null
++++ b/app/Filament/Resources/ReferralCommissions/Pages/ListReferralCommissions.php
+@@ -0,0 +1,34 @@
++<?php
++
++namespace App\Filament\Resources\ReferralCommissions\Pages;
++
++use App\Filament\Resources\ReferralCommissions\ReferralCommissionResource;
++use App\Models\ReferralCommission;
++use Filament\Resources\Pages\ListRecords;
++
++class ListReferralCommissions extends ListRecords
++{
++    protected static string $resource = ReferralCommissionResource::class;
++
++    /**
++     * The one number somebody comes to this page for: what the theatre owes
++     * right now. Shown as a sentence rather than a widget — it is a single
++     * figure, and a chart of it would say less.
++     */
++    public function getSubheading(): ?string
++    {
++        $ready = (int) ReferralCommission::where('status', 'payable')->sum('amount_cents');
++        $held = (int) ReferralCommission::where('status', 'earned')->sum('amount_cents');
++        $claw = (int) ReferralCommission::where('clawback_cents', '>', 0)->sum('clawback_cents');
++
++        $line = 'Ready to pay: KES '.number_format($ready / 100)
++            .' · held until after the shows: KES '.number_format($held / 100);
++
++        if ($claw > 0) {
++            $line .= ' · owed back to us: KES '.number_format($claw / 100)
++                .' (commission paid on sales that were later refunded — net it off the next payout)';
++        }
++
++        return $line.'. Money goes out by M-Pesa, by hand; this records it.';
++    }
++}
+diff --git a/app/Filament/Resources/ReferralCommissions/ReferralCommissionResource.php b/app/Filament/Resources/ReferralCommissions/ReferralCommissionResource.php
+new file mode 100644
+index 0000000..c59fe8f
+--- /dev/null
++++ b/app/Filament/Resources/ReferralCommissions/ReferralCommissionResource.php
+@@ -0,0 +1,64 @@
++<?php
++
++namespace App\Filament\Resources\ReferralCommissions;
++
++use App\Filament\Resources\ReferralCommissions\Pages\ListReferralCommissions;
++use App\Filament\Resources\ReferralCommissions\Tables\ReferralCommissionsTable;
++use App\Models\ReferralCommission;
++use App\Support\Role;
++use BackedEnum;
++use Filament\Resources\Resource;
++use Filament\Tables\Table;
++
++/**
++ * What is owed, to whom, and whether it is safe to send yet.
++ *
++ * Read-only apart from two decisions — marking a commission paid, and voiding
++ * one. There is no create and no edit: a commission is a consequence of a
++ * sale, and anything that could type one in by hand would be a way to pay a
++ * friend for a ticket nobody bought.
++ *
++ * NO AUTOMATIC PAYOUT. Money goes out of here by somebody sending M-Pesa and
++ * then recording that they did. Paying commission to members of the public is
++ * taxable income to them and Kenya puts withholding obligations on the payer;
++ * until an accountant has set that rate, an automated disbursement would be
++ * this code guessing at tax law.
++ */
++class ReferralCommissionResource extends Resource
++{
++    protected static ?string $model = ReferralCommission::class;
++
++    protected static string|BackedEnum|null $navigationIcon = 'heroicon-o-banknotes';
++
++    protected static string|\UnitEnum|null $navigationGroup = 'Marketing';
++
++    protected static ?string $modelLabel = 'commission';
++
++    protected static ?string $navigationLabel = 'Commission owed';
++
++    protected static ?int $navigationSort = 21;
++
++    public static function canAccess(): bool
++    {
++        return in_array(auth()->user()?->role, [
++            Role::SUPER_ADMIN, Role::FINANCE, Role::MARKETING,
++        ], true);
++    }
++
++    public static function canCreate(): bool
++    {
++        return false;
++    }
++
++    public static function table(Table $table): Table
++    {
++        return ReferralCommissionsTable::configure($table);
++    }
++
++    public static function getPages(): array
++    {
++        return [
++            'index' => ListReferralCommissions::route('/'),
++        ];
++    }
++}
+diff --git a/app/Filament/Resources/ReferralCommissions/Tables/ReferralCommissionsTable.php b/app/Filament/Resources/ReferralCommissions/Tables/ReferralCommissionsTable.php
+new file mode 100644
+index 0000000..e947e90
+--- /dev/null
++++ b/app/Filament/Resources/ReferralCommissions/Tables/ReferralCommissionsTable.php
+@@ -0,0 +1,203 @@
++<?php
++
++namespace App\Filament\Resources\ReferralCommissions\Tables;
++
++use App\Models\AuditLog;
++use App\Models\ReferralCommission;
++use App\Support\Phone;
++use App\Support\Role;
++use Filament\Actions\Action;
++use Filament\Actions\BulkAction;
++use Filament\Forms\Components\Textarea;
++use Filament\Notifications\Notification;
++use Filament\Tables\Columns\TextColumn;
++use Filament\Tables\Filters\SelectFilter;
++use Filament\Tables\Table;
++use Illuminate\Database\Eloquent\Collection;
++
++class ReferralCommissionsTable
++{
++    public static function configure(Table $table): Table
++    {
++        return $table
++            ->modifyQueryUsing(fn ($query) => $query->with(['referrer', 'order', 'performance.event']))
++            ->defaultSort('id', 'desc')
++            ->columns([
++                TextColumn::make('referrer.name')
++                    ->label('Seller')
++                    ->searchable()
++                    ->description(fn (ReferralCommission $c): string => Phone::forHumans($c->referrer?->payout_phone ?: $c->referrer?->phone)),
++                TextColumn::make('performance.event.title')
++                    ->label('Show')
++                    ->limit(28)
++                    ->toggleable(),
++                TextColumn::make('base_cents')
++                    ->label('Sale')
++                    ->alignEnd()
++                    ->formatStateUsing(fn (int $state): string => 'KES '.number_format($state / 100)),
++                TextColumn::make('rate_percent')
++                    ->label('Rate')
++                    ->alignEnd()
++                    ->formatStateUsing(fn (string $state): string => rtrim(rtrim(number_format((float) $state, 2), '0'), '.').'%'),
++                TextColumn::make('amount_cents')
++                    ->label('Commission')
++                    ->alignEnd()
++                    ->weight('bold')
++                    ->sortable()
++                    ->formatStateUsing(fn (int $state): string => 'KES '.number_format($state / 100)),
++                TextColumn::make('status')
++                    ->badge()
++                    ->color(fn (string $state): string => match ($state) {
++                        'payable' => 'success',
++                        'paid' => 'info',
++                        'void' => 'danger',
++                        default => 'warning',
++                    })
++                    ->formatStateUsing(fn (string $state): string => match ($state) {
++                        'earned' => 'not yet due',
++                        'payable' => 'ready to pay',
++                        default => $state,
++                    }),
++                TextColumn::make('payable_at')
++                    ->label('Due')
++                    ->dateTime('j M Y, g:i a')
++                    ->description(fn (ReferralCommission $c): ?string => $c->status === 'earned' && $c->payable_at?->isFuture()
++                        ? 'held until after the show'
++                        : null)
++                    ->sortable(),
++                TextColumn::make('clawback_cents')
++                    ->label('Clawback')
++                    ->alignEnd()
++                    ->formatStateUsing(fn (int $state): string => $state > 0 ? '−KES '.number_format($state / 100) : '—')
++                    ->toggleable(isToggledHiddenByDefault: true),
++                TextColumn::make('order.uuid')
++                    ->label('Order')
++                    ->limit(8)
++                    ->copyable()
++                    ->toggleable(isToggledHiddenByDefault: true),
++            ])
++            ->filters([
++                SelectFilter::make('status')->options([
++                    'earned' => 'Not yet due',
++                    'payable' => 'Ready to pay',
++                    'paid' => 'Paid',
++                    'void' => 'Void',
++                ]),
++                SelectFilter::make('referrer_id')
++                    ->label('Seller')
++                    ->relationship('referrer', 'name')
++                    ->searchable()
++                    ->preload(),
++            ])
++            ->recordActions([
++                /*
++                 * Recording a payout that has already happened. The money
++                 * moved in M-Pesa; this is the book catching up, which is why
++                 * it is only offered on commission that was ready to pay.
++                 */
++                Action::make('markPaid')
++                    ->label('Mark paid')
++                    ->icon('heroicon-o-check-badge')
++                    ->color('success')
++                    ->visible(fn (ReferralCommission $c): bool => $c->status === 'payable'
++                        && Role::canHandleMoney(auth()->user()?->role))
++                    ->requiresConfirmation()
++                    ->modalHeading('Record this as paid')
++                    ->modalDescription('Only after the M-Pesa has actually gone out. Nothing here sends money.')
++                    ->action(function (ReferralCommission $c): void {
++                        $c->update(['status' => 'paid', 'paid_at' => now()]);
++                        self::log($c, 'referral_commission.paid', 'payable');
++                        Notification::make()->title('Recorded as paid')->success()->send();
++                    }),
++
++                /*
++                 * Voiding is for the cases the automatic rules cannot see — a
++                 * seller caught claiming sales they did not bring, a buyer who
++                 * never turned up and was let off. A reason is required
++                 * because the person owed the money will ask.
++                 */
++                Action::make('void')
++                    ->label('Void')
++                    ->icon('heroicon-o-x-circle')
++                    ->color('danger')
++                    ->visible(fn (ReferralCommission $c): bool => ! in_array($c->status, ['void', 'paid'], true)
++                        && Role::canHandleMoney(auth()->user()?->role))
++                    ->schema([
++                        Textarea::make('reason')->label('Why?')->required()->maxLength(200),
++                    ])
++                    ->requiresConfirmation()
++                    ->action(function (ReferralCommission $c, array $data): void {
++                        $was = $c->status;
++                        $c->update([
++                            'status' => 'void',
++                            'voided_at' => now(),
++                            'void_reason' => $data['reason'],
++                        ]);
++                        self::log($c, 'referral_commission.voided', $was, $data['reason']);
++                        Notification::make()->title('Voided')->success()->send();
++                    }),
++            ])
++            ->toolbarActions([
++                /*
++                 * A payout run: filter to one seller, select their ready rows,
++                 * send one M-Pesa for the total, record it here. Refuses
++                 * anything not ready to pay rather than silently skipping it,
++                 * so the total on screen is the total you send.
++                 */
++                BulkAction::make('markPaidBulk')
++                    ->label('Mark selected as paid')
++                    ->icon('heroicon-o-check-badge')
++                    ->color('success')
++                    ->visible(fn (): bool => Role::canHandleMoney(auth()->user()?->role))
++                    ->requiresConfirmation()
++                    ->modalHeading('Record these as paid')
++                    ->modalDescription('Only after the money has gone out. Any row that is not ready to pay will be refused.')
++                    ->action(function (Collection $records): void {
++                        $notReady = $records->where('status', '!=', 'payable');
++
++                        if ($notReady->isNotEmpty()) {
++                            Notification::make()
++                                ->title('Nothing recorded')
++                                ->body($notReady->count().' of the selected rows are not ready to pay. Deselect them, or filter to "Ready to pay" first.')
++                                ->danger()
++                                ->send();
++
++                            return;
++                        }
++
++                        $total = 0;
++
++                        foreach ($records as $c) {
++                            $c->update(['status' => 'paid', 'paid_at' => now()]);
++                            self::log($c, 'referral_commission.paid', 'payable');
++                            $total += (int) $c->amount_cents;
++                        }
++
++                        Notification::make()
++                            ->title('Recorded')
++                            ->body('KES '.number_format($total / 100).' across '.$records->count().' sales.')
++                            ->success()
++                            ->send();
++                    })
++                    ->deselectRecordsAfterCompletion(),
++            ]);
++    }
++
++    private static function log(ReferralCommission $c, string $action, ?string $was, ?string $reason = null): void
++    {
++        AuditLog::create([
++            'user_id' => auth()->id(),
++            'organiser_id' => $c->organiser_id,
++            'action' => $action,
++            'subject_type' => ReferralCommission::class,
++            'subject_id' => $c->id,
++            'changes' => array_filter([
++                'from' => $was,
++                'to' => $c->status,
++                'amount_cents' => (int) $c->amount_cents,
++                'referrer' => $c->referrer?->phone,
++                'reason' => $reason,
++            ], fn ($v) => $v !== null),
++        ]);
++    }
++}
+diff --git a/app/Filament/Resources/Referrers/Pages/EditReferrer.php b/app/Filament/Resources/Referrers/Pages/EditReferrer.php
+new file mode 100644
+index 0000000..a47add8
+--- /dev/null
++++ b/app/Filament/Resources/Referrers/Pages/EditReferrer.php
+@@ -0,0 +1,48 @@
++<?php
++
++namespace App\Filament\Resources\Referrers\Pages;
++
++use App\Filament\Resources\Referrers\ReferrerResource;
++use App\Support\Phone;
++use Filament\Resources\Pages\EditRecord;
++
++class EditReferrer extends EditRecord
++{
++    protected static string $resource = ReferrerResource::class;
++
++    /**
++     * Canonicalise before saving, not after.
++     *
++     * The phone is both the unique key and how a self-referral is spotted. A
++     * number saved as "0712 345 678" matches nothing, so the person could then
++     * earn commission on their own tickets — quietly, and only until somebody
++     * noticed the pattern.
++     */
++    protected function mutateFormDataBeforeSave(array $data): array
++    {
++        if (filled($data['phone'] ?? null)) {
++            $data['phone'] = Phone::normalise($data['phone']) ?? trim((string) $data['phone']);
++        }
++
++        if (filled($data['payout_phone'] ?? null)) {
++            $data['payout_phone'] = Phone::normalise($data['payout_phone']) ?? trim((string) $data['payout_phone']);
++        }
++
++        if (filled($data['code'] ?? null)) {
++            $data['code'] = strtoupper(trim((string) $data['code']));
++        }
++
++        // Blank means "use the house rate", which is null and not zero. Zero
++        // would be a negotiated rate of nothing.
++        if (($data['commission_percent'] ?? '') === '') {
++            $data['commission_percent'] = null;
++        }
++
++        return $data;
++    }
++
++    protected function getRedirectUrl(): ?string
++    {
++        return $this->getResource()::getUrl('index');
++    }
++}
+diff --git a/app/Filament/Resources/Referrers/Pages/ListReferrers.php b/app/Filament/Resources/Referrers/Pages/ListReferrers.php
+new file mode 100644
+index 0000000..c4351f3
+--- /dev/null
++++ b/app/Filament/Resources/Referrers/Pages/ListReferrers.php
+@@ -0,0 +1,65 @@
++<?php
++
++namespace App\Filament\Resources\Referrers\Pages;
++
++use App\Filament\Resources\Referrers\ReferrerResource;
++use App\Services\Referrals;
++use App\Support\ReferralSettings;
++use Filament\Actions\Action;
++use Filament\Forms\Components\TextInput;
++use Filament\Notifications\Notification;
++use Filament\Resources\Pages\ListRecords;
++use Filament\Support\Icons\Heroicon;
++
++class ListReferrers extends ListRecords
++{
++    protected static string $resource = ReferrerResource::class;
++
++    public function getSubheading(): ?string
++    {
++        if (! ReferralSettings::enabled()) {
++            return 'The referral programme is SWITCHED OFF. Links do not earn and /sell-tickets is not reachable. Turn it on under Marketing → Referral programme.';
++        }
++
++        return 'Anyone can sign up at '.url('/sell-tickets').' — they arrive here waiting for approval.';
++    }
++
++    protected function getHeaderActions(): array
++    {
++        return [
++            /*
++             * Adding somebody at the desk. Goes through the same register()
++             * the public form uses rather than a create form, because the code
++             * and the uuid have to be minted and a hand-typed code would
++             * eventually collide with a real one.
++             */
++            Action::make('add')
++                ->label('Add a seller')
++                ->icon(Heroicon::OutlinedUserPlus)
++                ->schema([
++                    TextInput::make('name')->required()->maxLength(80),
++                    TextInput::make('phone')
++                        ->label('Phone')
++                        ->required()
++                        ->maxLength(20)
++                        ->helperText('Any format. If this number has signed up already you will be taken to the existing record rather than a second one being made.'),
++                    TextInput::make('email')->email()->maxLength(120),
++                    TextInput::make('payout_phone')->label('M-Pesa number for payment')->maxLength(20),
++                    TextInput::make('mpesa_name')->label('Name on that M-Pesa number')->maxLength(80),
++                ])
++                ->action(function (array $data, Referrals $referrals): void {
++                    $referrer = $referrals->register($data + ['terms' => true]);
++
++                    Notification::make()
++                        ->title($referrer->wasRecentlyCreated
++                            ? 'Added — code '.$referrer->code
++                            : 'Already signed up — code '.$referrer->code)
++                        ->body($referrer->isActive()
++                            ? 'Their link is live: '.url('/').'?ref='.$referrer->code
++                            : 'Waiting for approval, so the link does not earn yet. Approve them in the list below.')
++                        ->success()
++                        ->send();
++                }),
++        ];
++    }
++}
+diff --git a/app/Filament/Resources/Referrers/ReferrerResource.php b/app/Filament/Resources/Referrers/ReferrerResource.php
+new file mode 100644
+index 0000000..958ec48
+--- /dev/null
++++ b/app/Filament/Resources/Referrers/ReferrerResource.php
+@@ -0,0 +1,75 @@
++<?php
++
++namespace App\Filament\Resources\Referrers;
++
++use App\Filament\Resources\Referrers\Pages\EditReferrer;
++use App\Filament\Resources\Referrers\Pages\ListReferrers;
++use App\Filament\Resources\Referrers\Schemas\ReferrerForm;
++use App\Filament\Resources\Referrers\Tables\ReferrersTable;
++use App\Models\Referrer;
++use App\Support\Role;
++use BackedEnum;
++use Filament\Resources\Resource;
++use Filament\Schemas\Schema;
++use Filament\Support\Icons\Heroicon;
++use Filament\Tables\Table;
++
++/**
++ * The people selling tickets on commission.
++ *
++ * Signing up is public, at /sell-tickets, and arrives as `pending`. Approval
++ * happens HERE and nowhere else: a pending referrer holds a working link that
++ * earns nothing, which is the only arrangement that lets the theatre hand out
++ * links at a show without promising money to whoever picks one up.
++ *
++ * There is no create page. Adding somebody by hand goes through the same
++ * Referrals::register() the public form uses, so a hand-added seller cannot
++ * end up without a code or with somebody else's.
++ */
++class ReferrerResource extends Resource
++{
++    protected static ?string $model = Referrer::class;
++
++    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedMegaphone;
++
++    protected static string|\UnitEnum|null $navigationGroup = 'Marketing';
++
++    protected static ?string $recordTitleAttribute = 'name';
++
++    protected static ?string $modelLabel = 'seller';
++
++    protected static ?string $pluralModelLabel = 'sellers';
++
++    protected static ?int $navigationSort = 20;
++
++    /** Who is allowed to sell is a commercial decision, not a door one. */
++    public static function canAccess(): bool
++    {
++        return in_array(auth()->user()?->role, [
++            Role::SUPER_ADMIN, Role::FINANCE, Role::MARKETING,
++        ], true);
++    }
++
++    public static function canCreate(): bool
++    {
++        return false;   // use the "Add a seller" action — it mints the code
++    }
++
++    public static function form(Schema $schema): Schema
++    {
++        return ReferrerForm::configure($schema);
++    }
++
++    public static function table(Table $table): Table
++    {
++        return ReferrersTable::configure($table);
++    }
++
++    public static function getPages(): array
++    {
++        return [
++            'index' => ListReferrers::route('/'),
++            'edit' => EditReferrer::route('/{record}/edit'),
++        ];
++    }
++}
+diff --git a/app/Filament/Resources/Referrers/Schemas/ReferrerForm.php b/app/Filament/Resources/Referrers/Schemas/ReferrerForm.php
+new file mode 100644
+index 0000000..f95a35e
+--- /dev/null
++++ b/app/Filament/Resources/Referrers/Schemas/ReferrerForm.php
+@@ -0,0 +1,65 @@
++<?php
++
++namespace App\Filament\Resources\Referrers\Schemas;
++
++use App\Support\ReferralSettings;
++use Filament\Forms\Components\TextInput;
++use Filament\Schemas\Components\Section;
++use Filament\Schemas\Schema;
++
++class ReferrerForm
++{
++    public static function configure(Schema $schema): Schema
++    {
++        return $schema->components([
++            Section::make('Who they are')
++                ->schema([
++                    TextInput::make('name')->required()->maxLength(80),
++                    TextInput::make('phone')
++                        ->label('Phone')
++                        ->required()
++                        ->maxLength(20)
++                        // Unique because the phone IS the identity here, the
++                        // same as it is for customers. Two rows for one person
++                        // means two codes, and the second sale is credited to
++                        // whichever row the buyer happened to click.
++                        ->unique(ignoreRecord: true)
++                        ->helperText('Canonical form, e.g. 254712345678. This is how a self-referral is spotted.'),
++                    TextInput::make('email')->email()->maxLength(120),
++                    TextInput::make('code')
++                        ->label('Referral code')
++                        ->required()
++                        ->maxLength(32)
++                        ->unique(ignoreRecord: true)
++                        ->helperText('CHANGING THIS BREAKS EVERY LINK ALREADY SHARED. Sales already recorded keep the old code on the order, so history stays readable — but anyone holding the old link stops being credited.'),
++                ])
++                ->columns(2),
++
++            Section::make('Getting paid')
++                ->schema([
++                    TextInput::make('payout_phone')
++                        ->label('M-Pesa number for payment')
++                        ->maxLength(20),
++                    TextInput::make('mpesa_name')
++                        ->label('Name registered on that number')
++                        ->maxLength(80)
++                        ->helperText('Check this against the M-Pesa confirmation before sending money.'),
++                    TextInput::make('kra_pin')
++                        ->label('KRA PIN')
++                        ->maxLength(20)
++                        // Not validated and not required: whether it is needed
++                        // at all is a question for an accountant, and a
++                        // required field would be this code pretending to
++                        // know the answer.
++                        ->helperText('Collected only if your accountant says commission payments need withholding tax handled. Nothing in the system uses it.'),
++                    TextInput::make('commission_percent')
++                        ->label('Their rate (%)')
++                        ->numeric()->minValue(0)->maxValue(100)->step('0.01')
++                        ->helperText('Leave blank to use the house rate, currently '
++                            .rtrim(rtrim(number_format(ReferralSettings::percent(), 2), '0'), '.')
++                            .'%. A rate set here applies to FUTURE sales only — commission already earned keeps the rate it was earned at.'),
++                ])
++                ->columns(2),
++        ]);
++    }
++}
+diff --git a/app/Filament/Resources/Referrers/Tables/ReferrersTable.php b/app/Filament/Resources/Referrers/Tables/ReferrersTable.php
+new file mode 100644
+index 0000000..d7ac695
+--- /dev/null
++++ b/app/Filament/Resources/Referrers/Tables/ReferrersTable.php
+@@ -0,0 +1,183 @@
++<?php
++
++namespace App\Filament\Resources\Referrers\Tables;
++
++use App\Models\AuditLog;
++use App\Models\Referrer;
++use App\Support\Phone;
++use Filament\Actions\Action;
++use Filament\Actions\EditAction;
++use Filament\Notifications\Notification;
++use Filament\Tables\Columns\TextColumn;
++use Filament\Tables\Filters\SelectFilter;
++use Filament\Tables\Table;
++use Illuminate\Database\Eloquent\Builder;
++
++class ReferrersTable
++{
++    public static function configure(Table $table): Table
++    {
++        return $table
++            // Summed in the query, not per row: a hundred sellers each asking
++            // the commissions table for their own total is a hundred queries
++            // to draw one page.
++            ->modifyQueryUsing(fn (Builder $query) => $query
++                ->withCount(['commissions as sales_count' => fn (Builder $q) => $q->where('status', '!=', 'void')])
++                ->withSum(
++                    ['commissions as earned_cents' => fn (Builder $q) => $q->whereIn('status', ['earned', 'payable', 'paid'])],
++                    'amount_cents',
++                )
++                ->withSum(
++                    ['commissions as payable_cents' => fn (Builder $q) => $q->where('status', 'payable')],
++                    'amount_cents',
++                ))
++            ->defaultSort('created_at', 'desc')
++            ->columns([
++                TextColumn::make('name')
++                    ->searchable()
++                    ->description(fn (Referrer $r): string => Phone::forHumans($r->phone)),
++                TextColumn::make('code')
++                    ->label('Code')
++                    ->searchable()
++                    ->copyable()
++                    ->copyMessage('Code copied')
++                    ->fontFamily('mono'),
++                TextColumn::make('status')
++                    ->badge()
++                    ->color(fn (string $state): string => match ($state) {
++                        'active' => 'success',
++                        'pending' => 'warning',
++                        'paused' => 'gray',
++                        'blocked' => 'danger',
++                        default => 'gray',
++                    }),
++                TextColumn::make('commission_percent')
++                    ->label('Rate')
++                    ->formatStateUsing(fn (?string $state): string => $state === null
++                        ? 'house rate'
++                        : rtrim(rtrim(number_format((float) $state, 2), '0'), '.').'%'),
++                TextColumn::make('sales_count')
++                    ->label('Sales')
++                    ->sortable()
++                    ->alignEnd(),
++                TextColumn::make('earned_cents')
++                    ->label('Earned')
++                    ->sortable()
++                    ->alignEnd()
++                    ->formatStateUsing(fn (?int $state): string => 'KES '.number_format((int) $state / 100)),
++                TextColumn::make('payable_cents')
++                    ->label('Owed now')
++                    ->sortable()
++                    ->alignEnd()
++                    ->weight('bold')
++                    ->formatStateUsing(fn (?int $state): string => 'KES '.number_format((int) $state / 100))
++                    ->description(fn (Referrer $r): ?string => ($claw = (int) $r->commissions()->sum('clawback_cents')) > 0
++                        ? 'less KES '.number_format($claw / 100).' clawback'
++                        : null),
++                TextColumn::make('created_at')
++                    ->label('Signed up')
++                    ->date()
++                    ->sortable()
++                    ->toggleable(isToggledHiddenByDefault: true),
++            ])
++            ->filters([
++                SelectFilter::make('status')->options([
++                    'pending' => 'Waiting for approval',
++                    'active' => 'Active',
++                    'paused' => 'Paused',
++                    'blocked' => 'Blocked',
++                ]),
++            ])
++            ->recordActions([
++                /*
++                 * Approval is the switch that turns a link from a piece of
++                 * paper into a promise to pay somebody. It is one click, but
++                 * it is confirmed and it is logged with a name against it.
++                 */
++                Action::make('approve')
++                    ->label('Approve')
++                    ->icon('heroicon-o-check-circle')
++                    ->color('success')
++                    ->visible(fn (Referrer $r): bool => $r->status !== 'active')
++                    ->requiresConfirmation()
++                    ->modalHeading('Approve this seller')
++                    ->modalDescription('From now on, sales through their link earn commission. Sales made before this moment do not — they were not approved when the money landed.')
++                    ->action(function (Referrer $r): void {
++                        $was = $r->status;
++
++                        $r->update([
++                            'status' => 'active',
++                            'approved_at' => $r->approved_at ?? now(),
++                            'approved_by' => auth()->id(),
++                        ]);
++
++                        self::log($r, 'referrer.approved', $was);
++
++                        Notification::make()
++                            ->title($r->name.' can now earn')
++                            ->body('Their link is '.url('/').'?ref='.$r->code)
++                            ->success()
++                            ->send();
++                    }),
++
++                /*
++                 * Paused and blocked do the same thing to earning and mean
++                 * different things to a person. Paused is "not this season";
++                 * blocked is "we are not working with you". Both are kept
++                 * because the reason belongs in the record.
++                 */
++                Action::make('pause')
++                    ->label('Pause')
++                    ->icon('heroicon-o-pause-circle')
++                    ->color('gray')
++                    ->visible(fn (Referrer $r): bool => $r->status === 'active')
++                    ->requiresConfirmation()
++                    ->modalDescription('Their link keeps working as a link, but stops earning. Commission already earned is unaffected.')
++                    ->action(function (Referrer $r): void {
++                        $r->update(['status' => 'paused']);
++                        self::log($r, 'referrer.paused', 'active');
++                        Notification::make()->title('Paused')->success()->send();
++                    }),
++
++                Action::make('block')
++                    ->label('Block')
++                    ->icon('heroicon-o-no-symbol')
++                    ->color('danger')
++                    ->visible(fn (Referrer $r): bool => $r->status !== 'blocked')
++                    ->requiresConfirmation()
++                    ->modalHeading('Block this seller')
++                    ->modalDescription('Stops all future earning. It does NOT cancel commission already earned — if you mean not to pay that, void the individual commissions, so there is a record of the decision.')
++                    ->action(function (Referrer $r): void {
++                        $was = $r->status;
++                        $r->update(['status' => 'blocked']);
++                        self::log($r, 'referrer.blocked', $was);
++                        Notification::make()->title('Blocked')->success()->send();
++                    }),
++
++                Action::make('openPage')
++                    ->label('Their page')
++                    ->icon('heroicon-o-arrow-top-right-on-square')
++                    ->url(fn (Referrer $r): string => route('referrals.dashboard', $r->uuid))
++                    ->openUrlInNewTab(),
++
++                EditAction::make(),
++            ]);
++    }
++
++    private static function log(Referrer $referrer, string $action, ?string $was): void
++    {
++        AuditLog::create([
++            'user_id' => auth()->id(),
++            'organiser_id' => auth()->user()?->organiser_id,
++            'action' => $action,
++            'subject_type' => Referrer::class,
++            'subject_id' => $referrer->id,
++            'changes' => [
++                'from' => $was,
++                'to' => $referrer->status,
++                'code' => $referrer->code,
++                'phone' => $referrer->phone,
++            ],
++        ]);
++    }
++}
+diff --git a/app/Http/Controllers/OrderController.php b/app/Http/Controllers/OrderController.php
+index 19c32f2..f5254c4 100644
+--- a/app/Http/Controllers/OrderController.php
++++ b/app/Http/Controllers/OrderController.php
+@@ -65,6 +65,12 @@ public function store(Request $request, Checkout $checkout, PaymentGateway $gate
+                 name: $validated['name'] ?? null,
+                 promoCode: $validated['promo_code'] ?? null,
+                 email: $validated['email'] ?? null,
++                // Read at purchase, from the first-touch cookie. byCode()
++                // re-checks the referrer is still active, so a code that was
++                // revoked after the click earns nothing.
++                referrer: app(\App\Services\Referrals::class)->byCode(
++                    $request->cookie(\App\Http\Middleware\CaptureReferral::COOKIE)
++                ),
+             );
+         } catch (SoldOutException $e) {
+             return back()->withErrors(['quantities' => $e->getMessage()])->withInput();
+diff --git a/app/Http/Controllers/ReferralController.php b/app/Http/Controllers/ReferralController.php
+new file mode 100644
+index 0000000..52c7e7f
+--- /dev/null
++++ b/app/Http/Controllers/ReferralController.php
+@@ -0,0 +1,87 @@
++<?php
++
++namespace App\Http\Controllers;
++
++use App\Models\Referrer;
++use App\Services\Referrals;
++use App\Support\ReferralSettings;
++use Illuminate\Http\RedirectResponse;
++use Illuminate\Http\Request;
++use Illuminate\View\View;
++
++/**
++ * Signing up to sell tickets, and seeing what you have earned.
++ *
++ * Reached by uuid, like the order page and the group roster — a capability URL
++ * rather than an account. Members of the public are not Users: giving two
++ * hundred strangers a password on the same table that reaches /admin would be
++ * trading a growth feature for an authentication surface.
++ *
++ * ABORTS WHEN THE PROGRAMME IS OFF. Not a polite empty page: while it is off
++ * nothing accrues, so a signup form that still worked would be collecting
++ * people's phone numbers against a promise of money that no setting has agreed
++ * to pay.
++ */
++class ReferralController extends Controller
++{
++    public function join(): View
++    {
++        $this->mustBeOpen();
++
++        return view('referrals.join');
++    }
++
++    public function register(Request $request, Referrals $referrals): RedirectResponse
++    {
++        $this->mustBeOpen();
++
++        $validated = $request->validate([
++            'name' => ['required', 'string', 'max:80'],
++            'phone' => ['required', 'string', 'max:20'],
++            'email' => ['nullable', 'email', 'max:120'],
++            'payout_phone' => ['nullable', 'string', 'max:20'],
++            'mpesa_name' => ['nullable', 'string', 'max:80'],
++            'terms' => ['accepted'],
++        ], [
++            'terms.accepted' => 'Please confirm you have read how commission works.',
++        ]);
++
++        $referrer = $referrals->register($validated);
++
++        return redirect()->route('referrals.dashboard', $referrer->uuid);
++    }
++
++    /**
++     * Their own page: the link to share, and what it has earned.
++     *
++     * Deliberately readable while the account is still pending. Somebody who
++     * has just signed up wants to see that it worked; the banner tells them
++     * plainly that nothing earns yet.
++     */
++    public function dashboard(string $uuid): View
++    {
++        $referrer = Referrer::where('uuid', $uuid)->firstOrFail();
++
++        $commissions = $referrer->commissions()
++            ->with(['order.customer', 'performance.event'])
++            ->latest('id')
++            ->limit(100)
++            ->get();
++
++        return view('referrals.dashboard', [
++            'referrer' => $referrer,
++            'commissions' => $commissions,
++            'link' => url('/').'?ref='.$referrer->code,
++            'ratePercent' => (float) ($referrer->commission_percent ?? ReferralSettings::percent()),
++            'holdHours' => ReferralSettings::holdHours(),
++            'earnedCents' => $referrer->earnedCents(),
++            'payableCents' => $referrer->payableCents(),
++            'paidCents' => $referrer->paidCents(),
++        ]);
++    }
++
++    private function mustBeOpen(): void
++    {
++        abort_unless(ReferralSettings::enabled(), 404);
++    }
++}
+diff --git a/app/Http/Middleware/CaptureReferral.php b/app/Http/Middleware/CaptureReferral.php
+new file mode 100644
+index 0000000..2392160
+--- /dev/null
++++ b/app/Http/Middleware/CaptureReferral.php
+@@ -0,0 +1,47 @@
++<?php
++
++namespace App\Http\Middleware;
++
++use App\Services\Referrals;
++use Closure;
++use Illuminate\Http\Request;
++use Symfony\Component\HttpFoundation\Response;
++
++/**
++ * Remember which link brought somebody here.
++ *
++ * FIRST TOUCH, NOT LAST. The cookie is written only when there is none. A
++ * ticket link gets forwarded through WhatsApp groups, and last-touch would let
++ * whoever reshared it last take the commission from whoever actually found the
++ * buyer — which is the argument the theatre would then have to referee.
++ *
++ * httpOnly: nothing in the page needs to read it, and a referral code that
++ * JavaScript can rewrite is a referral code that gets rewritten.
++ */
++class CaptureReferral
++{
++    public const COOKIE = 'ref';
++
++    private const DAYS = 30;
++
++    public function handle(Request $request, Closure $next): Response
++    {
++        $code = $request->query('ref');
++
++        if (blank($code) || $request->cookie(self::COOKIE)) {
++            return $next($request);
++        }
++
++        // Validated before it is stored, so a junk or revoked code never sits
++        // in somebody's browser for a month pretending to be worth something.
++        $referrer = app(Referrals::class)->byCode((string) $code);
++
++        if (! $referrer) {
++            return $next($request);
++        }
++
++        return $next($request)->withCookie(
++            cookie(self::COOKIE, $referrer->code, self::DAYS * 24 * 60, null, null, null, true),
++        );
++    }
++}
+diff --git a/app/Models/Order.php b/app/Models/Order.php
+index 0a2fb7d..11f636e 100644
+--- a/app/Models/Order.php
++++ b/app/Models/Order.php
+@@ -51,6 +51,16 @@ public function headcount(): int
+         return $this->items->sum(fn ($i) => $i->quantity * max((int) ($i->ticketType?->admits ?? 1), 1));
+     }
+ 
++    public function referrer(): BelongsTo
++    {
++        return $this->belongsTo(Referrer::class);
++    }
++
++    public function commission(): \Illuminate\Database\Eloquent\Relations\HasOne
++    {
++        return $this->hasOne(ReferralCommission::class);
++    }
++
+     public function tickets(): HasMany
+     {
+         return $this->hasMany(Ticket::class);
+diff --git a/app/Models/ReferralCommission.php b/app/Models/ReferralCommission.php
+new file mode 100644
+index 0000000..55e0200
+--- /dev/null
++++ b/app/Models/ReferralCommission.php
+@@ -0,0 +1,42 @@
++<?php
++
++namespace App\Models;
++
++use Illuminate\Database\Eloquent\Model;
++use Illuminate\Database\Eloquent\Relations\BelongsTo;
++
++/**
++ * One order's commission, and the three facts that are not the same thing:
++ * earned (money landed), payable (the show happened and the order still
++ * stands), paid (somebody sent it).
++ */
++class ReferralCommission extends Model
++{
++    protected $guarded = [];
++
++    protected function casts(): array
++    {
++        return [
++            'rate_percent' => 'decimal:2',
++            'earned_at' => 'datetime',
++            'payable_at' => 'datetime',
++            'paid_at' => 'datetime',
++            'voided_at' => 'datetime',
++        ];
++    }
++
++    public function referrer(): BelongsTo
++    {
++        return $this->belongsTo(Referrer::class);
++    }
++
++    public function order(): BelongsTo
++    {
++        return $this->belongsTo(Order::class);
++    }
++
++    public function performance(): BelongsTo
++    {
++        return $this->belongsTo(Performance::class);
++    }
++}
+diff --git a/app/Models/Referrer.php b/app/Models/Referrer.php
+new file mode 100644
+index 0000000..018d005
+--- /dev/null
++++ b/app/Models/Referrer.php
+@@ -0,0 +1,60 @@
++<?php
++
++namespace App\Models;
++
++use Illuminate\Database\Eloquent\Model;
++use Illuminate\Database\Eloquent\Relations\BelongsTo;
++use Illuminate\Database\Eloquent\Relations\HasMany;
++
++/**
++ * A member of the public who sells tickets for a cut.
++ *
++ * Not a User: staff roles can reach /admin and `users` carries a password, and
++ * a hundred strangers do not belong in the staff table. The phone is the
++ * identity, as it is for customers.
++ */
++class Referrer extends Model
++{
++    protected $guarded = [];
++
++    protected function casts(): array
++    {
++        return [
++            'commission_percent' => 'decimal:2',
++            'terms_accepted_at' => 'datetime',
++            'approved_at' => 'datetime',
++        ];
++    }
++
++    public function commissions(): HasMany
++    {
++        return $this->hasMany(ReferralCommission::class);
++    }
++
++    public function customer(): BelongsTo
++    {
++        return $this->belongsTo(Customer::class);
++    }
++
++    /** Only an approved referrer earns. A pending one has a code that does nothing. */
++    public function isActive(): bool
++    {
++        return $this->status === 'active';
++    }
++
++    public function earnedCents(): int
++    {
++        return (int) $this->commissions()->whereIn('status', ['earned', 'payable', 'paid'])->sum('amount_cents');
++    }
++
++    public function payableCents(): int
++    {
++        return (int) $this->commissions()->where('status', 'payable')->sum('amount_cents')
++            - (int) $this->commissions()->sum('clawback_cents');
++    }
++
++    public function paidCents(): int
++    {
++        return (int) $this->commissions()->where('status', 'paid')->sum('amount_cents');
++    }
++}
+diff --git a/app/Services/Checkout.php b/app/Services/Checkout.php
+index f044f8d..eba29a3 100644
+--- a/app/Services/Checkout.php
++++ b/app/Services/Checkout.php
+@@ -27,9 +27,9 @@ class Checkout
+      *
+      * @param  array<int, int>  $items  ticket_type_id => quantity
+      */
+-    public function startOrder(array $items, string $phone, ?string $name = null, string $channel = 'online', bool $marketingConsent = false, ?string $promoCode = null, ?string $email = null): Order
++    public function startOrder(array $items, string $phone, ?string $name = null, string $channel = 'online', bool $marketingConsent = false, ?string $promoCode = null, ?string $email = null, ?\App\Models\Referrer $referrer = null): Order
+     {
+-        $order = DB::transaction(function () use ($items, $phone, $name, $channel, $marketingConsent, $promoCode, $email) {
++        $order = DB::transaction(function () use ($items, $phone, $name, $channel, $marketingConsent, $promoCode, $email, $referrer) {
+             $types = TicketType::with('performance.event')->findMany(array_keys($items));
+             $performance = $types->first()->performance;
+ 
+@@ -76,6 +76,11 @@ public function startOrder(array $items, string $phone, ?string $name = null, st
+                 'total_cents' => $total,
+                 'promo_code' => $promo?->code,
+                 'channel' => $channel,
++                // Stamped at creation, not at settlement: the link that
++                // brought the buyer is a fact about the visit, and a cookie
++                // read minutes later at callback time would be gone.
++                'referrer_id' => $referrer?->id,
++                'referral_code' => $referrer?->code,
+                 'status' => 'awaiting_payment',
+                 'expires_at' => now()->addMinutes(self::HOLD_MINUTES),
+             ]);
+@@ -206,6 +211,12 @@ public function confirm(Order $order, Payment $payment): Order
+ 
+             app(Ledger::class)->postSale($order, $payment);
+ 
++            // Inside the transaction: a commission must not survive a
++            // sale that rolled back. One hook, so every path that
++            // settles — callback, status poll, desk, gate — accrues
++            // identically and none can be forgotten.
++            app(Referrals::class)->accrue($order, $payment);
++
+             return $order->refresh();
+         });
+ 
+diff --git a/app/Services/Referrals.php b/app/Services/Referrals.php
+new file mode 100644
+index 0000000..375818d
+--- /dev/null
++++ b/app/Services/Referrals.php
+@@ -0,0 +1,273 @@
++<?php
++
++namespace App\Services;
++
++use App\Models\Customer;
++use App\Models\Order;
++use App\Models\Payment;
++use App\Models\ReferralCommission;
++use App\Models\Referrer;
++use App\Support\Phone;
++use App\Support\ReferralSettings;
++use Illuminate\Support\Carbon;
++use Illuminate\Support\Str;
++
++/**
++ * Who earned what, and when it is safe to hand it over.
++ *
++ * The whole policy lives here rather than being spread across a controller, a
++ * listener and a report. There is one hook into the money path —
++ * Checkout::confirm() — and one out of it, Refunds. Everything else reads.
++ *
++ * THE RULE THIS EXISTS TO ENFORCE: commission must never be payable on money
++ * that went back. Earning and being payable are separate states for exactly
++ * that reason, and the refund path voids or claws back rather than ignoring it.
++ */
++class Referrals
++{
++    /**
++     * Sign somebody up to sell.
++     *
++     * Returns the EXISTING referrer when the phone is already registered,
++     * rather than failing on the unique index. Somebody who forgot they signed
++     * up should be handed their link back, not an error page — and a second
++     * signup must never mint a second code, because the first one is already
++     * in circulation on WhatsApp.
++     *
++     * Status is 'pending'. The link works immediately for walking around with,
++     * but earns nothing until the theatre approves the person, because a
++     * commission scheme that enrols itself is a commission scheme anyone can
++     * point at a sale that was coming anyway.
++     */
++    public function register(array $data): Referrer
++    {
++        $phone = Phone::normalise($data['phone'] ?? null) ?? trim((string) ($data['phone'] ?? ''));
++
++        if ($existing = Referrer::where('phone', $phone)->first()) {
++            return $existing;
++        }
++
++        $payout = Phone::normalise($data['payout_phone'] ?? null);
++
++        return Referrer::create([
++            'uuid' => (string) Str::uuid(),
++            'code' => $this->mintCode($data['name'] ?? ''),
++            'name' => trim((string) ($data['name'] ?? '')),
++            'phone' => $phone,
++            'email' => filled($data['email'] ?? null) ? trim((string) $data['email']) : null,
++            'payout_phone' => $payout ?? $phone,
++            'mpesa_name' => filled($data['mpesa_name'] ?? null) ? trim((string) $data['mpesa_name']) : null,
++            'status' => 'pending',
++            'terms_accepted_at' => now(),
++            // Links the seller to their own buying history, so buying through
++            // your own link is caught even if you use a different number.
++            'customer_id' => Customer::where('phone', $phone)->value('id'),
++        ]);
++    }
++
++    /**
++     * A code somebody can say out loud.
++     *
++     * Built from their name so it means something to them, with four random
++     * characters so two Mercys do not collide. I, O, 0 and 1 are left out:
++     * these get read off a phone screen and typed by someone else.
++     */
++    private function mintCode(string $name): string
++    {
++        $stem = strtoupper(preg_replace('/[^A-Za-z]/', '', strtok(trim($name), ' ') ?: ''));
++        $stem = substr($stem, 0, 8) ?: 'SELL';
++        $alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
++
++        for ($attempt = 0; $attempt < 40; $attempt++) {
++            $suffix = '';
++
++            for ($i = 0; $i < 4; $i++) {
++                $suffix .= $alphabet[random_int(0, strlen($alphabet) - 1)];
++            }
++
++            $code = $stem.$suffix;
++
++            if (! Referrer::where('code', $code)->exists()) {
++                return $code;
++            }
++        }
++
++        // Forty collisions on a 32^4 space means something is wrong with the
++        // randomness, not with luck. A uuid is ugly but it is never taken.
++        return strtoupper(Str::random(12));
++    }
++
++    /** Resolve a ?ref= code to a referrer who is actually allowed to earn. */
++    public function byCode(?string $code): ?Referrer
++    {
++        if (! ReferralSettings::enabled() || blank($code)) {
++            return null;
++        }
++
++        $referrer = Referrer::where('code', strtoupper(trim($code)))->first();
++
++        return $referrer?->isActive() ? $referrer : null;
++    }
++
++    /**
++     * Record what this order earned, at the moment money actually landed.
++     *
++     * Called from inside Checkout::confirm()'s transaction, so a commission
++     * cannot exist for a sale that rolled back. The unique index on order_id
++     * is the backstop if a future path ever confirms the same order twice.
++     */
++    public function accrue(Order $order, Payment $payment): ?ReferralCommission
++    {
++        if (! ReferralSettings::enabled() || ! $order->referrer_id) {
++            return null;
++        }
++
++        if (ReferralCommission::where('order_id', $order->id)->exists()) {
++            return null;    // already earned; never twice
++        }
++
++        $referrer = $order->referrer;
++
++        if (! $referrer?->isActive() || $this->isSelfReferral($order, $referrer)) {
++            return null;
++        }
++
++        if ($order->type === 'donation' && ! ReferralSettings::onDonations()) {
++            return null;
++        }
++
++        if ($order->promo_code && ! ReferralSettings::allowWithPromo()) {
++            return null;
++        }
++
++        $rate = (float) ($referrer->commission_percent ?? ReferralSettings::percent());
++
++        if ($rate <= 0) {
++            return null;
++        }
++
++        // Based on what was COLLECTED, not what was invoiced. PayHero sends
++        // whole shillings, so an order whose total carries cents is paid
++        // slightly short, and commission on the invoice would exceed the cut
++        // of money that actually arrived.
++        $base = min((int) $payment->amount_cents, (int) $order->total_cents);
++        $amount = (int) round($base * $rate / 100);
++
++        if ($cap = ReferralSettings::perOrderCapCents()) {
++            $amount = min($amount, $cap);
++        }
++
++        if ($amount <= 0) {
++            return null;
++        }
++
++        return ReferralCommission::create([
++            'uuid' => (string) Str::uuid(),
++            'referrer_id' => $referrer->id,
++            'order_id' => $order->id,
++            'organiser_id' => $order->organiser_id,
++            'performance_id' => $order->performance_id,
++            'base_cents' => $base,
++            // Frozen: a rate change next month must not rewrite what was
++            // agreed on this sale.
++            'rate_percent' => $rate,
++            'amount_cents' => $amount,
++            'status' => 'earned',
++            'earned_at' => now(),
++            'payable_at' => $this->payableFrom($order),
++        ]);
++    }
++
++    /**
++     * Money went back, so the commission must not stand.
++     *
++     * Not yet paid → void it. Already paid → record a clawback, which the next
++     * payout nets off. The money columns are unsigned, so a clawback is its own
++     * field rather than a negative amount.
++     */
++    public function reverse(Order $order, string $reason): void
++    {
++        $commission = ReferralCommission::where('order_id', $order->id)->first();
++
++        if (! $commission || $commission->status === 'void') {
++            return;
++        }
++
++        if ($commission->status === 'paid') {
++            $commission->update([
++                'clawback_cents' => $commission->amount_cents,
++                'void_reason' => $reason,
++            ]);
++
++            return;
++        }
++
++        $commission->update([
++            'status' => 'void',
++            'voided_at' => now(),
++            'void_reason' => $reason,
++        ]);
++    }
++
++    /**
++     * Promote commissions that have matured. Run from the scheduler.
++     *
++     * Re-checks the order on every pass rather than trusting the earlier
++     * decision: an order refunded since accrual must not become payable
++     * because a timestamp elapsed.
++     */
++    public function promote(): int
++    {
++        $promoted = 0;
++
++        ReferralCommission::where('status', 'earned')
++            ->whereNotNull('payable_at')
++            ->where('payable_at', '<=', now())
++            ->with('order')
++            ->each(function (ReferralCommission $c) use (&$promoted) {
++                if ($c->order?->status !== 'paid') {
++                    return;
++                }
++
++                $c->update(['status' => 'payable']);
++                $promoted++;
++            });
++
++        return $promoted;
++    }
++
++    /**
++     * Somebody buying through their own link.
++     *
++     * Not an edge case — it is the first thing anyone tries. Matched on the
++     * canonical phone and the linked customer, because those are the two
++     * things a referrer cannot change about a purchase they made themselves.
++     */
++    public function isSelfReferral(Order $order, Referrer $referrer): bool
++    {
++        if ($referrer->customer_id && $referrer->customer_id === $order->customer_id) {
++            return true;
++        }
++
++        $customerPhone = $order->customer?->phone;
++
++        if ($customerPhone && Phone::normaliseOrKeep($customerPhone) === Phone::normaliseOrKeep($referrer->phone)) {
++            return true;
++        }
++
++        // A walk-up at the desk was not brought in by a link.
++        return $order->channel === 'box_office';
++    }
++
++    /** The earliest a commission on this order may be handed over. */
++    private function payableFrom(Order $order): ?Carbon
++    {
++        $starts = $order->performance?->starts_at;
++
++        if (! $starts) {
++            return now()->addHours(ReferralSettings::holdHours());
++        }
++
++        return $starts->copy()->addHours(ReferralSettings::holdHours());
++    }
++}
+diff --git a/app/Services/Refunds.php b/app/Services/Refunds.php
+index 93155f2..fa8673b 100644
+--- a/app/Services/Refunds.php
++++ b/app/Services/Refunds.php
+@@ -67,6 +67,11 @@ public function refund(Order $order, string $reason, ?int $byUserId = null): Ord
+                 $order, $payment, $payment->amount_cents, 'Refund: '.$reason,
+             );
+ 
++            // Commission must never stay payable on money that went
++            // back. Not yet paid, it is voided; already paid, it
++            // becomes a clawback against the next payout.
++            app(Referrals::class)->reverse($order, 'Order refunded: '.$reason);
++
+             $this->record($order, 'order.refunded', $reason, $byUserId, $payment->amount_cents);
+ 
+             return $order->refresh();
+@@ -94,6 +99,7 @@ public function cancel(Order $order, string $reason, ?int $byUserId = null): Ord
+             $this->killTickets($order);
+             $this->returnSeats($order);
+             $order->update(['status' => 'cancelled']);
++            app(Referrals::class)->reverse($order, 'Order cancelled: '.$reason);
+             $this->record($order, 'order.cancelled', $reason, $byUserId, 0);
+ 
+             return $order->refresh();
+diff --git a/app/Support/ReferralSettings.php b/app/Support/ReferralSettings.php
+new file mode 100644
+index 0000000..9eb4245
+--- /dev/null
++++ b/app/Support/ReferralSettings.php
+@@ -0,0 +1,76 @@
++<?php
++
++namespace App\Support;
++
++use App\Models\Setting;
++
++/**
++ * The referral programme's rules, in a place the office can read them.
++ *
++ * Everything defaults to OFF or ZERO. A commission scheme that switches itself
++ * on because somebody deployed a patch would be promising strangers money the
++ * theatre never agreed to pay.
++ */
++class ReferralSettings
++{
++    public const KEY_ENABLED = 'referrals.enabled';
++
++    public const KEY_PERCENT = 'referrals.percent';
++
++    public const KEY_HOLD_HOURS = 'referrals.hold_hours';
++
++    public const KEY_PER_ORDER_CAP = 'referrals.per_order_cap_cents';
++
++    public const KEY_ALLOW_WITH_PROMO = 'referrals.allow_with_promo';
++
++    public const KEY_ON_DONATIONS = 'referrals.on_donations';
++
++    public static function enabled(): bool
++    {
++        return (string) (Setting::get(self::KEY_ENABLED) ?? '0') === '1';
++    }
++
++    /** House rate. A referrer may carry their own, for a negotiated deal. */
++    public static function percent(): float
++    {
++        return (float) (Setting::get(self::KEY_PERCENT) ?? 0);
++    }
++
++    /**
++     * How long after the performance before commission may be paid.
++     *
++     * Anchored to the show, not the sale: a hold measured from the order would
++     * mature on a production cancelled weeks later, and the theatre would have
++     * paid commission on tickets it then refunded.
++     */
++    public static function holdHours(): int
++    {
++        return (int) (Setting::get(self::KEY_HOLD_HOURS) ?? 48);
++    }
++
++    /**
++     * Most any single order can earn. Without it, one group booking at
++     * KES 12,000 becomes an unexpectedly large payment to a stranger.
++     */
++    public static function perOrderCapCents(): int
++    {
++        return (int) (Setting::get(self::KEY_PER_ORDER_CAP) ?? 0); // 0 = no cap
++    }
++
++    /**
++     * Whether a discounted order still earns. Off by default: a promo code and
++     * a commission on the same sale can take the margin below zero, and the
++     * honest response is to drop the attribution rather than pay quietly.
++     */
++    public static function allowWithPromo(): bool
++    {
++        return (string) (Setting::get(self::KEY_ALLOW_WITH_PROMO) ?? '0') === '1';
++    }
++
++    /** Donations are gifts to the theatre. Paying a cut of one is a different
++        proposition entirely, so it is off unless somebody decides otherwise. */
++    public static function onDonations(): bool
++    {
++        return (string) (Setting::get(self::KEY_ON_DONATIONS) ?? '0') === '1';
++    }
++}
+diff --git a/bootstrap/app.php b/bootstrap/app.php
+index bf5980d..950f383 100644
+--- a/bootstrap/app.php
++++ b/bootstrap/app.php
+@@ -12,6 +12,9 @@
+         health: '/up',
+     )
+     ->withMiddleware(function (Middleware $middleware): void {
++        // Remembers which referral link brought a visitor, before
++        // anything else can redirect them away.
++        $middleware->web(append: [\App\Http\Middleware\CaptureReferral::class]);
+         $middleware->trustProxies(at: '*');
+         $middleware->validateCsrfTokens(except: ['webhooks/*', 'payments/*']);
+         $middleware->redirectGuestsTo(fn ($request) => $request->expectsJson() ? null : route('gate.login'));
+diff --git a/database/migrations/2026_10_16_100002_add_referrals.php b/database/migrations/2026_10_16_100002_add_referrals.php
+new file mode 100644
+index 0000000..8fece90
+--- /dev/null
++++ b/database/migrations/2026_10_16_100002_add_referrals.php
+@@ -0,0 +1,102 @@
++<?php
++
++use Illuminate\Database\Migrations\Migration;
++use Illuminate\Database\Schema\Blueprint;
++use Illuminate\Support\Facades\Schema;
++
++/**
++ * Referrals — members of the public selling tickets for a commission.
++ *
++ * A referrer is NOT a User. Role::canAccessPanel() lets staff roles into
++ * /admin, and `users` carries a password and a reset surface; two hundred
++ * strangers do not belong in the staff table. Phone is the identity here, as
++ * it already is for customers, and a uuid capability URL is already how the
++ * public reaches private data.
++ *
++ * Statuses are plain strings, not enums. The codebase's own reason, recorded
++ * when PayHero was added: changing an enum on SQLite rebuilds a table, and
++ * these tables will hold records of money owed to people.
++ *
++ * COMMISSION IS EARNED, THEN PAYABLE, THEN PAID — three different facts.
++ * Earned means money landed. Payable means the show has happened and the
++ * order is still paid, so it is safe to hand over. Paid means somebody sent
++ * it. Collapsing those is how a theatre pays commission on a ticket it later
++ * refunds.
++ */
++return new class extends Migration
++{
++    public function up(): void
++    {
++        Schema::create('referrers', function (Blueprint $table) {
++            $table->id();
++            $table->uuid('uuid')->unique();          // their private dashboard
++            $table->string('code')->unique();        // the ?ref= in the link
++            $table->string('name');
++            $table->string('phone')->unique();       // canonical, via Phone::normalise
++            $table->string('email')->nullable();
++            $table->string('mpesa_name')->nullable();  // name on the payout number
++            $table->string('payout_phone')->nullable();
++            $table->string('kra_pin')->nullable();     // see the withholding note
++            $table->foreignId('customer_id')->nullable()->constrained();
++            // Null means "use the house rate". A per-referrer override is for
++            // a negotiated deal, not the common case.
++            $table->decimal('commission_percent', 5, 2)->nullable();
++            $table->string('status')->default('pending'); // pending|active|paused|blocked
++            $table->timestamp('terms_accepted_at')->nullable();
++            $table->timestamp('approved_at')->nullable();
++            $table->foreignId('approved_by')->nullable()->constrained('users');
++            $table->timestamps();
++            $table->index(['status']);
++        });
++
++        Schema::table('orders', function (Blueprint $table) {
++            $table->foreignId('referrer_id')->nullable()->after('promo_code')->constrained();
++            // Frozen as clicked. If a referrer's code is ever changed, the
++            // order still says which link actually brought the buyer.
++            $table->string('referral_code')->nullable()->after('referrer_id');
++            $table->index(['referrer_id']);
++        });
++
++        Schema::create('referral_commissions', function (Blueprint $table) {
++            $table->id();
++            $table->uuid('uuid')->unique();
++            $table->foreignId('referrer_id')->constrained();
++            // The database guarantee against ever earning twice on one sale,
++            // whatever future code path calls confirm().
++            $table->foreignId('order_id')->unique()->constrained();
++            $table->foreignId('organiser_id')->constrained();
++            $table->foreignId('performance_id')->nullable()->constrained();
++            // What the rate was applied to, and the rate itself, both frozen
++            // at accrual — a later rate change must not rewrite history.
++            $table->unsignedInteger('base_cents');
++            $table->decimal('rate_percent', 5, 2);
++            $table->unsignedInteger('amount_cents');
++            // Its own column, not a negative: the money columns are unsigned,
++            // and a clawback is a separate fact from the original earning.
++            $table->unsignedInteger('clawback_cents')->default(0);
++            $table->string('status')->default('earned'); // earned|payable|paid|void
++            $table->timestamp('earned_at')->nullable();
++            // When it MAY become payable. Anchored to the performance, not the
++            // order: an order-age hold would still mature on a show cancelled
++            // in week three.
++            $table->timestamp('payable_at')->nullable();
++            $table->timestamp('paid_at')->nullable();
++            $table->timestamp('voided_at')->nullable();
++            $table->string('void_reason')->nullable();
++            $table->timestamps();
++            $table->index(['referrer_id', 'status']);
++        });
++    }
++
++    public function down(): void
++    {
++        Schema::dropIfExists('referral_commissions');
++
++        Schema::table('orders', function (Blueprint $table) {
++            $table->dropConstrainedForeignId('referrer_id');
++            $table->dropColumn('referral_code');
++        });
++
++        Schema::dropIfExists('referrers');
++    }
++};
+diff --git a/resources/views/layout.blade.php b/resources/views/layout.blade.php
+index eef6fa8..7fb0ba0 100644
+--- a/resources/views/layout.blade.php
++++ b/resources/views/layout.blade.php
+@@ -213,6 +213,12 @@
+             <a href="{{ route('events.index') }}">What's On</a>
+             <a href="{{ route('orders.lookup.form') }}">My Tickets</a>
+             <a href="{{ route('donate.create') }}">Donate</a>
++            {{-- Only while the programme is running: the page 404s when it is
++                 off, and a dead link in the footer of every page is worse
++                 than no link at all. --}}
++            @if (\App\Support\ReferralSettings::enabled())
++                <a href="{{ route('referrals.join') }}">Sell Tickets</a>
++            @endif
+             <a href="https://www.instagram.com/64theatre/" rel="noopener">Instagram</a>
+         </div>
+     </div>
+diff --git a/resources/views/referrals/dashboard.blade.php b/resources/views/referrals/dashboard.blade.php
+new file mode 100644
+index 0000000..44cf9fc
+--- /dev/null
++++ b/resources/views/referrals/dashboard.blade.php
+@@ -0,0 +1,162 @@
++@extends('layout')
++
++@section('title', 'Your selling page — 64theatre')
++
++@section('content')
++@php
++    // Computed here rather than inline, so the markup below reads as markup.
++    $pending = $referrer->status === 'pending';
++    $stopped = in_array($referrer->status, ['paused', 'blocked'], true);
++    $share = 'Come and see a show at 64 Theatre. Book here: '.$link;
++    // Built here, not inline. `happened@if` reads like a directive but Blade
++    // will not compile one immediately after a word character, so the matching
++    // @endif compiles alone and the template dies with a ParseError.
++    $holdNote = $holdHours > 0 ? ' (plus '.$holdHours.' hours)' : '';
++@endphp
++
++<div class="wrap narrow" style="padding-top:40px">
++
++    <h2 class="sec">{{ $referrer->name }}<br><small style="color:var(--dim); font-size:.6em">your selling page</small></h2>
++
++    @if ($pending)
++        <div class="note">
++            <strong>Waiting for approval.</strong> Your link works and you can
++            start sharing it, but it will not earn until we have approved you.
++            We will call you on {{ \App\Support\Phone::forHumans($referrer->phone) }}.
++        </div>
++    @elseif ($stopped)
++        <div class="err">
++            <strong>This link is {{ $referrer->status }}.</strong> It still
++            takes people to the right place, but it is not earning commission
++            at the moment. Get in touch with the box office.
++        </div>
++    @endif
++
++    {{-- The link, and the two things anyone actually does with one. --}}
++    <div class="summary" style="margin:22px 0">
++        <p style="margin:0 0 8px; color:var(--paper-muted); font-size:.82rem">Your link</p>
++        <input id="reflink" type="text" readonly value="{{ $link }}"
++               onclick="this.select()"
++               style="width:100%; padding:12px 14px; font:inherit; font-size:.9rem;
++                      border:1px solid var(--paper-line); border-radius:10px;
++                      background:#fff; color:var(--paper-ink)">
++        <p style="margin:14px 0 0; display:flex; gap:10px; flex-wrap:wrap">
++            <button type="button" id="copy" class="btn" style="padding:11px 22px; font-size:.9rem">Copy link</button>
++            <a class="btn ghost" style="padding:11px 22px; font-size:.9rem; color:var(--paper-ink); border-color:var(--paper-line)"
++               href="https://wa.me/?text={{ urlencode($share) }}" target="_blank" rel="noopener">Share on WhatsApp</a>
++        </p>
++        <p style="margin:14px 0 0; color:var(--paper-muted); font-size:.8rem">
++            Your code is <strong class="mono">{{ $referrer->code }}</strong> —
++            anyone can also type it in if they lose the link.
++        </p>
++    </div>
++
++    <h2 class="sec">What you have earned</h2>
++
++    <div class="summary">
++        <dl>
++            <dt>Your rate</dt>
++            <dd>{{ rtrim(rtrim(number_format($ratePercent, 2), '0'), '.') }}% of each sale</dd>
++            <dt>Sales through your link</dt>
++            <dd>{{ $commissions->whereNotIn('status', ['void'])->count() }}</dd>
++            <dt>Earned so far</dt>
++            <dd>KES {{ number_format($earnedCents / 100) }}</dd>
++            <dt>Ready to be paid</dt>
++            <dd>KES {{ number_format(max($payableCents, 0) / 100) }}</dd>
++            <dt>Already paid to you</dt>
++            <dd>KES {{ number_format($paidCents / 100) }}</dd>
++        </dl>
++    </div>
++
++    <p style="margin-top:14px; color:var(--dim); font-size:.84rem; line-height:1.7">
++        <strong>Earned</strong> is everything your link has sold.
++        <strong>Ready to be paid</strong> is the part where the show has already
++        happened{{ $holdNote }} and the
++        ticket was not refunded — that is the only part we can hand over,
++        because until the audience is in the room a ticket can still come back.
++    </p>
++
++    @if ($commissions->isEmpty())
++        <p style="margin-top:26px; color:var(--dim)">
++            Nothing yet. Share the link above — sales show up here within a
++            minute of someone paying.
++        </p>
++    @else
++        <h2 class="sec">Your sales</h2>
++        <table style="width:100%; border-collapse:collapse; font-size:.9rem">
++            <thead>
++                <tr style="text-align:left; color:var(--dim); font-size:.76rem; letter-spacing:.06em; text-transform:uppercase">
++                    <th style="padding:8px 0">When</th>
++                    <th style="padding:8px 10px">Show</th>
++                    <th style="padding:8px 0; text-align:right">You earn</th>
++                    <th style="padding:8px 0 8px 14px">Status</th>
++                </tr>
++            </thead>
++            <tbody>
++                @foreach ($commissions as $c)
++                    <tr style="border-top:1px solid var(--line)">
++                        <td style="padding:11px 0; color:var(--dim); white-space:nowrap">
++                            {{ $c->earned_at?->format('j M') ?? '—' }}
++                        </td>
++                        <td style="padding:11px 10px">
++                            {{ $c->performance?->event?->title ?? 'Ticket sale' }}
++                        </td>
++                        <td style="padding:11px 0; text-align:right; font-weight:700; white-space:nowrap">
++                            KES {{ number_format($c->amount_cents / 100) }}
++                        </td>
++                        <td style="padding:11px 0 11px 14px; white-space:nowrap">
++                            @switch($c->status)
++                                @case('payable')
++                                    <span class="status paid">ready</span>
++                                    @break
++                                @case('paid')
++                                    <span class="status paid">paid</span>
++                                    @break
++                                @case('void')
++                                    <span class="status" style="background:rgba(199,64,54,.16); color:#F4B9B2">refunded</span>
++                                    @break
++                                @default
++                                    <span class="status awaiting">after the show</span>
++                            @endswitch
++                        </td>
++                    </tr>
++                @endforeach
++            </tbody>
++        </table>
++    @endif
++
++    <p style="margin-top:30px; color:var(--dim); font-size:.82rem">
++        <strong>Keep this page.</strong> The address in your browser is how you
++        get back to it — there is no password. Bookmark it.
++    </p>
++</div>
++
++{{-- No Blade inside this script. The link is read from the input above, which
++     is where it is already rendered and escaped. --}}
++<script>
++    (function () {
++        var btn = document.getElementById('copy');
++        var box = document.getElementById('reflink');
++
++        if (!btn || !box) { return; }
++
++        btn.addEventListener('click', function () {
++            var done = function () {
++                btn.textContent = 'Copied';
++                setTimeout(function () { btn.textContent = 'Copy link'; }, 1800);
++            };
++
++            if (navigator.clipboard && navigator.clipboard.writeText) {
++                navigator.clipboard.writeText(box.value).then(done, function () {
++                    box.select();
++                });
++                return;
++            }
++
++            // Older Android browsers, which is a lot of the audience here.
++            box.select();
++            try { document.execCommand('copy'); done(); } catch (e) { /* leave it selected */ }
++        });
++    })();
++</script>
++@endsection
+diff --git a/resources/views/referrals/join.blade.php b/resources/views/referrals/join.blade.php
+new file mode 100644
+index 0000000..83e7ccf
+--- /dev/null
++++ b/resources/views/referrals/join.blade.php
+@@ -0,0 +1,106 @@
++@extends('layout')
++
++@section('title', 'Sell tickets, earn commission — 64theatre')
++
++@section('content')
++<div class="wrap narrow" style="padding-top:40px">
++
++    <h2 class="sec">Sell tickets for 64 Theatre</h2>
++
++    <p style="color:var(--dim); line-height:1.7">
++        Fill this in and you get your own link. Share it however you like —
++        WhatsApp, Instagram, in person. When somebody buys a ticket after
++        following your link, you earn a share of what they pay.
++    </p>
++
++    <div class="summary" style="margin:22px 0">
++        <dl>
++            <dt>Your share</dt>
++            <dd>{{ rtrim(rtrim(number_format(\App\Support\ReferralSettings::percent(), 2), '0'), '.') }}% of each ticket sale</dd>
++            <dt>Paid out</dt>
++            <dd>
++                After the show has happened
++                @if (\App\Support\ReferralSettings::holdHours() > 0)
++                    (about {{ \App\Support\ReferralSettings::holdHours() }} hours after)
++                @endif
++            </dd>
++            <dt>By</dt>
++            <dd>M-Pesa, to the number you give below</dd>
++        </dl>
++    </div>
++
++    <p style="color:var(--dim); font-size:.88rem; line-height:1.7">
++        Three things worth knowing before you sign up, so there are no
++        arguments later:
++    </p>
++    <ul style="color:var(--dim); font-size:.88rem; line-height:1.8; padding-left:20px">
++        <li>You cannot earn on your own ticket. Buying through your own link
++            pays nothing.</li>
++        <li>If a ticket is refunded, the commission on it goes too.</li>
++        <li>We have to approve you before your link starts earning. You will
++            get your link straight away; it begins counting once we have said
++            yes.</li>
++    </ul>
++
++    @if ($errors->any())
++        <div class="err">
++            @foreach ($errors->all() as $error)
++                <div>{{ $error }}</div>
++            @endforeach
++        </div>
++    @endif
++
++    <form method="POST" action="{{ route('referrals.register') }}" style="margin-top:26px">
++        @csrf
++
++        <div class="field">
++            <label for="name">Your name</label>
++            <input id="name" name="name" type="text" maxlength="80" required
++                   value="{{ old('name') }}" placeholder="e.g. Mercy Wanjiru">
++        </div>
++
++        <div class="field">
++            <label for="phone">Your phone</label>
++            <input id="phone" name="phone" type="tel" maxlength="20" required
++                   value="{{ old('phone') }}" placeholder="07XX XXX XXX"
++                   inputmode="tel" autocomplete="tel">
++        </div>
++
++        <div class="field">
++            <label for="email">Email (optional)</label>
++            <input id="email" name="email" type="email" maxlength="120"
++                   value="{{ old('email') }}" placeholder="you@example.com">
++        </div>
++
++        <div class="field">
++            <label for="payout_phone">M-Pesa number for payment (if different)</label>
++            <input id="payout_phone" name="payout_phone" type="tel" maxlength="20"
++                   value="{{ old('payout_phone') }}" placeholder="Leave blank to use the number above"
++                   inputmode="tel">
++        </div>
++
++        <div class="field">
++            <label for="mpesa_name">Name registered on that M-Pesa number</label>
++            <input id="mpesa_name" name="mpesa_name" type="text" maxlength="80"
++                   value="{{ old('mpesa_name') }}" placeholder="As it appears on M-Pesa">
++        </div>
++
++        <p style="margin:22px 0 0; font-size:.9rem; color:var(--dim); line-height:1.6">
++            <label style="display:flex; gap:10px; align-items:flex-start; cursor:pointer">
++                <input type="checkbox" name="terms" value="1" style="margin-top:4px; width:auto"
++                       @checked(old('terms'))>
++                <span>I have read how commission works above, and I understand it
++                      is only paid on tickets that are actually paid for and not
++                      refunded.</span>
++            </label>
++        </p>
++
++        <button class="btn" type="submit" style="margin-top:22px">Get my link</button>
++    </form>
++
++    <p style="margin-top:28px; color:var(--dim); font-size:.82rem">
++        Already signed up? Enter the same phone number and you will be taken
++        back to your own page.
++    </p>
++</div>
++@endsection
+diff --git a/routes/console.php b/routes/console.php
+index f26d6b2..57528b4 100644
+--- a/routes/console.php
++++ b/routes/console.php
+@@ -8,9 +8,20 @@
+ })->purpose('Display an inspiring quote');
+ 
+ use App\Services\Checkout;
++use App\Services\Referrals;
+ use Illuminate\Support\Facades\Schedule;
+ 
+ Schedule::call(fn () => app(Checkout::class)->releaseExpired())
+     ->everyMinute()
+     ->name('release-expired-orders')
+     ->withoutOverlapping();
++
++// Referral commission becomes payable once the show has happened and the
++// order is still paid. Hourly is enough — the hold is measured in hours and
++// nobody is owed money to the minute. The pass re-reads each order rather
++// than trusting the decision made at the sale, so a refund in the meantime
++// keeps the commission out.
++Schedule::call(fn () => app(Referrals::class)->promote())
++    ->hourly()
++    ->name('promote-referral-commission')
++    ->withoutOverlapping();
+diff --git a/routes/web.php b/routes/web.php
+index 523c4b7..4cfe099 100644
+--- a/routes/web.php
++++ b/routes/web.php
+@@ -3,10 +3,11 @@
+ use App\Http\Controllers\DonationController;
+ use App\Http\Controllers\EventController;
+ use App\Http\Controllers\Gate\GateAuthController;
+-use App\Http\Controllers\GroupRosterController;
+ use App\Http\Controllers\Gate\GateScannerController;
+ use App\Http\Controllers\Gate\GateSellController;
++use App\Http\Controllers\GroupRosterController;
+ use App\Http\Controllers\OrderController;
++use App\Http\Controllers\ReferralController;
+ use App\Http\Controllers\Webhooks\DarajaCallbackController;
+ use App\Http\Controllers\Webhooks\KopoKopoCallbackController;
+ use App\Http\Controllers\Webhooks\PayHeroCallbackController;
+@@ -30,6 +31,15 @@
+ Route::post('/groups/{uuid}', [GroupRosterController::class, 'update'])
+     ->middleware('throttle:20,1')->name('groups.roster.update');
+ 
++// Selling tickets for a commission. Public signup, and a uuid page for the
++// seller — no account, for the same reason the group roster has none: these
++// are members of the public, and `users` is the staff table that reaches
++// /admin. All three 404 while the programme is switched off.
++Route::get('/sell-tickets', [ReferralController::class, 'join'])->name('referrals.join');
++Route::post('/sell-tickets', [ReferralController::class, 'register'])
++    ->middleware('throttle:10,1')->name('referrals.register');
++Route::get('/r/{uuid}', [ReferralController::class, 'dashboard'])->name('referrals.dashboard');
++
+ // Support 64 Theatre — donations run through the same payment pipeline.
+ Route::get('/donate', [DonationController::class, 'create'])->name('donate.create');
+ Route::post('/donate', [DonationController::class, 'store'])->name('donate.store');
+diff --git a/tests/Feature/ReferralAdminTest.php b/tests/Feature/ReferralAdminTest.php
+new file mode 100644
+index 0000000..cb910bb
+--- /dev/null
++++ b/tests/Feature/ReferralAdminTest.php
+@@ -0,0 +1,191 @@
++<?php
++
++namespace Tests\Feature;
++
++use App\Filament\Resources\ReferralCommissions\Pages\ListReferralCommissions;
++use App\Filament\Resources\Referrers\Pages\ListReferrers;
++use App\Models\Payment;
++use App\Models\ReferralCommission;
++use App\Models\Referrer;
++use App\Models\Setting;
++use App\Models\TicketType;
++use App\Models\User;
++use App\Services\Checkout;
++use App\Services\Referrals;
++use App\Support\ReferralSettings;
++use Filament\Actions\Testing\TestAction;
++use Illuminate\Foundation\Testing\RefreshDatabase;
++use Livewire\Livewire;
++use Tests\TestCase;
++
++/**
++ * The office side of referrals.
++ *
++ * Mostly these assert that the pages load. That sounds thin and is not: a
++ * Filament screen fails at render, not at compile, so a wrong column name or a
++ * mistyped icon is a 500 the first time somebody opens it — and these three
++ * screens are where commission gets approved and marked paid.
++ */
++class ReferralAdminTest extends TestCase
++{
++    use RefreshDatabase;
++
++    protected function setUp(): void
++    {
++        parent::setUp();
++        Setting::put(ReferralSettings::KEY_ENABLED, '1');
++        Setting::put(ReferralSettings::KEY_PERCENT, '10');
++    }
++
++    private function admin(string $role = 'super_admin'): User
++    {
++        return User::factory()->create(['role' => $role]);
++    }
++
++    public function test_the_three_referral_screens_load(): void
++    {
++        $referrer = app(Referrals::class)->register(['name' => 'Mercy', 'phone' => '0712345678']);
++        $referrer->update(['status' => 'active']);
++
++        $this->actingAs($this->admin())->get('/admin/referrers')->assertOk();
++        $this->actingAs($this->admin())->get('/admin/referral-commissions')->assertOk();
++        $this->actingAs($this->admin())->get('/admin/referral-programme')->assertOk();
++    }
++
++    public function test_the_commission_list_loads_with_rows_on_it(): void
++    {
++        // An empty table hides every formatting mistake in it.
++        $referrer = app(Referrals::class)->register(['name' => 'Mercy', 'phone' => '0712345678']);
++        $referrer->update(['status' => 'active']);
++
++        // Through the real sale path: a hand-built row could carry a shape
++        // accrual never produces, and then the screen would be tested against
++        // data it will never see.
++        $type = TicketType::factory()->create(['price_cents' => 50000]);
++        $order = app(Checkout::class)->startOrder(
++            items: [$type->id => 2], phone: '0799888777', name: 'Buyer', referrer: $referrer,
++        );
++        $payment = Payment::create([
++            'order_id' => $order->id, 'gateway' => 'cash', 'gateway_ref' => 'C-'.uniqid(),
++            'amount_cents' => $order->total_cents, 'status' => 'initiated',
++        ]);
++        app(Checkout::class)->confirm($order, $payment);
++
++        ReferralCommission::first()->update(['status' => 'payable']);
++
++        $this->actingAs($this->admin())
++            ->get('/admin/referral-commissions')
++            ->assertOk()
++            ->assertSee('Mercy');
++    }
++
++    public function test_gate_staff_and_door_roles_cannot_reach_any_of_it(): void
++    {
++        // Who may sell on commission is a commercial decision, and marking
++        // commission paid is a money one. Neither belongs at the door.
++        foreach (['gate_staff', 'event_manager'] as $role) {
++            $user = $this->admin($role);
++            $this->actingAs($user)->get('/admin/referrers')->assertForbidden();
++            $this->actingAs($user)->get('/admin/referral-commissions')->assertForbidden();
++            $this->actingAs($user)->get('/admin/referral-programme')->assertForbidden();
++        }
++    }
++
++    public function test_only_a_super_admin_may_change_the_terms(): void
++    {
++        // Finance can see what is owed and record a payout; changing the rate
++        // or switching the programme on is a promise to the public.
++        $this->actingAs($this->admin('finance'))->get('/admin/referral-commissions')->assertOk();
++        $this->actingAs($this->admin('finance'))->get('/admin/referral-programme')->assertForbidden();
++    }
++
++    public function test_approving_a_seller_activates_them_and_is_logged(): void
++    {
++        $referrer = app(Referrals::class)->register(['name' => 'Mercy', 'phone' => '0712345678']);
++        $this->assertSame('pending', $referrer->status);
++
++        Livewire::actingAs($this->admin())
++            ->test(ListReferrers::class)
++            ->callAction(TestAction::make('approve')->table($referrer));
++
++        $referrer->refresh();
++        $this->assertSame('active', $referrer->status);
++        $this->assertNotNull($referrer->approved_at);
++        $this->assertNotNull($referrer->approved_by);
++
++        $this->assertDatabaseHas('audit_logs', [
++            'action' => 'referrer.approved',
++            'subject_id' => $referrer->id,
++        ]);
++    }
++
++    public function test_recording_a_payout_is_offered_only_once_it_is_due(): void
++    {
++        $commission = $this->aCommission();
++
++        // 'earned' means the show has not happened yet. Paying then is the
++        // mistake the two states exist to prevent, so the action is not there.
++        Livewire::actingAs($this->admin())
++            ->test(ListReferralCommissions::class)
++            ->assertActionHidden(TestAction::make('markPaid')->table($commission));
++
++        $commission->update(['status' => 'payable']);
++
++        Livewire::actingAs($this->admin())
++            ->test(ListReferralCommissions::class)
++            ->callAction(TestAction::make('markPaid')->table($commission));
++
++        $commission->refresh();
++        $this->assertSame('paid', $commission->status);
++        $this->assertNotNull($commission->paid_at);
++        $this->assertDatabaseHas('audit_logs', ['action' => 'referral_commission.paid']);
++    }
++
++    public function test_voiding_a_commission_needs_a_reason_and_keeps_it(): void
++    {
++        $commission = $this->aCommission();
++
++        Livewire::actingAs($this->admin())
++            ->test(ListReferralCommissions::class)
++            ->callAction(TestAction::make('void')->table($commission), ['reason' => 'Claimed a sale they did not bring']);
++
++        $commission->refresh();
++        $this->assertSame('void', $commission->status);
++        $this->assertSame('Claimed a sale they did not bring', $commission->void_reason);
++        $this->assertNotNull($commission->voided_at);
++    }
++
++    /** A commission produced by the real sale path, so it has a real shape. */
++    private function aCommission(): ReferralCommission
++    {
++        $referrer = app(Referrals::class)->register(['name' => 'Mercy', 'phone' => '0712345678']);
++        $referrer->update(['status' => 'active']);
++
++        $type = TicketType::factory()->create(['price_cents' => 50000]);
++        $order = app(Checkout::class)->startOrder(
++            items: [$type->id => 2], phone: '0799888777', name: 'Buyer', referrer: $referrer,
++        );
++        $payment = Payment::create([
++            'order_id' => $order->id, 'gateway' => 'cash', 'gateway_ref' => 'C-'.uniqid(),
++            'amount_cents' => $order->total_cents, 'status' => 'initiated',
++        ]);
++        app(Checkout::class)->confirm($order, $payment);
++
++        return ReferralCommission::firstOrFail();
++    }
++
++    public function test_adding_a_seller_by_hand_mints_a_code(): void
++    {
++        Livewire::actingAs($this->admin())
++            ->test(ListReferrers::class)
++            ->callAction('add', ['name' => 'Otieno', 'phone' => '0722333444']);
++
++        $referrer = Referrer::where('phone', '254722333444')->first();
++        $this->assertNotNull($referrer);
++        $this->assertNotEmpty($referrer->code);
++        $this->assertNotEmpty($referrer->uuid);
++        // Added by the office, still pending: approving is a separate, logged
++        // decision even when the office typed the name in itself.
++        $this->assertSame('pending', $referrer->status);
++    }
++}
+diff --git a/tests/Feature/ReferralPublicTest.php b/tests/Feature/ReferralPublicTest.php
+new file mode 100644
+index 0000000..8ded873
+--- /dev/null
++++ b/tests/Feature/ReferralPublicTest.php
+@@ -0,0 +1,211 @@
++<?php
++
++namespace Tests\Feature;
++
++use App\Http\Middleware\CaptureReferral;
++use App\Models\Order;
++use App\Models\Referrer;
++use App\Models\Setting;
++use App\Models\TicketType;
++use App\Services\Referrals;
++use App\Support\PaymentSettings;
++use App\Support\ReferralSettings;
++use Illuminate\Foundation\Testing\RefreshDatabase;
++use Illuminate\Support\Facades\Queue;
++use Illuminate\Support\Str;
++use Tests\TestCase;
++
++/**
++ * The public side: signing up, being attributed, and seeing the total.
++ *
++ * ReferralTest covers the money rules. This covers the surfaces a stranger
++ * actually touches, because every rule in there depends on an order having
++ * been stamped with a referrer in the first place.
++ */
++class ReferralPublicTest extends TestCase
++{
++    use RefreshDatabase;
++
++    protected function setUp(): void
++    {
++        parent::setUp();
++        Queue::fake();
++        Setting::put(ReferralSettings::KEY_ENABLED, '1');
++        Setting::put(ReferralSettings::KEY_PERCENT, '10');
++    }
++
++    public function test_the_signup_page_is_closed_while_the_programme_is_off(): void
++    {
++        Setting::put(ReferralSettings::KEY_ENABLED, '0');
++
++        // Not a polite empty page. While it is off nothing accrues, so a form
++        // that still worked would be collecting phone numbers against a
++        // promise of money nobody has agreed to pay.
++        $this->get('/sell-tickets')->assertNotFound();
++        $this->post('/sell-tickets', [])->assertNotFound();
++    }
++
++    public function test_somebody_can_sign_up_and_lands_on_their_own_page(): void
++    {
++        $response = $this->post('/sell-tickets', [
++            'name' => 'Mercy Wanjiru',
++            'phone' => '0712 345 678',
++            'terms' => '1',
++        ]);
++
++        $referrer = Referrer::first();
++        $this->assertNotNull($referrer);
++        $response->assertRedirect(route('referrals.dashboard', $referrer->uuid));
++
++        // Canonical, because the phone is the identity and is what catches a
++        // self-referral later.
++        $this->assertSame('254712345678', $referrer->phone);
++        // Pending: a programme that enrols itself is one anyone can point at
++        // a sale that was coming anyway.
++        $this->assertSame('pending', $referrer->status);
++        $this->assertNotNull($referrer->terms_accepted_at);
++        $this->assertNotNull($referrer->code);
++        $this->assertSame('254712345678', $referrer->payout_phone);
++    }
++
++    public function test_signing_up_without_accepting_the_terms_is_refused(): void
++    {
++        $this->post('/sell-tickets', ['name' => 'Mercy', 'phone' => '0712345678'])
++            ->assertSessionHasErrors('terms');
++
++        $this->assertSame(0, Referrer::count());
++    }
++
++    public function test_signing_up_twice_hands_back_the_same_code(): void
++    {
++        $this->post('/sell-tickets', ['name' => 'Mercy', 'phone' => '0712345678', 'terms' => '1']);
++        $first = Referrer::first();
++
++        // Typed differently, same human. A second code would be worse than an
++        // error: the first one is already circulating on WhatsApp.
++        $this->post('/sell-tickets', ['name' => 'Mercy W', 'phone' => '+254 712 345 678', 'terms' => '1'])
++            ->assertRedirect(route('referrals.dashboard', $first->uuid));
++
++        $this->assertSame(1, Referrer::count());
++        $this->assertSame($first->code, Referrer::first()->code);
++    }
++
++    public function test_two_sellers_get_different_codes(): void
++    {
++        $this->post('/sell-tickets', ['name' => 'Mercy', 'phone' => '0712345678', 'terms' => '1']);
++        $this->post('/sell-tickets', ['name' => 'Mercy', 'phone' => '0722333444', 'terms' => '1']);
++
++        $codes = Referrer::pluck('code');
++        $this->assertCount(2, $codes->unique());
++    }
++
++    public function test_their_page_shows_the_link_and_the_total(): void
++    {
++        $referrer = app(Referrals::class)->register(['name' => 'Mercy', 'phone' => '0712345678']);
++        $referrer->update(['status' => 'active']);
++
++        $this->get(route('referrals.dashboard', $referrer->uuid))
++            ->assertOk()
++            ->assertSee($referrer->code)
++            ->assertSee('?ref='.$referrer->code, escape: false)
++            ->assertSee('Ready to be paid');
++    }
++
++    public function test_a_pending_seller_is_told_plainly_that_it_does_not_earn_yet(): void
++    {
++        $referrer = app(Referrals::class)->register(['name' => 'Mercy', 'phone' => '0712345678']);
++
++        $this->get(route('referrals.dashboard', $referrer->uuid))
++            ->assertOk()
++            ->assertSee('Waiting for approval');
++    }
++
++    public function test_an_unknown_page_is_not_found(): void
++    {
++        $this->get('/r/'.Str::uuid())->assertNotFound();
++    }
++
++    public function test_following_a_link_sets_the_first_touch_cookie(): void
++    {
++        $referrer = app(Referrals::class)->register(['name' => 'Mercy', 'phone' => '0712345678']);
++        $referrer->update(['status' => 'active']);
++
++        $this->get('/?ref='.$referrer->code)->assertCookie(CaptureReferral::COOKIE, $referrer->code);
++    }
++
++    public function test_a_junk_code_is_never_stored(): void
++    {
++        // A revoked or mistyped code must not sit in somebody's browser for a
++        // month pretending to be worth something.
++        $this->get('/?ref=NOTACODE')->assertCookieMissing(CaptureReferral::COOKIE);
++    }
++
++    public function test_a_pending_sellers_code_is_not_stored_either(): void
++    {
++        $referrer = app(Referrals::class)->register(['name' => 'Mercy', 'phone' => '0712345678']);
++
++        $this->get('/?ref='.$referrer->code)->assertCookieMissing(CaptureReferral::COOKIE);
++    }
++
++    public function test_the_cookie_is_not_overwritten_by_a_second_link(): void
++    {
++        $first = app(Referrals::class)->register(['name' => 'Mercy', 'phone' => '0712345678']);
++        $first->update(['status' => 'active']);
++        $second = app(Referrals::class)->register(['name' => 'Otieno', 'phone' => '0722333444']);
++        $second->update(['status' => 'active']);
++
++        // FIRST TOUCH. A forwarded link must not let whoever reshared it last
++        // take the commission from whoever actually found the buyer.
++        $this->withCookie(CaptureReferral::COOKIE, $first->code)
++            ->get('/?ref='.$second->code)
++            ->assertCookieMissing(CaptureReferral::COOKIE);
++    }
++
++    public function test_an_order_placed_with_the_cookie_is_attributed(): void
++    {
++        Setting::put(PaymentSettings::KEY_GATEWAY, 'fake');
++        Setting::put(PaymentSettings::KEY_ONLINE_ENABLED, '1');
++
++        $referrer = app(Referrals::class)->register(['name' => 'Mercy', 'phone' => '0712345678']);
++        $referrer->update(['status' => 'active']);
++
++        $type = TicketType::factory()->create(['quantity_total' => 10, 'price_cents' => 50000]);
++
++        $this->withCookie(CaptureReferral::COOKIE, $referrer->code)
++            ->post('/orders', [
++                'phone' => '0799888777',
++                'email' => 'buyer@example.com',
++                'quantities' => [$type->id => 2],
++            ]);
++
++        $order = Order::latest('id')->first();
++        $this->assertNotNull($order);
++        $this->assertSame($referrer->id, $order->referrer_id);
++        // Frozen as clicked, so the order still says which link brought the
++        // buyer even if the code is later changed.
++        $this->assertSame($referrer->code, $order->referral_code);
++    }
++
++    public function test_an_order_placed_with_a_revoked_code_is_not_attributed(): void
++    {
++        Setting::put(PaymentSettings::KEY_GATEWAY, 'fake');
++        Setting::put(PaymentSettings::KEY_ONLINE_ENABLED, '1');
++
++        $referrer = app(Referrals::class)->register(['name' => 'Mercy', 'phone' => '0712345678']);
++        $referrer->update(['status' => 'active']);
++        $type = TicketType::factory()->create(['quantity_total' => 10, 'price_cents' => 50000]);
++
++        // Blocked between the click and the purchase. The code is re-checked
++        // at checkout, not trusted from the cookie.
++        $referrer->update(['status' => 'blocked']);
++
++        $this->withCookie(CaptureReferral::COOKIE, $referrer->code)
++            ->post('/orders', [
++                'phone' => '0799888777',
++                'email' => 'buyer@example.com',
++                'quantities' => [$type->id => 1],
++            ]);
++
++        $this->assertNull(Order::latest('id')->first()?->referrer_id);
++    }
++}
+diff --git a/tests/Feature/ReferralTest.php b/tests/Feature/ReferralTest.php
+new file mode 100644
+index 0000000..abb39d0
+--- /dev/null
++++ b/tests/Feature/ReferralTest.php
+@@ -0,0 +1,216 @@
++<?php
++
++namespace Tests\Feature;
++
++use App\Models\Customer;
++use App\Models\Payment;
++use App\Models\PromoCode;
++use App\Models\ReferralCommission;
++use App\Models\Referrer;
++use App\Models\Setting;
++use App\Models\TicketType;
++use App\Services\Checkout;
++use App\Services\Referrals;
++use App\Services\Refunds;
++use App\Support\ReferralSettings;
++use Illuminate\Foundation\Testing\RefreshDatabase;
++use Illuminate\Support\Facades\Queue;
++use Illuminate\Support\Str;
++use Tests\TestCase;
++
++class ReferralTest extends TestCase
++{
++    use RefreshDatabase;
++
++    protected function setUp(): void
++    {
++        parent::setUp();
++        Queue::fake();
++        Setting::put(ReferralSettings::KEY_ENABLED, '1');
++        Setting::put(ReferralSettings::KEY_PERCENT, '10');
++    }
++
++    private function referrer(array $attrs = []): Referrer
++    {
++        return Referrer::create(array_merge([
++            'uuid' => (string) Str::uuid(),
++            'code' => 'SELL'.strtoupper(Str::random(4)),
++            'name' => 'Mercy',
++            'phone' => '254700111'.random_int(100, 999),
++            'status' => 'active',
++        ], $attrs));
++    }
++
++    private function buy(TicketType $type, ?Referrer $ref, string $phone = '0712345678', int $qty = 2)
++    {
++        $order = app(Checkout::class)->startOrder(
++            items: [$type->id => $qty], phone: $phone, name: 'Buyer', referrer: $ref,
++        );
++        $payment = Payment::create([
++            'order_id' => $order->id, 'gateway' => 'cash', 'gateway_ref' => 'C-'.uniqid(),
++            'amount_cents' => $order->total_cents, 'status' => 'initiated',
++        ]);
++
++        return app(Checkout::class)->confirm($order, $payment);
++    }
++
++    public function test_a_referred_sale_earns_commission_at_the_house_rate(): void
++    {
++        $type = TicketType::factory()->create(['price_cents' => 50000]);
++        $order = $this->buy($type, $this->referrer());
++
++        $c = ReferralCommission::first();
++        $this->assertNotNull($c);
++        $this->assertSame(100000, (int) $c->base_cents);   // 2 x KES 500
++        $this->assertSame(10000, (int) $c->amount_cents);  // 10%
++        $this->assertSame('earned', $c->status);
++        // Frozen, so a later rate change cannot rewrite this sale.
++        $this->assertSame('10.00', (string) $c->rate_percent);
++    }
++
++    public function test_an_unreferred_sale_earns_nothing(): void
++    {
++        $type = TicketType::factory()->create(['price_cents' => 50000]);
++        $this->buy($type, null);
++
++        $this->assertSame(0, ReferralCommission::count());
++    }
++
++    public function test_commission_is_not_earned_twice_on_one_order(): void
++    {
++        $type = TicketType::factory()->create(['price_cents' => 50000]);
++        $order = $this->buy($type, $this->referrer());
++
++        // A second confirm — the shape of a callback and a status poll both
++        // landing — must not pay twice.
++        $payment = $order->payments()->first();
++        app(Checkout::class)->confirm($order->fresh(), $payment);
++
++        $this->assertSame(1, ReferralCommission::count());
++    }
++
++    public function test_buying_through_your_own_link_earns_nothing(): void
++    {
++        $type = TicketType::factory()->create(['price_cents' => 50000]);
++        $ref = $this->referrer(['phone' => '254712345678']);
++
++        // Same human, same phone, different formatting.
++        $this->buy($type, $ref, phone: '0712345678');
++
++        $this->assertSame(0, ReferralCommission::count());
++    }
++
++    public function test_a_linked_customer_is_also_self_referral(): void
++    {
++        $type = TicketType::factory()->create(['price_cents' => 50000]);
++        $customer = Customer::create(['phone' => '254733444555', 'name' => 'Mercy']);
++        $ref = $this->referrer(['customer_id' => $customer->id, 'phone' => '254799888777']);
++
++        $this->buy($type, $ref, phone: '0733444555');
++
++        $this->assertSame(0, ReferralCommission::count());
++    }
++
++    public function test_a_referrer_who_is_not_approved_earns_nothing(): void
++    {
++        $type = TicketType::factory()->create(['price_cents' => 50000]);
++        $this->buy($type, $this->referrer(['status' => 'pending']));
++
++        $this->assertSame(0, ReferralCommission::count());
++    }
++
++    public function test_the_programme_being_off_earns_nothing(): void
++    {
++        Setting::put(ReferralSettings::KEY_ENABLED, '0');
++        $type = TicketType::factory()->create(['price_cents' => 50000]);
++        $this->buy($type, $this->referrer());
++
++        $this->assertSame(0, ReferralCommission::count());
++    }
++
++    public function test_a_per_order_cap_limits_a_large_booking(): void
++    {
++        Setting::put(ReferralSettings::KEY_PER_ORDER_CAP, '5000'); // KES 50
++        $type = TicketType::factory()->create(['price_cents' => 1200000]); // a group
++        $this->buy($type, $this->referrer(), qty: 1);
++
++        // 10% of KES 12,000 is 1,200 — capped to 50.
++        $this->assertSame(5000, (int) ReferralCommission::first()->amount_cents);
++    }
++
++    public function test_a_refund_voids_unpaid_commission(): void
++    {
++        $type = TicketType::factory()->create(['price_cents' => 50000]);
++        $order = $this->buy($type, $this->referrer());
++
++        app(Refunds::class)->refund($order->fresh(), 'Show cancelled');
++
++        $c = ReferralCommission::first();
++        $this->assertSame('void', $c->status);
++        $this->assertNotNull($c->voided_at);
++    }
++
++    public function test_a_refund_after_payout_becomes_a_clawback_not_a_negative(): void
++    {
++        $type = TicketType::factory()->create(['price_cents' => 50000]);
++        $order = $this->buy($type, $this->referrer());
++
++        ReferralCommission::first()->update(['status' => 'paid', 'paid_at' => now()]);
++        app(Refunds::class)->refund($order->fresh(), 'Duplicate payment');
++
++        $c = ReferralCommission::first();
++        // Already handed over, so it cannot simply vanish — it is owed back.
++        $this->assertSame('paid', $c->status);
++        $this->assertSame(10000, (int) $c->clawback_cents);
++    }
++
++    public function test_commission_matures_only_after_the_show_and_only_if_still_paid(): void
++    {
++        $type = TicketType::factory()->create(['price_cents' => 50000]);
++        $type->performance->update(['starts_at' => now()->subDays(5)]);
++
++        $order = $this->buy($type, $this->referrer());
++        ReferralCommission::first()->update(['payable_at' => now()->subHour()]);
++
++        $this->assertSame(1, app(Referrals::class)->promote());
++        $this->assertSame('payable', ReferralCommission::first()->status);
++    }
++
++    public function test_a_refunded_order_never_matures(): void
++    {
++        $type = TicketType::factory()->create(['price_cents' => 50000]);
++        $type->performance->update(['starts_at' => now()->subDays(5)]);
++
++        $order = $this->buy($type, $this->referrer());
++        app(Refunds::class)->refund($order->fresh(), 'Refunded before the hold elapsed');
++        ReferralCommission::first()->update(['payable_at' => now()->subHour()]);
++
++        // The promotion pass re-checks the order rather than trusting the
++        // earlier decision. This is the rule the whole design exists for.
++        $this->assertSame(0, app(Referrals::class)->promote());
++        $this->assertNotSame('payable', ReferralCommission::first()->status);
++    }
++
++    public function test_a_promo_coded_order_earns_nothing_unless_allowed(): void
++    {
++        $type = TicketType::factory()->create(['price_cents' => 50000]);
++        PromoCode::factory()->create([
++            'organiser_id' => $type->performance->event->organiser_id,
++            'code' => 'HALF', 'type' => 'percent', 'value' => 50,
++        ]);
++
++        $order = app(Checkout::class)->startOrder(
++            items: [$type->id => 2], phone: '0712345678',
++            promoCode: 'HALF', referrer: $this->referrer(),
++        );
++        $payment = Payment::create([
++            'order_id' => $order->id, 'gateway' => 'cash', 'gateway_ref' => 'P-'.uniqid(),
++            'amount_cents' => $order->total_cents, 'status' => 'initiated',
++        ]);
++        app(Checkout::class)->confirm($order, $payment);
++
++        // A discount and a commission on the same sale can take the margin
++        // below zero, so attribution is dropped rather than paid quietly.
++        $this->assertSame(0, ReferralCommission::count());
++    }
++}

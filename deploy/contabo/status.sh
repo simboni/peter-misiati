@@ -303,6 +303,30 @@ else
   fi
 fi
 
+# --- 6. scheduled work -----------------------------------------------------
+# A container can be green, serving and healthy while the work it is supposed
+# to do on a timer has not run for weeks. 64theatre's expired-order release is
+# the case that proved it: nothing ran the Laravel scheduler at all, so
+# abandoned checkouts held their seats off sale with no error anywhere.
+#
+# Checked by the freshness of the log, not by the crontab: an entry that
+# exists and fails every minute reads as healthy from the crontab alone.
+head_ "SCHEDULED WORK"
+
+SCHED_LOG=/var/log/64theatre-schedule.log
+if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -Fqx 64theatre; then
+  say "  64theatre is not on this box — skipped"
+elif [ ! -f "$SCHED_LOG" ]; then
+  bad "64theatre's scheduler has never run — expired orders are holding seats off sale. Install it: bash deploy/contabo/64theatre/scheduler.sh --install-cron"
+else
+  SCHED_AGE=$(( $(date +%s) - $(stat -c %Y "$SCHED_LOG" 2>/dev/null || echo 0) ))
+  if [ "$SCHED_AGE" -gt 600 ]; then
+    bad "64theatre's scheduler last ran ${SCHED_AGE}s ago (should be under 60) — run it by hand to see why: bash deploy/contabo/64theatre/scheduler.sh"
+  else
+    ok "64theatre scheduler ran ${SCHED_AGE}s ago"
+  fi
+fi
+
 # --- verdict ---------------------------------------------------------------
 HOST=$(hostname -f 2>/dev/null || hostname)
 mkdir -p "$STATE_DIR" 2>/dev/null

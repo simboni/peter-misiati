@@ -784,6 +784,156 @@ additive change, and the SQLite data can be migrated across.
 - Always use `-f /srv/64theatre/compose.yml` so a command can never act on
   another project.
 
+## The scheduler was never running
+
+**Do this whether or not you want referrals.** It is not part of patch 0029 —
+it is a gap in the deployment that the referral work uncovered.
+
+```bash
+cd /srv/smp-portfolio/repo && git pull
+bash deploy/contabo/64theatre/scheduler.sh --install-cron
+bash deploy/contabo/64theatre/scheduler.sh --status
+```
+
+The container is nginx and PHP-FPM. There is no cron inside it and no worker
+container beside it, so `routes/console.php` has been a list of tasks that
+never ran:
+
+- **`release-expired-orders`, every minute.** An abandoned checkout holds its
+  seats until this runs. Every buyer who started paying and walked away has
+  been taking those seats off sale **permanently**. There is no error anywhere
+  — the show simply has fewer tickets than it should, and on a sell-out that
+  is money lost silently. This is the one that matters today.
+- **`promote-referral-commission`, hourly.** New in 0029. Without it nothing
+  ever becomes payable.
+
+`--status` is honest about the difference between installed and working: it
+checks the log was written to in the last five minutes, because a cron entry
+that exists and fails every minute looks identical to a healthy one from the
+crontab alone.
+
+To see what the seats situation is right now:
+
+```bash
+docker exec 64theatre php artisan tinker --execute="echo App\Models\Order::where('status','awaiting_payment')->where('expires_at','<',now())->count().' expired orders still holding seats';"
+```
+
+Running the scheduler releases them.
+
+## Selling on commission (patch 0029)
+
+**Do not deploy this on a show night.** It adds a migration.
+
+```bash
+cd /srv/64theatre/repo && git pull
+git apply /srv/smp-portfolio/repo/deploy/contabo/64theatre/patches/0029-referrals.patch
+cd /srv/64theatre && docker compose up -d --build --force-recreate
+docker compose exec app php artisan migrate --force
+```
+
+**It arrives switched off**, and stays off until somebody turns it on at
+**Marketing → Referral programme**. While it is off, `/sell-tickets` is not
+reachable, no link earns, and nothing changes for anyone. That is deliberate:
+a commission scheme that switched itself on because a patch was applied would
+be promising strangers money the theatre never agreed to pay.
+
+### How it works
+
+Somebody signs up at **`/sell-tickets`** — name, phone, and the M-Pesa number
+they want paying on. They get a link of their own (`…/?ref=THEIRCODE`) and a
+page at `/r/<uuid>` showing the link, a WhatsApp share button, and what it has
+earned. No account and no password: they are members of the public, and
+`users` is the staff table that reaches `/admin`.
+
+They arrive **pending**. The link works immediately as a link but earns
+nothing until somebody approves them at **Marketing → Sellers**, which is one
+click, confirmed, and written to the audit log with a name against it. So you
+can hand links out at a show without having promised anything.
+
+Commission then has **three** states, which are three different facts:
+
+| State | Means |
+| --- | --- |
+| `earned` | money landed, the show has not happened yet |
+| `payable` | the show happened, the order is still paid — safe to send |
+| `paid` | somebody actually sent the M-Pesa |
+
+An hourly task moves `earned` → `payable` once the performance has passed plus
+the hold you set. It **re-reads the order every time** rather than trusting the
+decision made at the sale, so an order refunded in the meantime never matures.
+
+### Attribution
+
+First touch, not last. The code is stored in an httpOnly cookie for 30 days
+and **only if there isn't one already** — a ticket link gets forwarded through
+WhatsApp groups, and last-touch would let whoever reshared it last take the
+commission from whoever actually found the buyer. That is the argument you
+would then have to referee.
+
+The code is re-checked at checkout, so one revoked between the click and the
+purchase earns nothing.
+
+### What cannot earn
+
+- **Your own ticket.** Matched on the canonical phone and on the linked
+  customer record. It is not an edge case, it is the first thing anyone tries.
+- **A box-office sale.** A walk-up at the desk was not brought in by a link.
+- **A discounted order**, unless you switch that on. A promo code and a
+  commission on the same sale can take the margin below zero.
+- **A donation**, unless you switch that on. A gift to the theatre is a
+  different proposition from a ticket sale.
+- **The same order twice.** There is a unique index on `order_id`, so whatever
+  future code path confirms an order again, it cannot earn again.
+
+### Refunds
+
+Money that went back must never stay payable. Not yet paid, the commission is
+voided. **Already paid, it becomes a clawback** — its own column, netted off
+the next payout, because the amount columns are unsigned and a clawback is a
+separate fact from the original earning. Both refunding and cancelling do this.
+
+### Paying people
+
+**Nothing here sends money.** You see what is owed at **Marketing →
+Commission owed**, filter to one seller, send one M-Pesa for the total, and
+record it with "Mark selected as paid". It refuses any row that is not ready to
+pay rather than skipping it quietly, so the figure on screen is the figure you
+send.
+
+> **This has a tax question and it is not mine to answer.** Paying commission
+> to members of the public is taxable income to them, and Kenya puts
+> withholding-and-remit obligations on the payer. There is a KRA PIN field on
+> each seller for when your accountant says it is needed; nothing in the
+> system uses it. **An accountant sets the rate before the first payout.** That
+> is also why there is no automatic disbursement: an automated money-out path
+> built on a guess at tax law would be worse than a spreadsheet.
+
+### Rates
+
+The house rate applies unless a seller has their own negotiated one. Every
+commission **freezes the rate it was earned at**, so changing the rate next
+month cannot rewrite what somebody was already told they would get.
+
+Set a **per-order cap** if you sell group tickets. Without one, a single group
+booking at KES 12,000 becomes an unexpectedly large payment to a stranger.
+
+### Who can see it
+
+Sellers and commission: administrators, finance and marketing. Changing the
+terms: administrators only — it is a promise to the public. The door roles
+reach none of it.
+
+Verified by 35 tests: accrual at the house rate, unreferred sales earning
+nothing, no double-earn on a repeated confirm, self-referral by phone and by
+linked customer, an unapproved seller, the programme switched off, the
+per-order cap, a refund voiding unpaid commission, a refund after payout
+becoming a clawback, maturation only after the show and only while still paid,
+a refunded order never maturing, a promo-coded order earning nothing, the
+signup page closed while it is off, canonical phone storage, signing up twice
+returning the same code, first-touch not being overwritten, a junk code never
+stored, a revoked code not attributing, and every admin screen loading with
+rows on it.
+
 ## Refunds (patch 0028)
 
 ```bash
@@ -1041,7 +1191,7 @@ offered to everybody afterwards. Organiser can be created inline.
 
 ### Known gap, not fixed here
 
-**There is no refund path.** `Ledger::postRefund()` exists and is never called;
-a refund is a human picking "Refunded" from a dropdown and nothing observes it
-— no ticket voided, no ledger entry. The ledger overstates cash after any
-refund. Avoid refunds until this is built.
+**There was no refund path** when this patch was written: `Ledger::postRefund()`
+existed and was never called, so a refund changed one word on one row and the
+ledger went on overstating cash. **Fixed in patch 0028** — see *Refunds* above.
+Refunds are safe once 0028 is applied, and not before.
