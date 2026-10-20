@@ -1,0 +1,41 @@
+# Zuri Hotels & Resorts — zuriplaceresort.com
+#
+# A static site: Caddy serving a folder. No build, no database, no PHP. The
+# whole deploy is a git clone, and the whole update is a git pull.
+#
+#   cd /srv/zuriplace && docker compose up -d
+#
+# Ports: none published. edge-caddy owns 80/443 and reverse proxies to
+# `zuriplace-web` by container name over the shared `edge` network.
+
+name: zuriplace
+
+services:
+  web:
+    image: caddy:2-alpine
+    container_name: zuriplace-web
+    restart: unless-stopped
+    expose:
+      - "80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Read-only, and the site is the only thing in it. The container has no
+      # way to alter the checkout, so `git pull` is always the whole truth
+      # about what is being served.
+      - ./repo:/srv/site:ro
+    networks:
+      - edge
+    # Caddy serving static files needs almost nothing. Capped anyway: there is
+    # no swap on this box, so an unbounded container gets another client's
+    # database killed rather than itself.
+    mem_limit: 128m
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+
+networks:
+  # Owned by the `edge` project in /srv/edge — we only join it.
+  edge:
+    external: true

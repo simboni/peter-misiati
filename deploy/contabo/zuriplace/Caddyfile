@@ -1,0 +1,58 @@
+# INTERNAL static file server for Zuri Hotels & Resorts.
+#
+# Plain HTTP on :80 inside the `edge` network — edge-caddy terminates TLS on
+# the public side, so no domain name appears here and no port is published.
+#
+# Adapted from the Caddyfile in the site's own repo, which is where the clean
+# URL rules and the cache policy were worked out. Two changes, both because the
+# files are BIND-MOUNTED here rather than baked into an image:
+#
+#   · root is /srv/site, which is where compose mounts the checkout
+#   · the port is a plain :80, not Railway's $PORT
+#
+# Mounted, not copied, so updating the site is `git pull` and nothing else —
+# no rebuild, no restart, no downtime.
+
+{
+	admin off
+	# edge-caddy owns certificates. This container must never try to get one:
+	# it would fail, retry, and eventually hit Let's Encrypt's rate limit for
+	# the domain — which would then also block the real certificate.
+	auto_https off
+	persist_config off
+}
+
+:80 {
+	root * /srv/site
+	encode zstd gzip
+
+	# Keep URLs extensionless: bounce any explicit .html (and /index) to the
+	# clean path, so the site has one address per page rather than two.
+	@indexpage path /index /index.html
+	redir @indexpage / 301
+
+	@htmlext path_regexp html ^/(.+)\.html$
+	redir @htmlext /{re.html.1} 301
+
+	# /rooms -> rooms.html, / -> index.html. Anything unmatched falls through
+	# to file_server, which returns a natural 404.
+	try_files {path} {path}.html {path}/
+	file_server
+
+	# Images are 17 MB of the site and almost never change — cache a week.
+	@img path /assets/img/*
+	header @img Cache-Control "public, max-age=604800"
+
+	# Markup, CSS and JS must revalidate so a `git pull` shows up at once.
+	# Caddy sends ETags, so unchanged files still answer with a cheap 304.
+	@dynamic not path /assets/img/*
+	header @dynamic Cache-Control "no-cache"
+
+	header X-Content-Type-Options "nosniff"
+	header Referrer-Policy "strict-origin-when-cross-origin"
+
+	log {
+		output stdout
+		format console
+	}
+}

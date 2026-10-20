@@ -1,0 +1,15 @@
+# zuriplaceresort.com — Zuri Hotels & Resorts (static site)
+#
+# Goes in /srv/edge/sites/zuriplace.caddy. A drop-in file: nothing already on
+# the box is edited, so no other site can be broken by adding this one.
+#
+# Apex is canonical, matching the name the site calls itself throughout. To
+# make www canonical instead, swap the two hostnames below and reload.
+
+zuriplaceresort.com {
+	reverse_proxy zuriplace-web:80
+}
+
+www.zuriplaceresort.com {
+	redir https://zuriplaceresort.com{uri} permanent
+}

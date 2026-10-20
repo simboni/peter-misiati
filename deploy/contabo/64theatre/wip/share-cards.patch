@@ -1,0 +1,804 @@
+diff --git a/Dockerfile b/Dockerfile
+index 1c6d488..9d3b634 100644
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -9,9 +9,13 @@ USER root
+ # a dist download failure is fatal, because Composer 2 will not fall back
+ # to cloning when it has no git — which is how a launch-eve build failed
+ # four times on one package's archive 404ing.
++# fonts-dejavu-core is for the share cards: the 1200x630 picture WhatsApp
++# fetches for a pasted link is drawn with GD, and GD cannot draw a letter
++# without a TrueType file. Without it every shared link falls back to a
++# cropped poster with no title, date or price on it.
+ RUN install-php-extensions gd intl \
+     && apt-get update \
+-    && apt-get install -y --no-install-recommends git \
++    && apt-get install -y --no-install-recommends git fonts-dejavu-core \
+     && rm -rf /var/lib/apt/lists/*
+ 
+ WORKDIR /var/www/html
+diff --git a/app/Http/Controllers/ShareImageController.php b/app/Http/Controllers/ShareImageController.php
+new file mode 100644
+index 0000000..b2a1c4f
+--- /dev/null
++++ b/app/Http/Controllers/ShareImageController.php
+@@ -0,0 +1,153 @@
++<?php
++
++namespace App\Http\Controllers;
++
++use App\Models\Event;
++use App\Services\ShareCard;
++use Illuminate\Http\Response;
++use Illuminate\Support\Facades\Log;
++
++/**
++ * Serves the picture that WhatsApp and Facebook fetch when somebody pastes a
++ * link.
++ *
++ * Cached to disk, because the scrapers are not gentle: one link pasted into a
++ * busy group chat is fetched by every client that renders a preview, and
++ * composing a 1200x630 JPEG per request on a shared box with five other
++ * clients on it is how a marketing feature becomes an outage.
++ *
++ * The cache key carries the event's updated_at, so changing a title or a
++ * poster produces a different filename and the old card is simply never asked
++ * for again — no invalidation to get wrong.
++ */
++class ShareImageController extends Controller
++{
++    private const CACHE_DIR = 'app/share';
++
++    public function event(string $slug, ShareCard $cards): Response
++    {
++        $event = Event::where('slug', $slug)
++            ->where('status', 'published')
++            ->where('is_private', false)
++            ->with(['performances' => fn ($q) => $q->orderBy('starts_at'), 'performances.venue', 'performances.ticketTypes'])
++            ->firstOrFail();
++
++        $file = storage_path(self::CACHE_DIR.'/'.$this->key($event).'.jpg');
++
++        if (! is_file($file)) {
++            $bytes = $this->render($event, $cards);
++
++            if ($bytes === null) {
++                abort(404);
++            }
++
++            $this->store($file, $bytes);
++        } else {
++            $bytes = (string) file_get_contents($file);
++        }
++
++        // A month. The filename changes when the event does, so there is
++        // nothing to be stale about.
++        return $this->jpeg($bytes);
++    }
++
++    /** The general-purpose card, naming whatever is on next. */
++    public function site(ShareCard $cards): Response
++    {
++        $next = Event::where('status', 'published')
++            ->where('is_private', false)
++            ->whereHas('performances', fn ($q) => $q->where('starts_at', '>', now()))
++            ->with(['performances' => fn ($q) => $q->where('starts_at', '>', now())->orderBy('starts_at')])
++            ->get()
++            ->sortBy(fn ($e) => $e->performances->first()?->starts_at)
++            ->first();
++
++        $line = $next && $next->performances->first()
++            ? 'Next: '.$next->title.' — '.$next->performances->first()->starts_at->format('D j M, g:i A')
++            : 'Tickets by email. Pay with M-Pesa. Show your QR at the gate.';
++
++        // Keyed on what it says, so it refreshes when the next show changes
++        // and never when it has not.
++        $file = storage_path(self::CACHE_DIR.'/site-'.substr(sha1($line), 0, 16).'.jpg');
++
++        if (is_file($file)) {
++            return $this->jpeg((string) file_get_contents($file));
++        }
++
++        if (! ShareCard::canDraw()) {
++            abort(404);
++        }
++
++        $bytes = $cards->forSite($next, 'Live theatre in Eldoret', $line);
++        $this->store($file, $bytes);
++
++        return $this->jpeg($bytes);
++    }
++
++    private function store(string $file, string $bytes): void
++    {
++        @mkdir(dirname($file), 0775, true);
++        // Written to a temporary name and moved into place, so a scraper
++        // arriving mid-write never gets half a JPEG — which it would then
++        // cache as a broken image for as long as it felt like.
++        $tmp = $file.'.'.getmypid().'.tmp';
++
++        if (@file_put_contents($tmp, $bytes) !== false) {
++            @rename($tmp, $file);
++        }
++    }
++
++    private function jpeg(string $bytes): Response
++    {
++        return response($bytes, 200, [
++            'Content-Type' => 'image/jpeg',
++            'Cache-Control' => 'public, max-age=2592000, immutable',
++        ]);
++    }
++
++    /**
++     * The composed card, or the raw poster if this machine cannot draw text.
++     *
++     * The fonts come from the base image. If a rebuild ever lands without
++     * them, a cropped poster is a worse card than the real one and a far
++     * better outcome than a 500 on a link somebody has already shared.
++     */
++    private function render(Event $event, ShareCard $cards): ?string
++    {
++        if (! ShareCard::canDraw()) {
++            Log::warning('share.fonts_missing', ['event' => $event->slug]);
++
++            return $this->rawPoster($event);
++        }
++
++        try {
++            return $cards->forEvent($event);
++        } catch (\Throwable $e) {
++            Log::error('share.render_failed', ['event' => $event->slug, 'error' => $e->getMessage()]);
++
++            return $this->rawPoster($event);
++        }
++    }
++
++    private function rawPoster(Event $event): ?string
++    {
++        if (! $event->poster_path) {
++            return null;
++        }
++
++        foreach ([public_path($event->poster_path), storage_path('app/public/'.$event->poster_path)] as $path) {
++            if (is_readable($path)) {
++                return (string) file_get_contents($path);
++            }
++        }
++
++        return null;
++    }
++
++    private function key(Event $event): string
++    {
++        return $event->id.'-'.substr(sha1(
++            $event->slug.'|'.$event->title.'|'.$event->poster_path.'|'.$event->updated_at
++        ), 0, 16);
++    }
++}
+diff --git a/app/Services/ShareCard.php b/app/Services/ShareCard.php
+new file mode 100644
+index 0000000..f094e2e
+--- /dev/null
++++ b/app/Services/ShareCard.php
+@@ -0,0 +1,392 @@
++<?php
++
++namespace App\Services;
++
++use App\Models\Event;
++use App\Models\Performance;
++
++/**
++ * The picture that appears when somebody pastes a link into WhatsApp.
++ *
++ * WHY THIS IS DRAWN RATHER THAN JUST POINTING AT THE POSTER. WhatsApp,
++ * Facebook and X all want a LANDSCAPE image around 1.91:1. Theatre posters are
++ * portrait, 3:4. Handed a portrait image these services crop the middle out of
++ * it — which on a poster is the part with no title on it — so the card ends up
++ * a meaningless slab of colour. Worse, a poster alone carries no date, no
++ * venue and no price, and the whole reason a seller pastes a link into a group
++ * chat is so people can see those things without opening anything.
++ *
++ * So the card is composed: the poster on one side, and on the other the title,
++ * when it is on, where, and what it costs.
++ *
++ * GD, not a headless browser. This runs inside a PHP-FPM container with a
++ * memory limit, on a box shared with five other clients. Rendering a page in
++ * Chromium to take a picture of it would be a far nicer authoring experience
++ * and an irresponsible thing to put on this server.
++ */
++class ShareCard
++{
++    public const W = 1200;
++
++    public const H = 630;
++
++    /** Shipped with the image — see the Dockerfile. */
++    private const SERIF = '/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf';
++
++    private const SANS = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
++
++    private const SANS_BOLD = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf';
++
++    /**
++     * Can we draw text at all?
++     *
++     * If the fonts are missing the honest answer is to fall back to the raw
++     * poster rather than emit a card with no words on it. Checked rather than
++     * assumed because the font comes from the base image, and base images
++     * change without asking.
++     */
++    public static function canDraw(): bool
++    {
++        return function_exists('imagettftext')
++            && is_readable(self::SERIF)
++            && is_readable(self::SANS);
++    }
++
++    /** @return string JPEG bytes */
++    public function forEvent(Event $event, ?Performance $performance = null): string
++    {
++        $performance ??= $event->performances->first();
++
++        $im = imagecreatetruecolor(self::W, self::H);
++        imagealphablending($im, true);
++
++        $this->paintBackground($im);
++        $this->paintPoster($im, $event);
++        $this->paintKente($im);
++        $this->paintText($im, $event, $performance);
++
++        ob_start();
++        imagejpeg($im, null, 88);
++        $bytes = (string) ob_get_clean();
++        imagedestroy($im);
++
++        return $bytes;
++    }
++
++    /**
++     * The card for pages that are not about one show — the signup page, the
++     * donate page, anything shared from the site in general.
++     *
++     * A route rather than a file committed to the repo, so it never goes
++     * stale: it names the next show, which is the most useful thing a
++     * general-purpose card can say.
++     *
++     * @return string JPEG bytes
++     */
++    public function forSite(?Event $next, string $title, string $line): string
++    {
++        $im = imagecreatetruecolor(self::W, self::H);
++        imagealphablending($im, true);
++
++        $this->paintBackground($im);
++
++        if ($next) {
++            $this->paintPoster($im, $next);
++        }
++
++        $this->paintKente($im);
++
++        $bone = $this->rgb($im, '#F6EEE3');
++        $lamp = $this->rgb($im, '#F6C76F');
++        $dim = $this->rgb($im, '#B3A29A');
++        $left = 64;
++        $maxW = (int) (self::W * 0.62) - $left;
++
++        imagettftext($im, 15, 0, $left, 78, $lamp, self::SANS_BOLD, '64THEATRE  ·  ELDORET');
++
++        $size = 52;
++        $lines = [];
++
++        while ($size >= 30) {
++            $lines = $this->wrap($title, self::SERIF, $size, $maxW);
++            if (count($lines) <= 2) {
++                break;
++            }
++            $size -= 4;
++        }
++
++        $y = 180;
++
++        foreach (array_slice($lines, 0, 3) as $l) {
++            imagettftext($im, $size, 0, $left, $y, $lamp, self::SERIF, $l);
++            $y += (int) round($size * 1.28);
++        }
++
++        $y += 14;
++
++        foreach (array_slice($this->wrap($line, self::SANS, 19, $maxW), 0, 3) as $l) {
++            imagettftext($im, 19, 0, $left, $y, $bone, self::SANS, $l);
++            $y += 34;
++        }
++
++        imagettftext($im, 15, 0, $left, self::H - 44, $dim, self::SANS,
++            'Pay with M-Pesa  ·  tickets by email  ·  show your QR at the gate');
++
++        ob_start();
++        imagejpeg($im, null, 88);
++        $bytes = (string) ob_get_clean();
++        imagedestroy($im);
++
++        return $bytes;
++    }
++
++    /** The house, lit from above, as on the site itself. */
++    private function paintBackground($im): void
++    {
++        imagefilledrectangle($im, 0, 0, self::W, self::H, $this->rgb($im, '#130D10'));
++
++        // A warm wash from the top left, drawn as columns. Cheap, and at this
++        // size indistinguishable from a real gradient.
++        for ($x = 0; $x < self::W; $x++) {
++            $t = $x / self::W;
++            $alpha = (int) round(118 * max(0, 1 - $t * 1.5));
++            if ($alpha <= 0) {
++                continue;
++            }
++            $c = imagecolorallocatealpha($im, 142, 31, 26, 127 - (int) round($alpha / 2));
++            imageline($im, $x, 0, $x, self::H, $c);
++        }
++
++        for ($y = 0; $y < 300; $y++) {
++            $a = 127 - (int) round(26 * (1 - $y / 300));
++            $c = imagecolorallocatealpha($im, 246, 199, 111, $a);
++            imageline($im, 0, $y, self::W, $y, $c);
++        }
++    }
++
++    /**
++     * The poster, full width, with the left two thirds dimmed for the words.
++     *
++     * The first version put the poster in a right-hand panel, and the join
++     * between panel and background was a hard vertical seam that read as a
++     * rendering fault rather than a layout. Full-bleed with a scrim is how the
++     * site's own hero does it, there is no edge to get wrong, and the artwork
++     * gets the whole card instead of a third of it.
++     */
++    private function paintPoster($im, Event $event): void
++    {
++        $src = $this->loadPoster($event);
++
++        if (! $src) {
++            return;
++        }
++
++        $sw = imagesx($src);
++        $sh = imagesy($src);
++
++        // Cover: fill the card, crop the overflow, never squash. A squashed
++        // poster is more obviously wrong than a cropped one.
++        $scale = max(self::W / $sw, self::H / $sh);
++        $cw = (int) round(self::W / $scale);
++        $ch = (int) round(self::H / $scale);
++        $cx = (int) round(($sw - $cw) / 2);
++        // Biased to the top: posters put their artwork above the middle.
++        $cy = (int) round(($sh - $ch) * 0.3);
++
++        imagecopyresampled($im, $src, 0, 0, $cx, $cy, self::W, self::H, $cw, $ch);
++        imagedestroy($src);
++
++        // The scrim. Near-solid under the title, gone by two thirds across, so
++        // the words stay readable over whatever the poster happens to be —
++        // which on a card nobody previews before sending has to be every time.
++        $end = (int) (self::W * 0.72);
++
++        for ($x = 0; $x < $end; $x++) {
++            $t = $x / $end;
++            $opacity = (1 - $t) ** 1.4;           // 1 at the left edge, 0 at $end
++            $a = 127 - (int) round(116 * $opacity);
++            $c = imagecolorallocatealpha($im, 19, 13, 16, $a);
++            imageline($im, $x, 0, $x, self::H, $c);
++        }
++
++        // And a little darkness at the very bottom, for the footer line.
++        for ($y = self::H - 110; $y < self::H; $y++) {
++            $t = ($y - (self::H - 110)) / 110;
++            $a = 127 - (int) round(70 * $t);
++            $c = imagecolorallocatealpha($im, 19, 13, 16, $a);
++            imageline($im, 0, $y, self::W, $y, $c);
++        }
++    }
++
++    /** The kente strip along the top — the one piece of brand furniture. */
++    private function paintKente($im): void
++    {
++        $colours = ['#8E1F1A', '#E8A33D', '#2E6B4F', '#E8A33D'];
++        $w = 26;
++        $i = 0;
++
++        for ($x = 0; $x < self::W; $x += $w) {
++            imagefilledrectangle($im, $x, 0, min($x + $w, self::W), 9, $this->rgb($im, $colours[$i % 4]));
++            $i++;
++        }
++    }
++
++    private function paintText($im, Event $event, ?Performance $performance): void
++    {
++        $bone = $this->rgb($im, '#F6EEE3');
++        $lamp = $this->rgb($im, '#F6C76F');
++        $dim = $this->rgb($im, '#B3A29A');
++
++        $left = 64;
++        $maxW = (int) (self::W * 0.60) - $left - 40;
++
++        imagettftext($im, 15, 0, $left, 78, $lamp, self::SANS_BOLD, '64THEATRE  ·  ELDORET');
++
++        // The title, fitted. Long titles step down in size before they wrap to
++        // a third line, because three lines of 44pt leaves no room for the
++        // thing somebody actually needs — the date.
++        $size = 54;
++        $lines = [];
++
++        while ($size >= 30) {
++            $lines = $this->wrap($event->title, self::SERIF, $size, $maxW);
++            if (count($lines) <= 2) {
++                break;
++            }
++            $size -= 4;
++        }
++
++        $lines = array_slice($lines, 0, 3);
++        $y = 170;
++
++        foreach ($lines as $line) {
++            imagettftext($im, $size, 0, $left, $y, $lamp, self::SERIF, $line);
++            $y += (int) round($size * 1.28);
++        }
++
++        $y += 18;
++
++        if ($performance) {
++            imagettftext($im, 21, 0, $left, $y, $bone, self::SANS_BOLD,
++                $performance->starts_at->format('D j M Y  ·  g:i A'));
++            $y += 40;
++
++            if ($performance->venue) {
++                imagettftext($im, 17, 0, $left, $y, $dim, self::SANS,
++                    $performance->venue->name.', '.$performance->venue->town);
++                $y += 44;
++            }
++        }
++
++        // The price, as a pill. It is the question everyone asks second.
++        $price = $this->priceLine($event);
++
++        if ($price) {
++            $box = imagettfbbox(17, 0, self::SANS_BOLD, $price);
++            $pw = $box[2] - $box[0] + 44;
++            $py = $y - 26;
++            $this->roundedRect($im, $left, $py, $left + $pw, $py + 44, 22, $this->rgb($im, '#E8A33D'));
++            imagettftext($im, 17, 0, $left + 22, $py + 30, $this->rgb($im, '#2A1500'), self::SANS_BOLD, $price);
++        }
++
++        imagettftext($im, 15, 0, $left, self::H - 44, $dim, self::SANS,
++            'Pay with M-Pesa  ·  tickets by email  ·  show your QR at the gate');
++    }
++
++    private function priceLine(Event $event): ?string
++    {
++        if ($event->is_free) {
++            return 'FREE ENTRY';
++        }
++
++        $min = $event->performances->flatMap->ticketTypes->min('price_cents');
++
++        if ($min === null) {
++            return null;
++        }
++
++        return $min === 0 ? 'FREE ENTRY' : 'FROM KES '.number_format($min / 100);
++    }
++
++    /** @return array<int, string> */
++    private function wrap(string $text, string $font, int $size, int $maxW): array
++    {
++        $words = preg_split('/\s+/', trim($text)) ?: [];
++        $lines = [];
++        $line = '';
++
++        foreach ($words as $word) {
++            $try = $line === '' ? $word : $line.' '.$word;
++            $box = imagettfbbox($size, 0, $font, $try);
++
++            if (($box[2] - $box[0]) > $maxW && $line !== '') {
++                $lines[] = $line;
++                $line = $word;
++            } else {
++                $line = $try;
++            }
++        }
++
++        if ($line !== '') {
++            $lines[] = $line;
++        }
++
++        return $lines;
++    }
++
++    private function roundedRect($im, int $x1, int $y1, int $x2, int $y2, int $r, int $colour): void
++    {
++        imagefilledrectangle($im, $x1 + $r, $y1, $x2 - $r, $y2, $colour);
++        imagefilledrectangle($im, $x1, $y1 + $r, $x2, $y2 - $r, $colour);
++        imagefilledellipse($im, $x1 + $r, $y1 + $r, $r * 2, $r * 2, $colour);
++        imagefilledellipse($im, $x2 - $r, $y1 + $r, $r * 2, $r * 2, $colour);
++        imagefilledellipse($im, $x1 + $r, $y2 - $r, $r * 2, $r * 2, $colour);
++        imagefilledellipse($im, $x2 - $r, $y2 - $r, $r * 2, $r * 2, $colour);
++    }
++
++    /** @return \GdImage|false */
++    private function loadPoster(Event $event)
++    {
++        $path = $this->posterPath($event);
++
++        if (! $path || ! is_readable($path)) {
++            return false;
++        }
++
++        // By content, not by extension: an admin-uploaded "poster.jpg" that is
++        // really a PNG would otherwise take the whole card down.
++        $type = @exif_imagetype($path);
++
++        return match ($type) {
++            IMAGETYPE_JPEG => @imagecreatefromjpeg($path),
++            IMAGETYPE_PNG => @imagecreatefrompng($path),
++            IMAGETYPE_GIF => @imagecreatefromgif($path),
++            IMAGETYPE_WEBP => function_exists('imagecreatefromwebp') ? @imagecreatefromwebp($path) : false,
++            default => false,
++        };
++    }
++
++    private function posterPath(Event $event): ?string
++    {
++        if (! $event->poster_path) {
++            return null;
++        }
++
++        $public = public_path($event->poster_path);
++
++        if (file_exists($public)) {
++            return $public;
++        }
++
++        $stored = storage_path('app/public/'.$event->poster_path);
++
++        return file_exists($stored) ? $stored : null;
++    }
++
++    private function rgb($im, string $hex): int
++    {
++        [$r, $g, $b] = sscanf($hex, '#%02x%02x%02x');
++
++        return imagecolorallocate($im, $r, $g, $b);
++    }
++}
+diff --git a/resources/views/donate/thanks.blade.php b/resources/views/donate/thanks.blade.php
+index 664f220..8a0c1ca 100644
+--- a/resources/views/donate/thanks.blade.php
++++ b/resources/views/donate/thanks.blade.php
+@@ -2,6 +2,10 @@
+ 
+ @section('title', 'Thank you — 64 Theatre')
+ 
++{{-- No link preview and no indexing: this page shows a receipt. A capability URL is only private while nothing
++     publishes it, and a preview card is a publication. --}}
++@section('noshare', true)
++
+ @php
+     $paid = $order->status === 'paid';
+     $firstName = $order->customer?->name ? \Illuminate\Support\Str::of($order->customer->name)->before(' ')->trim() : null;
+diff --git a/resources/views/events/index.blade.php b/resources/views/events/index.blade.php
+index 6aeccb9..cbe8d4f 100644
+--- a/resources/views/events/index.blade.php
++++ b/resources/views/events/index.blade.php
+@@ -2,6 +2,11 @@
+ 
+ @section('title', "64theatre — What's On · Live Theatre in Eldoret")
+ 
++@section('og:description', $events->isEmpty()
++    ? 'Live theatre in Eldoret. Tickets by email, pay with M-Pesa.'
++    : $events->count().' shows on now in Eldoret — starting with '.$events->first()->title.'. Tickets by email, pay with M-Pesa.')
++@section('og:image', $events->isNotEmpty() ? route('share.event', $events->first()->slug) : route('share.site'))
++
+ @php
+     $featured = $events->first();
+     $marquee = $events->flatMap(fn ($e) => $e->performances->take(2)->map(fn ($p) =>
+diff --git a/resources/views/events/show.blade.php b/resources/views/events/show.blade.php
+index efaa608..0efa329 100644
+--- a/resources/views/events/show.blade.php
++++ b/resources/views/events/show.blade.php
+@@ -2,6 +2,14 @@
+ 
+ @section('title', $event->title . ' — Tickets · 64theatre')
+ 
++@php
++    $og = $event->performances->firstWhere('starts_at', '>', now()) ?? $event->performances->first();
++@endphp
++@section('og:title', $event->title.' — 64 Theatre, Eldoret')
++@section('og:description', ($og ? $og->starts_at->format('D j M Y, g:i A').' · '.($og->venue?->name ?? 'Eldoret').'. ' : '').\Illuminate\Support\Str::limit(strip_tags($event->description ?: 'Live on stage in Eldoret. Tickets by email, pay with M-Pesa.'), 140))
++@section('og:image', route('share.event', $event->slug))
++@section('og:type', 'article')
++
+ @section('head')
+ <style>
+     .show-stage{
+diff --git a/resources/views/groups/roster.blade.php b/resources/views/groups/roster.blade.php
+index 329d3fe..e3006cc 100644
+--- a/resources/views/groups/roster.blade.php
++++ b/resources/views/groups/roster.blade.php
+@@ -2,6 +2,10 @@
+ 
+ @section('title', 'Your group — 64theatre')
+ 
++{{-- No link preview and no indexing: this page shows a group’s member names. A capability URL is only private while nothing
++     publishes it, and a preview card is a publication. --}}
++@section('noshare', true)
++
+ @section('content')
+ <div class="wrap" style="padding-top:40px; max-width:720px">
+ 
+diff --git a/resources/views/layout.blade.php b/resources/views/layout.blade.php
+index 7fb0ba0..8936a2c 100644
+--- a/resources/views/layout.blade.php
++++ b/resources/views/layout.blade.php
+@@ -4,6 +4,57 @@
+     <meta charset="utf-8">
+     <meta name="viewport" content="width=device-width, initial-scale=1">
+     <title>@yield('title', '64theatre — Live Theatre, Eldoret')</title>
++
++    {{-- ── what a pasted link looks like ──────────────────────────────────
++         A link to this site is shared far more often than it is typed: a
++         seller pastes it into a WhatsApp group, the theatre posts it on
++         Instagram. Without these it arrives as a bare blue URL that says
++         nothing about what is on, when, or what it costs — which is the
++         entire job of the message it is sitting in.
++
++         Defaults here; each page overrides what it knows better. A page that
++         holds somebody's private information sets `noshare` instead, and gets
++         no preview and no indexing at all. --}}
++    @hasSection('noshare')
++        <meta name="robots" content="noindex, nofollow">
++    @else
++        @php
++            /* ESCAPED EXACTLY ONCE, and that needs saying. Laravel escapes the
++               value when a section is declared inline — @section('og:title', $x)
++               stores e($x) — so yieldContent hands back markup-ready text.
++               Running it through {{ }} as well turned an apostrophe into
++               &amp;#039;, which WhatsApp renders literally: "Runner&#039;s
++               Oath". So the defaults below are escaped by hand to match, and
++               everything is printed raw. */
++            $ogTitle = trim($__env->yieldContent('og:title',
++                trim($__env->yieldContent('title', e('64theatre — Live Theatre, Eldoret')))));
++            $ogDesc = trim($__env->yieldContent('og:description',
++                e('Live theatre in Eldoret. Tickets by email, pay with M-Pesa, show your QR at the gate.')));
++            $ogImage = trim($__env->yieldContent('og:image', e(route('share.site'))));
++            $ogType = trim($__env->yieldContent('og:type', e('website')));
++        @endphp
++        <meta name="description" content="{!! $ogDesc !!}">
++        <link rel="canonical" href="{{ url()->current() }}">
++
++        <meta property="og:site_name" content="64 Theatre">
++        <meta property="og:type" content="{!! $ogType !!}">
++        <meta property="og:title" content="{!! $ogTitle !!}">
++        <meta property="og:description" content="{!! $ogDesc !!}">
++        <meta property="og:url" content="{{ url()->current() }}">
++        <meta property="og:image" content="{!! $ogImage !!}">
++        {{-- WhatsApp will not render a preview without these two. It reads
++             the dimensions rather than fetching the image to measure it. --}}
++        <meta property="og:image:width" content="1200">
++        <meta property="og:image:height" content="630">
++        <meta property="og:image:alt" content="{!! $ogTitle !!}">
++        <meta property="og:locale" content="en_KE">
++
++        <meta name="twitter:card" content="summary_large_image">
++        <meta name="twitter:title" content="{!! $ogTitle !!}">
++        <meta name="twitter:description" content="{!! $ogDesc !!}">
++        <meta name="twitter:image" content="{!! $ogImage !!}">
++    @endif
++    <meta name="theme-color" content="#130D10">
+     <style>
+         /* ── house lights down: design tokens ─────────────────────────── */
+         :root{
+diff --git a/resources/views/orders/lookup.blade.php b/resources/views/orders/lookup.blade.php
+index 0055822..95b44ef 100644
+--- a/resources/views/orders/lookup.blade.php
++++ b/resources/views/orders/lookup.blade.php
+@@ -2,6 +2,10 @@
+ 
+ @section('title', 'My tickets — 64theatre')
+ 
++{{-- No link preview and no indexing: this page shows a ticket search. A capability URL is only private while nothing
++     publishes it, and a preview card is a publication. --}}
++@section('noshare', true)
++
+ @section('content')
+ <div class="wrap" style="padding-top:40px">
+     <h2 class="sec">Find my tickets</h2>
+diff --git a/resources/views/orders/print.blade.php b/resources/views/orders/print.blade.php
+index 57d04c1..0f89eb2 100644
+--- a/resources/views/orders/print.blade.php
++++ b/resources/views/orders/print.blade.php
+@@ -4,6 +4,9 @@
+     <meta charset="utf-8">
+     <meta name="viewport" content="width=device-width, initial-scale=1">
+     <title>Tickets — {{ $order->performance->event->title }} — 64theatre</title>
++    {{-- Standalone page, so it carries its own. These are somebody's actual
++         tickets with scannable codes on them — never indexed, never previewed. --}}
++    <meta name="robots" content="noindex, nofollow">
+     <style>
+         @page{size:A4; margin:11mm}
+         :root{
+diff --git a/resources/views/orders/show.blade.php b/resources/views/orders/show.blade.php
+index 4825236..423ec46 100644
+--- a/resources/views/orders/show.blade.php
++++ b/resources/views/orders/show.blade.php
+@@ -2,6 +2,10 @@
+ 
+ @section('title', 'Your order — 64theatre')
+ 
++{{-- No link preview and no indexing: this page shows somebody’s order and tickets. A capability URL is only private while nothing
++     publishes it, and a preview card is a publication. --}}
++@section('noshare', true)
++
+ @section('content')
+ <div class="wrap" style="padding-top:40px">
+     <h2 class="sec">Your order</h2>
+diff --git a/resources/views/referrals/dashboard.blade.php b/resources/views/referrals/dashboard.blade.php
+index f966fce..3c9ef4d 100644
+--- a/resources/views/referrals/dashboard.blade.php
++++ b/resources/views/referrals/dashboard.blade.php
+@@ -2,6 +2,10 @@
+ 
+ @section('title', 'Your selling page — 64theatre')
+ 
++{{-- No link preview and no indexing: this page shows a seller’s earnings. A capability URL is only private while nothing
++     publishes it, and a preview card is a publication. --}}
++@section('noshare', true)
++
+ @section('content')
+ @php
+     // Computed here rather than inline, so the markup below reads as markup.
+diff --git a/resources/views/referrals/join.blade.php b/resources/views/referrals/join.blade.php
+index a3e48c0..1ab8391 100644
+--- a/resources/views/referrals/join.blade.php
++++ b/resources/views/referrals/join.blade.php
+@@ -2,6 +2,9 @@
+ 
+ @section('title', 'Sell tickets, earn commission — 64theatre')
+ 
++@section('og:title', 'Earn with 64 Theatre — sell tickets, get paid by M-Pesa')
++@section('og:description', 'Share your own link. When somebody books a ticket through it, you earn a share of what they pay. No stock, no float, nothing to collect at the door.')
++
+ @section('content')
+ <div class="wrap narrow" style="padding-top:40px">
+ 
+diff --git a/routes/web.php b/routes/web.php
+index 4cfe099..71789dd 100644
+--- a/routes/web.php
++++ b/routes/web.php
+@@ -8,6 +8,7 @@
+ use App\Http\Controllers\GroupRosterController;
+ use App\Http\Controllers\OrderController;
+ use App\Http\Controllers\ReferralController;
++use App\Http\Controllers\ShareImageController;
+ use App\Http\Controllers\Webhooks\DarajaCallbackController;
+ use App\Http\Controllers\Webhooks\KopoKopoCallbackController;
+ use App\Http\Controllers\Webhooks\PayHeroCallbackController;
+@@ -16,6 +17,15 @@
+ 
+ Route::get('/', [EventController::class, 'index'])->name('events.index');
+ Route::get('/events/{slug}', [EventController::class, 'show'])->name('events.show');
++
++// The picture WhatsApp and Facebook fetch for a shared link. Cached to disk —
++// one link in a busy group chat is fetched once per client that renders a
++// preview, and composing a JPEG per request is how a marketing feature
++// becomes an outage.
++Route::get('/share/{slug}.jpg', [ShareImageController::class, 'event'])
++    ->where('slug', '[A-Za-z0-9\-_]+')
++    ->name('share.event');
++Route::get('/share/site.jpg', [ShareImageController::class, 'site'])->name('share.site');
+ Route::post('/orders', [OrderController::class, 'store'])->name('orders.store');
+ Route::get('/orders/{uuid}', [OrderController::class, 'show'])->name('orders.show');
+ Route::get('/orders/{uuid}/status', [OrderController::class, 'status'])->name('orders.status');
