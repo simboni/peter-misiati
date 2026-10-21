@@ -17,6 +17,52 @@ a Safaricom shortcode in the gym's own name — the weeks-long approval
 64theatre avoided — and the live `.env` has no M-Pesa variables at all, which
 is why the portal shows "coming soon". Patch 0001 adds PayHero beside Daraja.
 
+## Deploying — read this first
+
+Everything from section 10 onwards goes on with **one command**:
+
+```bash
+cd /srv/smp-portfolio/repo && git fetch origin claude/portfolio-design-plan-9ol8sb
+bash deploy/contabo/fitgen/deploy.sh --status    # what is on, what is waiting
+bash deploy/contabo/fitgen/deploy.sh --dry-run   # rehearse it, change nothing
+bash deploy/contabo/fitgen/deploy.sh             # apply, rebuild, check it came back
+```
+
+The per-section `git apply` lines below are still accurate and still work;
+they are kept because they say what each patch is for. But the script is the
+one to run, because it gets three things right that typing them does not:
+
+- **It is all-or-nothing.** Every pending patch is rehearsed in a throwaway
+  git index first — the real run, in order, accumulating — and if any one of
+  them will not apply, nothing is touched and nothing is rebuilt. A
+  half-patched checkout is the state that is hard to get out of.
+- **It knows what is already on.** This checkout **cannot** be reconstructed
+  from its base — 0005 and 0007 do not reapply — so unlike 64theatre there is
+  no reset-and-replay. Patches go on forward only, once each, and the box
+  keeps a ledger at `/srv/fitgen/deploy-state/applied.txt` saying which. That
+  file, not a guess, decides what runs. (`git apply --reverse --check` is not
+  a safe way to ask: an early patch stops reversing cleanly the moment a
+  later one touches the same lines, so it is wrong in exactly the cases that
+  matter.)
+- **It rebuilds properly and proves the site came back.** `--build
+  --force-recreate`, then it waits for `/api/health` *and* for `/pricing` to
+  render, because the pricing page now reads the database and a health
+  endpoint that only proves the process is up would not notice it failing.
+
+Before applying it saves a working-tree diff and a `pg_dump` to
+`/srv/fitgen/before-deploy/`, and tags the running image `fitgen-web:before-<stamp>`
+so there is a way back. It prints the rollback commands if anything fails.
+
+On the first run there is no ledger, so it treats 0001–0007 as already on —
+which is what README sections 1–8 did by hand. If your box is actually
+missing one of those, the first patch that needs it fails its rehearsal, the
+script stops, and nothing is rebuilt.
+
+**Verified before shipping:** run against a replica of this box's checkout,
+the resulting tree is byte-for-byte the tree that was tested in a browser.
+Re-running says "nothing to apply"; a hand-edited file makes it abort
+without touching anything.
+
 ## Never run these two
 
 ```
