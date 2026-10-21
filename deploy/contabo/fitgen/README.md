@@ -465,6 +465,77 @@ reach.)
   in the address bar at the moment it sticks plus the browser console output
   is what is needed.
 
+## 11 · Part payment, from the member's own portal
+
+```bash
+cd /root/fit-generations-gym
+git apply --check /srv/smp-portfolio/repo/deploy/contabo/fitgen/patches/0009-part-payment.patch \
+  && git apply /srv/smp-portfolio/repo/deploy/contabo/fitgen/patches/0009-part-payment.patch
+docker compose -f docker-compose.behind-proxy.yml up -d --build
+```
+
+Goes on **after 0008** — it shares files with 0005 and 0007, so the chain
+order matters here in a way it did not for 0008. No migration: the two new
+settings and the one new invoice field are plain columns in the JSON document
+the app already stores, and `getSettings` spreads over its defaults, so a
+settings row written before this patch reads back complete.
+
+### What it does
+
+A member can clear a membership invoice in instalments instead of all at
+once. **Access still starts only when the invoice is clear.** An instalment is
+recorded against the balance and nothing else — the membership stays pending,
+the member stays inactive, and the screen says so *before* the money leaves
+their phone. "But I paid you" at the front desk is the argument this exists to
+prevent.
+
+The gym owns the policy, under **Settings → Part payment**: a switch that
+turns it off entirely, and the smallest instalment it will accept (default
+**KSh 500**). The floor is not decoration — every instalment costs a gateway
+fee, so a KSh 50 payment loses money and settles nothing. A balance already at
+or below the floor is offered in full, because there is no part of it left
+to pay.
+
+The amount is re-decided on the server. The `min` and `max` on the field stop
+an honest mistake; they are not the control.
+
+### Three things that would have gone wrong quietly
+
+- **A callback with no `Amount`.** PayHero normally sends one, but a body that
+  omits it used to fall straight through to the whole balance. With
+  instalments that marks a KSh 1,000 payment as a KSh 3,500 invoice settled in
+  full — and activates a membership nobody has paid for. The prompt's own
+  amount is now stored beside the checkout id and used before that fallback.
+- **The waiting screen watched for `paid`.** An instalment leaves the invoice
+  `partially_paid`, so the screen would have sat there spinning long after the
+  money arrived, and the member would have paid twice. It now compares what is
+  paid against what was paid when the prompt went out, and says what is left.
+- **Changing plan mid-instalments.** Picking again would have raised a second
+  invoice and left the first instalments against a plan the member had walked
+  away from — paid, recorded, buying them nothing. Both the plan picker and
+  the action send them back to the open invoice. Changing plan part-way is a
+  desk conversation.
+
+### Checking it on the box
+
+```bash
+docker exec fitgen-db psql -U fitgen -d fitgen -tA -F' | ' -c \
+"select data->>'number', data->>'status', data->>'amountPaid', data->>'balance'
+   from invoices where data->>'status' = 'partially_paid';"
+```
+
+Every part-paid invoice should have `amountPaid` > 0, `balance` > 0, and its
+member should **not** be Active. The admin side needed nothing: the ledger
+already recorded a short payment as `Partially Paid` and reversal already
+re-opens the invoice.
+
+### How it was tested
+
+End to end in a browser against a stub gateway that accepts the push, hands
+back a CheckoutRequestID and posts the callback — so the real path runs: push,
+prompt screen, callback, balance, activation. 24 checks on the member's path,
+3 on the no-`Amount` callback, 7 on the gym's switch. All passed.
+
 ## Retire Render
 
 The apex has been served from this box for weeks, so Render is only holding

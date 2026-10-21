@@ -1,0 +1,628 @@
+diff --git a/src/app/(portal)/portal/invoices/[id]/page.tsx b/src/app/(portal)/portal/invoices/[id]/page.tsx
+index 677a243..2857935 100644
+--- a/src/app/(portal)/portal/invoices/[id]/page.tsx
++++ b/src/app/(portal)/portal/invoices/[id]/page.tsx
+@@ -5,6 +5,7 @@ import { currentUser } from "@/lib/auth/current-user";
+ import { getInvoice } from "@/lib/db/repo";
+ import { memberPayInvoice } from "@/lib/auth/member-actions";
+ import { paymentsConfigured, promptName } from "@/lib/services/payments";
++import { partPaymentRange } from "@/lib/services/settings";
+ import { gym } from "@/lib/gym";
+ import { PageHero } from "@/components/page-hero";
+ import { Section } from "@/components/section";
+@@ -12,6 +13,7 @@ import { Button, Pill } from "@/components/ui";
+ import { SubmitButton } from "@/components/admin/submit-button";
+ import { CheckIcon } from "@/components/icons";
+ import { PaymentStage } from "@/components/portal/payment-stage";
++import { PayAmount } from "@/components/portal/pay-amount";
+ 
+ export const metadata: Metadata = { title: "Invoice" };
+ export const dynamic = "force-dynamic";
+@@ -32,10 +34,23 @@ export default async function PortalInvoicePage({
+   if (!inv) notFound();
+   if (inv.memberId !== session.sub) redirect("/portal");
+   const paid = inv.status === "paid";
++  const part = partPaymentRange(inv.balance);
++  const partPaid = !paid && inv.amountPaid > 0;
+ 
+   return (
+     <>
+-      <PageHero crumb="My Portal" title={`Invoice ${inv.number}`} lead={paid ? "Paid — thank you!" : "Complete your payment to activate your membership."} photo="/photos/gym-interior.jpg" />
++      <PageHero
++        crumb="My Portal"
++        title={`Invoice ${inv.number}`}
++        lead={
++          paid
++            ? "Paid — thank you!"
++            : partPaid
++              ? `${money(inv.amountPaid)} received. ${money(inv.balance)} to go before your membership starts.`
++              : "Complete your payment to activate your membership."
++        }
++        photo="/photos/gym-interior.jpg"
++      />
+       <Section tone="dark">
+         <div className="mx-auto grid max-w-4xl gap-6 lg:grid-cols-[1.5fr_1fr]">
+           <div className="rounded-3xl border border-white/10 bg-ink-850 p-6 sm:p-8 lg:order-2">
+@@ -55,10 +70,11 @@ export default async function PortalInvoicePage({
+                 {stk === "sent" || stk === "failed" ? (
+                   <PaymentStage
+                     statusUrl={`/api/portal/invoices/${inv.id}/status`}
+-                    amount={money(inv.balance)}
++                    amount={money(inv.pendingCheckoutAmount ?? inv.balance)}
+                     partnerName={promptName()}
+                     initial={stk === "failed" ? "failed" : "prompted"}
+                     initialError={stk === "failed" ? "We could not start the M-Pesa prompt." : null}
++                    paidBefore={inv.amountPaid}
+                     retry={
+                       <form action={memberPayInvoice}>
+                         <input type="hidden" name="invoiceId" value={inv.id} />
+@@ -68,12 +84,21 @@ export default async function PortalInvoicePage({
+                   />
+                 ) : (
+                   <>
+-                    <h3 className="font-display text-lg text-white">Pay {money(inv.balance)}</h3>
+-                    <p className="mt-1 text-sm text-white/55">Pay with M-Pesa. Your membership activates the moment payment succeeds.</p>
+-                    <form action={memberPayInvoice} className="mt-5">
+-                      <input type="hidden" name="invoiceId" value={inv.id} />
+-                      <SubmitButton className="btn-sheen w-full rounded-full bg-lime-500 py-3 text-sm font-semibold uppercase tracking-wide text-ink-900 hover:bg-lime-400">Pay with M-Pesa</SubmitButton>
+-                    </form>
++                    {stk === "amount" && (
++                      <p className="mb-4 rounded-xl border border-ember-500/30 bg-ember-500/[0.08] p-3 text-sm text-ember-300">
++                        That amount could not be used. Pick the full balance, or an instalment of at least {money(part.min)}.
++                      </p>
++                    )}
++                    {partPaid && (
++                      <PaidSoFar paid={inv.amountPaid} total={inv.total} />
++                    )}
++                    <PayAmount
++                      action={memberPayInvoice}
++                      invoiceId={inv.id}
++                      balance={inv.balance}
++                      allowPart={part.allowed}
++                      min={part.min}
++                    />
+                   </>
+                 )}
+                 <Link href="/portal" className="mt-4 block text-center text-sm text-white/50 hover:text-lime-300">← Back to portal</Link>
+@@ -126,3 +151,20 @@ export default async function PortalInvoicePage({
+     </>
+   );
+ }
++
++/** Where an instalment plan has got to. A bar rather than a sentence: the one
++    thing a member wants from this screen is whether they are nearly there. */
++function PaidSoFar({ paid, total }: { paid: number; total: number }) {
++  const pct = total > 0 ? Math.min(100, Math.round((paid / total) * 100)) : 0;
++  return (
++    <div className="mb-5 rounded-2xl border border-lime-500/20 bg-lime-500/[0.06] p-4">
++      <div className="flex items-baseline justify-between">
++        <span className="text-xs font-semibold uppercase tracking-[0.08em] text-lime-300">Paid so far</span>
++        <span className="text-sm text-white/60">{money(paid)} of {money(total)}</span>
++      </div>
++      <div className="mt-2.5 h-[5px] overflow-hidden rounded-full bg-white/10">
++        <div className="h-full rounded-full bg-gradient-to-r from-lime-600 to-lime-400" style={{ width: `${pct}%` }} />
++      </div>
++    </div>
++  );
++}
+diff --git a/src/app/(portal)/portal/page.tsx b/src/app/(portal)/portal/page.tsx
+index 9419f20..9868c4c 100644
+--- a/src/app/(portal)/portal/page.tsx
++++ b/src/app/(portal)/portal/page.tsx
+@@ -36,7 +36,9 @@ export default async function PortalPage() {
+     : membership?.status === "expired"
+     ? { text: "Expired", cls: "bg-ember-500/15 text-ember-400" }
+     : openInvoice
+-    ? { text: "Payment pending", cls: "bg-amber-500/15 text-amber-400" }
++    ? openInvoice.amountPaid > 0
++      ? { text: `Part paid · ${money(openInvoice.balance)} left`, cls: "bg-amber-500/15 text-amber-400" }
++      : { text: "Payment pending", cls: "bg-amber-500/15 text-amber-400" }
+     : { text: member.status, cls: "bg-white/10 text-white/60" };
+ 
+   return (
+@@ -66,12 +68,21 @@ export default async function PortalPage() {
+             <span className="eyebrow">Your membership</span>
+             <h2 className="font-display mt-2 text-2xl text-white">{active ? membership!.planName : membership?.status === "expired" ? membership.planName : "No active plan"}</h2>
+             <p className="mt-1 text-sm text-white/55">
+-              {active ? `Runs ${membership!.startDate} → ${membership!.endDate}` : openInvoice ? `Invoice ${openInvoice.number} · ${money(openInvoice.balance)} due` : "Choose a plan to get started."}
++              {active
++                ? `Runs ${membership!.startDate} → ${membership!.endDate}`
++                : openInvoice
++                  // Someone paying in instalments needs to see the progress,
++                  // not just the shortfall — the balance alone looks like the
++                  // earlier payment never arrived.
++                  ? openInvoice.amountPaid > 0
++                    ? `Invoice ${openInvoice.number} · ${money(openInvoice.amountPaid)} of ${money(openInvoice.total)} paid · ${money(openInvoice.balance)} to go`
++                    : `Invoice ${openInvoice.number} · ${money(openInvoice.balance)} due`
++                  : "Choose a plan to get started."}
+             </p>
+             <p className="mt-2 text-xs text-white/40">Coach: <span className="text-white/60">{trainer ? trainer.name : "General"}</span></p>
+           </div>
+           <div>
+-            {openInvoice ? <Button href={`/portal/invoices/${openInvoice.id}`} variant="primary" withArrow>View invoice</Button>
++            {openInvoice ? <Button href={`/portal/invoices/${openInvoice.id}`} variant="primary" withArrow>{openInvoice.amountPaid > 0 ? "Pay the balance" : "View invoice"}</Button>
+               : active ? <span className="rounded-full bg-lime-500/15 px-4 py-2 text-sm font-semibold text-lime-400">You&rsquo;re all set 💪</span>
+               : <Button href="/portal/plans" variant="primary" withArrow>{membership?.status === "expired" ? "Renew membership" : "Choose a plan"}</Button>}
+           </div>
+diff --git a/src/app/(portal)/portal/plans/page.tsx b/src/app/(portal)/portal/plans/page.tsx
+index ddc9fa0..1879112 100644
+--- a/src/app/(portal)/portal/plans/page.tsx
++++ b/src/app/(portal)/portal/plans/page.tsx
+@@ -1,7 +1,7 @@
+ import type { Metadata } from "next";
+ import { redirect } from "next/navigation";
+ import { currentUser } from "@/lib/auth/current-user";
+-import { getUser, listBillablePlans, currentMembership } from "@/lib/db/repo";
++import { getUser, listBillablePlans, currentMembership, invoicesForMember } from "@/lib/db/repo";
+ import { memberChoosePlan } from "@/lib/auth/member-actions";
+ import { SubmitButton } from "@/components/admin/submit-button";
+ import { registrationFee } from "@/lib/gym";
+@@ -22,6 +22,10 @@ export default async function PortalPlansPage() {
+   if (!member) redirect("/portal/login");
+   // Active members have nothing to renew/change — keep them off the plan picker.
+   if (currentMembership(session.sub)?.status === "active") redirect("/portal");
++  // Nor has anyone part-way through paying one off: picking again would strand
++  // their instalments on an abandoned invoice. Straight back to it.
++  const partPaid = invoicesForMember(session.sub).find((i) => i.status === "partially_paid" && i.amountPaid > 0);
++  if (partPaid) redirect(`/portal/invoices/${partPaid.id}`);
+ 
+   const plans = listBillablePlans().filter((p) => p.category !== "day-pass" && p.tier !== "Corporate");
+ 
+diff --git a/src/app/admin/settings/page.tsx b/src/app/admin/settings/page.tsx
+index 779fa22..967ccbe 100644
+--- a/src/app/admin/settings/page.tsx
++++ b/src/app/admin/settings/page.tsx
+@@ -64,6 +64,31 @@ export default function SettingsPage() {
+               anything already marked paid stays as it was agreed.
+             </p>
+           </Card>
++
++          <Card title="Part payment">
++            <p className="mb-4 text-xs text-zinc-500">
++              Whether a member can pay a membership off in instalments from their own
++              portal. <b>Access still starts only when the invoice is clear</b> — an
++              instalment is recorded against the balance and nothing else.
++            </p>
++            <label className="flex items-start gap-3 rounded-lg border border-zinc-100 px-3 py-3">
++              <input name="allowPartPayment" type="checkbox" defaultChecked={s.allowPartPayment} className="mt-0.5 h-4 w-4 rounded border-zinc-300 text-ember-500 focus:ring-ember-200" />
++              <span>
++                <span className="block text-sm font-medium text-zinc-800">Let members pay in instalments</span>
++                <span className="block text-xs text-zinc-500">Unticked, the portal offers the full balance only.</span>
++              </span>
++            </label>
++            <div className="mt-4">
++              <Labeled label="Smallest instalment (KSh)">
++                <input name="minPartPayment" type="number" min="1" step="1" defaultValue={s.minPartPayment} className={field} />
++              </Labeled>
++              <p className="mt-2 text-xs text-zinc-400">
++                Every instalment costs a gateway fee, so a very small one loses money and
++                settles nothing. A balance already at or below this figure is offered in
++                full — there is no part of it left to pay.
++              </p>
++            </div>
++          </Card>
+         </div>
+ 
+         <div className="mt-6 flex items-center gap-3">
+diff --git a/src/app/api/portal/invoices/[id]/status/route.ts b/src/app/api/portal/invoices/[id]/status/route.ts
+index 74c4ec5..b815e32 100644
+--- a/src/app/api/portal/invoices/[id]/status/route.ts
++++ b/src/app/api/portal/invoices/[id]/status/route.ts
+@@ -23,5 +23,14 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }>
+     return new Response("Not found", { status: 404 });
+   }
+ 
+-  return Response.json({ status: inv.status, balance: inv.balance });
++  // amountPaid as well as status: an instalment that lands leaves the invoice
++  // "partially_paid", so a screen watching only for "paid" would sit there
++  // spinning after the money has arrived. The screen compares this against
++  // what was paid when the prompt went out.
++  return Response.json({
++    status: inv.status,
++    balance: inv.balance,
++    amountPaid: inv.amountPaid,
++    total: inv.total,
++  });
+ }
+diff --git a/src/components/portal/pay-amount.tsx b/src/components/portal/pay-amount.tsx
+new file mode 100644
+index 0000000..a6c42a6
+--- /dev/null
++++ b/src/components/portal/pay-amount.tsx
+@@ -0,0 +1,117 @@
++"use client";
++
++import { useState } from "react";
++import { SubmitButton } from "@/components/admin/submit-button";
++
++/* ==========================================================================
++   Pay the lot, or pay some of it.
++
++   Two things this screen has to be honest about, because getting either wrong
++   is how a member ends up standing at the door arguing:
++
++   · Membership starts when the invoice is CLEAR, not when the first
++     instalment lands. So the running total and the words both say what is
++     still owed, before the money leaves their phone — not after.
++   · The figure typed here is a request, not an instruction. The server
++     re-decides it; min/max below are there to stop an honest mistake, not to
++     enforce anything.
++
++   Paying in full stays the default and the prominent button: part payment is
++   for people who would otherwise close the tab, not the path of least
++   resistance for people who can pay today.
++   ========================================================================== */
++
++const money = (n: number) => `KSh ${n.toLocaleString()}`;
++
++export function PayAmount({
++  action,
++  invoiceId,
++  balance,
++  allowPart,
++  min,
++}: {
++  /** The server action. Passed in so the action itself stays server-side. */
++  action: (formData: FormData) => void | Promise<void>;
++  invoiceId: string;
++  balance: number;
++  allowPart: boolean;
++  /** Smallest instalment the gym accepts. */
++  min: number;
++}) {
++  const [mode, setMode] = useState<"full" | "part">("full");
++  const [amount, setAmount] = useState(() => String(Math.min(Math.max(min, Math.round(balance / 2)), balance)));
++
++  const asked = mode === "full" ? balance : Math.floor(Number(amount));
++  const valid = Number.isFinite(asked) && asked >= (mode === "full" ? 1 : min) && asked <= balance;
++  const after = valid ? balance - asked : balance;
++
++  return (
++    <form action={action}>
++      <input type="hidden" name="invoiceId" value={invoiceId} />
++      <input type="hidden" name="mode" value={mode} />
++
++      <h3 className="font-display text-lg text-white">Pay {money(balance)}</h3>
++      <p className="mt-1 text-sm text-white/55">
++        Pay with M-Pesa. Your membership activates the moment the invoice is cleared.
++      </p>
++
++      {allowPart && (
++        <>
++          <div className="mt-5 grid grid-cols-2 gap-2 rounded-2xl border border-white/10 bg-ink-900 p-1.5">
++            <Choice on={mode === "full"} onClick={() => setMode("full")} label="Pay in full" sub={money(balance)} />
++            <Choice on={mode === "part"} onClick={() => setMode("part")} label="Pay part of it" sub={`From ${money(min)}`} />
++          </div>
++
++          {mode === "part" && (
++            <label className="mt-4 block">
++              <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.08em] text-white/45">
++                How much are you sending now?
++              </span>
++              <div className="flex items-center gap-2 rounded-xl border border-white/12 bg-ink-900 px-3 focus-within:border-lime-500/50">
++                <span className="text-sm text-white/40">KSh</span>
++                <input
++                  name="amount"
++                  type="number"
++                  inputMode="numeric"
++                  min={min}
++                  max={balance}
++                  step={1}
++                  value={amount}
++                  onChange={(e) => setAmount(e.target.value)}
++                  className="w-full bg-transparent py-3 text-base font-semibold text-white outline-none"
++                />
++              </div>
++              <span className={`mt-2 block text-xs ${valid ? "text-white/45" : "text-ember-400"}`}>
++                {valid
++                  ? after > 0
++                    ? `${money(after)} left after this — your membership starts once that is paid too.`
++                    : "That clears the invoice — your membership activates straight away."
++                  : `Enter between ${money(min)} and ${money(balance)}.`}
++              </span>
++            </label>
++          )}
++        </>
++      )}
++
++      <SubmitButton className="btn-sheen mt-5 w-full rounded-full bg-lime-500 py-3 text-sm font-semibold uppercase tracking-wide text-ink-900 hover:bg-lime-400">
++        {mode === "full" || !valid ? "Pay with M-Pesa" : `Send ${money(asked)} prompt`}
++      </SubmitButton>
++    </form>
++  );
++}
++
++function Choice({ on, onClick, label, sub }: { on: boolean; onClick: () => void; label: string; sub: string }) {
++  return (
++    <button
++      type="button"
++      onClick={onClick}
++      aria-pressed={on}
++      className={`rounded-xl px-3 py-2.5 text-left transition-colors ${
++        on ? "bg-lime-500/15 ring-1 ring-lime-500/45" : "hover:bg-white/5"
++      }`}
++    >
++      <span className={`block text-sm font-semibold ${on ? "text-lime-300" : "text-white/70"}`}>{label}</span>
++      <span className="block text-xs text-white/40">{sub}</span>
++    </button>
++  );
++}
+diff --git a/src/components/portal/payment-stage.tsx b/src/components/portal/payment-stage.tsx
+index 3439859..b00ca4f 100644
+--- a/src/components/portal/payment-stage.tsx
++++ b/src/components/portal/payment-stage.tsx
+@@ -25,12 +25,15 @@ import { useRouter } from "next/navigation";
+ 
+ type State = "prompted" | "paid" | "failed";
+ 
++const money = (n: number) => `KSh ${n.toLocaleString()}`;
++
+ export function PaymentStage({
+   statusUrl,
+   amount,
+   partnerName,
+   initial = "prompted",
+   initialError,
++  paidBefore = 0,
+   retry,
+ }: {
+   statusUrl: string;
+@@ -38,6 +41,10 @@ export function PaymentStage({
+   partnerName?: string | null;
+   initial?: State;
+   initialError?: string | null;
++  /** What the invoice had already taken when this prompt went out. An
++      instalment is recognised by this figure moving, because the invoice stays
++      "partially_paid" and waiting for "paid" would wait for ever. */
++  paidBefore?: number;
+   /** The retry form, rendered by the server so the action stays server-side. */
+   retry: ReactNode;
+ }) {
+@@ -89,13 +96,19 @@ export function PaymentStage({
+         if (cancelled) return;
+         try {
+           const r = await fetch(statusUrl, { headers: { Accept: "application/json" }, cache: "no-store" });
+-          const d = (await r.json()) as { status?: string };
++          const d = (await r.json()) as { status?: string; balance?: number; amountPaid?: number };
+           if (cancelled) return;
+-          if (d.status === "paid") {
++          const settled = d.status === "paid";
++          const instalment = typeof d.amountPaid === "number" && d.amountPaid > paidBefore;
++          if (settled || instalment) {
+             setState("paid");
+-            setHead("Paid");
+-            setSub("Activating your membership…");
+-            setTimeout(() => router.refresh(), 900);
++            setHead(settled ? "Paid" : "Payment received");
++            setSub(
++              settled
++                ? "Activating your membership…"
++                : `${money(d.balance ?? 0)} still to go before your membership starts.`,
++            );
++            setTimeout(() => router.refresh(), settled ? 900 : 1600);
+             return;
+           }
+           wait = Math.min(wait + 900, 6000);
+diff --git a/src/lib/admin/module-actions.ts b/src/lib/admin/module-actions.ts
+index c260c64..d529b62 100644
+--- a/src/lib/admin/module-actions.ts
++++ b/src/lib/admin/module-actions.ts
+@@ -225,6 +225,10 @@ export async function updateSettingsAction(formData: FormData) {
+     gatewayFeeFlat: num(formData, "gatewayFeeFlat"),
+     platformFeePercent: num(formData, "platformFeePercent"),
+     platformFeeMonthly: num(formData, "platformFeeMonthly"),
++    // An unchecked checkbox posts nothing at all, so this reads as off — which
++    // is what is wanted here, since the field is always on the saved form.
++    allowPartPayment: formData.get("allowPartPayment") === "on",
++    minPartPayment: num(formData, "minPartPayment", 500),
+   });
+   // A rate change leaves every unpaid period stale, so recompute here rather
+   // than waiting for the nightly tick. Paid periods are frozen and untouched.
+diff --git a/src/lib/auth/member-actions.ts b/src/lib/auth/member-actions.ts
+index b4e9067..7c0b8f4 100644
+--- a/src/lib/auth/member-actions.ts
++++ b/src/lib/auth/member-actions.ts
+@@ -8,6 +8,7 @@ import { getUserByEmail, getUser, currentMembership } from "@/lib/db/repo";
+ import { assignPlan, recordInvoicePayment, setInvoiceCheckout } from "@/lib/services/billing";
+ import { memberEnrollWorkout } from "@/lib/services/programmes";
+ import { paymentsConfigured, stkPush } from "@/lib/services/payments";
++import { partPaymentRange } from "@/lib/services/settings";
+ import { hashPassword } from "./password";
+ import { signSession, SESSION_COOKIE, SESSION_MAX_AGE } from "./session";
+ import { currentUser } from "./current-user";
+@@ -71,6 +72,16 @@ export async function memberChoosePlan(formData: FormData) {
+   // discard remaining days. Send them back; only lapsed members proceed.
+   const membership = currentMembership(session!.sub);
+   if (membership?.status === "active") redirect("/portal");
++
++  // Money already on an open invoice pins the member to that plan. Raising a
++  // second invoice would leave their instalments sitting against a plan they
++  // have walked away from — paid, recorded, and buying them nothing. Changing
++  // plan mid-instalments is a desk conversation, not a self-service button.
++  const partPaid = getDB().invoices.find(
++    (i) => i.memberId === session!.sub && i.status === "partially_paid" && i.amountPaid > 0,
++  );
++  if (partPaid) redirect(`/portal/invoices/${partPaid.id}`);
++
+   const planId = String(formData.get("planId") || "");
+   const { invoiceId } = await assignPlan(session!.sub, planId);
+   revalidatePath("/portal");
+@@ -88,8 +99,15 @@ export async function memberToggleWorkout(formData: FormData) {
+   revalidatePath("/portal");
+ }
+ 
+-/** Member self-checkout. M-Pesa STK lands in Phase 4; for now this records the
+-    payment and auto-activates the membership. */
++/**
++ * Member self-checkout: raise an M-Pesa prompt for the whole balance, or for
++ * an instalment the member chooses.
++ *
++ * The amount is re-decided here and the form's figure is never trusted. The
++ * screen's `max` attribute is a convenience for the person using it, not a
++ * control — a hand-posted form could otherwise ask for a prompt of KSh 1, or
++ * for more than is owed.
++ */
+ export async function memberPayInvoice(formData: FormData) {
+   const session = await currentUser();
+   if (!session) redirect("/portal/login");
+@@ -99,6 +117,18 @@ export async function memberPayInvoice(formData: FormData) {
+     redirect(`/portal/invoices/${invoiceId}`);
+   }
+ 
++  // Default to the whole balance: that is what the button said before part
++  // payment existed, and it stays the answer when nothing is asked for.
++  let amount = inv!.balance;
++  if (String(formData.get("mode") || "full") === "part") {
++    const { allowed, min, max } = partPaymentRange(inv!.balance);
++    const asked = Math.floor(Number(formData.get("amount")));
++    if (!allowed || !Number.isFinite(asked) || asked < min || asked > max) {
++      redirect(`/portal/invoices/${invoiceId}?stk=amount`);
++    }
++    amount = asked;
++  }
++
+   const member = getUser(session!.sub);
+   // No provider configured → members never self-activate. The admin confirms
+   // the invoice and onboards them. The UI shows a "coming soon" state, so this
+@@ -109,11 +139,13 @@ export async function memberPayInvoice(formData: FormData) {
+ 
+   // Real STK push — payment is confirmed asynchronously via the callback.
+   const res = await stkPush({
+-    phone: member!.phone, amount: inv!.balance, accountRef: inv!.number,
++    phone: member!.phone, amount, accountRef: inv!.number,
+     description: `Fit Generations ${inv!.number}`,
+   });
+   if (res.ok && res.checkoutId) {
+-    await setInvoiceCheckout(invoiceId, res.checkoutId);
++    // The amount goes with the checkout id: see settleByCheckout for why an
++    // instalment cannot be left to the callback's say-so alone.
++    await setInvoiceCheckout(invoiceId, res.checkoutId, amount);
+     revalidatePath("/portal");
+     redirect(`/portal/invoices/${invoiceId}?stk=sent`);
+   }
+@@ -125,6 +157,7 @@ export async function memberPayInvoice(formData: FormData) {
+   // network. Keep it where the operator will find it.
+   console.error("[payments] stk push failed", {
+     invoice: inv!.number,
++    amount,
+     reason: res.error,
+   });
+ 
+diff --git a/src/lib/db/schema.ts b/src/lib/db/schema.ts
+index d4148a3..b8ddd00 100644
+--- a/src/lib/db/schema.ts
++++ b/src/lib/db/schema.ts
+@@ -129,6 +129,9 @@ export type Invoice = {
+   paidAt?: string;
+   notes?: string;
+   pendingCheckoutId?: string; // M-Pesa STK CheckoutRequestID awaiting callback
++  /** What that prompt asked for. Part payments make this necessary: a callback
++      that omits its Amount must not be left to settle the whole balance. */
++  pendingCheckoutAmount?: number;
+   publicToken?: string; // unguessable token for the shareable public invoice link
+ };
+ 
+@@ -325,6 +328,12 @@ export type GymSettings = {
+   gatewayFeeFlat: number;     // plus this per transaction, KES
+   platformFeePercent: number; // support/hosting, % of collections
+   platformFeeMonthly: number; // plus this per month, KES
++
++  /* Part payment, from the member's own screen. The gym decides whether to
++     offer it at all and what the smallest instalment is — a KSh 20 payment
++     costs them a gateway fee and moves nobody closer to training. */
++  allowPartPayment: boolean;
++  minPartPayment: number; // smallest instalment a member may send, KES
+ };
+ 
+ export type DB = {
+diff --git a/src/lib/db/seed.ts b/src/lib/db/seed.ts
+index c985f47..78a0d63 100644
+--- a/src/lib/db/seed.ts
++++ b/src/lib/db/seed.ts
+@@ -315,6 +315,7 @@ export function buildSeed(): DB {
+     // No fee is charged until the gym and the supplier agree one and enter it
+     // under Settings. A seeded rate would be a charge nobody consented to.
+     gatewayFeePercent: 0, gatewayFeeFlat: 0, platformFeePercent: 0, platformFeeMonthly: 0,
++    allowPartPayment: true, minPartPayment: 500,
+   }];
+ 
+   return {
+diff --git a/src/lib/services/billing.ts b/src/lib/services/billing.ts
+index 1ff2965..8cc52fb 100644
+--- a/src/lib/services/billing.ts
++++ b/src/lib/services/billing.ts
+@@ -258,11 +258,14 @@ export async function voidInvoice(invoiceId: string): Promise<void> {
+   });
+ }
+ 
+-/** Attach an M-Pesa CheckoutRequestID so the callback can reconcile it. */
+-export async function setInvoiceCheckout(invoiceId: string, checkoutId: string): Promise<void> {
++/** Attach an M-Pesa CheckoutRequestID so the callback can reconcile it, along
++    with what the prompt asked for — see pendingCheckoutAmount. */
++export async function setInvoiceCheckout(invoiceId: string, checkoutId: string, amount?: number): Promise<void> {
+   await saveDB((db) => {
+     const inv = db.invoices.find((i) => i.id === invoiceId);
+-    if (inv) inv.pendingCheckoutId = checkoutId;
++    if (!inv) return;
++    inv.pendingCheckoutId = checkoutId;
++    inv.pendingCheckoutAmount = amount;
+   });
+ }
+ 
+@@ -270,10 +273,16 @@ export async function setInvoiceCheckout(invoiceId: string, checkoutId: string):
+ export async function settleByCheckout(checkoutId: string, amount: number | undefined, reference?: string): Promise<boolean> {
+   const inv = getDB().invoices.find((i) => i.pendingCheckoutId === checkoutId);
+   if (!inv) return false;
+-  await recordInvoicePayment(inv.id, { amount: amount ?? inv.balance, method: "Mpesa", reference });
++  // The callback's own figure first, then what the prompt asked for, and only
++  // then the balance. That order matters now that a member can pay an
++  // instalment: a body that omits Amount used to fall straight through to the
++  // whole balance, marking a KSh 2,000 instalment as a KSh 6,000 invoice
++  // settled in full — and activating a membership nobody has paid for.
++  const settled = amount ?? inv.pendingCheckoutAmount ?? inv.balance;
++  await recordInvoicePayment(inv.id, { amount: settled, method: "Mpesa", reference });
+   await saveDB((db) => {
+     const i = db.invoices.find((x) => x.id === inv.id);
+-    if (i) i.pendingCheckoutId = undefined;
++    if (i) { i.pendingCheckoutId = undefined; i.pendingCheckoutAmount = undefined; }
+   });
+   return true;
+ }
+diff --git a/src/lib/services/settings.ts b/src/lib/services/settings.ts
+index 1d8a621..1522c7f 100644
+--- a/src/lib/services/settings.ts
++++ b/src/lib/services/settings.ts
+@@ -17,6 +17,10 @@ const DEFAULTS: GymSettings = {
+   // All zero on purpose. A fee the gym never agreed to must not appear by
+   // default; the supplier and the gym set these together, in the open.
+   gatewayFeePercent: 0, gatewayFeeFlat: 0, platformFeePercent: 0, platformFeeMonthly: 0,
++  // Part payment on by default — it is why people walk out of the signup, and
++  // the gym can switch it off. The floor is not zero: every instalment costs a
++  // gateway fee, so a KSh 1 payment loses money and settles nothing.
++  allowPartPayment: true, minPartPayment: 500,
+ };
+ 
+ export function getSettings(): GymSettings {
+@@ -26,6 +30,22 @@ export function getSettings(): GymSettings {
+   return { ...DEFAULTS, ...(getDB().settings[0] ?? {}) };
+ }
+ 
++/**
++ * What a member may send against an open balance, in one place so the screen
++ * and the server action cannot disagree — a form offering an amount the server
++ * then rejects is worse than not offering the choice at all.
++ *
++ * `allowed` is false when the balance is already at or below the minimum
++ * instalment: there is no "part" left to pay, and offering one would just be
++ * paying in full under another name.
++ */
++export function partPaymentRange(balance: number): { allowed: boolean; min: number; max: number } {
++  const s = getSettings();
++  const max = Math.max(0, Math.floor(balance));
++  const min = Math.min(Math.max(1, Math.floor(s.minPartPayment)), max);
++  return { allowed: s.allowPartPayment && max > min, min, max };
++}
++
+ export async function updateSettings(patch: Partial<Omit<GymSettings, "id" | "gymId">>): Promise<void> {
+   await saveDB((db) => {
+     if (db.settings.length === 0) db.settings.push({ ...DEFAULTS });
