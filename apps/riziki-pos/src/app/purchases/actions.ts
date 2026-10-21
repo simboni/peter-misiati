@@ -25,6 +25,15 @@ import { formatKes, toCents } from "@/lib/units";
 export interface FormState {
   error?: string;
   ok?: string;
+  /**
+   * Changes on every delivery written, and is what empties the form.
+   *
+   * The id of the delivery, so two deliveries that happen to come to the same
+   * total still produce different keys — a message is not unique enough to
+   * remount on, and a form that did not empty is how the shop came to own two
+   * of everything.
+   */
+  entryKey?: string;
 }
 
 function centsFromField(raw: FormDataEntryValue | null, label: string): number {
@@ -168,12 +177,29 @@ export async function recordPurchaseAction(_prev: FormState, formData: FormData)
       transportCents: centsFromField(formData.get("transport"), "Transport"),
       lines,
       userId: user.id,
+      clientUuid: String(formData.get("client_uuid") ?? ""),
     });
 
     revalidatePath("/purchases");
     revalidatePath("/stock");
 
+    /*
+      The same delivery arriving twice is not an error and must not read like
+      one: nothing was written, the first one is on the list, and the person at
+      the counter needs to know both of those things in one sentence rather
+      than go hunting for a duplicate that is not there.
+    */
+    if (res.duplicate) {
+      return {
+        entryKey: String(res.purchaseId),
+        ok:
+          `Already recorded — ${formatKes(res.totalCents)}. That was the same delivery arriving ` +
+          `twice, so nothing was entered again.`,
+      };
+    }
+
     return {
+      entryKey: String(res.purchaseId),
       ok:
         `Delivery recorded: ${res.lines.length} ${res.lines.length === 1 ? "line" : "lines"}, ` +
         `${formatKes(res.totalCents)} landed` +

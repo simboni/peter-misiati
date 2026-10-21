@@ -130,7 +130,16 @@ const MORE_GROUPS: Array<{
       { href: "/check", label: "Worth checking", short: "Check", need: "cost" },
       { href: "/activity", label: "Activity log", need: "owner" },
       { href: "/settings", label: "Users & settings", need: "owner" },
-      { href: "/settings/printer", label: "Receipt printer", need: "owner" },
+      /*
+        Open to everybody, and it always should have been.
+
+        The page itself has never needed more than a signed-in user — it pairs
+        the counter printer with THIS device and stores nothing an attendant
+        may not see. Hiding it behind the owner meant whoever actually stands
+        at the till could not reconnect the printer when it dropped, and had to
+        fetch the owner to press a button they were allowed to press.
+      */
+      { href: "/settings/printer", label: "Receipt printer" },
       { href: "/pin", label: "Change my PIN" },
     ],
   },

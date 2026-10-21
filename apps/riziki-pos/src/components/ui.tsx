@@ -15,12 +15,18 @@ import type { ReactNode } from "react";
 export function Card({
   children,
   className = "",
+  id,
 }: {
   children: ReactNode;
   className?: string;
+  /** So a redirect can land back on the card the button was pressed on. */
+  id?: string;
 }) {
   return (
-    <div className={`rounded-3xl bg-white p-4 shadow-card ring-1 ring-ink/5 xl:p-4 2xl:p-5 ${className}`}>
+    <div
+      id={id}
+      className={`rounded-3xl bg-white p-4 shadow-card ring-1 ring-ink/5 xl:p-4 2xl:p-5 ${className}`}
+    >
       {children}
     </div>
   );

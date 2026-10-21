@@ -75,7 +75,17 @@ async function updatePin(formData: FormData): Promise<void> {
   }
   revalidatePath("/settings");
   // Outside the try: `redirect` reports itself by throwing.
-  redirect(`/settings?ok=${encodeURIComponent(said)}`);
+  /*
+    Back to the card it was pressed on, not to the top of the page.
+
+    The message used to land above "People", several hundred pixels above the
+    button, on a screen with a card per person. The owner pressed Save, the
+    page redrew, nothing near their finger changed, and they reported the
+    button as dead — three times. A confirmation that cannot be seen from where
+    the action happened is not a confirmation.
+  */
+  const who = Number(formData.get("userId"));
+  redirect(`/settings?ok=${encodeURIComponent(said)}&who=${who}#user-${who}`);
 }
 
 async function toggleActive(formData: FormData): Promise<void> {
@@ -152,7 +162,17 @@ async function savePermissions(formData: FormData) {
     Outside the try on purpose — `redirect` reports itself by throwing, and a
     catch around it would swallow it and report a save that worked as a failure.
   */
-  redirect(`/settings?ok=${encodeURIComponent(said)}`);
+  /*
+    Back to the card it was pressed on, not to the top of the page.
+
+    The message used to land above "People", several hundred pixels above the
+    button, on a screen with a card per person. The owner pressed Save, the
+    page redrew, nothing near their finger changed, and they reported the
+    button as dead — three times. A confirmation that cannot be seen from where
+    the action happened is not a confirmation.
+  */
+  const who = Number(formData.get("userId"));
+  redirect(`/settings?ok=${encodeURIComponent(said)}&who=${who}#user-${who}`);
 }
 
 async function saveOversell(formData: FormData): Promise<void> {
@@ -227,9 +247,12 @@ function permissionsSaid(name: string, keys: readonly string[]): string {
 }
 
 export default async function SettingsPage(props: {
-  searchParams: Promise<{ err?: string; ok?: string }>;
+  searchParams: Promise<{ err?: string; ok?: string; who?: string }>;
 }) {
-  const { err, ok } = await props.searchParams;
+  const { err, ok, who } = await props.searchParams;
+  // Which card the message belongs beside. Absent for anything not about one
+  // person, which still shows at the top as before.
+  const okFor = Number(who) || 0;
   const me = await currentUser();
   if (!me) {
     return <Alert tone="bad">Please sign in.</Alert>;
@@ -281,8 +304,10 @@ export default async function SettingsPage(props: {
       ) : null}
 
       {/* What a save did, in words. The forms on this screen change nothing
-          visible when they work, so without this the buttons read as dead. */}
-      {ok ? (
+          visible when they work, so without this the buttons read as dead.
+          A message about one person is shown on that person's card instead —
+          beside the button that produced it. */}
+      {ok && !okFor ? (
         <div className="mb-3">
           <Alert tone="good">{ok}</Alert>
         </div>
@@ -300,7 +325,8 @@ export default async function SettingsPage(props: {
       <SectionLabel>People</SectionLabel>
       <div className="grid gap-2 md:grid-cols-2 2xl:grid-cols-3">
         {users.map((u) => (
-          <Card key={u.id}>
+          // The id is what lets a save scroll back to the person it was about.
+          <Card key={u.id} id={`user-${u.id}`}>
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
@@ -421,6 +447,11 @@ export default async function SettingsPage(props: {
             ) : (
               <form action={savePermissions} className="mt-2.5 border-t border-line pt-2.5">
                 <input type="hidden" name="userId" value={u.id} />
+                {ok && okFor === u.id ? (
+                  <div className="mb-2">
+                    <Alert tone="good">{ok}</Alert>
+                  </div>
+                ) : null}
                 <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted">
                   What they may see and do
                 </div>
@@ -444,7 +475,16 @@ export default async function SettingsPage(props: {
                     );
                   })}
                 </div>
-                <Button type="submit" variant="ghost" className="mt-2">
+                {/*
+                  A FILLED BUTTON, NOT A GHOST.
+
+                  This was a white pill with a hairline border sitting under six
+                  bold labels, and the owner read it as greyed out — "the button
+                  is not active". It was never disabled; it just looked it. The
+                  one control on this card that writes something now looks like
+                  the one control that writes something.
+                */}
+                <Button type="submit" className="mt-2 w-full sm:w-auto">
                   Save what they may see
                 </Button>
                 <p className="mt-1.5 text-[11px] text-muted">

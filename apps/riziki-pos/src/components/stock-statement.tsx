@@ -357,6 +357,7 @@ export function StatementTable({
               <Link href={`/stock/${r.itemId}`} className="font-semibold hover:underline">
                 {r.name}
               </Link>
+              {r.packs ? <Containers row={r} /> : null}
             </Td>
             <Td align="right" className="text-muted">
               <Qty milli={r.openingMilli} unit={r.unit} />
@@ -387,6 +388,94 @@ export function StatementTable({
         ))}
       </tbody>
     </TableWrap>
+  );
+}
+
+/**
+ * WHAT THE KILOGRAMMES ARE STANDING IN.
+ *
+ * "203 kg of Ungerol" is a true answer to a question nobody asks. The shop
+ * keeps seven 20 kg jerricans, ten 5 kg jerricans and the rest in the drum, and
+ * that is the only form of the number that can be checked against the yard by
+ * eye.
+ *
+ * The summary line carries the closing answer, so the common question is
+ * answered with nothing to press — a fold that must be opened to see what is
+ * there is a fold that stays shut. Opening it gives both ends and everything
+ * between: what was standing at the start, what was poured, what went out, what
+ * was tipped back, and what is standing now.
+ */
+function Containers({ row }: { row: StatementRow }) {
+  const p = row.packs!;
+  const standing = p.sizes.filter((s) => s.closingPacks > 0);
+  const unit = p.unit;
+
+  const summary =
+    standing.length === 0
+      ? `all ${formatQty(p.closingLooseMilli, unit)} loose`
+      : standing.map((s) => `${s.closingPacks} × ${s.label}`).join(" · ") +
+        (p.closingLooseMilli > 0 ? ` · ${formatQty(p.closingLooseMilli, unit)} loose` : "");
+
+  return (
+    <details className="mt-0.5">
+      <summary className="inline-flex min-h-8 cursor-pointer list-none items-center gap-1 text-[11px] text-muted hover:text-ink xl:min-h-6">
+        <span aria-hidden className="text-brand">▸</span>
+        <span className="tnum">{summary}</span>
+      </summary>
+
+      <div className="mt-1 rounded-xl border border-line bg-wash/60 p-2">
+        <table className="w-full border-collapse text-[11px]">
+          <thead>
+            <tr className="text-muted">
+              <th className="py-0.5 pr-2 text-left font-semibold">Size</th>
+              <th className="py-0.5 px-1 text-right font-semibold">Opening</th>
+              <th className="py-0.5 px-1 text-right font-semibold">Filled</th>
+              <th className="py-0.5 px-1 text-right font-semibold">Sold</th>
+              <th className="py-0.5 px-1 text-right font-semibold">Opened</th>
+              <th className="py-0.5 pl-1 text-right font-semibold">Closing</th>
+            </tr>
+          </thead>
+          <tbody>
+            {p.sizes.map((s) => (
+              <tr key={s.bundleId} className="border-t border-line/70">
+                <td className="py-0.5 pr-2 font-semibold whitespace-nowrap">{s.label}</td>
+                <td className="py-0.5 px-1 text-right tnum text-muted">{s.openingPacks || "—"}</td>
+                <td className="py-0.5 px-1 text-right tnum text-good">
+                  {s.filledPacks ? `+${s.filledPacks}` : "—"}
+                </td>
+                <td className="py-0.5 px-1 text-right tnum">{s.soldPacks ? `−${s.soldPacks}` : "—"}</td>
+                <td className="py-0.5 px-1 text-right tnum text-muted">
+                  {s.openedPacks ? `−${s.openedPacks}` : "—"}
+                </td>
+                <td className="py-0.5 pl-1 text-right font-extrabold tnum">{s.closingPacks}</td>
+              </tr>
+            ))}
+            <tr className="border-t border-line">
+              <td className="py-0.5 pr-2 font-semibold text-muted">Loose in the drum</td>
+              <td className="py-0.5 px-1 text-right tnum text-muted">
+                {formatQty(p.openingLooseMilli, unit)}
+              </td>
+              <td colSpan={3} />
+              <td className="py-0.5 pl-1 text-right font-extrabold tnum">
+                {formatQty(p.closingLooseMilli, unit)}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        {p.batches.length ? (
+          <p className="mt-1.5 border-t border-line pt-1.5 text-[11px] text-muted">
+            Filled from {p.batches.length === 1 ? "batch" : "batches"}{" "}
+            <span className="font-semibold">{p.batches.join(", ")}</span>.
+          </p>
+        ) : null}
+
+        <p className="mt-1 text-[11px] text-muted">
+          Containers, not weight. The {formatQty(row.closingMilli, unit)} in the Closing column is
+          these and the drum together.
+        </p>
+      </div>
+    </details>
   );
 }
 

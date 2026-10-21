@@ -564,6 +564,12 @@ CREATE TABLE IF NOT EXISTS purchases (
   transport_cents INTEGER NOT NULL DEFAULT 0 CHECK (transport_cents >= 0),
   ref          TEXT    NOT NULL DEFAULT '',
   user_id      INTEGER REFERENCES users(id),
+  -- Minted on the device when the form is opened, so pressing "Record delivery"
+  -- twice files one delivery. The same guard a sale has carried from the start;
+  -- deliveries went without it and the shop reported entering one and getting
+  -- two. NULL for everything recorded before this existed, and SQLite treats
+  -- NULLs in a unique index as distinct, so those rows are left alone.
+  client_uuid  TEXT UNIQUE,
   -- A delivery that never happened: typed twice, or against the wrong supplier,
   -- or for goods that went back on the lorry. Undone the way a sale is undone —
   -- the row stays, the stock it added comes off, and the cost history is

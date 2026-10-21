@@ -148,6 +148,7 @@ const ADDED_COLUMNS: Array<{ table: string; column: string; definition: string }
     Stated here as well as in schema.sql, because `CREATE TABLE IF NOT EXISTS`
     does nothing to a database that already has the table — and the shop's does.
   */
+  { table: "purchases", column: "client_uuid", definition: "TEXT" },
   { table: "purchases", column: "void_reason", definition: "TEXT" },
   { table: "purchases", column: "voided_by", definition: "INTEGER REFERENCES users(id)" },
   { table: "purchases", column: "voided_at", definition: "TEXT" },
@@ -276,6 +277,16 @@ const ADDED_INDEXES = [
   { name: "idx_formulas_output", sql: "CREATE INDEX IF NOT EXISTS idx_formulas_output ON formulas(output_item_id)", table: "formulas", column: "output_item_id" },
   { name: "idx_batches_output", sql: "CREATE INDEX IF NOT EXISTS idx_batches_output ON batches(output_item_id)", table: "batches", column: "output_item_id" },
   { name: "idx_batch_lines_item", sql: "CREATE INDEX IF NOT EXISTS idx_batch_lines_item ON batch_lines(item_id)", table: "batch_lines", column: "item_id" },
+  /*
+    The replay guard on a delivery, for a shop that has been trading.
+
+    A fresh file gets UNIQUE from the column declaration in schema.sql. SQLite
+    cannot add a UNIQUE column by ALTER TABLE, so on the live file the same
+    promise has to be made by an index — and it has to be made, not merely
+    checked in code: two taps a second apart are two requests, and only the
+    database can decide which of them is first.
+  */
+  { name: "idx_purchases_client_uuid", sql: "CREATE UNIQUE INDEX IF NOT EXISTS idx_purchases_client_uuid ON purchases(client_uuid)", table: "purchases", column: "client_uuid" },
 ];
 
 function migrate(conn: DatabaseSync): void {

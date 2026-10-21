@@ -25,6 +25,7 @@
 
 import { all } from "./db.ts";
 import { periodRange, type DateRange } from "./reports.ts";
+import { packBreakdowns, withLoose, type PackBreakdown } from "./pack-statement.ts";
 
 const MILLI = 1000;
 
@@ -171,6 +172,11 @@ export interface StatementRow {
   closingValueCents: number;
   /** True when anything at all happened in the period. */
   moved: boolean;
+  /**
+   * What the quantity is standing in, where the shop counts this one in
+   * containers. Absent for everything weighed straight out of the drum.
+   */
+  packs?: PackBreakdown;
 }
 
 export interface StatementTotals {
@@ -207,6 +213,8 @@ export interface StockStatement {
  * which is exactly why it can be asked as at any date at all.
  */
 export function stockStatement(range: DateRange): StockStatement {
+  // One query for every packed item's containers, rather than one per row.
+  const packs = packBreakdowns(range);
   const inRange = `date(m.at, '+3 hours') BETWEEN @from AND @to`;
   const before = `date(m.at, '+3 hours') < @from`;
 
@@ -283,6 +291,9 @@ export function stockStatement(range: DateRange): StockStatement {
       openingValueCents: value(r.opening, r.cost_cents),
       closingValueCents: value(closing, r.cost_cents),
       moved,
+      // The loose figure needs the quantities this row has just worked out, so
+      // the containers are finished here rather than in the query above.
+      packs: packs.has(r.id) ? withLoose(packs.get(r.id)!, r.opening, closing) : undefined,
     });
 
     totals.openingValueCents += value(r.opening, r.cost_cents);

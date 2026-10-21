@@ -224,6 +224,17 @@ export interface PurchaseInput {
   transportCents?: number;
   ref?: string;
   userId?: number | null;
+  /**
+   * Minted on the device when the delivery form is opened.
+   *
+   * The same guard a sale has carried from the start, and deliveries went
+   * without it: the shop reported entering one delivery and finding two, which
+   * is what a second press of a button that has not cleared itself produces.
+   * Optional, because a form posted before the page finished loading its
+   * JavaScript has none — and a delivery with no reference is still better than
+   * a refused one.
+   */
+  clientUuid?: string | null;
 }
 
 export interface PurchaseResult {
@@ -232,6 +243,8 @@ export interface PurchaseResult {
   transportCents: number;
   totalCents: number;
   lines: LandedLine[];
+  /** True when this was the same delivery arriving twice, and nothing was written. */
+  duplicate?: boolean;
 }
 
 /**
@@ -256,16 +269,43 @@ export function recordPurchase(input: PurchaseInput): PurchaseResult {
 
   const landed = prorateTransport(input.lines, transport);
   const goods = input.lines.reduce((sum, l) => sum + l.costCents, 0);
+  const clientUuid = (input.clientUuid ?? "").trim() || null;
 
   return tx(() => {
+    /*
+      Idempotency first, inside the transaction.
+
+      `tx` has already taken the write lock, so this lookup cannot race a second
+      press that arrived a moment later: one of them gets here first and writes,
+      the other finds it and writes nothing. Checking before the transaction
+      would leave exactly the gap the shop has been falling through.
+    */
+    if (clientUuid) {
+      const already = get<{ id: number; total_cents: number; transport_cents: number }>(
+        `SELECT id, total_cents, transport_cents FROM purchases WHERE client_uuid = ?`,
+        clientUuid,
+      );
+      if (already) {
+        return {
+          purchaseId: already.id,
+          goodsCents: already.total_cents - already.transport_cents,
+          transportCents: already.transport_cents,
+          totalCents: already.total_cents,
+          lines: [],
+          duplicate: true,
+        };
+      }
+    }
+
     const { lastInsertRowid: purchaseId } = run(
-      `INSERT INTO purchases (supplier_id, total_cents, transport_cents, ref, user_id)
-       VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO purchases (supplier_id, total_cents, transport_cents, ref, user_id, client_uuid)
+       VALUES (?, ?, ?, ?, ?, ?)`,
       input.supplierId,
       goods + transport, // total spend on the delivery, transport included
       transport,
       (input.ref ?? "").trim(),
       input.userId ?? null,
+      clientUuid,
     );
 
     for (const line of landed) {

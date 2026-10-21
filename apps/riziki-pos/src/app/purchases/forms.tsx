@@ -7,7 +7,7 @@
  * with `getAll`.
  */
 
-import { useActionState, useState } from "react";
+import { useActionState, useRef, useState } from "react";
 import { Button, Field, inputClass, Alert } from "@/components/ui";
 import { Picker, PickerFilter } from "@/components/picker";
 import { formatKes } from "@/lib/units";
@@ -215,12 +215,71 @@ export function PurchaseForm({
   items: ItemChoice[];
 }) {
   const [state, action, pending] = useActionState(recordPurchaseAction, EMPTY);
-  const [rows, setRows] = useState([0, 1]);
-  const [nextRow, setNextRow] = useState(2);
 
+  /*
+    THE DELIVERY ENTERED ONCE AND FILED TWICE.
+
+    Reported more than once, and the form was most of the cause: a successful
+    save left every box still filled in, so the screen afterwards was
+    indistinguishable from the screen before — same supplier, same note number,
+    same quantities — and one more press bought everything again.
+
+    The whole form is remounted on the key the server hands back, which is the
+    id of the delivery just written. That empties the boxes, puts the lines
+    back to one, and mints a new device reference, with no effect to run and
+    nothing to keep in step by hand.
+  */
+  return (
+    <DeliveryFields
+      key={state.entryKey ?? "new"}
+      action={action}
+      pending={pending}
+      state={state}
+      suppliers={suppliers}
+      items={items}
+    />
+  );
+}
+
+function DeliveryFields({
+  action,
+  pending,
+  state,
+  suppliers,
+  items,
+}: {
+  action: (payload: FormData) => void;
+  pending: boolean;
+  state: FormState;
+  suppliers: Array<{ id: number; name: string }>;
+  items: ItemChoice[];
+}) {
+  /*
+    ONE LINE, NOT TWO.
+
+    Most deliveries are one thing. Two boxes meant the second was almost always
+    left blank, and a blank line is a thing to read past and tab through every
+    single time. "+ Another item" is one press for the lorry that brought three.
+  */
+  const [rows, setRows] = useState([0]);
+  const [nextRow, setNextRow] = useState(1);
+
+  /*
+    The replay guard, minted once per form.
+
+    A ref and not state: it is never rendered, so the server and the browser
+    cannot disagree about it, and nothing needs to re-render when it changes.
+    Whatever the network does, the same form can only become one delivery —
+    the database decides, not the button.
+  */
+  const entryId = useRef(crypto.randomUUID());
+  const submit = (data: FormData) => {
+    data.set("client_uuid", entryId.current);
+    action(data);
+  };
 
   return (
-    <form action={action} className="space-y-3">
+    <form action={submit} className="space-y-3">
       {state.error ? <Alert tone="bad">{state.error}</Alert> : null}
       {state.ok ? <Alert tone="good">{state.ok}</Alert> : null}
 

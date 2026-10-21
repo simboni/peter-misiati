@@ -250,3 +250,68 @@ test("a delivery that was undone cannot then be corrected", () => {
     "there is nothing to put right on a delivery that did not happen",
   );
 });
+
+// ------------------------------------------- the delivery entered twice
+
+/*
+  The shop reported recording one delivery and finding two. The form was most
+  of the cause — a successful save left every box filled in, so one more press
+  sent exactly the same thing again — but a form that clears is a convenience,
+  not a guarantee. Two taps a second apart are two requests, and only the
+  database can decide which of them is first.
+*/
+
+test("the same delivery sent twice is recorded once", () => {
+  const ung = product("UNGEROL TWICE");
+  const ref = "same-form-abc";
+
+  const first = recordPurchase({
+    supplierId: supplier, ref: "DN-T", transportCents: 0, userId: 1, clientUuid: ref,
+    lines: [{ itemId: ung, units: 1, sizeMilli: 170_000, costCents: 6_000_000 }],
+  });
+  const second = recordPurchase({
+    supplierId: supplier, ref: "DN-T", transportCents: 0, userId: 1, clientUuid: ref,
+    lines: [{ itemId: ung, units: 1, sizeMilli: 170_000, costCents: 6_000_000 }],
+  });
+
+  assert.equal(second.purchaseId, first.purchaseId, "the second press finds the first delivery");
+  assert.equal(second.duplicate, true, "and says so, rather than reporting a new one");
+  assert.equal(stockOf(ung), 170_000, "the stock went up once");
+  assert.equal(
+    all<{ n: number }>(`SELECT COUNT(*) AS n FROM purchases WHERE client_uuid = ?`, ref)[0].n,
+    1,
+    "and there is one row, not two",
+  );
+});
+
+test("two real deliveries of the same goods are both recorded", () => {
+  // The guard must not swallow a shop that genuinely took two drums off two
+  // lorries on the same afternoon: different form, different reference.
+  const ung = product("UNGEROL TWICE OVER");
+  const a = recordPurchase({
+    supplierId: supplier, ref: "DN-U", transportCents: 0, userId: 1, clientUuid: "form-1",
+    lines: [{ itemId: ung, units: 1, sizeMilli: 170_000, costCents: 6_000_000 }],
+  });
+  const b = recordPurchase({
+    supplierId: supplier, ref: "DN-U", transportCents: 0, userId: 1, clientUuid: "form-2",
+    lines: [{ itemId: ung, units: 1, sizeMilli: 170_000, costCents: 6_000_000 }],
+  });
+  assert.notEqual(a.purchaseId, b.purchaseId);
+  assert.equal(stockOf(ung), 340_000, "both arrived");
+});
+
+test("a delivery with no device reference is still recorded", () => {
+  // No JavaScript, no reference. A delivery with no guard is better than one
+  // the shop could not enter at all.
+  const ung = product("UNGEROL NO REF");
+  const a = recordPurchase({
+    supplierId: supplier, ref: "DN-V", transportCents: 0, userId: 1,
+    lines: [{ itemId: ung, units: 1, sizeMilli: 170_000, costCents: 6_000_000 }],
+  });
+  const b = recordPurchase({
+    supplierId: supplier, ref: "DN-V", transportCents: 0, userId: 1,
+    lines: [{ itemId: ung, units: 1, sizeMilli: 170_000, costCents: 6_000_000 }],
+  });
+  assert.notEqual(a.purchaseId, b.purchaseId, "two nulls are not the same reference");
+  assert.equal(stockOf(ung), 340_000);
+});
