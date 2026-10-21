@@ -19,6 +19,35 @@ is why the portal shows "coming soon". Patch 0001 adds PayHero beside Daraja.
 
 ## Deploying — read this first
 
+> **The box no longer deploys by patch.** On 21 October 2026 it was moved onto
+> a real commit — `9863dbf` on the `fitgen-tested` branch of the app repo — so
+> the checkout and the tested tree are now the same object rather than two
+> reconstructions that drifted apart. That drift is what broke the patch route:
+> 0009 would not apply, because 0008–0012 had been cut against a replay of
+> 0001–0007 that was not byte-identical to the box.
+>
+> **From now on, deploying is:**
+>
+> ```bash
+> cd /root/fit-generations-gym
+> git fetch origin && git checkout -B deployed origin/<branch>
+> docker compose -f docker-compose.behind-proxy.yml up -d --build --force-recreate
+> ```
+>
+> Sections 1–14 below stay as the record of what each patch did and why — they
+> are still the explanation of the system. They are no longer the instructions.
+> `deploy.sh` and its ledger applied to the patch era and are superseded.
+>
+> The way back from that switch is the commit `boxstate-20261021` (`b9bb76f`),
+> which is the box exactly as it was before, plus the image tagged
+> `fitgen-web:before-20261021T193107Z` and a database dump in
+> `/srv/fitgen/before-deploy/`.
+>
+> What the switch caught, and what it cost to find: the box was passing
+> `MAIL_REPLY_TO` to the container and the tested tree had lost the line, so
+> deploying blind would have bounced every reply to a member email while every
+> test still passed. `review-boxstate.sh` exists because of that.
+
 Everything from section 10 onwards goes on with **one command**:
 
 ```bash
