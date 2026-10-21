@@ -684,6 +684,77 @@ same screen and there were **zero** ways to sign out. After — both reach real
 forms, the screen explains itself, and signing out works. The member-area,
 part-payment, expenses and dashboard suites were re-run and stayed clean.
 
+## 14 · The website quotes the prices the gym actually charges
+
+```bash
+cd /root/fit-generations-gym
+git apply --check /srv/smp-portfolio/repo/deploy/contabo/fitgen/patches/0012-pricing-from-the-catalog.patch \
+  && git apply /srv/smp-portfolio/repo/deploy/contabo/fitgen/patches/0012-pricing-from-the-catalog.patch
+docker compose -f docker-compose.behind-proxy.yml up -d --build
+```
+
+Goes on after 0011. No migration — it changes where the public pages read
+from, not what is stored.
+
+### What was wrong
+
+`/pricing` and the homepage rendered `planTiers`, a list in the source code.
+**Membership Plans** in the office edits `billablePlans`, which is what
+`assignPlan` prices an invoice from. Nothing connected them.
+
+So a price changed in the office never reached the website, and the figure a
+member was **billed** could differ from the figure that **persuaded them to
+join** — with no warning on either screen, because neither knew the other
+existed. The only way the website's prices ever changed was a code deploy.
+
+### What it does now
+
+Every number on the public pages comes from the catalog. The words around
+them — headline, subtitle, perks, which card is highlighted — are editorial,
+have no admin screen, and stay in code.
+
+Three things that follow from doing it properly:
+
+- **The savings are arithmetic, not copy.** "Save KSh 1,000" was typed into
+  the source and stops being true the moment somebody edits a price. An
+  untrue saving on a pricing page is worse than no saving at all. It is now
+  the monthly price × the months, less the plan price, and it moves when
+  prices move. (It reproduces the old copy exactly at today's prices, and
+  gives the yearly plan a real figure instead of "Best value".)
+- **The FAQ quoted four prices of its own** in prose — a joining fee, two
+  drop-in rates and a corporate rate. Prices in the answers that disagree
+  with the cards above them are the same bug in a smaller box. They come from
+  the catalog too, and a question the catalog cannot answer is not asked.
+- **The registration fee is read off the plans that charge it.** It is
+  charged per plan, so when they disagree the honest answer is the lowest,
+  said as "from"; and when nothing charges one, the band disappears rather
+  than advertising a fee no invoice will contain.
+
+**Deactivating a plan now takes it off the website**, which is what "active"
+always looked like it meant. A tier with nothing active stops being shown,
+and a tier invented in the office appears on its own.
+
+### One operational change
+
+`/` and `/pricing` are now rendered per request rather than prerendered.
+They have to be: the store is only loaded at boot, so a static build cannot
+read it — the build fails outright — and a prerendered page would bake
+today's prices in until the next deploy. Both are light pages and the box
+has the headroom, but it is a real change to how they are served.
+
+### How it was tested
+
+Change the Members monthly price and registration fee in the office, then
+read the site in a **fresh browser with no session**, the way a member of the
+public arrives. The cards, the headline "from" price, the derived savings,
+the registration band, the FAQ prose, the homepage, and the invoice a member
+is actually raised all move together — 15 checks. Deactivating and
+reactivating the plan was checked the same way. The other five suites were
+re-run and stayed clean.
+
+To spot-check on the box after deploying, change a price under Membership
+Plans and reload `https://fitgenerationsgym.com/pricing` in a private window.
+
 ## Retire Render
 
 The apex has been served from this box for weeks, so Render is only holding

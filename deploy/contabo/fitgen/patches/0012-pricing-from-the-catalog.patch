@@ -1,0 +1,392 @@
+diff --git a/src/app/(site)/page.tsx b/src/app/(site)/page.tsx
+index 229d8c7..e1b2a05 100644
+--- a/src/app/(site)/page.tsx
++++ b/src/app/(site)/page.tsx
+@@ -15,6 +15,10 @@ import { CtaBand } from "@/components/cta-band";
+ import { PhotoSlot } from "@/components/photo-slot";
+ import { CheckIcon, ArrowRightIcon, CalendarIcon, MapPinIcon } from "@/components/icons";
+ 
++// The homepage carries the same pricing cards, so it reads the catalog too
++// and cannot be prerendered — see /pricing.
++export const dynamic = "force-dynamic";
++
+ const experiencePoints = [
+   "Structured, coach-led training for every level",
+   "16 programs — strength, HIIT, CrossFit, yoga & more",
+diff --git a/src/app/(site)/pricing/page.tsx b/src/app/(site)/pricing/page.tsx
+index 93c08e5..bc5b574 100644
+--- a/src/app/(site)/pricing/page.tsx
++++ b/src/app/(site)/pricing/page.tsx
+@@ -4,27 +4,53 @@ import { Section } from "@/components/section";
+ import { Reveal } from "@/components/reveal";
+ import { SectionTitle } from "@/components/ui";
+ import { Pricing } from "@/components/pricing";
++import { publicPriceFacts } from "@/lib/services/public-pricing";
+ import { CtaBand } from "@/components/cta-band";
+ 
++// Prices come from the plan catalog, so this page cannot be prerendered: a
++// static build would bake today's figures in until the next deploy, and the
++// store is only loaded at boot in any case, so the build cannot read it.
++export const dynamic = "force-dynamic";
++
+ export const metadata: Metadata = {
+   title: "Pricing & Membership",
+   description:
+     "Affordable, flexible gym membership in Bungoma — daily, monthly, quarterly, half-year, yearly, corporate and non-member packages at Fit Generations Gym.",
+ };
+ 
+-const faqs = [
+-  {
+-    q: "Is there a joining fee?",
+-    a: "New members pay a one-off annual membership fee of KSh 500 on registration. After that you simply choose the plan that suits you.",
+-  },
+-  {
+-    q: "Can I train without a monthly membership?",
+-    a: "Yes. Registered members can pay KSh 200 per session, and non-registered visitors are welcome at KSh 250 per session — no commitment required.",
+-  },
+-  {
+-    q: "Do you offer corporate rates?",
+-    a: "We do. Teams of 5+ get discounted per-person rates, dropping to KSh 2,300 per person for groups above 20. Get in touch and we'll tailor a package.",
+-  },
++const money = (n: number) => `KSh ${n.toLocaleString()}`;
++
++/**
++ * The prose quoted four prices of its own — a joining fee, two drop-in rates
++ * and a corporate rate — all written into the copy. Prices in the answers
++ * that disagree with the cards above them are the same bug in a smaller box,
++ * so they come from the catalog now, and a question the catalog cannot answer
++ * is not asked.
++ */
++function buildFaqs(f: ReturnType<typeof publicPriceFacts>) {
++  const sessions = [
++    f.memberSession !== null ? `Registered members can pay ${money(f.memberSession)} per session` : null,
++    f.visitorSession !== null ? `non-registered visitors are welcome at ${money(f.visitorSession)} per session` : null,
++  ].filter(Boolean);
++
++  return [
++    f.registration !== null && {
++      q: "Is there a joining fee?",
++      a: `New members pay a one-off annual membership fee of ${money(f.registration)} on registration. After that you simply choose the plan that suits you.`,
++    },
++    sessions.length > 0 && {
++      q: "Can I train without a monthly membership?",
++      a: `Yes. ${sessions.join(", and ")} — no commitment required.`,
++    },
++    f.corporateLowest !== null && {
++      q: "Do you offer corporate rates?",
++      a: `We do. Teams of 5+ get discounted per-person rates, dropping to ${money(f.corporateLowest)} per person for larger groups. Get in touch and we'll tailor a package.`,
++    },
++    ...staticFaqs,
++  ].filter(Boolean) as { q: string; a: string }[];
++}
++
++const staticFaqs = [
+   {
+     q: "What's included in a membership?",
+     a: "Every plan includes access to all equipment, all instructors and all facilities and classes on the timetable.",
+@@ -36,6 +62,8 @@ const faqs = [
+ ];
+ 
+ export default function PricingPage() {
++  const faqs = buildFaqs(publicPriceFacts());
++
+   return (
+     <>
+       <PageHero
+diff --git a/src/components/pricing.tsx b/src/components/pricing.tsx
+index 4676310..85d5217 100644
+--- a/src/components/pricing.tsx
++++ b/src/components/pricing.tsx
+@@ -1,4 +1,5 @@
+-import { planTiers, registrationFee, gym, type PlanTier } from "@/lib/gym";
++import { gym } from "@/lib/gym";
++import { publicPricing, publicRegistrationFee, type PublicTier } from "@/lib/services/public-pricing";
+ import { SpotlightCard } from "@/components/spotlight-card";
+ import { Button, Pill } from "@/components/ui";
+ import { CheckIcon } from "@/components/icons";
+@@ -7,7 +8,7 @@ function money(n: number) {
+   return `KSh ${n.toLocaleString()}`;
+ }
+ 
+-function PlanCard({ tier }: { tier: PlanTier }) {
++function PlanCard({ tier }: { tier: PublicTier }) {
+   const accentText = tier.accent === "ember" ? "text-ember-400" : "text-lime-400";
+   const accentBg = tier.accent === "ember" ? "bg-ember-500" : "bg-lime-500";
+ 
+@@ -90,22 +91,36 @@ function PlanCard({ tier }: { tier: PlanTier }) {
+   );
+ }
+ 
+-export function Pricing() {
++/**
++ * Every figure on this component comes from the plan catalog the office
++ * edits and billing charges from — see publicPricing. It is async for that
++ * reason, so both pages that render it must not be statically prerendered or
++ * they would bake today's prices in until the next deploy.
++ */
++export async function Pricing() {
++  const tiers = publicPricing();
++  const reg = publicRegistrationFee();
++
+   return (
+     <div>
+-      <div className="grid gap-6 lg:grid-cols-3">
+-        {planTiers.map((tier) => (
++      <div className={`grid gap-6 ${tiers.length === 1 ? "max-w-md mx-auto" : tiers.length === 2 ? "sm:grid-cols-2" : "lg:grid-cols-3"}`}>
++        {tiers.map((tier) => (
+           <PlanCard key={tier.id} tier={tier} />
+         ))}
+       </div>
+ 
+-      <div className="mt-8 flex flex-col items-center justify-center gap-3 rounded-2xl border border-ember-500/25 bg-ember-500/[0.06] px-6 py-5 text-center sm:flex-row sm:text-left">
+-        <span className="font-display text-lg text-ember-400">Annual membership fee</span>
+-        <span className="hidden text-white/30 sm:inline">·</span>
+-        <span className="text-white/70">
+-          A one-off <span className="font-semibold text-white">{money(registrationFee)}</span> registration applies for new members.
+-        </span>
+-      </div>
++      {/* No plan charging a registration fee means the gym has stopped taking
++          one, and the honest thing is silence rather than an advertised fee
++          that no invoice will contain. */}
++      {reg && (
++        <div className="mt-8 flex flex-col items-center justify-center gap-3 rounded-2xl border border-ember-500/25 bg-ember-500/[0.06] px-6 py-5 text-center sm:flex-row sm:text-left">
++          <span className="font-display text-lg text-ember-400">Annual membership fee</span>
++          <span className="hidden text-white/30 sm:inline">·</span>
++          <span className="text-white/70">
++            A one-off <span className="font-semibold text-white">{reg.varies ? `from ${money(reg.amount)}` : money(reg.amount)}</span> registration applies for new members.
++          </span>
++        </div>
++      )}
+     </div>
+   );
+ }
+diff --git a/src/lib/admin/module-actions.ts b/src/lib/admin/module-actions.ts
+index 4126169..0de1515 100644
+--- a/src/lib/admin/module-actions.ts
++++ b/src/lib/admin/module-actions.ts
+@@ -20,6 +20,24 @@ const num = (fd: FormData, k: string, d = 0) => Number(fd.get(k) || d);
+ const str = (fd: FormData, k: string, d = "") => String(fd.get(k) || d).trim();
+ 
+ /* ------------------------------ catalog -------------------------------- */
++
++/**
++ * A plan change is a change to the public website, not just to the office:
++ * /pricing, the homepage and the portal's plan picker all read this catalog.
++ *
++ * Those pages render per request, so the server has nothing stale to throw
++ * away. This is for the Router Cache in the browser that just made the edit —
++ * without it, an admin who clicks through to the website from the admin
++ * panel is shown the page they loaded before the change and concludes
++ * nothing happened.
++ */
++function revalidateCatalog() {
++  revalidatePath("/admin/membership");
++  revalidatePath("/pricing");
++  revalidatePath("/");
++  revalidatePath("/portal/plans");
++}
++
+ export async function createCatalogPlanAction(formData: FormData) {
+   const days = num(formData, "durationDays", 30);
+   await createCatalogPlan({
+@@ -32,7 +50,7 @@ export async function createCatalogPlanAction(formData: FormData) {
+     registrationFee: num(formData, "registrationFee"),
+     active: formData.get("active") !== "off",
+   });
+-  revalidatePath("/admin/membership");
++  revalidateCatalog();
+   redirect("/admin/membership");
+ }
+ 
+@@ -45,13 +63,15 @@ export async function updateCatalogPlanAction(formData: FormData) {
+     durationDays: num(formData, "durationDays", 30),
+     registrationFee: num(formData, "registrationFee"),
+   });
+-  revalidatePath("/admin/membership");
++  revalidateCatalog();
+   redirect("/admin/membership");
+ }
+ 
+ export async function toggleCatalogPlanAction(formData: FormData) {
+   await setCatalogPlanActive(str(formData, "id"), formData.get("active") === "true");
+-  revalidatePath("/admin/membership");
++  // Deactivating a plan takes it off the website, which is what "active"
++  // always looked like it meant.
++  revalidateCatalog();
+ }
+ 
+ /* ------------------------------- store --------------------------------- */
+diff --git a/src/lib/services/public-pricing.ts b/src/lib/services/public-pricing.ts
+new file mode 100644
+index 0000000..8e1ab27
+--- /dev/null
++++ b/src/lib/services/public-pricing.ts
+@@ -0,0 +1,168 @@
++import "server-only";
++import { listBillablePlans } from "@/lib/db/repo";
++import { planTiers, type PlanTier } from "@/lib/gym";
++import type { BillablePlan } from "@/lib/db/schema";
++
++/* ==========================================================================
++   What the website says a membership costs.
++
++   It now says what the gym will actually charge. Before this, /pricing and
++   the homepage rendered `planTiers` — a list in the source code — while
++   Membership Plans in the office edited `billablePlans`, which is what
++   assignPlan prices an invoice from. Nothing connected them. A price changed
++   in the office never reached the website, and the figure a member was billed
++   could differ from the figure that persuaded them to join. There was no
++   warning on either screen, because neither knew the other existed.
++
++   So: every number here comes from the catalog. The words around them —
++   headline, subtitle, perks, accent, which card is highlighted — are
++   editorial, have no admin screen, and stay in code.
++
++   Deactivating a plan in the office now also takes it off the website, which
++   is what "active" always looked like it meant.
++   ========================================================================== */
++
++export type PublicOption = { label: string; price: number; note?: string };
++export type PublicTier = Omit<PlanTier, "options" | "from"> & {
++  from: number;
++  options: PublicOption[];
++};
++
++/**
++ * The billing cycle each tier quotes its headline "from" price in.
++ *
++ * Stated rather than guessed, because the cheapest plan in a tier is not the
++ * one the headline means: Members starts "from KSh 3,000 / month", and the
++ * cheapest Members plan is a KSh 200 day pass. A tier not named here falls
++ * back to its cheapest plan, labelled with that plan's own cycle.
++ */
++const HEADLINE_CYCLE: Record<string, BillablePlan["billingCycle"]> = {
++  Members: "monthly",
++  Corporate: "monthly",
++  "Non-member": "daily",
++};
++
++const CYCLE_UNIT: Record<BillablePlan["billingCycle"], string> = {
++  daily: "/ session",
++  monthly: "/ month",
++  quarterly: "/ quarter",
++  "half-year": "/ half year",
++  yearly: "/ year",
++};
++
++const money = (n: number) => `KSh ${n.toLocaleString()}`;
++
++/** "Members — Monthly" → "Monthly". Falls back to the whole name. */
++const optionLabel = (p: BillablePlan) => p.name.split("—")[1]?.trim() || p.name;
++
++/**
++ * The note under an option. Derived, never written down: a hardcoded
++ * "Save KSh 1,000" stops being true the moment somebody edits a price, and
++ * an untrue saving on a pricing page is worse than no saving at all.
++ */
++function noteFor(p: BillablePlan, monthly: BillablePlan | undefined): string | undefined {
++  if (p.category === "corporate") return "per person / month";
++  if (p.durationDays <= 1) return "per session";
++  if (!monthly || p.id === monthly.id) return undefined;
++  const months = Math.round(p.durationDays / 30);
++  if (months < 2) return undefined;
++  const saving = monthly.price * months - p.price;
++  return saving > 0 ? `Save ${money(saving)}` : undefined;
++}
++
++/** The tiers the website shows, in the order the editorial list declares. */
++export function publicPricing(): PublicTier[] {
++  const active = listBillablePlans();
++  const tiers: PublicTier[] = [];
++
++  // Editorial order first, then any tier the gym has invented in the office
++  // since — otherwise a new tier is sold in the admin and invisible outside.
++  const names = [
++    ...planTiers.map((t) => t.label),
++    ...active.map((p) => p.tier).filter((t) => !planTiers.some((e) => e.label === t)),
++  ].filter((v, i, a) => a.indexOf(v) === i);
++
++  for (const name of names) {
++    // By duration only. Sorting ties by price as well would reorder the
++    // corporate options cheapest-first, so the card would read "above 20,
++    // 10–20, 5" — the catalog's own order is by team size, and a stable sort
++    // keeps it.
++    const plans = active
++      .filter((p) => p.tier === name)
++      .sort((a, b) => a.durationDays - b.durationDays);
++    // A tier with nothing active is a tier the gym has stopped selling.
++    if (plans.length === 0) continue;
++
++    const editorial = planTiers.find((t) => t.label === name);
++    const cycle = HEADLINE_CYCLE[name];
++    const headlinePlans = cycle ? plans.filter((p) => p.billingCycle === cycle) : [];
++    const cheapest = (headlinePlans.length ? headlinePlans : plans)
++      .reduce((lo, p) => (p.price < lo.price ? p : lo));
++    const monthly = plans.find((p) => p.billingCycle === "monthly");
++
++    tiers.push({
++      id: editorial?.id ?? name.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
++      label: name,
++      headline: editorial?.headline ?? `${name} Packages`,
++      subtitle: editorial?.subtitle ?? "",
++      accent: editorial?.accent ?? "lime",
++      featured: editorial?.featured,
++      perks: editorial?.perks ?? [
++        "Access to all equipment",
++        "Access to all instructors",
++        "Access to all facilities & classes",
++      ],
++      from: cheapest.price,
++      unit: CYCLE_UNIT[cheapest.billingCycle],
++      options: plans.map((p) => ({
++        label: optionLabel(p),
++        price: p.price,
++        note: noteFor(p, monthly),
++      })),
++    });
++  }
++
++  return tiers;
++}
++
++/**
++ * The registration fee to advertise — read off the plans that charge it, not
++ * from a constant. It is charged per plan, so the honest answer when they
++ * disagree is the lowest, said as "from"; and when nothing charges one, the
++ * right answer is to say nothing at all rather than advertise a fee the gym
++ * has stopped taking.
++ */
++export function publicRegistrationFee(): { amount: number; varies: boolean } | null {
++  const fees = [...new Set(listBillablePlans().map((p) => p.registrationFee).filter((f) => f > 0))];
++  if (fees.length === 0) return null;
++  return { amount: Math.min(...fees), varies: fees.length > 1 };
++}
++
++/**
++ * The handful of figures the prose quotes — the FAQ answers a joining fee, a
++ * drop-in rate and a corporate rate in sentences.
++ *
++ * They were written into the copy as "KSh 500", "KSh 200", "KSh 250" and
++ * "KSh 2,300". Prices on a pricing page that disagree with the cards above
++ * them are the same bug in a smaller box, so these come from the catalog too
++ * and each is null when nothing in the catalog backs it up.
++ */
++export function publicPriceFacts(): {
++  registration: number | null;
++  memberSession: number | null;
++  visitorSession: number | null;
++  corporateLowest: number | null;
++} {
++  const active = listBillablePlans();
++  const cheapest = (rows: BillablePlan[]) =>
++    rows.length ? rows.reduce((lo, p) => (p.price < lo.price ? p : lo)).price : null;
++  const session = (tier: string) =>
++    cheapest(active.filter((p) => p.tier === tier && p.durationDays <= 1));
++
++  return {
++    registration: publicRegistrationFee()?.amount ?? null,
++    memberSession: session("Members"),
++    visitorSession: session("Non-member"),
++    corporateLowest: cheapest(active.filter((p) => p.category === "corporate")),
++  };
++}
