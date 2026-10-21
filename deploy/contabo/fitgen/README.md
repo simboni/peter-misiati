@@ -22,11 +22,23 @@ is why the portal shows "coming soon". Patch 0001 adds PayHero beside Daraja.
 Everything from section 10 onwards goes on with **one command**:
 
 ```bash
-cd /srv/smp-portfolio/repo && git fetch origin claude/portfolio-design-plan-9ol8sb
-bash deploy/contabo/fitgen/deploy.sh --status    # what is on, what is waiting
-bash deploy/contabo/fitgen/deploy.sh --dry-run   # rehearse it, change nothing
-bash deploy/contabo/fitgen/deploy.sh             # apply, rebuild, check it came back
+cd /srv/smp-portfolio/repo
+git fetch origin claude/portfolio-design-plan-9ol8sb
+git show origin/claude/portfolio-design-plan-9ol8sb:deploy/contabo/fitgen/deploy.sh \
+  > /tmp/fitgen-deploy.sh
+
+bash /tmp/fitgen-deploy.sh --status    # what is on, what is waiting
+bash /tmp/fitgen-deploy.sh --dry-run   # rehearse it, change nothing
+bash /tmp/fitgen-deploy.sh             # apply, rebuild, check it came back
 ```
+
+**Read the script out of the ref, do not run it by a relative path.** This
+box's portfolio checkout is not on that branch and must not be put on it —
+it serves a live site, and switching its branch to read one file is a side
+effect nobody asked for. `deploy/contabo/fitgen/deploy.sh` is therefore not
+in its working tree, and running it that way gets you
+`No such file or directory`. The script reads the patches the same way, out
+of the fetched ref, and never touches that repo's branch either.
 
 The per-section `git apply` lines below are still accurate and still work;
 they are kept because they say what each patch is for. But the script is the
