@@ -1,0 +1,214 @@
+diff --git a/src/app/(portal)/layout.tsx b/src/app/(portal)/layout.tsx
+index cf17897..1462985 100644
+--- a/src/app/(portal)/layout.tsx
++++ b/src/app/(portal)/layout.tsx
+@@ -12,6 +12,11 @@ export default async function PortalLayout({ children }: { children: React.React
+   const session = await currentUser().catch(() => null);
+   const member = session?.role === "member" ? getUser(session.sub) : null;
+   const initials = member ? member.name.split(" ").map((n) => n[0]).slice(0, 2).join("") : "";
++  // A session that resolves to no member still has to be escapable. Without
++  // this the header offered nothing but "Main site", and somebody whose
++  // account had gone could not clear their own cookie from inside the portal
++  // at all — which is most of why that screen looked frozen.
++  const strandedSession = Boolean(session) && !member;
+ 
+   return (
+     <div className="flex min-h-screen flex-col bg-ink-950 text-white">
+@@ -32,7 +37,14 @@ export default async function PortalLayout({ children }: { children: React.React
+               <form action={logout}><button className="rounded-lg border border-white/15 px-3 py-1.5 text-xs font-semibold text-white/70 hover:bg-white/5">Sign out</button></form>
+             </div>
+           ) : (
+-            <Link href="/" className="text-sm font-semibold text-white/60 hover:text-lime-300">← Main site</Link>
++            <div className="flex items-center gap-3">
++              <Link href="/" className="text-sm font-semibold text-white/60 hover:text-lime-300">← Main site</Link>
++              {strandedSession && (
++                <form action={logout}>
++                  <button className="rounded-lg border border-white/15 px-3 py-1.5 text-xs font-semibold text-white/70 hover:bg-white/5">Sign out</button>
++                </form>
++              )}
++            </div>
+           )}
+         </div>
+       </header>
+diff --git a/src/app/(portal)/portal/invoices/[id]/page.tsx b/src/app/(portal)/portal/invoices/[id]/page.tsx
+index 2857935..3fcbe8e 100644
+--- a/src/app/(portal)/portal/invoices/[id]/page.tsx
++++ b/src/app/(portal)/portal/invoices/[id]/page.tsx
+@@ -1,7 +1,7 @@
+ import type { Metadata } from "next";
+ import Link from "next/link";
+ import { redirect, notFound } from "next/navigation";
+-import { currentUser } from "@/lib/auth/current-user";
++import { currentMember } from "@/lib/auth/current-member";
+ import { getInvoice } from "@/lib/db/repo";
+ import { memberPayInvoice } from "@/lib/auth/member-actions";
+ import { paymentsConfigured, promptName } from "@/lib/services/payments";
+@@ -28,11 +28,14 @@ export default async function PortalInvoicePage({
+ }) {
+   const { id } = await params;
+   const { stk } = await searchParams;
+-  const session = await currentUser();
+-  if (session?.role !== "member") redirect("/portal/login");
++  // The record, not the cookie: deleting a member leaves their invoices
++  // behind, and a session that outlived the account should not still open
++  // them. The other portal pages already worked this way.
++  const { member } = await currentMember();
++  if (!member) redirect("/portal/login");
+   const inv = getInvoice(id);
+   if (!inv) notFound();
+-  if (inv.memberId !== session.sub) redirect("/portal");
++  if (inv.memberId !== member.id) redirect("/portal");
+   const paid = inv.status === "paid";
+   const part = partPaymentRange(inv.balance);
+   const partPaid = !paid && inv.amountPaid > 0;
+diff --git a/src/app/(portal)/portal/login/page.tsx b/src/app/(portal)/portal/login/page.tsx
+index 29f97b5..793abe8 100644
+--- a/src/app/(portal)/portal/login/page.tsx
++++ b/src/app/(portal)/portal/login/page.tsx
+@@ -1,15 +1,18 @@
+ import type { Metadata } from "next";
+ import Link from "next/link";
+ import { redirect } from "next/navigation";
+-import { currentUser } from "@/lib/auth/current-user";
++import { currentMember } from "@/lib/auth/current-member";
+ import { LoginForm } from "@/components/admin/login-form";
+ 
+ export const metadata: Metadata = { title: "Member Sign In" };
+ export const dynamic = "force-dynamic";
+ 
+ export default async function PortalLoginPage({ searchParams }: { searchParams: Promise<{ reset?: string }> }) {
+-  const session = await currentUser();
+-  if (session?.role === "member") redirect("/portal");
++  // Only a session that resolves to a real member sends someone away from
++  // here. Redirecting on the cookie alone bounced people straight back to
++  // /portal, which had sent them here in the first place — see currentMember.
++  const { member } = await currentMember();
++  if (member) redirect("/portal");
+   const { reset } = await searchParams;
+ 
+   return (
+diff --git a/src/app/(portal)/portal/page.tsx b/src/app/(portal)/portal/page.tsx
+index 9868c4c..9763c61 100644
+--- a/src/app/(portal)/portal/page.tsx
++++ b/src/app/(portal)/portal/page.tsx
+@@ -1,9 +1,11 @@
+ import type { Metadata } from "next";
+ import Link from "next/link";
+-import { currentUser } from "@/lib/auth/current-user";
++import { currentMember } from "@/lib/auth/current-member";
++import { logout } from "@/lib/auth/actions";
+ import { getUser, currentMembership, invoicesForMember, listReminders } from "@/lib/db/repo";
+ import { workoutPlansForMember, nutritionPlansForMember } from "@/lib/services/programmes";
+ import { Button } from "@/components/ui";
++import { SubmitButton } from "@/components/admin/submit-button";
+ import { ArrowRightIcon } from "@/components/icons";
+ 
+ export const metadata: Metadata = { title: "My Portal" };
+@@ -16,9 +18,8 @@ const daysLeft = (end?: string) =>
+ const card = "rounded-2xl border border-white/10 bg-ink-850 p-5 sm:p-6";
+ 
+ export default async function PortalPage() {
+-  const session = await currentUser();
+-  const member = session?.role === "member" ? getUser(session.sub) : null;
+-  if (!member) return <PortalLanding />;
++  const { member, staleSession } = await currentMember();
++  if (!member) return <PortalLanding staleSession={staleSession} />;
+ 
+   const membership = currentMembership(member.id);
+   const invoices = invoicesForMember(member.id);
+@@ -178,11 +179,30 @@ function ActionTile({ href, label, sub, icon }: { href: string; label: string; s
+   );
+ }
+ 
+-function PortalLanding() {
++function PortalLanding({ staleSession }: { staleSession: boolean }) {
+   return (
+     <div className="mx-auto max-w-md px-4 py-16 text-center">
+       <h1 className="font-display text-3xl text-white">Members area</h1>
+       <p className="mt-2 text-sm text-white/60">Join in minutes, or sign in to manage your membership, workouts and invoices.</p>
++
++      {/* Somebody holding a session for an account that no longer exists is
++          not a new visitor, and showing them the join screen with no
++          explanation is how this page came to look frozen. Say what happened,
++          and give them the one control that fixes it. */}
++      {staleSession && (
++        <div className="mt-6 rounded-2xl border border-amber-500/30 bg-amber-500/[0.08] p-5 text-left">
++          <p className="font-semibold text-amber-300">You&rsquo;re signed in to an account that no longer exists</p>
++          <p className="mt-1 text-sm text-white/60">
++            Sign out to clear it, then sign in again or create a new account.
++          </p>
++          <form action={logout} className="mt-4">
++            <SubmitButton className="w-full rounded-full border border-white/20 py-2.5 text-sm font-semibold uppercase tracking-wide text-white hover:bg-white/5">
++              Sign out
++            </SubmitButton>
++          </form>
++        </div>
++      )}
++
+       <div className="mt-8 flex flex-col gap-3">
+         <Button href="/portal/signup" variant="primary" size="lg" withArrow>Create an account</Button>
+         <Button href="/portal/login" variant="outline" size="lg">Sign in</Button>
+diff --git a/src/app/(portal)/portal/signup/page.tsx b/src/app/(portal)/portal/signup/page.tsx
+index 50734d4..9c3c5b7 100644
+--- a/src/app/(portal)/portal/signup/page.tsx
++++ b/src/app/(portal)/portal/signup/page.tsx
+@@ -1,15 +1,16 @@
+ import type { Metadata } from "next";
+ import Link from "next/link";
+ import { redirect } from "next/navigation";
+-import { currentUser } from "@/lib/auth/current-user";
++import { currentMember } from "@/lib/auth/current-member";
+ import { MemberSignupForm } from "@/components/portal/signup-form";
+ 
+ export const metadata: Metadata = { title: "Join Fit Generations" };
+ export const dynamic = "force-dynamic";
+ 
+ export default async function PortalSignupPage() {
+-  const session = await currentUser();
+-  if (session?.role === "member") redirect("/portal");
++  // Same rule as the sign-in page: the record decides, not the cookie.
++  const { member } = await currentMember();
++  if (member) redirect("/portal");
+ 
+   return (
+     <section className="container-page py-20">
+diff --git a/src/lib/auth/current-member.ts b/src/lib/auth/current-member.ts
+new file mode 100644
+index 0000000..0ed933f
+--- /dev/null
++++ b/src/lib/auth/current-member.ts
+@@ -0,0 +1,34 @@
++import "server-only";
++import { getUser } from "@/lib/db/repo";
++import { currentUser } from "./current-user";
++import type { User } from "@/lib/db/schema";
++
++/**
++ * Who is signed in to the member portal — resolved all the way to the record,
++ * not just to the cookie.
++ *
++ * `currentUser()` reads the cookie and nothing else, and a cookie outlives the
++ * thing it points at. Delete a member from the office, or restore a database
++ * from before they joined, and their browser keeps presenting a perfectly
++ * valid, correctly signed session for an id that resolves to nobody.
++ *
++ * That gap is what trapped people on the portal. /portal asked for the RECORD,
++ * found none, and showed the signed-out "Members area" screen. /portal/login
++ * and /portal/signup asked the COOKIE, saw "member", and redirected back to
++ * /portal. So both buttons on that screen led straight back to it, the page
++ * appeared to load and never change, and the header offered no sign-out to
++ * break the loop. Only a private window worked, because it had no cookie.
++ *
++ * Every portal page now asks this one question, so none of them can disagree
++ * about whether somebody is signed in.
++ *
++ * `staleSession` means: there IS a session here, and it belongs to nobody. The
++ * portal uses it to say so and offer a way out, rather than silently showing
++ * a signed-out page to someone who believes they are signed in.
++ */
++export async function currentMember(): Promise<{ member: User | null; staleSession: boolean }> {
++  const session = await currentUser().catch(() => null);
++  if (session?.role !== "member") return { member: null, staleSession: false };
++  const member = getUser(session.sub) ?? null;
++  return { member, staleSession: member === null };
++}

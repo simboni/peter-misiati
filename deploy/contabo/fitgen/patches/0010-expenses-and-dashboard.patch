@@ -1,0 +1,1066 @@
+diff --git a/src/app/admin/expenses/[id]/page.tsx b/src/app/admin/expenses/[id]/page.tsx
+new file mode 100644
+index 0000000..07b896d
+--- /dev/null
++++ b/src/app/admin/expenses/[id]/page.tsx
+@@ -0,0 +1,97 @@
++import Link from "next/link";
++import { notFound, redirect } from "next/navigation";
++import { getExpense, isAutomatic } from "@/lib/services/expenses";
++import { updateExpenseAction, deleteExpenseAction } from "@/lib/admin/module-actions";
++import { PageHeading, Card, money } from "@/components/admin/ui";
++import { SubmitButton } from "@/components/admin/submit-button";
++import { ConfirmSubmit } from "@/components/admin/confirm-submit";
++import { EXPENSE_CATEGORIES, type PayMethod } from "@/lib/db/schema";
++
++export const dynamic = "force-dynamic";
++
++const field = "w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-800 focus:border-ember-400 focus:outline-none focus:ring-2 focus:ring-ember-100";
++const METHODS: PayMethod[] = ["Cash", "Mpesa", "Bank Transfer", "Cheque", "Card"];
++
++export default async function EditExpensePage({
++  params, searchParams,
++}: {
++  params: Promise<{ id: string }>;
++  searchParams: Promise<{ month?: string }>;
++}) {
++  const { id } = await params;
++  const { month = "" } = await searchParams;
++  const e = getExpense(id);
++  if (!e) notFound();
++  // An automatic row belongs to the service charge that booked it. Editing it
++  // here would leave a charge marked paid against a figure that no longer
++  // matches, so there is nothing to edit — send them to where it came from.
++  if (isAutomatic(e)) redirect("/admin/billing");
++
++  const back = month ? `/admin/expenses?month=${month}` : "/admin/expenses";
++
++  return (
++    <>
++      <PageHeading
++        title="Edit expense"
++        subtitle={`${money(e.amount)} · ${e.category}`}
++        action={<Link href={back} className="text-sm font-semibold text-zinc-500 hover:text-ember-600">← Back to expenses</Link>}
++      />
++
++      <Card className="max-w-2xl">
++        <form action={updateExpenseAction} className="grid gap-4 sm:grid-cols-2">
++          <input type="hidden" name="id" value={e.id} />
++          <input type="hidden" name="month" value={month} />
++          <label className="block">
++            <span className="mb-1.5 block text-sm font-medium text-zinc-600">Date</span>
++            <input name="date" type="date" defaultValue={e.date ?? `${e.month}-01`} className={field} />
++          </label>
++          <label className="block">
++            <span className="mb-1.5 block text-sm font-medium text-zinc-600">Amount (KSh)</span>
++            <input name="amount" type="number" min="0" step="1" defaultValue={e.amount} required className={field} />
++          </label>
++          <label className="block">
++            <span className="mb-1.5 block text-sm font-medium text-zinc-600">Category</span>
++            <select name="category" defaultValue={e.category} className={field}>
++              {[...new Set([...EXPENSE_CATEGORIES, e.category])].map((c) => <option key={c}>{c}</option>)}
++            </select>
++          </label>
++          <label className="block">
++            <span className="mb-1.5 block text-sm font-medium text-zinc-600">Paid to</span>
++            <input name="payee" defaultValue={e.payee ?? ""} className={field} />
++          </label>
++          <label className="block">
++            <span className="mb-1.5 block text-sm font-medium text-zinc-600">Paid by</span>
++            <select name="method" defaultValue={e.method ?? "Cash"} className={field}>
++              {METHODS.map((m) => <option key={m}>{m}</option>)}
++            </select>
++          </label>
++          <label className="block">
++            <span className="mb-1.5 block text-sm font-medium text-zinc-600">Note</span>
++            <input name="note" defaultValue={e.note ?? ""} className={field} />
++          </label>
++          <div className="sm:col-span-2">
++            <SubmitButton className="rounded-lg bg-ember-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-ember-600">
++              Save changes
++            </SubmitButton>
++          </div>
++        </form>
++
++        <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-zinc-100 pt-5">
++          <p className="text-xs text-zinc-400">
++            {e.recordedBy ? `Recorded by ${e.recordedBy}` : "Recorded"}{e.createdAt ? ` on ${e.createdAt}` : ""}.
++          </p>
++          <form action={deleteExpenseAction}>
++            <input type="hidden" name="id" value={e.id} />
++            <input type="hidden" name="month" value={month} />
++            <ConfirmSubmit
++              confirm={`Delete this ${money(e.amount)} expense? This cannot be undone.`}
++              className="rounded-lg border border-ember-200 px-4 py-2 text-sm font-semibold text-ember-600 hover:bg-ember-50"
++            >
++              Delete
++            </ConfirmSubmit>
++          </form>
++        </div>
++      </Card>
++    </>
++  );
++}
+diff --git a/src/app/admin/expenses/page.tsx b/src/app/admin/expenses/page.tsx
+new file mode 100644
+index 0000000..018c233
+--- /dev/null
++++ b/src/app/admin/expenses/page.tsx
+@@ -0,0 +1,196 @@
++import Link from "next/link";
++import { listExpenses, expenseMonths, moneyFor, isAutomatic } from "@/lib/services/expenses";
++import { createExpenseAction } from "@/lib/admin/module-actions";
++import { PageHeading, Card, StatCard, money } from "@/components/admin/ui";
++import { SubmitButton } from "@/components/admin/submit-button";
++import { TableFilter } from "@/components/admin/table-filter";
++import { PeriodPicker } from "@/components/admin/period-picker";
++import { Ico } from "@/components/admin/admin-icons";
++import { EXPENSE_CATEGORIES, type PayMethod } from "@/lib/db/schema";
++
++export const dynamic = "force-dynamic";
++
++const field = "w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-800 focus:border-ember-400 focus:outline-none focus:ring-2 focus:ring-ember-100";
++const METHODS: PayMethod[] = ["Cash", "Mpesa", "Bank Transfer", "Cheque", "Card"];
++const today = () => new Date().toISOString().slice(0, 10);
++
++const monthLabel = (m: string) =>
++  m === "all"
++    ? "All time"
++    : new Date(`${m}-01T00:00:00Z`).toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" });
++
++export default async function ExpensesPage({
++  searchParams,
++}: {
++  searchParams: Promise<{ month?: string }>;
++}) {
++  const months = expenseMonths();
++  const { month: asked } = await searchParams;
++  // Default to the newest month that has anything in it, not to today: a gym
++  // opening this on the 1st should not be shown an empty screen.
++  const month = asked && (asked === "all" || months.includes(asked)) ? asked : months[0] ?? "all";
++
++  const period = moneyFor(month);
++  const rows = listExpenses().filter((e) => month === "all" || e.month === month);
++  const biggest = period.byCategory[0];
++
++  return (
++    <>
++      <PageHeading
++        title="Expenses"
++        subtitle="What the gym spends — rent, wages, power, repairs and the cost of collecting money"
++        action={<PeriodPicker months={months} value={month} basePath="/admin/expenses" />}
++      />
++
++      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
++        <StatCard label={`Money in · ${monthLabel(month)}`} value={money(period.income)} icon="payment" tone="lime" />
++        <StatCard label="Money out" value={money(period.expense)} icon="reports" tone="ember" />
++        <StatCard
++          label={period.net >= 0 ? "Left over" : "Short by"}
++          value={money(Math.abs(period.net))}
++          icon={period.net >= 0 ? "check" : "clock"}
++          tone={period.net >= 0 ? "sky" : "amber"}
++        />
++        <StatCard label="Biggest cost" value={biggest ? biggest.category : "—"} icon="card" tone="amber" />
++      </div>
++
++      <details className="mb-6 rounded-2xl border border-zinc-200 bg-white shadow-sm">
++        <summary className="flex cursor-pointer items-center gap-2 px-5 py-4 text-sm font-semibold text-zinc-700">
++          <Ico name="plus" className="h-4 w-4 text-ember-500" /> Record an expense
++        </summary>
++        <form action={createExpenseAction} className="grid gap-4 border-t border-zinc-100 p-5 sm:grid-cols-2 lg:grid-cols-3">
++          <input type="hidden" name="month" value={month} />
++          <label className="block">
++            <span className="mb-1.5 block text-sm font-medium text-zinc-600">Date</span>
++            <input name="date" type="date" defaultValue={today()} className={field} />
++          </label>
++          <label className="block">
++            <span className="mb-1.5 block text-sm font-medium text-zinc-600">Amount (KSh)</span>
++            <input name="amount" type="number" min="0" step="1" required className={field} />
++          </label>
++          <label className="block">
++            <span className="mb-1.5 block text-sm font-medium text-zinc-600">Category</span>
++            <select name="category" className={field}>
++              {EXPENSE_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
++            </select>
++          </label>
++          <label className="block">
++            <span className="mb-1.5 block text-sm font-medium text-zinc-600">Paid to</span>
++            <input name="payee" placeholder="Landlord, KPLC, supplier…" className={field} />
++          </label>
++          <label className="block">
++            <span className="mb-1.5 block text-sm font-medium text-zinc-600">Paid by</span>
++            <select name="method" className={field}>{METHODS.map((m) => <option key={m}>{m}</option>)}</select>
++          </label>
++          <label className="block">
++            <span className="mb-1.5 block text-sm font-medium text-zinc-600">Note</span>
++            <input name="note" placeholder="What it was for" className={field} />
++          </label>
++          <div className="flex items-end sm:col-span-2 lg:col-span-3">
++            <SubmitButton className="rounded-lg bg-ember-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-ember-600">
++              Record expense
++            </SubmitButton>
++          </div>
++        </form>
++      </details>
++
++      <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
++        <Card title={`Expenses · ${monthLabel(month)}`}>
++          <TableFilter
++            placeholder="Search by category, payee or note…"
++            filters={[{ key: "cat", label: "categories", options: [...new Set(rows.map((r) => r.category))].sort() }]}
++            pageSize={15}
++          >
++            <div className="overflow-x-auto">
++              <table className="w-full text-sm">
++                <thead>
++                  <tr className="border-b border-zinc-100 text-left text-xs uppercase tracking-wide text-zinc-400">
++                    <th className="py-2.5 pr-3 font-semibold">Date</th>
++                    <th className="py-2.5 pr-3 font-semibold">Category</th>
++                    <th className="py-2.5 pr-3 font-semibold">Paid to</th>
++                    <th className="py-2.5 pr-3 text-right font-semibold">Amount</th>
++                    <th className="py-2.5 pl-3" />
++                  </tr>
++                </thead>
++                <tbody className="divide-y divide-zinc-50">
++                  {rows.map((e) => {
++                    const auto = isAutomatic(e);
++                    return (
++                      <tr
++                        key={e.id}
++                        data-row
++                        data-search={`${e.category} ${e.payee ?? ""} ${e.note ?? ""} ${e.amount}`}
++                        data-f-cat={e.category}
++                      >
++                        <td className="py-2.5 pr-3 text-zinc-500">{e.date ?? e.month}</td>
++                        <td className="py-2.5 pr-3">
++                          <span className="font-medium text-zinc-800">{e.category}</span>
++                          {auto && (
++                            <span className="ml-2 rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-zinc-500">
++                              Automatic
++                            </span>
++                          )}
++                          {e.note && <p className="text-xs text-zinc-400">{e.note}</p>}
++                        </td>
++                        <td className="py-2.5 pr-3 text-zinc-500">
++                          {e.payee ?? "—"}
++                          {e.method && <span className="block text-xs text-zinc-400">{e.method}</span>}
++                        </td>
++                        <td className="py-2.5 pr-3 text-right font-semibold text-zinc-800">{money(e.amount)}</td>
++                        <td className="py-2.5 pl-3 text-right">
++                          {auto ? (
++                            <Link href="/admin/billing" className="text-xs font-semibold text-zinc-400 hover:text-ember-600">
++                              Service fees →
++                            </Link>
++                          ) : (
++                            <Link href={`/admin/expenses/${e.id}?month=${month}`} className="text-xs font-semibold text-ember-600 hover:underline">
++                              Edit
++                            </Link>
++                          )}
++                        </td>
++                      </tr>
++                    );
++                  })}
++                </tbody>
++              </table>
++              <p data-empty className={`py-10 text-center text-sm text-zinc-400 ${rows.length ? "hidden" : ""}`}>
++                Nothing recorded for {monthLabel(month)} yet.
++              </p>
++            </div>
++          </TableFilter>
++        </Card>
++
++        <Card title="Where it went">
++          {period.byCategory.length === 0 ? (
++            <p className="py-6 text-center text-sm text-zinc-400">No spending recorded.</p>
++          ) : (
++            <ul className="space-y-3">
++              {period.byCategory.map((c) => {
++                const pct = period.expense > 0 ? Math.round((c.amount / period.expense) * 100) : 0;
++                return (
++                  <li key={c.category}>
++                    <div className="flex items-baseline justify-between text-sm">
++                      <span className="text-zinc-700">{c.category}</span>
++                      <span className="font-semibold text-zinc-800">{money(c.amount)}</span>
++                    </div>
++                    <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-zinc-100">
++                      <div className="h-full rounded-full bg-ember-500" style={{ width: `${pct}%` }} />
++                    </div>
++                    <span className="text-xs text-zinc-400">{pct}% of spending</span>
++                  </li>
++                );
++              })}
++            </ul>
++          )}
++          <p className="mt-5 border-t border-zinc-100 pt-4 text-xs text-zinc-400">
++            {/* Explicit, because the space after </b> is swallowed here and
++                the sentence renders as "Automaticare". */}
++            Rows marked <b>Automatic</b>{" "}are service charges the system booked when they were
++            settled. They are counted here but belong to the charge — undo it under Payments
++            &amp; Billing to take one back.
++          </p>
++        </Card>
++      </div>
++    </>
++  );
++}
+diff --git a/src/app/admin/page.tsx b/src/app/admin/page.tsx
+index cabe706..4c218e1 100644
+--- a/src/app/admin/page.tsx
++++ b/src/app/admin/page.tsx
+@@ -1,32 +1,80 @@
+-import { dashboard } from "@/lib/db/repo";
+-import { Card } from "@/components/admin/ui";
++import Link from "next/link";
++import { dashboard, dashboardMonths } from "@/lib/db/repo";
++import { Card, StatCard, money } from "@/components/admin/ui";
+ import { Donut, Legend, BarChart } from "@/components/admin/charts";
++import { PeriodPicker } from "@/components/admin/period-picker";
+ import { Ico } from "@/components/admin/admin-icons";
+ 
+ export const dynamic = "force-dynamic";
+ 
+-export default async function AdminDashboard() {
+-  const d = dashboard();
++const monthLabel = (m: string) =>
++  m === "all"
++    ? "All time"
++    : new Date(`${m}-01T00:00:00Z`).toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" });
++
++export default async function AdminDashboard({
++  searchParams,
++}: {
++  searchParams: Promise<{ month?: string }>;
++}) {
++  const months = dashboardMonths();
++  const { month: asked } = await searchParams;
++  const month = asked && (asked === "all" || months.includes(asked)) ? asked : months[0] ?? "all";
++  const d = dashboard(month);
++  const period = monthLabel(month);
+ 
+   return (
+     <div className="space-y-6">
+-      {/* Row 1 — donuts */}
++      {/* One control, and it works. Four cards used to carry a span styled as
++          a dropdown — chevron and all — over figures that were always
++          all-time. */}
++      <div className="flex flex-wrap items-end justify-between gap-3">
++        <div>
++          <h1 className="font-display text-2xl text-zinc-800">Dashboard</h1>
++          <p className="mt-1 text-sm text-zinc-500">{month === "all" ? "Money and members, all time." : `Money and members for ${period}.`}</p>
++        </div>
++        <PeriodPicker months={months} value={month} basePath="/admin" />
++      </div>
++
++      {/* The money line. First, because it is the question the gym opens this
++          screen to answer. */}
++      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
++        <DrillCard href="/admin/billing" label={`Money in · ${period}`} value={money(d.money.income)} icon="payment" tone="lime" />
++        <DrillCard href={`/admin/expenses?month=${month}`} label="Money out" value={money(d.money.expense)} icon="receipt" tone="ember" />
++        <StatCard
++          label={d.money.net >= 0 ? "Left over" : "Short by"}
++          value={money(Math.abs(d.money.net))}
++          icon={d.money.net >= 0 ? "check" : "clock"}
++          tone={d.money.net >= 0 ? "sky" : "amber"}
++          hint="Money in less money out for this period"
++        />
++        <DrillCard
++          href="/admin/billing"
++          label="Still owed"
++          value={money(d.money.outstanding)}
++          icon="invoice"
++          tone="amber"
++          hint="Open balances, whenever they were raised"
++        />
++      </div>
++
++      {/* Row 1 — who the gym has. Counts of now, not of the period. */}
+       <div className="grid gap-6 lg:grid-cols-3">
+-        <DonutCard title="Users" total={String(d.users.total)} sub="Users" segments={d.users.segments} />
+-        <DonutCard title="Member Status" total={String(d.memberStatus.total)} sub="Member Status" segments={d.memberStatus.segments} external />
+-        <DonutCard title="Members by Plan" total={String(d.enrollment.total)} sub="Membership" segments={d.enrollment.segments} external />
++        <DonutCard title="Users" href="/admin/users" total={String(d.users.total)} sub="Users" segments={d.users.segments} />
++        <DonutCard title="Member Status" href="/admin/users" total={String(d.memberStatus.total)} sub="Member Status" segments={d.memberStatus.segments} />
++        <DonutCard title="Members by Plan" href="/admin/membership" total={String(d.enrollment.total)} sub="Membership" segments={d.enrollment.segments} />
+       </div>
+ 
+-      {/* Row 2 */}
++      {/* Row 2 — money, through the period. */}
+       <div className="grid gap-6 lg:grid-cols-3">
+-        <Card title="Attendance" action={<Filter value="Today" />}>
++        <Card title="Attendance" action={<CardLink href="/admin/attendance" label="Today" />}>
+           <div className="flex flex-col items-center py-4">
+             <Donut segments={d.attendance.segments} centerTop={String(d.attendance.total)} centerBottom="Present" size={170} />
+             <div className="mt-5 w-full"><Legend segments={d.attendance.segments} /></div>
+           </div>
+         </Card>
+ 
+-        <Card title="Payment Report" action={<Filter value="All time" />}>
++        <Card title="Payment Report" action={<CardLink href="/admin/billing" label={period} />}>
+           <div className="flex flex-col items-center py-4">
+             {d.paymentReport.segments.length ? (
+               <Donut segments={d.paymentReport.segments} centerTop={d.paymentReport.total} centerBottom="Collected" size={170} />
+@@ -36,41 +84,65 @@ export default async function AdminDashboard() {
+                 <span className="text-xs text-zinc-400">Collected</span>
+               </div>
+             )}
+-            <div className="mt-5 w-full"><Legend segments={d.paymentReport.segments.length ? d.paymentReport.segments : [{ label: "No payments yet", color: "#d4d4d8" }]} /></div>
++            <div className="mt-5 w-full">
++              <Legend segments={d.paymentReport.segments.length ? d.paymentReport.segments : [{ label: `Nothing collected · ${period}`, color: "#d4d4d8" }]} />
++            </div>
+           </div>
+         </Card>
+ 
+-        <Card title="Payment Status" action={<Ico name="external" className="h-4 w-4 text-zinc-400" />}>
++        <Card title="Payment Status" action={<CardLink href="/admin/billing" label={period} />}>
+           <div className="flex flex-col items-center py-4">
+-            <Donut segments={d.paymentStatus.segments} centerTop={d.paymentStatus.total} centerBottom="Payment Status" size={170} thickness={18} />
+-            <div className="mt-5 w-full"><Legend segments={d.paymentStatus.segments} /></div>
++            {d.paymentStatus.segments.length ? (
++              <Donut segments={d.paymentStatus.segments} centerTop={d.paymentStatus.total} centerBottom="Payment Status" size={170} thickness={18} />
++            ) : (
++              <div className="flex h-[170px] w-[170px] flex-col items-center justify-center rounded-full border-[18px] border-zinc-100 text-center">
++                <span className="font-display text-xl text-zinc-800">{d.paymentStatus.total}</span>
++                <span className="text-xs text-zinc-400">Payment Status</span>
++              </div>
++            )}
++            <div className="mt-5 w-full">
++              <Legend segments={d.paymentStatus.segments.length ? d.paymentStatus.segments : [{ label: `No payments · ${period}`, color: "#d4d4d8" }]} />
++            </div>
+           </div>
+         </Card>
+       </div>
+ 
+-      {/* Income vs expense */}
+-      <Card
+-        title="Income – Expense Report"
+-        action={
+-          <div className="flex gap-2">
+-            <Filter value="2026" />
+-          </div>
+-        }
+-      >
++      {/* Income vs expense — seven months ending with the one selected. */}
++      <Card title="Income – Expense Report" action={<CardLink href={`/admin/expenses?month=${month}`} label="Seven months to " suffix={period} />}>
+         <BarChart data={d.incomeExpense} />
++        <p className="mt-3 text-xs text-zinc-400">
++          Bars are KSh thousands. Expenses come from the Expenses screen — anything not
++          recorded there is not in this chart.
++        </p>
+       </Card>
+     </div>
+   );
+ }
+ 
++/** A stat that is also a way in. Every number on a dashboard raises the
++    question "which ones?", and a tile that cannot answer it wastes the click
++    the user is already trying to make. */
++function DrillCard({
++  href, label, value, icon, tone, hint,
++}: {
++  href: string; label: string; value: string; icon: string;
++  tone: "lime" | "ember" | "sky" | "amber"; hint?: string;
++}) {
++  return (
++    <Link href={href} className="block rounded-2xl transition-shadow hover:shadow-md focus:outline-none focus:ring-2 focus:ring-ember-200">
++      <StatCard label={label} value={value} icon={icon} tone={tone} hint={hint} />
++    </Link>
++  );
++}
++
+ function DonutCard({
+-  title, total, sub, segments, external,
++  title, href, total, sub, segments,
+ }: {
+-  title: string; total: string; sub: string;
+-  segments: { label: string; value: number; color: string }[]; external?: boolean;
++  title: string; href: string; total: string; sub: string;
++  segments: { label: string; value: number; color: string }[];
+ }) {
+   return (
+-    <Card title={title} action={external ? <Ico name="external" className="h-4 w-4 text-zinc-400" /> : undefined}>
++    <Card title={title} action={<CardLink href={href} label="Now" />}>
+       <div className="flex flex-col items-center py-4">
+         <Donut segments={segments} centerTop={total} centerBottom={sub} />
+         <div className="mt-5 w-full"><Legend segments={segments} /></div>
+@@ -79,11 +151,16 @@ function DonutCard({
+   );
+ }
+ 
+-function Filter({ value }: { value: string }) {
++/** States the window the card covers AND goes to the list behind it. The
++    thing it replaces looked like a control and was a label. */
++function CardLink({ href, label, suffix }: { href: string; label: string; suffix?: string }) {
+   return (
+-    <span className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-600">
+-      {value}
+-      <Ico name="chevronDown" className="h-3.5 w-3.5 text-zinc-400" />
+-    </span>
++    <Link
++      href={href}
++      className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-600 hover:border-ember-200 hover:text-ember-600"
++    >
++      {label}{suffix}
++      <Ico name="chevronRight" className="h-3.5 w-3.5 text-zinc-400" />
++    </Link>
+   );
+ }
+diff --git a/src/components/admin/period-picker.tsx b/src/components/admin/period-picker.tsx
+new file mode 100644
+index 0000000..d0485ec
+--- /dev/null
++++ b/src/components/admin/period-picker.tsx
+@@ -0,0 +1,69 @@
++"use client";
++
++import { useRouter, useSearchParams } from "next/navigation";
++import { useTransition } from "react";
++import { Ico } from "@/components/admin/admin-icons";
++
++/* ==========================================================================
++   A period control that actually changes the figures.
++
++   What stood here before was a `<span>` styled to look like a dropdown, on
++   four dashboard cards. It had a chevron and everything, and nothing behind
++   it — so the numbers it appeared to govern were always all-time, and the
++   screen quietly lied about what it was showing.
++
++   The choice lives in the URL rather than in component state, so the server
++   recomputes, a reload keeps the period, and the view can be sent to someone
++   else as a link. Other query parameters are preserved: the dashboard and the
++   expenses screen both hang other things off the URL.
++   ========================================================================== */
++
++const label = (m: string) =>
++  m === "all"
++    ? "All time"
++    : new Date(`${m}-01T00:00:00Z`).toLocaleDateString("en-GB", {
++        month: "long",
++        year: "numeric",
++        timeZone: "UTC",
++      });
++
++export function PeriodPicker({
++  months,
++  value,
++  basePath,
++  param = "month",
++}: {
++  /** Months that have something in them, newest first. */
++  months: string[];
++  value: string;
++  basePath: string;
++  param?: string;
++}) {
++  const router = useRouter();
++  const search = useSearchParams();
++  const [pending, start] = useTransition();
++
++  const go = (next: string) => {
++    const q = new URLSearchParams(search.toString());
++    q.set(param, next);
++    start(() => router.push(`${basePath}?${q.toString()}`));
++  };
++
++  return (
++    <label className="relative inline-flex items-center">
++      <span className="sr-only">Period</span>
++      <select
++        value={value}
++        onChange={(e) => go(e.target.value)}
++        disabled={pending}
++        className="appearance-none rounded-lg border border-zinc-200 bg-white py-2 pl-3 pr-8 text-sm font-medium text-zinc-700 focus:border-ember-400 focus:outline-none focus:ring-2 focus:ring-ember-100 disabled:opacity-60"
++      >
++        {months.map((m) => (
++          <option key={m} value={m}>{label(m)}</option>
++        ))}
++        <option value="all">All time</option>
++      </select>
++      <Ico name="chevronDown" className="pointer-events-none absolute right-2.5 h-3.5 w-3.5 text-zinc-400" />
++    </label>
++  );
++}
+diff --git a/src/lib/admin.ts b/src/lib/admin.ts
+index 131b53a..ea1eb08 100644
+--- a/src/lib/admin.ts
++++ b/src/lib/admin.ts
+@@ -21,7 +21,7 @@
+ export const adminNavGroups: { label: string; hrefs: string[] }[] = [
+   { label: "Overview", hrefs: ["/admin", "/admin/reports", "/admin/notifications"] },
+   { label: "People", hrefs: ["/admin/users", "/admin/attendance", "/admin/reservations"] },
+-  { label: "Money", hrefs: ["/admin/billing", "/admin/membership", "/admin/store"] },
++  { label: "Money", hrefs: ["/admin/billing", "/admin/expenses", "/admin/membership", "/admin/store"] },
+   { label: "Training", hrefs: ["/admin/classes", "/admin/workout", "/admin/nutrition", "/admin/calculators"] },
+   { label: "System", hrefs: ["/admin/settings"] },
+ ];
+@@ -38,6 +38,7 @@ export const adminNav: AdminNavItem[] = [
+   { label: "Members & Staff", href: "/admin/users", icon: "users" },
+   { label: "Membership Plans", href: "/admin/membership", icon: "card" },
+   { label: "Payments & Billing", href: "/admin/billing", icon: "payment" },
++  { label: "Expenses", href: "/admin/expenses", icon: "receipt" },
+   { label: "Attendance", href: "/admin/attendance", icon: "attendance" },
+   { label: "Reports", href: "/admin/reports", icon: "reports" },
+   { label: "Class Schedule", href: "/admin/classes", icon: "calendar" },
+diff --git a/src/lib/admin/module-actions.ts b/src/lib/admin/module-actions.ts
+index d529b62..4126169 100644
+--- a/src/lib/admin/module-actions.ts
++++ b/src/lib/admin/module-actions.ts
+@@ -10,6 +10,8 @@ import {
+ } from "@/lib/services/programmes";
+ import { updateSettings } from "@/lib/services/settings";
+ import { accrueServiceCharges } from "@/lib/services/service-fees";
++import { createExpense, updateExpense, deleteExpense } from "@/lib/services/expenses";
++import { currentUser } from "@/lib/auth/current-user";
+ import type {
+   BillablePlan, PayMethod, GymClass, ReservationStatus, WorkoutDay, NutritionMeal,
+ } from "@/lib/db/schema";
+@@ -208,6 +210,58 @@ export async function assignNutritionPlanAction(formData: FormData) {
+   revalidatePath("/admin/nutrition");
+ }
+ 
++/* ------------------------------ expenses -------------------------------- */
++
++/** Where to send the user back to, keeping whichever month they were looking
++    at — landing them on a different month than the one they just edited is a
++    small thing that makes a screen feel broken. */
++const expensesHref = (fd: FormData) => {
++  const month = str(fd, "month");
++  return month && month !== "all" ? `/admin/expenses?month=${month}` : "/admin/expenses";
++};
++
++export async function createExpenseAction(formData: FormData) {
++  const me = await currentUser();
++  await createExpense({
++    date: str(formData, "date") || new Date().toISOString().slice(0, 10),
++    amount: num(formData, "amount"),
++    category: str(formData, "category", "Other"),
++    note: str(formData, "note"),
++    payee: str(formData, "payee"),
++    method: str(formData, "method", "Cash") as PayMethod,
++    // Who entered it. Cash going out of a gym without a name against it is
++    // how a spend record stops being worth keeping.
++    recordedBy: me?.name,
++  });
++  revalidatePath("/admin/expenses");
++  revalidatePath("/admin");
++  revalidatePath("/admin/reports");
++  redirect(expensesHref(formData));
++}
++
++export async function updateExpenseAction(formData: FormData) {
++  await updateExpense(str(formData, "id"), {
++    date: str(formData, "date") || undefined,
++    amount: num(formData, "amount"),
++    category: str(formData, "category", "Other"),
++    note: str(formData, "note"),
++    payee: str(formData, "payee"),
++    method: str(formData, "method", "Cash") as PayMethod,
++  });
++  revalidatePath("/admin/expenses");
++  revalidatePath("/admin");
++  revalidatePath("/admin/reports");
++  redirect(expensesHref(formData));
++}
++
++export async function deleteExpenseAction(formData: FormData) {
++  await deleteExpense(str(formData, "id"));
++  revalidatePath("/admin/expenses");
++  revalidatePath("/admin");
++  revalidatePath("/admin/reports");
++  redirect(expensesHref(formData));
++}
++
+ /* ------------------------------ settings ------------------------------- */
+ export async function updateSettingsAction(formData: FormData) {
+   await updateSettings({
+diff --git a/src/lib/auth/permissions.ts b/src/lib/auth/permissions.ts
+index 3e7a362..e46fbc6 100644
+--- a/src/lib/auth/permissions.ts
++++ b/src/lib/auth/permissions.ts
+@@ -11,7 +11,7 @@ import type { Role } from "@/lib/db/schema";
+    ========================================================================== */
+ 
+ export type ModuleKey =
+-  | "dashboard" | "users" | "membership" | "billing" | "attendance"
++  | "dashboard" | "users" | "membership" | "billing" | "expenses" | "attendance"
+   | "reports" | "classes" | "reservations" | "workout" | "nutrition"
+   | "store" | "calculators" | "notifications" | "settings";
+ 
+@@ -22,6 +22,7 @@ export const MODULES: { key: ModuleKey; label: string; href: string; note: strin
+   { key: "users", label: "Members & Staff", href: "/admin/users", note: "View & manage member/staff records" },
+   { key: "membership", label: "Membership Plans", href: "/admin/membership", note: "The plan catalog & pricing" },
+   { key: "billing", label: "Payments & Billing", href: "/admin/billing", note: "Invoices, payments, day-passes" },
++  { key: "expenses", label: "Expenses", href: "/admin/expenses", note: "What the gym spends" },
+   { key: "attendance", label: "Attendance", href: "/admin/attendance", note: "Check-ins" },
+   { key: "reports", label: "Reports", href: "/admin/reports", note: "Financial & membership reports" },
+   { key: "classes", label: "Class Schedule", href: "/admin/classes", note: "The weekly timetable" },
+@@ -49,7 +50,7 @@ const ALL_KEYS = MODULES.map((m) => m.key);
+ /** Default module access per role, used when a user has no custom permissions. */
+ export const ROLE_DEFAULTS: Record<Role, ModuleKey[]> = {
+   admin: ALL_KEYS,
+-  accountant: ["dashboard", "billing", "reports", "membership", "attendance", "users"],
++  accountant: ["dashboard", "billing", "expenses", "reports", "membership", "attendance", "users"],
+   trainer: ["dashboard", "classes", "reservations", "workout", "nutrition", "attendance", "users"],
+   member: [],
+ };
+diff --git a/src/lib/db/repo.ts b/src/lib/db/repo.ts
+index f8e2670..ac1116f 100644
+--- a/src/lib/db/repo.ts
++++ b/src/lib/db/repo.ts
+@@ -154,9 +154,22 @@ export async function setAttendance(memberId: string, date: string, present: boo
+ /* ---------------------------- dashboard -------------------------------- */
+ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+ 
+-export function dashboard() {
++/**
++ * The dashboard's figures for one month, or for everything when given "all".
++ *
++ * The period is an argument rather than a constant because this screen used
++ * to show all-time numbers underneath four controls that looked exactly like
++ * period filters and did nothing at all.
++ *
++ * Headcounts — users, member status, members by plan — are deliberately NOT
++ * filtered: how many members the gym has is a fact about now, not about
++ * March. Everything that is money says in its own label which window it
++ * covers, and so does attendance.
++ */
++export function dashboard(month: string = "all") {
+   const db = getDB();
+   const members = db.users.filter((u) => u.role === "member");
++  const inPeriod = (date: string) => month === "all" || date.slice(0, 7) === month;
+ 
+   const byRole = (r: Role) => db.users.filter((u) => u.role === r).length;
+   const users = {
+@@ -191,7 +204,7 @@ export function dashboard() {
+   // Payments. Every figure below is drawn from livePayments, never
+   // db.payments — a reversed payment is money handed back, and one total
+   // forgetting that is how a dashboard starts disagreeing with itself.
+-  const livePayments = db.payments.filter(isLivePayment);
++  const livePayments = db.payments.filter((p) => isLivePayment(p) && inPeriod(p.date));
+   const paid = livePayments.reduce((s, p) => s + p.amount, 0);
+   const cnt = (s: PayStatus) => livePayments.filter((p) => p.status === s).length;
+   const paymentStatus = {
+@@ -225,26 +238,68 @@ export function dashboard() {
+     ],
+   };
+ 
+-  // Income vs expense by month (KSh thousands), Jan–Jul 2026.
+-  // Income comes from the booked monthly totals; falls back to summing the
+-  // transactional payments if no monthly income has been recorded yet.
++  // Income vs expense, the last seven months ending with the selected one.
++  //
++  // The months used to be the literal list "2026-01" … "2026-07". That draws
++  // the right picture for exactly seven months and an empty chart for ever
++  // afterwards — the sort of thing nobody notices until the year turns. The
++  // window now follows the period the user is looking at.
++  //
++  // Income is the booked monthly totals when the gym keeps them, and the
++  // payment ledger otherwise; the ledger here is unfiltered by period on
++  // purpose, since the chart is itself a series over months.
++  const allLive = db.payments.filter(isLivePayment);
+   const incomeByMonth = new Map<string, number>();
+   if (db.incomes?.length) {
+     for (const i of db.incomes) incomeByMonth.set(i.month, (incomeByMonth.get(i.month) ?? 0) + i.amount);
+   } else {
+-    for (const p of livePayments) {
++    for (const p of allLive) {
+       const key = p.date.slice(0, 7);
+       incomeByMonth.set(key, (incomeByMonth.get(key) ?? 0) + p.amount);
+     }
+   }
+   const expenseByMonth = new Map<string, number>();
+   for (const e of db.expenses) expenseByMonth.set(e.month, (expenseByMonth.get(e.month) ?? 0) + e.amount);
+-  const keys = ["2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06", "2026-07"];
+-  const incomeExpense = keys.map((k) => ({
+-    month: MONTHS[parseInt(k.slice(5), 10) - 1],
+-    income: Math.round((incomeByMonth.get(k) ?? 0) / 1000),
+-    expense: Math.round((expenseByMonth.get(k) ?? 0) / 1000),
+-  }));
+-
+-  return { users, memberStatus, enrollment, paymentStatus, paymentReport, attendance, incomeExpense };
++
++  const anchor = month === "all" ? todayISO().slice(0, 7) : month;
++  const [ay, am] = anchor.split("-").map(Number);
++  const incomeExpense = Array.from({ length: 7 }, (_, i) => {
++    const d = new Date(Date.UTC(ay, am - 1 - (6 - i), 1));
++    const k = d.toISOString().slice(0, 7);
++    return {
++      month: MONTHS[d.getUTCMonth()],
++      // Thousands: the bars are a shape, not a figure to read off.
++      income: Math.round((incomeByMonth.get(k) ?? 0) / 1000),
++      expense: Math.round((expenseByMonth.get(k) ?? 0) / 1000),
++    };
++  });
++
++  /* The money line, and what is still owed. Outstanding is deliberately NOT
++     period-filtered: an invoice raised in March and still unpaid is owed
++     today, and hiding it when the user looks at April is how a debt gets
++     forgotten. */
++  const income = livePayments.reduce((s, p) => s + p.amount, 0);
++  const expense = db.expenses
++    .filter((e) => month === "all" || e.month === month)
++    .reduce((s, e) => s + e.amount, 0);
++  const outstanding = db.invoices
++    .filter((i) => i.status === "pending" || i.status === "partially_paid" || i.status === "overdue")
++    .reduce((s, i) => s + i.balance, 0);
++
++  return {
++    month,
++    users, memberStatus, enrollment, paymentStatus, paymentReport, attendance, incomeExpense,
++    money: { income, expense, net: income - expense, outstanding },
++  };
++}
++
++/** Months that have money in or out, newest first — what the period picker
++    offers. Never a month with nothing in it. */
++export function dashboardMonths(): string[] {
++  const db = getDB();
++  const set = new Set<string>();
++  for (const p of db.payments) if (isLivePayment(p)) set.add(p.date.slice(0, 7));
++  for (const e of db.expenses) set.add(e.month);
++  set.add(todayISO().slice(0, 7)); // always offer the month they are in
++  return [...set].sort().reverse();
+ }
+diff --git a/src/lib/db/schema.ts b/src/lib/db/schema.ts
+index b8ddd00..43b725a 100644
+--- a/src/lib/db/schema.ts
++++ b/src/lib/db/schema.ts
+@@ -146,11 +146,31 @@ export type DayPass = {
+   paymentId: string;
+ };
+ 
++export const EXPENSE_CATEGORIES = [
++  "Rent", "Salaries & wages", "Electricity & water", "Internet & airtime",
++  "Equipment & repairs", "Cleaning & supplies", "Marketing", "Licences & insurance",
++  "Gateway fees", "Platform & support", "Other",
++] as const;
++
+ export type Expense = {
+   id: string;
+-  month: string; // YYYY-MM
++  gymId?: string; // absent on rows written before this field existed
++  month: string; // YYYY-MM — what the reports group by
++  /** The day it was actually incurred. Optional: rows booked automatically
++      before this existed carry only the month. */
++  date?: string; // YYYY-MM-DD
+   amount: number;
+   category: string;
++  note?: string;
++  payee?: string;
++  method?: PayMethod;
++  recordedBy?: string;
++  /** Set when the system booked this itself — currently a settled service
++      charge. Such a row belongs to that charge and is removed with it, so the
++      expenses screen shows it but will not let anyone edit or delete it by
++      hand; undoing the charge is the way to take it back. */
++  serviceChargeId?: string;
++  createdAt?: string;
+ };
+ 
+ export type Income = {
+diff --git a/src/lib/services/expenses.ts b/src/lib/services/expenses.ts
+new file mode 100644
+index 0000000..c4530b7
+--- /dev/null
++++ b/src/lib/services/expenses.ts
+@@ -0,0 +1,159 @@
++import "server-only";
++import { getDB, saveDB, uid } from "@/lib/db/store";
++import { GYM_ID, type Expense, type PayMethod } from "@/lib/db/schema";
++
++/* ==========================================================================
++   What the gym spends.
++
++   Expenses existed before this only as a side effect: settling a service
++   charge wrote one, and nothing else ever did. So the income-vs-expense chart
++   on the dashboard was drawing the cost of collecting money and calling it
++   the cost of running a gym — rent, salaries and electricity were nowhere.
++
++   Two kinds of row live here and they are NOT equal:
++
++   · Hand-entered — the gym's own record. Editable, deletable.
++   · Automatic (serviceChargeId set) — owned by the service charge that
++     created it. Shown, counted, but not editable here; undoing the charge is
++     what takes it back. Letting someone delete one by hand would leave a
++     charge marked paid with nothing behind it.
++   ========================================================================== */
++
++const todayISO = () => new Date().toISOString().slice(0, 10);
++const monthOf = (date: string) => date.slice(0, 7);
++
++export const isAutomatic = (e: Expense) => Boolean(e.serviceChargeId);
++
++/** Newest first — the order anyone scanning a spend list expects. */
++export function listExpenses(): Expense[] {
++  return [...getDB().expenses].sort((a, b) => {
++    const ad = a.date ?? `${a.month}-01`;
++    const bd = b.date ?? `${b.month}-01`;
++    return bd.localeCompare(ad);
++  });
++}
++
++export function getExpense(id: string): Expense | undefined {
++  return getDB().expenses.find((e) => e.id === id);
++}
++
++/** Every month that has any money in or out, newest first. Drives the period
++    picker, so it never offers a month with nothing in it. */
++export function expenseMonths(): string[] {
++  const db = getDB();
++  const set = new Set<string>();
++  for (const e of db.expenses) set.add(e.month);
++  for (const p of db.payments) if (p.status !== "Reversed") set.add(p.date.slice(0, 7));
++  return [...set].sort().reverse();
++}
++
++export async function createExpense(input: {
++  date: string;
++  amount: number;
++  category: string;
++  note?: string;
++  payee?: string;
++  method?: PayMethod;
++  recordedBy?: string;
++}): Promise<void> {
++  const date = input.date || todayISO();
++  await saveDB((db) => {
++    db.expenses.push({
++      id: uid("EXP"),
++      gymId: GYM_ID,
++      // Derived from the date rather than asked for separately: two fields
++      // that must agree are two fields that will eventually disagree.
++      month: monthOf(date),
++      date,
++      amount: Math.max(0, Math.round(input.amount)),
++      category: input.category || "Other",
++      note: input.note?.trim() || undefined,
++      payee: input.payee?.trim() || undefined,
++      method: input.method,
++      recordedBy: input.recordedBy?.trim() || undefined,
++      createdAt: todayISO(),
++    });
++  });
++}
++
++export async function updateExpense(
++  id: string,
++  patch: { date?: string; amount?: number; category?: string; note?: string; payee?: string; method?: PayMethod },
++): Promise<void> {
++  await saveDB((db) => {
++    const e = db.expenses.find((x) => x.id === id);
++    if (!e || isAutomatic(e)) return; // an automatic row is the charge's, not ours
++    if (patch.date) { e.date = patch.date; e.month = monthOf(patch.date); }
++    if (patch.amount !== undefined) e.amount = Math.max(0, Math.round(patch.amount));
++    if (patch.category) e.category = patch.category;
++    e.note = patch.note?.trim() || undefined;
++    e.payee = patch.payee?.trim() || undefined;
++    e.method = patch.method;
++  });
++}
++
++export async function deleteExpense(id: string): Promise<void> {
++  await saveDB((db) => {
++    const i = db.expenses.findIndex((x) => x.id === id);
++    if (i < 0 || isAutomatic(db.expenses[i])) return;
++    db.expenses.splice(i, 1);
++  });
++}
++
++/* ----------------------------- the numbers ------------------------------ */
++
++export type MoneyPeriod = {
++  /** YYYY-MM, or "all". */
++  month: string;
++  income: number;
++  expense: number;
++  net: number;
++  byCategory: { category: string; amount: number }[];
++};
++
++/** Money in and out for one month, or for everything when given "all".
++ *
++ *  Income is the payment ledger with reversed rows excluded — the same
++ *  filtered list the billing screens total, so two figures on two screens
++ *  cannot disagree. */
++export function moneyFor(month: string): MoneyPeriod {
++  const db = getDB();
++  const inMonth = (d: string) => month === "all" || d.slice(0, 7) === month;
++
++  const income = db.payments
++    .filter((p) => p.status !== "Reversed" && inMonth(p.date))
++    .reduce((s, p) => s + p.amount, 0);
++
++  const rows = db.expenses.filter((e) => month === "all" || e.month === month);
++  const expense = rows.reduce((s, e) => s + e.amount, 0);
++
++  const byCat = new Map<string, number>();
++  for (const e of rows) byCat.set(e.category, (byCat.get(e.category) ?? 0) + e.amount);
++
++  return {
++    month,
++    income,
++    expense,
++    net: income - expense,
++    byCategory: [...byCat.entries()]
++      .map(([category, amount]) => ({ category, amount }))
++      .sort((a, b) => b.amount - a.amount),
++  };
++}
++
++/** The last `count` months of money in and out, oldest first — the bar chart.
++    Anchored on the newest month that has anything in it rather than on today,
++    so a quiet month does not push the whole chart off the end. */
++export function moneyTrend(count = 7): { month: string; income: number; expense: number }[] {
++  const months = expenseMonths();
++  const anchor = months[0] ?? new Date().toISOString().slice(0, 7);
++  const [y, m] = anchor.split("-").map(Number);
++  const out: { month: string; income: number; expense: number }[] = [];
++  for (let i = count - 1; i >= 0; i--) {
++    const d = new Date(Date.UTC(y, m - 1 - i, 1));
++    const key = d.toISOString().slice(0, 7);
++    const { income, expense } = moneyFor(key);
++    out.push({ month: key, income, expense });
++  }
++  return out;
++}
+diff --git a/src/lib/services/service-fees.ts b/src/lib/services/service-fees.ts
+index 300997d..52a153c 100644
+--- a/src/lib/services/service-fees.ts
++++ b/src/lib/services/service-fees.ts
+@@ -164,9 +164,17 @@ export async function payServiceCharge(
+     // settled, so a late payment does not distort the next month's margin.
+     db.expenses.push({
+       id: uid("EXP"),
++      gymId: GYM_ID,
+       month: c.period,
++      date: c.paidAt,
+       amount: c.amount,
+       category: c.kind === "gateway" ? "Gateway fees" : "Platform & support",
++      note: `Service charge ${c.period}`,
++      method: input.method,
++      // Stamped with the charge it belongs to. The expenses screen shows it
++      // and counts it but will not edit or delete it; undoing the charge is
++      // what takes it back.
++      serviceChargeId: c.id,
+     });
+   });
+ }
+@@ -178,8 +186,17 @@ export async function unpayServiceCharge(id: string): Promise<void> {
+     const c = (db.serviceCharges ?? []).find((x) => x.id === id);
+     if (!c || c.status !== "paid") return;
+ 
+-    const category = c.kind === "gateway" ? "Gateway fees" : "Platform & support";
+-    const i = db.expenses.findIndex((e) => e.month === c.period && e.amount === c.amount && e.category === category);
++    // By the charge's own id. Matching on month + amount + category used to
++    // be a guess: two charges of the same size in the same month are ordinary,
++    // and undoing one would take the other one's row away. Older rows have no
++    // id stamped, so fall back to the old match for them and nothing else.
++    let i = db.expenses.findIndex((e) => e.serviceChargeId === c.id);
++    if (i < 0) {
++      const category = c.kind === "gateway" ? "Gateway fees" : "Platform & support";
++      i = db.expenses.findIndex(
++        (e) => !e.serviceChargeId && e.month === c.period && e.amount === c.amount && e.category === category,
++      );
++    }
+     if (i >= 0) db.expenses.splice(i, 1);
+ 
+     c.status = "due";

@@ -536,6 +536,154 @@ back a CheckoutRequestID and posts the callback — so the real path runs: push,
 prompt screen, callback, balance, activation. 24 checks on the member's path,
 3 on the no-`Amount` callback, 7 on the gym's switch. All passed.
 
+## 12 · Expenses, and a dashboard whose filters are real
+
+```bash
+cd /root/fit-generations-gym
+git apply --check /srv/smp-portfolio/repo/deploy/contabo/fitgen/patches/0010-expenses-and-dashboard.patch \
+  && git apply /srv/smp-portfolio/repo/deploy/contabo/fitgen/patches/0010-expenses-and-dashboard.patch
+docker compose -f docker-compose.behind-proxy.yml up -d --build
+```
+
+Goes on after 0009. No migration — the new expense fields are keys in the
+JSON document the app already stores, and a row written before this patch
+still reads back fine.
+
+### Expenses
+
+Expenses existed only as a side effect. Settling a service charge wrote one,
+and nothing else ever did — so the income-vs-expense chart on the dashboard
+was drawing the cost of *collecting* money and calling it the cost of
+**running a gym**. Rent, wages, power and repairs were nowhere in it.
+
+There is now a section for them, under **Money → Expenses**:
+
+- Record a spend with a date, category, who it was paid to, how, and a note.
+- Search and filter the list; edit or delete a row.
+- A breakdown of where the month's money went, as a share of the total.
+- Money in, money out and what is left over at the top of the same screen, so
+  the margin is read off one page instead of assembled in someone's head.
+
+**Rows marked Automatic** are service charges the system booked when they
+were settled. They are shown and counted but cannot be edited or deleted
+here; undoing the charge under Payments & Billing is what takes one back.
+Deleting it by hand would leave a charge marked paid with nothing behind it.
+
+Those rows now carry the charge's own id. Undo used to find the expense by
+matching month + amount + category, which picks the wrong row the moment a
+gym has two charges of the same size in one month. Older rows have no id
+stamped on them, so the old match is kept as a fallback for those alone.
+
+Access: a new **Expenses** module in the permission picker. Admins and
+accountants get it by default; trainers do not.
+
+### The dashboard
+
+The period chips were `<span>` elements styled to look like dropdowns —
+chevron and all — sitting over figures that were always all-time. Four of
+them. One real control replaces the lot, and the choice lives in the URL, so
+the server recomputes, a reload keeps the period, and the view can be sent to
+someone as a link.
+
+- **The money line is now first**: in, out, left over, still owed. It is the
+  question the screen gets opened to answer.
+- **Still owed is deliberately not period-filtered.** An invoice raised in
+  March and still unpaid is owed today; hiding it when someone looks at April
+  is how a debt gets forgotten.
+- **Each tile is a way in** — money out opens the expenses list for that
+  month, money in opens billing.
+- **Headcounts stay unfiltered and say "Now".** How many members the gym has
+  is a fact about today, not about March.
+
+One more thing found in there: the income-expense chart's months were the
+literal list `2026-01` … `2026-07`. That draws the right picture for seven
+months and an empty chart for ever afterwards — the sort of thing nobody
+notices until the year turns. The window now follows the selected period.
+
+### How it was tested
+
+In a browser: 17 checks on the expenses section — record, edit, delete,
+search, filter, the breakdown, the period control — and 14 on the dashboard,
+including setting a gateway rate, settling a service charge, confirming it
+books an Automatic row, and undoing it to confirm the row goes with it. The
+part-payment and member-area suites were re-run and stayed clean.
+
+## 13 · The frozen member portal
+
+```bash
+cd /root/fit-generations-gym
+git apply --check /srv/smp-portfolio/repo/deploy/contabo/fitgen/patches/0011-portal-stale-session.patch \
+  && git apply /srv/smp-portfolio/repo/deploy/contabo/fitgen/patches/0011-portal-stale-session.patch
+docker compose -f docker-compose.behind-proxy.yml up -d --build
+```
+
+Goes on after 0010.
+
+### What was actually wrong
+
+The reported symptom was exact: the **Members area** screen, with *Create an
+account* and *Sign in* both appearing to load and going nowhere, and only a
+private window working. It is not the sign-in flow. It is two guards asking
+two different questions:
+
+- `/portal` renders that screen when the session does not resolve to a member
+  **record**.
+- `/portal/login` and `/portal/signup` redirected back to `/portal` whenever
+  the **cookie** said `member` — without checking that member still existed.
+
+Delete a member from the office, or restore a database from before they
+joined, and their browser keeps presenting a perfectly valid, correctly
+signed session for an id that resolves to nobody. From then on `/portal` sent
+them to the join screen, and the join screen's two buttons sent them straight
+back. The page loaded every time and never changed. The header offered no
+sign-out, because it only renders one for a *resolved* member — so nothing on
+the page could clear the cookie. A private window worked because it had no
+cookie to present.
+
+Note what this is **not**: it is not a cache, not a build, and not a bad
+`AUTH_SECRET`. An invalid or expired cookie fails verification, and then the
+sign-in page renders normally. It takes a *valid* session for a deleted
+account to produce the loop — which is why repeated sign-in/sign-out testing
+never reproduced it.
+
+### The fix
+
+`currentMember()` answers one question — who is signed in, resolved all the
+way to the record — and every portal page asks it, so they cannot disagree.
+Then:
+
+- The landing screen **says what happened** instead of silently showing the
+  join page to somebody who believes they are signed in, and carries a
+  **Sign out**.
+- The header offers Sign out whenever a session is present but unresolved, so
+  this class of trap cannot recur on any portal page.
+- The invoice page checks the record too. Deleting a member leaves their
+  invoices behind, and a session that outlived the account was still opening
+  them.
+
+### If a member reports it on the live site
+
+They can now fix it themselves from the page. Before this patch goes on, the
+manual escape is to clear the site's cookies for fitgenerationsgym.com (or
+use a private window). To see whether a given session is stranded:
+
+```bash
+docker exec fitgen-db psql -U fitgen -d fitgen -tA -c \
+"select count(*) from users where data->>'role' = 'member';"
+```
+
+A member who insists they had an account, with no row for their email, is
+this bug. Deleting members from **Members & Staff** is what strands anyone
+signed in as them.
+
+### How it was tested
+
+Reproduced first: sign up a member, delete the record from the office, then
+click both buttons in the member's browser. Before — both returned to the
+same screen and there were **zero** ways to sign out. After — both reach real
+forms, the screen explains itself, and signing out works. The member-area,
+part-payment, expenses and dashboard suites were re-run and stayed clean.
+
 ## Retire Render
 
 The apex has been served from this box for weeks, so Render is only holding
