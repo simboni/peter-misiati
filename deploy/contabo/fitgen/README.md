@@ -382,6 +382,89 @@ bash /srv/smp-portfolio/repo/deploy/contabo/backup.sh --list
 `fitgen-db` is discovered automatically — it is a Postgres container like the
 others.
 
+## 10 · Joining goes to the member area, and Coach Emmanuel comes off
+
+```bash
+cd /root/fit-generations-gym
+git apply --check /srv/smp-portfolio/repo/deploy/contabo/fitgen/patches/0008-member-area-ctas-and-signout.patch \
+  && git apply /srv/smp-portfolio/repo/deploy/contabo/fitgen/patches/0008-member-area-ctas-and-signout.patch
+docker compose -f docker-compose.behind-proxy.yml up -d --build
+```
+
+`--build`, as always: `COPY . .` bakes the source into the image, so a plain
+`up -d` restarts the old code and the patch looks like it did nothing.
+
+This patch touches nine files and **none of them appear in 0001–0007**, so it
+can go on whatever state the box is in. That matters here: 0005 and 0007 do
+not reverse cleanly against a rebuilt baseline, so unlike 64theatre this app
+cannot be reset-to-base-and-reapplied. Patches have to go on in order, once
+each, on top of what is already there.
+
+It carries two **deleted JPEGs**, which is why the file is ~230 KB. It was
+generated with `git diff --binary`; without that flag `git diff` writes an
+abbreviated index line for a binary file and `git apply` refuses the whole
+patch with *"cannot apply binary patch … without full index line"*. Any
+future patch that adds or removes an image needs the same flag.
+
+### Joining now lands in the member area
+
+Before this, **Enroll Now** on the pricing page opened **WhatsApp**. Somebody
+ready to pay was handed off to a chat thread and a human who had to be awake.
+It now goes to `/portal/signup`. WhatsApp is still there as a second,
+quieter link — *"Or ask us about this plan"* — because asking a question
+before paying is a real thing people want; it is just not the main path.
+
+**Become a Member** in the closing band pointed at `/pricing`, which is the
+page the visitor was most likely already on. It also goes to `/portal/signup`.
+
+### Coach Emmanuel is off the front end
+
+He is named nowhere on the public site: the trainers page, the gallery and the
+class timetable. His two photographs are deleted — `public/trainers/
+emmanuel-manu.jpg` and `public/gallery/g5.jpg`.
+
+**His five classes stay on the timetable**, without a coach name against them.
+Removing the classes as well would have emptied three slots from a schedule
+that is advertised and attended, which is a bigger change than was asked for.
+`WorkoutSlot.coach` is therefore optional and the label only renders when
+there is a name — otherwise the card reads "with Coach" and trails off.
+
+`src/lib/public-assets.ts` is in the patch because it is a **generated file**:
+`scripts/generate-asset-manifest.mjs` runs as a prebuild step and rewrites it
+from whatever is in `public/`. Editing it by hand is pointless — the build
+overwrites it. It is in the patch only so the checked-in copy matches the two
+deleted images; the build would regenerate the same thing anyway.
+
+### Signing out of the portal
+
+A member who signed out was redirected to `/login` — the **staff** sign-in.
+Same fields, different door, and nothing a member typed there would ever work.
+That is almost exactly the reported symptom of "the page freezes on create
+account or sign in and will not proceed". Sign-out now reads the role *before*
+dropping the cookie — afterwards there is no way to tell a member from a staff
+member — and sends members to `/portal/login`.
+
+Both sign-in and sign-out also call `revalidatePath("/", "layout")`. This is
+the one place that call does something: the browser about to be shown the
+result is the same browser that cached the signed-in pages. (It is **not** a
+fix for a member seeing a stale status after the office changes their record —
+that stale page is in someone else's Router Cache, which no server action can
+reach.)
+
+### Two things found while in here, not fixed
+
+- **Admin prices and public prices are different data.** `/pricing` renders
+  hardcoded `planTiers` from `src/lib/gym.ts`; **Settings → Membership** edits
+  rows in the database. They were never connected, so a price changed in the
+  office never reaches the website, and the amount billed can differ from the
+  amount advertised. Worth fixing before the next price change.
+- **The login freeze could not be reproduced.** Fourteen checks in a real
+  browser — sign up, sign out, sign in, sign out, sign in again, production
+  build, same browser throughout — all passed. The wrong-door redirect above
+  is the most plausible cause and is fixed, but if it still happens, the URL
+  in the address bar at the moment it sticks plus the browser console output
+  is what is needed.
+
 ## Retire Render
 
 The apex has been served from this box for weeks, so Render is only holding
