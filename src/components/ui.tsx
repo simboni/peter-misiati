@@ -39,6 +39,7 @@ type ButtonProps = {
   type?: "button" | "submit" | "reset";
   disabled?: boolean;
   onClick?: React.MouseEventHandler<HTMLElement>;
+  prefetch?: boolean;
 } & Omit<ComponentPropsWithoutRef<"a">, "href" | "onClick">;
 
 export function Button({
@@ -46,6 +47,12 @@ export function Button({
   size = "md",
   href,
   withArrow = false,
+  /** Off for links into case studies. This site is a static export, where a
+      Next prefetch pulls the target's whole HTML document and the browser
+      then fetches that page's images too — so a row of "see the case study"
+      buttons quietly downloads every case study's screenshots before anyone
+      has asked for one. */
+  prefetch,
   className = "",
   children,
   onClick,
@@ -71,7 +78,7 @@ export function Button({
       );
     }
     return (
-      <Link href={href} className={`group/btn ${cls}`} onClick={onClick}>
+      <Link href={href} prefetch={prefetch} className={`group/btn ${cls}`} onClick={onClick}>
         {content}
       </Link>
     );

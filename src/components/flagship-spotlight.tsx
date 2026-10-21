@@ -12,6 +12,15 @@ import { ExternalLinkIcon, GitHubIcon, ArrowRightIcon } from "@/components/icons
 
 const FALLBACK_ACCENT = "#7B68EE";
 
+/** These bands render at roughly 350px wide and the sources run to 1600px.
+    public/mockups/thumbs is generated at 800px — retina at this size, and
+    nothing beyond it. */
+function thumb(src: string) {
+  return src
+    .replace("/mockups/", "/mockups/thumbs/")
+    .replace(/\.(jpg|jpeg|png)$/i, ".webp");
+}
+
 export function FlagshipSpotlights() {
   const flagships = projects.filter((p) => p.flagship);
   if (flagships.length === 0) return null;
@@ -67,7 +76,7 @@ function FlagshipBand({
             </ul>
 
             <div className="mt-8 flex flex-wrap items-center gap-3">
-              <Button href={`/work/${p.slug}`} variant="outline" withArrow>
+              <Button href={`/work/${p.slug}`} variant="outline" withArrow prefetch={false}>
                 Read the case study
               </Button>
               {p.links.live && (
@@ -97,13 +106,16 @@ function FlagshipBand({
           <div className={reversed ? "order-1" : "order-1 lg:order-2"}>
             <Link
               href={`/work/${p.slug}`}
+              // Same reason as the mosaic: a prefetched case study drags its
+              // images along in a static export.
+              prefetch={false}
               aria-label={`${p.title} — case study`}
               className="group relative block"
             >
               {p.media[1] && (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={p.media[1].src}
+                  src={thumb(p.media[1].src)}
                   alt=""
                   aria-hidden="true"
                   loading="lazy"
@@ -115,7 +127,7 @@ function FlagshipBand({
               {p.media[0] && (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={p.media[0].src}
+                  src={thumb(p.media[0].src)}
                   alt={p.media[0].alt}
                   loading="lazy"
                   className="relative w-full overflow-hidden rounded-2xl border border-ink-600 transition-transform duration-500 group-hover:scale-[1.02]"

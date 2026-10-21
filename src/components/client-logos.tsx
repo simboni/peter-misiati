@@ -44,6 +44,7 @@ export function ClientLogos() {
 
         <div className="mt-10 flex justify-center">
           <Link
+          prefetch={false}
             href="/partners"
             className="group/btn inline-flex items-center gap-2 rounded-lg border border-ink-600 bg-ink-800 px-5 py-2.5 text-sm font-medium text-mist-200 transition-all duration-200 hover:border-green-400 hover:text-green-300 hover:bg-green-400/5"
           >

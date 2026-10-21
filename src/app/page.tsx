@@ -11,10 +11,10 @@ import { Button, Section, SectionHeading, Eyebrow } from "@/components/ui";
 import { Reveal } from "@/components/reveal";
 import { CountUp } from "@/components/count-up";
 import { Chip } from "@/components/project-card";
-import { WorkIndex } from "@/components/work-index";
 import { ReviewCard } from "@/components/review-card";
 import { ClientLogos } from "@/components/client-logos";
 import { FlagshipSpotlights } from "@/components/flagship-spotlight";
+import { VisualWall } from "@/components/visual-wall";
 import {
   ServiceIcon,
   GitHubIcon,
@@ -127,6 +127,23 @@ export default function HomePage() {
         </div>
       </section>
 
+      {/* =========================== THE WALL ========================== */}
+      {/* Pictures first, and specifically pictures of the parts nobody else
+          shows. A landing page says "I make websites"; an admin screen with
+          real money on it says "I build the thing a business runs on". The
+          architecture is one click away in the case study for whoever wants
+          it — which is a different person from the one deciding to call. */}
+      <Section id="proof">
+        <SectionHeading
+          eyebrow="see it working"
+          title="Not mockups. Screens out of systems running today."
+          intro="Every one of these is live right now, and the link goes straight to it."
+        />
+        <div className="mt-12">
+          <VisualWall />
+        </div>
+      </Section>
+
       {/* ==================== FLAGSHIP PRODUCTS ======================== */}
       <FlagshipSpotlights />
 
@@ -170,18 +187,21 @@ export default function HomePage() {
       </Section>
 
       {/* ========================= WORK INDEX ========================== */}
+      {/* The filterable grid lives on /work now. It was here as well, directly
+          underneath the wall, showing the same projects a second time — and a
+          visitor who has just scrolled past the screens does not need the
+          thumbnails again, they need somewhere to go next. */}
       <Section id="work">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <SectionHeading
             eyebrow="selected work"
-            title="Things I've designed & shipped"
-            intro="Tap a project to preview it — every one links to a full case study."
+            title="Every project, filterable"
+            intro="Seventeen builds — web apps, sites and internal systems — each with a full case study behind it."
           />
           <Button href="/work" variant="outline" withArrow className="shrink-0">
             all projects
           </Button>
         </div>
-        <WorkIndex />
       </Section>
 
       {/* ============================ SKILLS =========================== */}
