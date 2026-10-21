@@ -50,12 +50,16 @@ BACKUP_DIR=${BACKUP_DIR:-/srv/64theatre/before-deploy}
 CLEAN_PATHS=(app database resources routes tests config bootstrap deploy)
 
 MODE=apply
-case "${1:-}" in
-  --status)  MODE=status ;;
-  --dry-run) MODE=dry ;;
-  "")        ;;
-  *) echo "Unknown option: $1"; echo "Use --status, --dry-run, or no option."; exit 2 ;;
-esac
+PULL_BASE=0
+for arg in "$@"; do
+  case "$arg" in
+    --status)    MODE=status ;;
+    --dry-run)   MODE=dry ;;
+    --pull-base) PULL_BASE=1 ;;
+    *) echo "Unknown option: $arg"
+       echo "Use --status, --dry-run, --pull-base, or no option."; exit 2 ;;
+  esac
+done
 
 red() { printf '\033[1;31m%s\033[0m\n' "$*"; }
 grn() { printf '\033[1;32m%s\033[0m\n' "$*"; }
@@ -148,10 +152,38 @@ grn "$N patches applied"
 hdr "REBUILDING"
 echo "The code is copied into the image at build time, so a plain 'up -d' would"
 echo "keep serving the old one. This forces a rebuild."
+
+# --pull-base re-pulls the FROM image before building.
+#
+# Off by default, deliberately. The Dockerfile tracks a floating tag
+# (serversideup/php:8.4-fpm-nginx), so pulling it turns every routine deploy
+# into an unannounced PHP upgrade — the version could move under a deploy that
+# was only meant to ship a patch, and nobody would know which build changed it.
+#
+# But WITHOUT it, a rebuild cannot pick up a PHP security fix at all: Docker
+# reuses the cached base layer, the app is rebuilt on the same vulnerable PHP,
+# and the deploy looks like it worked. That is how a patched CVE stays
+# unpatched. So it is a flag, used on purpose:
+#
+#     bash apply-patches.sh --pull-base
+#
+if [ "$PULL_BASE" = 1 ]; then
+  ylw "--pull-base: re-pulling the base image; the PHP version may change."
+  if ! docker compose -f "$COMPOSE" build --pull; then
+    red "Base pull or build failed. The patches ARE applied; nothing was recreated,"
+    red "so the site is still serving the old image."
+    exit 1
+  fi
+fi
+
 if ! docker compose -f "$COMPOSE" up -d --build --force-recreate; then
   red "Build or start failed. The patches ARE applied; fix the build and run:"
   red "    docker compose -f $COMPOSE up -d --build --force-recreate"
   exit 1
+fi
+
+if [ "$PULL_BASE" = 1 ]; then
+  echo "PHP now in the container: $(docker exec "$CONTAINER" php -v 2>/dev/null | head -1)"
 fi
 
 # --- 6. migrate ------------------------------------------------------------
