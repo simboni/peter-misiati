@@ -12,9 +12,11 @@
    buying. "Laravel 13 modular monolith" is for the case study, which is still
    there, one click away, for the people who want it.
 
-   Only projects with REAL captured screens live here. Everything else keeps
-   its existing mockup and appears in the mosaic below the wall — better a
-   smaller wall that is all true than a long one padded with stock frames.
+   A slab has to earn its place: either screens captured from the running
+   system (64 Theatre, Fit Generations) or a product's own UI (SMP Credits).
+   What does not get one is a project represented by a single marketing shot —
+   those stay in the mosaic below. Better a smaller wall that is all substance
+   than a long one padded out with front pages.
 --------------------------------------------------------------------------- */
 
 export type Shot = {
@@ -117,25 +119,39 @@ export const showcase: Showcase[] = [
     ],
   },
   {
-    slug: "zuri-place-resort",
-    client: "Zuri Place Resort",
-    outcome: "A resort that looks like somewhere you'd want to stay — and loads fast on a phone, on Kenyan data.",
-    live: "https://zuriplaceresort.com",
-    liveLabel: "zuriplaceresort.com",
+    slug: "smp-credits",
+    client: "SMP Credits",
+    outcome: "Lending that runs on M-Pesa: the office sees the whole loan book, and the member repays from their phone in seconds.",
+    live: "https://smpcredits.co.ke",
+    liveLabel: "smpcredits.co.ke",
     hero: {
-      src: "/screens/zuri-home.webp",
-      alt: "Zuri Place Resort home page",
-      caption: "The front door",
-      width: 1440,
-      height: 900,
+      src: "/mockups/smp-credits-admin.webp",
+      alt: "SMP Credits admin — outstanding loan book, work queues and lending versus collections",
+      caption: "The loan book, split into principal, interest and fees",
+      width: 1600,
+      height: 1156,
     },
     proof: [
       {
-        src: "/screens/zuri-mobile.webp",
-        alt: "Zuri Place Resort on a phone",
-        caption: "Where most guests actually arrive",
-        width: 390,
-        height: 844,
+        src: "/mockups/thumbs/smp-credits-member.webp",
+        alt: "SMP Credits member app — loan balance, savings and M-Pesa repayment",
+        caption: "What the member sees, and repays from",
+        width: 800,
+        height: 500,
+      },
+      {
+        src: "/mockups/thumbs/smp-credits-reports.webp",
+        alt: "SMP Credits admin — reports",
+        caption: "Reports the office can hand to a board",
+        width: 800,
+        height: 500,
+      },
+      {
+        src: "/mockups/thumbs/smp-credits-android.webp",
+        alt: "SMP Credits on Android — member home screen",
+        caption: "Same product, shipped to Android",
+        width: 700,
+        height: 1244,
         phone: true,
       },
     ],

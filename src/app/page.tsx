@@ -9,120 +9,56 @@ import {
 } from "@/lib/portfolio";
 import { Button, Section, SectionHeading, Eyebrow } from "@/components/ui";
 import { Reveal } from "@/components/reveal";
-import { CountUp } from "@/components/count-up";
 import { Chip } from "@/components/project-card";
 import { ReviewCard } from "@/components/review-card";
 import { ClientLogos } from "@/components/client-logos";
 import { FlagshipSpotlights } from "@/components/flagship-spotlight";
 import { VisualWall } from "@/components/visual-wall";
+import { HeroSlider } from "@/components/hero-slider";
 import {
   ServiceIcon,
-  GitHubIcon,
-  LinkedInIcon,
   MailIcon,
-  DownloadIcon,
   CheckIcon,
   WhatsAppIcon,
   ArrowRightIcon,
 } from "@/components/icons";
 
+/** The hero carousel. Dashboards only — the screen a business actually works
+    in, rather than the front page it shows the public. All five are cropped to
+    exactly 1600x900 so the track cannot change shape as it advances. */
+const heroSlides = [
+  { src: "/hero/hero-gym.webp", alt: "Fit Generations Gym — money in, money out and what is still owed" },
+  { src: "/hero/hero-credits.webp", alt: "SMP Credits — the outstanding loan book and work queues" },
+  { src: "/hero/hero-expenses.webp", alt: "Fit Generations Gym — the month's expenses and where they went" },
+  { src: "/hero/hero-reports.webp", alt: "SMP Credits — lending reports" },
+  { src: "/hero/hero-stackup.webp", alt: "StackUp — the planning dashboard" },
+];
+
 export default function HomePage() {
   return (
     <>
       {/* ============================= HERO ============================= */}
+      {/* No headline, no paragraph, no chips, no stat strip. The page used to
+          open on a full screen of reading, on a site whose whole argument is
+          that you can SEE the work — so the work is the hero now, and the only
+          words above the fold are on two buttons.
+
+          The availability line and the stats did not move elsewhere; they are
+          gone from here on purpose. Anything worth saying is said by a screen
+          further down, and a visitor who wants the prose has /about. */}
       <section className="relative overflow-hidden border-b border-ink-700 glow-bg">
-        <div className="container-page relative py-14 sm:py-24 lg:py-32">
-          <div className="max-w-3xl">
-            <span className="inline-flex items-center gap-2 text-sm text-mist-400">
-              <span className="inline-flex h-2 w-2 rounded-full bg-green-400" />
-              {profile.availability}
-            </span>
-
-            <h1 className="mt-6 font-display text-4xl font-bold leading-[1.08] tracking-tight text-mist-100 text-balance sm:text-6xl">
-              I build the software your organisation runs on.
-            </h1>
-
-            <p className="mt-6 text-lg text-mist-300">
-              {profile.name} — {profile.role}
-            </p>
-
-            <p className="mt-4 max-w-xl leading-relaxed text-mist-400">
-              {profile.valueProp}
-            </p>
-
-            {/* "What kind of software?" is the first question the headline
-                provokes. Answer it here, above the fold, rather than making
-                the visitor infer it from fifteen project cards. */}
-            {/* Chips rather than dot-separated text: the separator belongs
-                between items, but when the line wraps it lands at the start of
-                the next one. Chips also match the stack and project cards. */}
-            <ul className="mt-6 flex flex-wrap gap-1.5">
-              {profile.offers.map((offer) => (
-                <li key={offer}>
-                  <Chip>{offer}</Chip>
-                </li>
-              ))}
-            </ul>
-
-            <div className="mt-10 flex flex-wrap gap-3">
-              <Button href="/contact" variant="gold" size="lg" withArrow>
-                Start a project
-              </Button>
-              <Button href="/work" variant="outline" size="lg">
-                View my work
-              </Button>
-              {/* In Kenya this is the channel people actually reply on, and it
-                  was only reachable from /contact. */}
-              <Button
-                href={`https://wa.me/${profile.whatsapp}`}
-                variant="outline"
-                size="lg"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <WhatsAppIcon className="h-5 w-5" /> WhatsApp
-              </Button>
-            </div>
-
-            <div className="mt-10 flex items-center gap-2.5">
-              {profile.socials.github && (
-                <HeroSocial href={profile.socials.github} label="GitHub">
-                  <GitHubIcon className="h-5 w-5" />
-                </HeroSocial>
-              )}
-              {profile.socials.linkedin && (
-                <HeroSocial href={profile.socials.linkedin} label="LinkedIn">
-                  <LinkedInIcon className="h-5 w-5" />
-                </HeroSocial>
-              )}
-              <HeroSocial href={`mailto:${profile.email}`} label="Email">
-                <MailIcon className="h-5 w-5" />
-              </HeroSocial>
-              {profile.resumeUrl && (
-                <a
-                  href={profile.resumeUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 rounded-md border border-ink-600 px-4 py-2 text-sm text-mist-300 transition-colors hover:border-green-400/60 hover:text-green-300"
-                >
-                  <DownloadIcon className="h-4 w-4" /> Résumé
-                </a>
-              )}
-            </div>
+        <div className="container-page relative py-8 sm:py-12">
+          <div className="overflow-hidden rounded-2xl border border-ink-600 bg-ink-800 shadow-[0_40px_90px_-50px_rgba(0,0,0,0.7)]">
+            <HeroSlider slides={heroSlides} />
           </div>
-        </div>
 
-        {/* Stat strip */}
-        <div className="border-t border-ink-700 bg-ink-950/40">
-          <div className="container-page grid grid-cols-2 gap-6 py-8 sm:grid-cols-4">
-            {profile.stats.map((s) => (
-              <div key={s.label}>
-                <div className="font-display text-3xl font-bold text-mist-100 sm:text-4xl">
-                  <CountUp end={s.value} suffix={s.suffix} />
-                </div>
-                <div className="mt-1 text-sm text-mist-500">{s.label}</div>
-              </div>
-            ))}
+          <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
+            <Button href="/contact" size="lg" withArrow className="w-full sm:w-auto">
+              Let&rsquo;s talk
+            </Button>
+            <Button href="#proof" variant="outline" size="lg" className="w-full sm:w-auto">
+              See the work
+            </Button>
           </div>
         </div>
       </section>
@@ -352,24 +288,3 @@ export default function HomePage() {
   );
 }
 
-function HeroSocial({
-  href,
-  label,
-  children,
-}: {
-  href: string;
-  label: string;
-  children: React.ReactNode;
-}) {
-  const external = href.startsWith("http");
-  return (
-    <a
-      href={href}
-      aria-label={label}
-      {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-      className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-ink-600 bg-ink-800 text-mist-300 transition-colors hover:border-green-400/50 hover:text-green-400"
-    >
-      {children}
-    </a>
-  );
-}

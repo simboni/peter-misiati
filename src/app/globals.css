@@ -287,3 +287,14 @@ body {
   .cursor { animation: none !important; }
   .marquee-track { animation: none !important; transform: none !important; }
 }
+
+/* The hero carousel is a real scroll container — that is what gives it swipe,
+   keyboard and no-JS behaviour for free — but a visible scrollbar under a
+   full-bleed image looks like a mistake. */
+.hide-scrollbar {
+  scrollbar-width: none;            /* Firefox */
+  -ms-overflow-style: none;         /* old Edge */
+}
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;                    /* Chrome, Safari */
+}
