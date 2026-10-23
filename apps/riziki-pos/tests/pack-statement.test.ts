@@ -26,11 +26,24 @@ const { get, run } = await import("../src/lib/db.ts");
 const { stockStatement, statementRange } = await import("../src/lib/stock-statement.ts");
 const { sizeLabel } = await import("../src/lib/pack-statement.ts");
 const { saveBundles, itemBundles } = await import("../src/lib/bundles.ts");
+const { businessDate } = await import("../src/lib/units.ts");
 
 seed();
 
-const TODAY = "2026-10-21";
-const YESTERDAY = "2026-10-20";
+/*
+  The shop's today, not a date typed into the file.
+
+  These were literals, and the suite passed on the day they were written and
+  failed two days later: the seed posts its opening stock at "now", which fell
+  outside a window pinned to a date in the past. A test that rots quietly is
+  worse than no test — it teaches people to ignore a red suite.
+*/
+const TODAY = businessDate();
+const YESTERDAY = (() => {
+  const d = new Date(`${TODAY}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+})();
 const ITEM = "PACKED DRUM";
 
 run(

@@ -24,6 +24,7 @@ import type { LandedRow } from "../src/lib/landed.ts";
 const { seed } = await import("../src/lib/seed.ts");
 const { get, all, run, stockOf, postMovement } = await import("../src/lib/db.ts");
 const { createSupplier, recordPurchase } = await import("../src/lib/purchasing.ts");
+const { businessDate } = await import("../src/lib/units.ts");
 const landed = await import("../src/lib/landed.ts");
 
 seed();
@@ -157,7 +158,9 @@ test("a window picks which delivery counts as the latest", () => {
 test("a single delivery in the window is still compared with the one before it", () => {
   // Otherwise a month with one delivery in it reports no change, which reads as
   // calm when it is the opposite.
-  const today = new Date(Date.now() + 3 * 3600_000).toISOString().slice(0, 10);
+  // The SHOP's date. Built the UTC way, this test passed all day and failed
+  // after nine at night — which is exactly the bug it is now guarding.
+  const today = businessDate();
   const r = row(landed.landedCosts({ range: { from: today, to: today } }), "Ungerol");
   assert.equal(r.previous?.rateCents, 32000);
   assert.equal(r.moveCents, 7200);

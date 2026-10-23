@@ -24,6 +24,7 @@
  */
 
 import { all, get } from "./db.ts";
+import { businessDateOf } from "./units.ts";
 import type { DateRange } from "./reports.ts";
 
 const MILLI = 1000;
@@ -166,8 +167,16 @@ export function landedCosts(opts: {
       if (!words.every((w) => hay.includes(w))) continue;
     }
 
-    // The latest delivery inside the window, and whatever came before it.
-    const at = (d: LandedDelivery) => d.at.slice(0, 10);
+    /*
+      The latest delivery inside the window, and whatever came before it.
+
+      By the SHOP's date, not the first ten characters of what was stored. The
+      row is written in UTC and the window comes from `businessDate()`, which is
+      UTC+3 — so slicing the string dropped every delivery entered between nine
+      at night and midnight out of "today" and filed it under yesterday. The
+      shop trades till eight and books the lorry afterwards.
+    */
+    const at = (d: LandedDelivery) => businessDateOf(d.at);
     const index = range
       ? history.findIndex((d) => at(d) >= range.from && at(d) <= range.to)
       : 0;
@@ -286,5 +295,6 @@ export function landedHistory(itemId: number, limit = 12): LandedDelivery[] {
 
 /** The day the books start, so a screen can say "since" and mean it. */
 export function firstDeliveryDate(): string | null {
-  return get<{ at: string }>(`SELECT MIN(at) AS at FROM purchases`)?.at?.slice(0, 10) ?? null;
+  const first = get<{ at: string }>(`SELECT MIN(at) AS at FROM purchases`)?.at;
+  return first ? businessDateOf(first) : null;
 }

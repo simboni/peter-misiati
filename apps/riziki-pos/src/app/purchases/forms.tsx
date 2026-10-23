@@ -275,6 +275,8 @@ function DeliveryFields({
   const entryId = useRef(crypto.randomUUID());
   const submit = (data: FormData) => {
     data.set("client_uuid", entryId.current);
+    // So a refusal can hand the same key back and leave the form standing.
+    data.set("entry_key", state.entryKey ?? "");
     action(data);
   };
 

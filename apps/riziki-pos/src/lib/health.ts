@@ -21,6 +21,7 @@
  */
 
 import { all, get } from "./db.ts";
+import { businessDateOf } from "./units.ts";
 import { undismissed, setAsideCount } from "./dismissals.ts";
 import { currentVersion, scaleFormula } from "./production.ts";
 import { stockSource } from "./mixing.ts";
@@ -436,7 +437,9 @@ function deliveryLines(): LineRow[] {
 }
 
 const rateOf = (l: LineRow) => (l.qty_milli > 0 ? (l.cost_cents * MILLI) / l.qty_milli : 0);
-const day = (at: string) => at.slice(0, 10);
+// The shop's date, not the stored UTC one: they differ for anything entered
+// after nine at night in Nairobi, which is when a day's deliveries get typed.
+const day = (at: string) => businessDateOf(at);
 
 /**
  * A delivery that landed at far more than the thing is sold for.

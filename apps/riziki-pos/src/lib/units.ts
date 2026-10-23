@@ -190,6 +190,22 @@ export function businessDate(d: Date = new Date()): string {
   return parts;
 }
 
+/**
+ * The shop's business date for a timestamp the database stored.
+ *
+ * Rows are written in UTC; the shop lives at UTC+3 and every report in this
+ * system groups by `date(at, '+3 hours')`. Taking the first ten characters of a
+ * stored timestamp instead — which reads so naturally that it was done in three
+ * places — gives the UTC date, and the two disagree for everything recorded
+ * between nine at night and midnight in Nairobi. That is not an edge case in a
+ * shop that trades till eight and files the day's deliveries afterwards: the
+ * entry simply lands on yesterday, or vanishes from a window that asked for
+ * today.
+ */
+export function businessDateOf(stored: string): string {
+  return businessDate(new Date(stored.includes("T") ? stored : stored.replace(" ", "T") + "Z"));
+}
+
 /** "3 Aug 2026, 14:05" in shop time. */
 export function formatDateTime(iso: string): string {
   const d = new Date(iso.includes("T") ? iso : iso.replace(" ", "T") + "Z");

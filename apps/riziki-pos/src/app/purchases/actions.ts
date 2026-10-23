@@ -119,9 +119,20 @@ export async function setSupplierHiddenAction(formData: FormData): Promise<void>
 }
 
 export async function recordPurchaseAction(_prev: FormState, formData: FormData): Promise<FormState> {
+  /*
+    The key the form is currently mounted on, echoed back on every refusal.
+
+    The form is remounted whenever this changes, and remounting is what empties
+    it. So a refusal that returned no key sent the form back to its opening key
+    and wiped everything the owner had just typed — a whole delivery lost to a
+    mistyped unit count, and then retyped in a hurry, which is its own way of
+    getting a price wrong. A refusal must leave the screen exactly as it was.
+  */
+  const keepKey = String(formData.get("entry_key") ?? "") || undefined;
+
   await requireUser();
   if (!(await currentCan("purchases"))) {
-    return { error: "Only the owner can record purchase prices." };
+    return { entryKey: keepKey, error: "Only the owner can record purchase prices." };
   }
 
   try {
@@ -166,7 +177,9 @@ export async function recordPurchaseAction(_prev: FormState, formData: FormData)
       });
     }
 
-    if (!lines.length) return { error: "Add at least one line before saving the delivery." };
+    if (!lines.length) {
+      return { entryKey: keepKey, error: "Add at least one line before saving the delivery." };
+    }
 
     const supplierRaw = String(formData.get("supplier_id") ?? "").trim();
     const user = await requireUser();
@@ -206,7 +219,7 @@ export async function recordPurchaseAction(_prev: FormState, formData: FormData)
         (res.transportCents ? ` (${formatKes(res.transportCents)} transport spread across the lines).` : "."),
     };
   } catch (err) {
-    return { error: message(err) };
+    return { entryKey: keepKey, error: message(err) };
   }
 }
 
