@@ -666,6 +666,93 @@ function uncostedSales(): Finding[] {
   ];
 }
 
+/**
+ * Sales costed at a price the shop has never paid.
+ *
+ * THE ONE THAT COST THE SHOP A MORNING, AND HOW IT HAPPENS.
+ *
+ * The cost on a sale line is frozen at the moment of sale — deliberately, so
+ * that moving a cost price today cannot rewrite last month's profit. The
+ * weakness is the mirror of the strength: a delivery entered with the wrong
+ * figures drags the running average down the instant it is saved, every sale
+ * made before anybody notices takes that wrong cost as its own, and correcting
+ * the delivery afterwards puts the ITEM right while leaving those sales exactly
+ * as wrong as they were. Nothing on any screen says so; the profit simply looks
+ * better than it was.
+ *
+ * It happened on 23 October: a delivery of Ungerol booked at a rate near 70 a
+ * kilo instead of 345 took three sales out at a fifth of their true cost, a
+ * delivery of Blue did the same to two more, both were corrected within the
+ * hour, and the day's profit was left eleven and a half thousand shillings
+ * better than the shop had actually done.
+ *
+ * THE TEST IS ARITHMETIC, NOT A GUESS. A weighted average cannot fall below the
+ * cheapest delivery that went into it. So a sale costed below HALF the lowest
+ * rate this item has ever landed at did not come from any delivery the shop
+ * recorded — half, rather than the line itself, so that an opening cost somebody
+ * set by hand and ordinary rounding are left alone.
+ */
+function soldAtImpossibleCost(): Finding[] {
+  const rows = all<{
+    item_id: number;
+    name: string;
+    unit: string;
+    lines: number;
+    first: string;
+    cheapest: number;
+    rate: number;
+    short_cents: number;
+  }>(
+    `WITH floor_rate AS (
+       SELECT pl.item_id,
+              MIN(CAST(ROUND(1000.0 * pl.cost_cents / NULLIF(pl.qty_milli, 0)) AS INTEGER)) AS cheapest
+         FROM purchase_lines pl
+         JOIN purchases p ON p.id = pl.purchase_id AND p.voided_at IS NULL
+        WHERE pl.qty_milli > 0 AND pl.cost_cents > 0
+        GROUP BY pl.item_id
+     )
+     SELECT sl.item_id, i.name, i.canonical_unit AS unit,
+            COUNT(*)                                   AS lines,
+            MIN(date(s.at, '+3 hours'))                AS first,
+            f.cheapest                                 AS cheapest,
+            CAST(ROUND(1000.0 * SUM(sl.cost_cents) / SUM(sl.qty_milli)) AS INTEGER) AS rate,
+            CAST(ROUND(SUM(sl.qty_milli) * f.cheapest / 1000.0) AS INTEGER)
+              - SUM(sl.cost_cents)                     AS short_cents
+       FROM sale_lines sl
+       JOIN sales s  ON s.id = sl.sale_id
+       JOIN items i  ON i.id = sl.item_id
+       JOIN floor_rate f ON f.item_id = sl.item_id
+      WHERE s.status = 'completed'
+        AND sl.qty_milli > 0
+        AND sl.cost_cents > 0
+        AND f.cheapest > 0
+        AND 1000.0 * sl.cost_cents / sl.qty_milli < f.cheapest / 2.0
+      GROUP BY sl.item_id
+      ORDER BY short_cents DESC`,
+  );
+
+  return rows.map((r) => ({
+    id: `impossible-cost:${r.item_id}`,
+    severity: "high" as Severity,
+    kind: "Sold at a cost the shop never paid",
+    title: `${r.lines} sale${r.lines === 1 ? "" : "s"} of ${r.name} are costed at ${kes(r.rate)} a ${r.unit}`,
+    detail:
+      `${r.name} has never landed below ${kes(r.cheapest)} a ${r.unit}, so a sale costed at ` +
+      `${kes(r.rate)} cannot have come from any delivery on the record. The usual cause is a ` +
+      `delivery entered with the wrong figures: it drags the average down the moment it is ` +
+      `saved, every sale until somebody notices takes that cost as its own, and correcting the ` +
+      `delivery afterwards puts the item right but leaves those sales alone. ` +
+      `The first was on ${r.first}, and the profit on them is overstated by about ` +
+      `${kes(Math.max(0, r.short_cents))}.`,
+    fix:
+      `Check the deliveries of ${r.name} around that date — one of them was almost certainly ` +
+      `typed wrong and put right afterwards. The sales themselves cannot be re-costed: a sale ` +
+      `keeps what it cost at the time, on purpose. Knowing the figure is what this is for.`,
+    href: "/landed",
+    item: r.item_id,
+  }));
+}
+
 // ---------------------------------------------------------------- the sweep
 
 export interface HealthReport {
@@ -698,6 +785,7 @@ export function checkBooks(): HealthReport {
     ...twinNames(),
     ...freeDeliveries(lines),
     ...uncostedSales(),
+    ...soldAtImpossibleCost(),
   ];
 
   /*
