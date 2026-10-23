@@ -1126,12 +1126,26 @@ export function listSales(query: SaleQuery | number = {}, perPageArg?: number): 
     const bare = needle.replace(/^#/, "");
     const asId = /^\d+$/.test(bare) ? Number(bare) : null;
     const like = `%${needle.toLowerCase()}%`;
+    /*
+      And by what was in the sale.
+
+      The fourth question people actually arrive with is "which sales had
+      Ungerol in them" — asked whenever a cost or a price looks wrong and
+      somebody needs the lines it touched. The name is snapshotted on the line,
+      so this finds a sale under the name the product carried that day even if
+      it has been renamed since.
+    */
+    const sold = `EXISTS (SELECT 1 FROM sale_lines sl
+                           WHERE sl.sale_id = s.id AND lower(sl.name_snapshot) LIKE ?)`;
     if (asId !== null) {
-      where.push(`(s.id = ? OR lower(c.name) LIKE ? OR lower(u.name) LIKE ?)`);
-      args.push(asId, like, like);
+      where.push(`(s.id = ? OR lower(c.name) LIKE ? OR lower(u.name) LIKE ? OR ${sold})`);
+      args.push(asId, like, like, like);
     } else {
-      where.push(`(lower(c.name) LIKE ? OR lower(u.name) LIKE ? OR lower(s.void_reason) LIKE ? OR lower(s.note) LIKE ?)`);
-      args.push(like, like, like, like);
+      where.push(
+        `(lower(c.name) LIKE ? OR lower(u.name) LIKE ? OR lower(s.void_reason) LIKE ? ` +
+          `OR lower(s.note) LIKE ? OR ${sold})`,
+      );
+      args.push(like, like, like, like, like);
     }
   }
 
@@ -1196,6 +1210,16 @@ export interface SaleLineRow {
    * the owner.
    */
   is_component: number;
+  /**
+   * What this line cost the shop, frozen at the moment of sale.
+   *
+   * On the row because "what did we make on that sale" had no answer anywhere
+   * on screen — it lived only in the CSV export, which meant the shop could not
+   * check a figure it had been shown without asking somebody to pull a file.
+   * Whether it is SHOWN is the screen's business: it is a cost, and costs are
+   * the owner's.
+   */
+  cost_cents: number;
 }
 
 /** Lines for a whole page of sales in one query, rather than one query per row. */
@@ -1204,7 +1228,7 @@ export function saleLinesFor(saleIds: readonly number[]): SaleLineRow[] {
   const marks = saleIds.map(() => "?").join(",");
   return all<SaleLineRow>(
     `SELECT l.sale_id, l.name_snapshot, l.units, l.qty_milli,
-            l.unit_price_cents, l.line_total_cents, l.rate_cents,
+            l.unit_price_cents, l.line_total_cents, l.rate_cents, l.cost_cents,
             COALESCE(i.canonical_unit, 'kg') AS canonical_unit,
             CASE WHEN l.is_kit = 1 AND l.line_total_cents = 0 THEN 1 ELSE 0 END AS is_component
        FROM sale_lines l

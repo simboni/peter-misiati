@@ -315,3 +315,45 @@ test("asking for a page past the end lands on the last one", () => {
   assert.equal(far.page, far.pages);
   assert.ok(far.rows.length > 0);
 });
+
+/*
+  Last, because it adds a sale.
+
+  Every count asserted above was written against the four sales at the top of
+  this file plus the late one, and a sixth arriving in the middle would have
+  them all failing for a reason that is not the thing under test.
+*/
+test("a product finds the sales it was in", () => {
+  /*
+    The question that sends somebody here is "which sales had Ungerol in
+    them" — asked the moment a cost or a price looks wrong. Until this, the
+    only answer was to open every sale on the day one at a time, which is how
+    three lines costed at a fifth of their true price went a whole day
+    unnoticed.
+  */
+  const before = listSales({ q: "ungerol" }).total;
+  assert.ok(before >= 4, "every sale above is of Ungerol");
+
+  const soda = saleOn(`${SEP} 12:00:00`, null, true, "f-soda");
+  // The line's own name, not the item's: a sale keeps what the product was
+  // called on the day, and that is what the search has to match.
+  run(
+    `INSERT INTO sale_lines (sale_id, item_id, name_snapshot, units, qty_milli,
+                             unit_price_cents, rate_cents, list_price_cents,
+                             line_total_cents, cost_cents)
+     VALUES (?, ?, 'Caustic Soda', 1, 1000, 20000, 20000, 20000, 20000, 0)`,
+    soda,
+    ungerol.id,
+  );
+
+  assert.deepEqual(listSales({ q: "caustic" }).rows.map((r) => r.id), [soda]);
+  assert.equal(listSales({ q: "CAUSTIC" }).total, 1, "case is not the searcher's problem");
+  assert.equal(listSales({ q: "ungerol" }).total, before + 1, "the soda sale has a kilo in it too");
+
+  // Renaming the item does not lose the sale: the snapshot is what matched.
+  run(`UPDATE items SET name = 'Ungerol 226' WHERE id = ?`, ungerol.id);
+  assert.equal(listSales({ q: "caustic" }).total, 1, "renamed since, found anyway");
+  run(`UPDATE items SET name = 'Ungerol' WHERE id = ?`, ungerol.id);
+
+  assert.equal(listSales({ q: "nothing sold here" }).total, 0);
+});

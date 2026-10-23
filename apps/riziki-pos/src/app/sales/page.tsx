@@ -82,6 +82,16 @@ export default async function SalesPage(props: {
   // see what a mixed product was made of — which is the recipe.
   const mayVoid = can(user, "void");
   const seesRecipe = can(user, "recipes");
+  /*
+    What each line COST, beside what it sold for.
+
+    A cost figure, so it is the owner's and nobody else's. It is here because
+    "what did we actually make on that sale" had no answer on any screen — the
+    figure existed only in the CSV export, and a shop that cannot check a number
+    it has been shown ends up asking somebody to pull a file. That is how three
+    Ungerol lines costed at a fifth of their true price went unseen for a day.
+  */
+  const seesCost = can(user, "cost");
 
   /*
     Search, dates and standing, together.
@@ -156,7 +166,7 @@ export default async function SalesPage(props: {
       <ListToolbar
         action="/sales"
         q={q}
-        placeholder="A customer, an attendant, or a receipt number…"
+        placeholder="A product, a customer, an attendant, or a receipt number…"
         filters={STATES.map((s) => ({ key: s.key, label: s.label, count: counts[s.key] }))}
         current={state}
         extra={dates}
@@ -237,14 +247,48 @@ export default async function SalesPage(props: {
                       What was sold
                     </summary>
                     <ul className="mt-1 space-y-0.5">
-                      {mine.map((l, i) => (
-                        <li key={i} className="flex items-baseline justify-between gap-2 text-[11px]">
-                          <span className="min-w-0 flex-1 truncate">
-                            {l.units} × {l.name_snapshot}
+                      {mine.map((l, i) => {
+                        /*
+                          Per kilo, litre or piece — not per line.
+
+                          A 20 kg bundle costing 1,390 looks like nothing much;
+                          69.51 a kilo against the 345 the shop pays is the
+                          figure that shouts. The rate is what makes a wrong
+                          cost legible at a glance.
+                        */
+                        const rate =
+                          l.qty_milli > 0
+                            ? Math.round((l.cost_cents * 1000) / l.qty_milli)
+                            : 0;
+                        return (
+                        <li key={i} className="text-[11px]">
+                          <span className="flex items-baseline justify-between gap-2">
+                            <span className="min-w-0 flex-1 truncate">
+                              {l.units} × {l.name_snapshot}
+                            </span>
+                            <span className="text-muted tnum">{formatKes(l.line_total_cents)}</span>
                           </span>
-                          <span className="text-muted tnum">{formatKes(l.line_total_cents)}</span>
+                          {seesCost && l.cost_cents > 0 ? (
+                            <span className="flex items-baseline justify-between gap-2 text-muted">
+                              <span className="min-w-0 flex-1 truncate">
+                                cost {formatKes(l.cost_cents)}
+                                {rate > 0 ? (
+                                  <span className="tnum">
+                                    {" "}
+                                    · {formatKes(rate)}/{l.canonical_unit}
+                                  </span>
+                                ) : null}
+                              </span>
+                              <span className="tnum">
+                                {l.line_total_cents > 0
+                                  ? `${formatKes(l.line_total_cents - l.cost_cents)} made`
+                                  : ""}
+                              </span>
+                            </span>
+                          ) : null}
                         </li>
-                      ))}
+                        );
+                      })}
                     </ul>
                   </details>
                 ) : null}

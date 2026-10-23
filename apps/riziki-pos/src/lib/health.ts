@@ -735,7 +735,9 @@ function soldAtImpossibleCost(): Finding[] {
     id: `impossible-cost:${r.item_id}`,
     severity: "high" as Severity,
     kind: "Sold at a cost the shop never paid",
-    title: `${r.lines} sale${r.lines === 1 ? "" : "s"} of ${r.name} are costed at ${kes(r.rate)} a ${r.unit}`,
+    title:
+      `${r.lines} sale${r.lines === 1 ? " " : "s "}of ${r.name} ` +
+      `${r.lines === 1 ? "is" : "are"} costed at ${kes(r.rate)} a ${r.unit}`,
     detail:
       `${r.name} has never landed below ${kes(r.cheapest)} a ${r.unit}, so a sale costed at ` +
       `${kes(r.rate)} cannot have come from any delivery on the record. The usual cause is a ` +
@@ -745,10 +747,18 @@ function soldAtImpossibleCost(): Finding[] {
       `The first was on ${r.first}, and the profit on them is overstated by about ` +
       `${kes(Math.max(0, r.short_cents))}.`,
     fix:
-      `Check the deliveries of ${r.name} around that date — one of them was almost certainly ` +
-      `typed wrong and put right afterwards. The sales themselves cannot be re-costed: a sale ` +
-      `keeps what it cost at the time, on purpose. Knowing the figure is what this is for.`,
-    href: "/landed",
+      `Open the sales for ${r.first} and unfold "What was sold" — the cost is printed under each ` +
+      `line, so the wrong ones are the ones reading ${kes(r.rate)} a ${r.unit}. Then check the ` +
+      `deliveries of ${r.name} around that date: one was almost certainly typed wrong and put ` +
+      `right afterwards. The sales cannot be re-costed — a sale keeps what it cost at the time, ` +
+      `on purpose. Knowing the figure is what this is for.`,
+    /*
+      Straight to the sales themselves, on the day it started, rather than to
+      the landed report. "Where do I actually find these?" was the first thing
+      the shop asked, and a finding that names a fault without a door to it is
+      half a finding.
+    */
+    href: `/sales?period=custom&from=${r.first}&to=${r.first}&q=${encodeURIComponent(r.name)}`,
     item: r.item_id,
   }));
 }
