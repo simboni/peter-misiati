@@ -775,7 +775,7 @@ index a3e48c0..1ab8391 100644
  <div class="wrap narrow" style="padding-top:40px">
  
 diff --git a/routes/web.php b/routes/web.php
-index 4cfe099..71789dd 100644
+index 4cfe099..7dbdafe 100644
 --- a/routes/web.php
 +++ b/routes/web.php
 @@ -8,6 +8,7 @@
@@ -786,7 +786,7 @@ index 4cfe099..71789dd 100644
  use App\Http\Controllers\Webhooks\DarajaCallbackController;
  use App\Http\Controllers\Webhooks\KopoKopoCallbackController;
  use App\Http\Controllers\Webhooks\PayHeroCallbackController;
-@@ -16,6 +17,15 @@
+@@ -16,6 +17,21 @@
  
  Route::get('/', [EventController::class, 'index'])->name('events.index');
  Route::get('/events/{slug}', [EventController::class, 'show'])->name('events.show');
@@ -795,10 +795,16 @@ index 4cfe099..71789dd 100644
 +// one link in a busy group chat is fetched once per client that renders a
 +// preview, and composing a JPEG per request is how a marketing feature
 +// becomes an outage.
++// The site-wide card FIRST. Laravel matches in registration order, and
++// "site" satisfies the slug pattern below — so with the dynamic route first
++// every request for /share/site.jpg looked for an event slugged "site",
++// found none and 404'd. The site card is what the home page, the order pages
++// and the referral pages all point their og:image at, so that was every
++// shared link except an event's falling back to no preview at all.
++Route::get('/share/site.jpg', [ShareImageController::class, 'site'])->name('share.site');
 +Route::get('/share/{slug}.jpg', [ShareImageController::class, 'event'])
 +    ->where('slug', '[A-Za-z0-9\-_]+')
 +    ->name('share.event');
-+Route::get('/share/site.jpg', [ShareImageController::class, 'site'])->name('share.site');
  Route::post('/orders', [OrderController::class, 'store'])->name('orders.store');
  Route::get('/orders/{uuid}', [OrderController::class, 'show'])->name('orders.show');
  Route::get('/orders/{uuid}/status', [OrderController::class, 'status'])->name('orders.status');

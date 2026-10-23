@@ -4,6 +4,19 @@ Nothing in this folder is numbered, so `apply-patches.sh` ignores it. That is
 deliberate: it globs `00*.patch`, and these must never be picked up by a
 routine deploy.
 
+## `share-cards.patch` — SHIPPED, now patch 0036
+
+It was never written up here, which is its own small lesson: a parked patch
+with no note is indistinguishable from one somebody forgot. Promoted to
+`patches/0036-share-cards.patch` once it had been proven rather than assumed.
+
+Testing it found a real bug. `/share/{slug}.jpg` was registered before
+`/share/site.jpg`, and "site" satisfies the slug pattern — so every request
+for the site-wide card looked for an event slugged "site", found none and
+404'd. That card is what the home page, the order pages and the referral
+pages all point their og:image at, so every shared link except an event's had
+no preview at all. The routes are now registered the other way round.
+
 ## `tips-and-referral-visibility.patch`
 
 Two things, parked together on the evening before a show because one of them

@@ -1615,3 +1615,51 @@ offered to everybody afterwards. Organiser can be created inline.
 existed and was never called, so a refund changed one word on one row and the
 ledger went on overstating cash. **Fixed in patch 0028** — see *Refunds* above.
 Refunds are safe once 0028 is applied, and not before.
+
+
+## Share cards — what a pasted link looks like (patch 0036)
+
+A link to a show pasted into a WhatsApp group was a bare URL. The box now
+draws a **1200×630 JPEG** per event — poster, title, date, venue and price —
+and serves it as the `og:image`, so the link arrives as a card with a picture
+on it. There is a site-wide card for every other page, and the images are
+cached to disk: one link in a busy group is fetched once per client that
+renders a preview, and composing a JPEG per request is how a marketing
+feature becomes an outage.
+
+**Landscape, not portrait, on purpose.** WhatsApp and Facebook crop a tall
+image to a wide strip and they crop it from the centre, which on a theatre
+poster is the middle of somebody's face with the title and date cut off.
+1200×630 is the shape they actually show.
+
+The Dockerfile gains `fonts-dejavu-core`. GD cannot draw a letter without a
+TrueType file, so without it every card renders as a cropped poster with no
+text on it at all — and nothing errors.
+
+### How it was tested
+
+Reconstructed the box from base `43c49ce`, applied all 36 patches, installed
+dependencies, migrated and seeded, then ran the app and requested the cards:
+
+```
+/share/site.jpg                  http 200  image/jpeg  JPEG 1200x630
+/share/oret-the-runners-oath.jpg http 200  image/jpeg  JPEG 1200x630
+```
+
+Every Blade template compiles (`php artisan view:cache`), which is the check
+that matters most here — a Blade error in `layout.blade.php` takes the whole
+site down, not just a preview.
+
+**That testing found a bug.** `/share/{slug}.jpg` was registered *before*
+`/share/site.jpg`, and "site" satisfies the slug pattern, so the site-wide
+card 404'd: every shared link except an event's had no preview. Fixed by
+registering the static route first — and worth remembering as a shape, since
+a literal path that also matches a dynamic one has to come first.
+
+### After deploying
+
+Paste a link into a WhatsApp chat with yourself and check the card appears.
+Facebook and WhatsApp cache previews hard, so a URL shared *before* this
+deploy may keep showing the old bare link. Facebook's Sharing Debugger will
+re-scrape a URL on demand; a `?x=1` on the end is the quick way to prove the
+new card works.
