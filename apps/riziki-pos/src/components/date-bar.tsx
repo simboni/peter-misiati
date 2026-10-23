@@ -27,6 +27,7 @@ export function DateBar({
   to,
   keep = {},
   label = "Showing",
+  allLabel = "Everything, newest first",
 }: {
   action: string;
   current: ListPeriod;
@@ -36,6 +37,8 @@ export function DateBar({
   to: string;
   keep?: Record<string, string>;
   label?: string;
+  /** What **All** means on this screen. Not every list is newest-first. */
+  allLabel?: string;
 }) {
   const href = (p: ListPeriod) => {
     const q = new URLSearchParams();
@@ -72,7 +75,7 @@ export function DateBar({
         {/* The range in words, beside the choice that produced it. "This month"
             alone is ambiguous on the first of the month. */}
         <span className="ml-1 text-[13px] font-semibold text-muted">
-          {range ? `${label} ${describeRange(range)}` : "Everything, newest first"}
+          {range ? `${label} ${describeRange(range)}` : allLabel}
         </span>
       </div>
 

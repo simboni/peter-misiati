@@ -16,14 +16,24 @@
  * Pure, so the rules can be tested without a database or a browser.
  */
 
-import { periodRange, type DateRange, type Period } from "./reports.ts";
+import { periodRange, shiftDays, type DateRange, type Period } from "./reports.ts";
 
-export const LIST_PERIODS = ["all", "today", "week", "month", "last-month", "year", "custom"] as const;
+export const LIST_PERIODS = [
+  "all",
+  "today",
+  "yesterday",
+  "week",
+  "month",
+  "last-month",
+  "year",
+  "custom",
+] as const;
 export type ListPeriod = (typeof LIST_PERIODS)[number];
 
 export const LIST_PERIOD_LABEL: Record<ListPeriod, string> = {
   all: "All",
   today: "Today",
+  yesterday: "Yesterday",
   week: "This week",
   month: "This month",
   "last-month": "Last month",
@@ -49,6 +59,18 @@ export function listRange(
   to?: string,
 ): DateRange | null {
   if (period === "all") return null;
+  /*
+    Yesterday lives here rather than in `periodRange`.
+
+    A report is about a period that runs up to today — this week, this month —
+    and "yesterday" is the one named day that deliberately excludes today. It
+    is what somebody asks for in the morning about the day just closed, which
+    is a list's question and not a report's.
+  */
+  if (period === "yesterday") {
+    const y = shiftDays(today, -1);
+    return { from: y, to: y };
+  }
   return periodRange(period as Period, today, from, to);
 }
 

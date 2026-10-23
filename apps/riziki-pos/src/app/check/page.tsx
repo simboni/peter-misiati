@@ -1,9 +1,13 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { currentUser, can } from "@/lib/auth";
-import { checkBooks, type Severity } from "@/lib/health";
+import { checkBooks, type Finding, type Severity } from "@/lib/health";
 import { setAside } from "@/lib/dismissals";
+import { listRange, readListPeriod, LIST_PERIOD_LABEL } from "@/lib/list-range";
+import { businessDate } from "@/lib/units";
+import { describeRange } from "@/lib/reports";
 import { Alert, Card, Chip, Empty, PageTitle } from "@/components/ui";
+import { DateBar } from "@/components/date-bar";
 import { SetAside, BringBack } from "./set-aside";
 
 export const dynamic = "force-dynamic";
@@ -53,7 +57,59 @@ const WORD: Record<Severity, string> = {
   low: "Worth a glance",
 };
 
-export default async function CheckPage() {
+/**
+ * One finding, as a card.
+ *
+ * Lifted out of the page when the list became two lists. Declared at module
+ * scope rather than inside the page function — the inline server action in
+ * `SetAside` has to be able to reach it without it being captured in a
+ * closure, which is the rule this codebase has already been bitten by twice.
+ */
+function Row({ f }: { f: Finding }) {
+  return (
+    <li className="rounded-2xl bg-white p-4 shadow-card ring-1 ring-ink/5">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted">
+          {f.kind}
+          {/* The day it happened, where there is one — and only where the
+              finding has not already said it. Half these titles read
+              "Ungerol on 2026-10-23 landed at…", and printing the date twice
+              on one line is how a screen starts looking like a database. */}
+          {f.at && !f.title.includes(f.at) ? (
+            <span className="ml-1.5 font-semibold normal-case tracking-normal">{f.at}</span>
+          ) : null}
+        </span>
+        <Chip tone={TONE[f.severity]}>{WORD[f.severity]}</Chip>
+      </div>
+
+      <h2 className="mt-1 text-base font-bold leading-snug">{f.title}</h2>
+      <p className="mt-1 text-sm text-muted">{f.detail}</p>
+
+      {f.fix ? (
+        <p className="mt-1.5 text-sm">
+          <span className="font-semibold">What to do: </span>
+          <span className="text-muted">{f.fix}</span>
+        </p>
+      ) : null}
+
+      {f.href ? (
+        <p className="mt-2 text-sm">
+          <Link href={f.href} className="font-bold text-brand hover:underline">
+            Open it →
+          </Link>
+        </p>
+      ) : null}
+
+      <SetAside keyName={f.id} said={f.detail} />
+    </li>
+  );
+}
+
+export default async function CheckPage(props: {
+  // A Promise in Next.js 16 — synchronous access was removed.
+  searchParams: Promise<{ period?: string; from?: string; to?: string }>;
+}) {
+  const sp = await props.searchParams;
   const user = await currentUser();
   if (!user) redirect("/login");
   if (!can(user, "cost")) {
@@ -68,8 +124,26 @@ export default async function CheckPage() {
     );
   }
 
-  const { findings, counts, checked } = checkBooks();
+  /*
+    WHICH DAYS, AND WHY THE DEFAULT IS ALL OF THEM.
+
+    The shop asked for this screen to take dates — "what went wrong yesterday"
+    is a question somebody actually has, and a list carrying three months of
+    findings is one nobody finishes reading.
+
+    But the default stays **All**. A check screen that opens on Today would
+    show an empty page every morning before the first delivery, and an empty
+    check screen reads as "nothing is wrong" — which is the one thing this
+    screen must never say when it is not true. Narrowing is something the owner
+    does on purpose; it is not something the screen does to them.
+  */
+  const period = readListPeriod(sp);
+  const range = listRange(period, businessDate(), sp.from, sp.to);
+
+  const { findings, dated, standing, counts, checked, outsideWindow } = checkBooks(range);
   const aside = setAside();
+
+  const windowName = period === "custom" && range ? describeRange(range) : LIST_PERIOD_LABEL[period].toLowerCase();
 
   return (
     <div>
@@ -83,6 +157,16 @@ export default async function CheckPage() {
       <PageTitle
         title="Worth checking"
         subtitle="Entries that do not look like the rest — the app comparing the books against themselves"
+      />
+
+      <DateBar
+        action="/check"
+        current={period}
+        range={range}
+        from={sp.from ?? ""}
+        to={sp.to ?? ""}
+        label="Things that happened"
+        allLabel="Everything, however long ago"
       />
 
       <Card className="mb-4">
@@ -102,6 +186,24 @@ export default async function CheckPage() {
             )}
           </div>
         ) : null}
+        {outsideWindow ? (
+          /*
+            The cost of narrowing, printed where the narrowing happened.
+
+            Not a warning — the owner chose the dates and is entitled to them.
+            It is the one sentence that stops a short list being read as a
+            clean shop, with the way back to the whole of it beside it.
+          */
+          <p className="mt-2.5 text-sm">
+            <span className="font-semibold text-ink">
+              {outsideWindow} more {outsideWindow === 1 ? "finding is" : "findings are"} outside
+              these dates.
+            </span>{" "}
+            <Link href="/check" className="font-bold text-brand hover:underline">
+              Show everything →
+            </Link>
+          </p>
+        ) : null}
         <p className="mt-2.5 text-xs text-muted">
           Nothing here is a verdict. You have the delivery note and this does not — a strange
           quantity might be a genuine sample. Nothing on this screen changes anything; each row
@@ -111,46 +213,58 @@ export default async function CheckPage() {
 
       {findings.length === 0 ? (
         <Empty>
-          Nothing stood out. Every delivery landed at a rate like its neighbours, every container
-          was the size that thing comes in, and nothing is priced under what it costs.
+          {range
+            ? `Nothing happened ${windowName} that looks out of place, and nothing is standing wrong today.`
+            : "Nothing stood out. Every delivery landed at a rate like its neighbours, every container was the size that thing comes in, and nothing is priced under what it costs."}
         </Empty>
-      ) : (
-        <ul className="space-y-2.5">
-          {findings.map((f) => (
-            <li
-              key={f.id}
-              className="rounded-2xl bg-white p-4 shadow-card ring-1 ring-ink/5"
-            >
-              <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted">
-                  {f.kind}
-                </span>
-                <Chip tone={TONE[f.severity]}>{WORD[f.severity]}</Chip>
-              </div>
+      ) : null}
 
-              <h2 className="mt-1 text-base font-bold leading-snug">{f.title}</h2>
-              <p className="mt-1 text-sm text-muted">{f.detail}</p>
+      {/*
+        TWO LISTS, AND THE REASON THEY ARE NOT ONE.
 
-              {f.fix ? (
-                <p className="mt-1.5 text-sm">
-                  <span className="font-semibold">What to do: </span>
-                  <span className="text-muted">{f.fix}</span>
-                </p>
-              ) : null}
+        A finding is either something that HAPPENED on a day — a delivery typed
+        wrong on the Tuesday, a sale costed at a fifth of its price at 09:43 —
+        or something that IS, right now: a product with no price, a shelf below
+        zero, two rows one name would reach. The dates govern the first kind.
+        Nothing governs the second, because a standing fault is as true today
+        as it was in March and narrowing to Yesterday does not mend it.
 
-              {f.href ? (
-                <p className="mt-2 text-sm">
-                  <Link href={f.href} className="font-bold text-brand hover:underline">
-                    Open it →
-                  </Link>
-                </p>
-              ) : null}
+        Mixed into one list those two kinds are indistinguishable, and a window
+        would appear to clear faults it has not touched. So they are separated
+        and the second is labelled, which costs a heading and buys a screen
+        that cannot mislead.
+      */}
+      {dated.length ? (
+        <section className="mb-5">
+          {range ? (
+            <h2 className="mb-2 text-[11px] font-bold uppercase tracking-[0.12em] text-muted">
+              What happened — {windowName}
+            </h2>
+          ) : null}
+          <ul className="space-y-2.5">
+            {dated.map((f) => (
+              <Row key={f.id} f={f} />
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
-              <SetAside keyName={f.id} said={f.detail} />
-            </li>
-          ))}
-        </ul>
-      )}
+      {standing.length ? (
+        <section className="mb-5">
+          <h2 className="mb-1 text-[11px] font-bold uppercase tracking-[0.12em] text-muted">
+            True right now
+          </h2>
+          <p className="mb-2 text-xs text-muted">
+            These have no date on them — they are how the shop stands today, not something that
+            happened on a day. Picking dates above does not hide them.
+          </p>
+          <ul className="space-y-2.5">
+            {standing.map((f) => (
+              <Row key={f.id} f={f} />
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       {/*
         The way to get a second opinion without handing over the shop.

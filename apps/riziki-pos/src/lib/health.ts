@@ -22,6 +22,8 @@
 
 import { all, get } from "./db.ts";
 import { businessDateOf } from "./units.ts";
+import { rangeClause } from "./list-range.ts";
+import type { DateRange } from "./reports.ts";
 import { undismissed, setAsideCount } from "./dismissals.ts";
 import { currentVersion, scaleFormula } from "./production.ts";
 import { stockSource } from "./mixing.ts";
@@ -63,6 +65,21 @@ export interface Finding {
   href?: string;
   /** The product this is about, where it is about exactly one. */
   item?: number;
+  /**
+   * The shop's date the thing happened — WHERE THERE IS ONE.
+   *
+   * Half these checks are about an event: a delivery typed on a Tuesday, a sale
+   * costed wrong at 09:43. The other half are about a state the shop is in
+   * right now — a product with no price, two rows one name would reach — and a
+   * state has no date, because it is not something that happened, it is
+   * something that is.
+   *
+   * Undefined therefore means "no date", never "today". A screen filtering by
+   * date must keep the undated ones rather than quietly drop them: hiding
+   * "Acid Thickener has no price" because somebody picked Yesterday would make
+   * the whole list untrustworthy, which costs far more than the row.
+   */
+  at?: string;
 }
 
 const kes = (cents: number) =>
@@ -363,19 +380,34 @@ function priceOfItem(itemId: number): number {
  * that finding is above, and this one would only be the same mistake seen from
  * the other side.
  */
-export function chargedUnderCost(sinceDays = 30): Finding[] {
+export function chargedUnderCost(sinceDays = 30, range: DateRange | null = null): Finding[] {
+  /*
+    The window is the caller's, or the last thirty days if there is none.
+
+    It goes into the SQL rather than being applied to the findings afterwards,
+    because this check COUNTS and SUMS: "sold below cost 4 times, KES 2,300
+    short" has to be four times and 2,300 inside the window somebody picked.
+    Working it out over everything and then filtering by date would print a
+    month's figures under a heading saying Today.
+  */
+  const window = range
+    ? rangeClause("s.at", range)
+    : { sql: ` AND s.at >= datetime('now', '-${Math.max(1, Math.round(sinceDays))} days')`, params: [] as string[] };
+
   return all<{
     item_id: number;
     name: string;
     times: number;
     short_cents: number;
     took_cents: number;
+    last: string;
   }>(
     `SELECT l.item_id,
             i.name,
             COUNT(*) AS times,
             SUM(l.cost_cents - l.line_total_cents) AS short_cents,
-            SUM(l.line_total_cents) AS took_cents
+            SUM(l.line_total_cents) AS took_cents,
+            MAX(date(s.at, '+3 hours')) AS last
        FROM sale_lines l
        JOIN sales s ON s.id = l.sale_id
        JOIN items i ON i.id = l.item_id
@@ -384,10 +416,10 @@ export function chargedUnderCost(sinceDays = 30): Finding[] {
         AND l.cost_cents > l.line_total_cents
         AND i.active = 1
         AND i.price_cents > i.cost_cents
-        AND s.at >= datetime('now', ?)
+        ${window.sql}
       GROUP BY l.item_id
       ORDER BY short_cents DESC`,
-    `-${Math.max(1, Math.round(sinceDays))} days`,
+    ...window.params,
   )
     .filter((r) => r.short_cents >= UNDERCHARGE_FLOOR_CENTS)
     .map((r) => ({
@@ -405,6 +437,7 @@ export function chargedUnderCost(sinceDays = 30): Finding[] {
       fix: "Look at the sales on the product's own screen. A one-off is a customer; a habit is a price the counter does not believe.",
       href: `/stock/${r.item_id}`,
       item: r.item_id,
+      at: r.last,
     }));
 }
 
@@ -473,6 +506,7 @@ export function landedAbovePrice(lines: LineRow[]): Finding[] {
             `${kes(l.cost_cents)}.`,
           fix: "Check the delivery note against the quantity and the total. A wrong container size or a missing zero both land here.",
           href: "/purchases",
+          at: day(l.at),
         };
       }),
   );
@@ -529,6 +563,7 @@ export function boughtAboveShelf(lines: LineRow[]): Finding[] {
           `average cost of the stock already on the shelf up with it.`,
         fix: "Check the delivery note. If the price is right, the asking price has to move before this drum is sold.",
         href: `/stock/${l.item_id}`,
+        at: day(l.at),
       })),
   );
 }
@@ -579,6 +614,7 @@ export function rateOutliers(lines: LineRow[]): Finding[] {
           `for ${kes(l.cost_cents)}.`,
         fix: "Check the delivery note. A wrong container size or a missing zero both land here.",
         href: "/purchases",
+        at: day(l.at),
       });
     }
   }
@@ -610,6 +646,7 @@ export function oddContainers(lines: LineRow[]): Finding[] {
         `${qty(l.qty_milli, l.unit)} at ${kes(Math.round(rateOf(l)))} a ${l.unit}.`,
       fix: "If the size is wrong, both the stock and the cost are wrong. Correct the delivery rather than adjusting the price.",
       href: "/purchases",
+      at: day(l.at),
     });
   }
   return out;
@@ -627,6 +664,7 @@ export function freeDeliveries(lines: LineRow[]): Finding[] {
       detail: `${qty(l.qty_milli, l.unit)} arrived with no price against it.`,
       fix: "If the invoice came later, correct the delivery — everything sold from it meanwhile is costed at today's price.",
       href: "/purchases",
+      at: day(l.at),
     }));
 }
 
@@ -639,15 +677,19 @@ export function freeDeliveries(lines: LineRow[]): Finding[] {
  * which a day already closed can change. Worth knowing how much of the book is
  * in that state.
  */
-function uncostedSales(): Finding[] {
-  const row = get<{ n: number; total: number; oldest: string | null }>(
+function uncostedSales(range: DateRange | null = null): Finding[] {
+  const window = rangeClause("s.at", range);
+  const row = get<{ n: number; total: number; oldest: string | null; newest: string | null }>(
     `SELECT COUNT(*) AS n,
             COALESCE(SUM(sl.line_total_cents), 0) AS total,
-            MIN(date(s.at, '+3 hours')) AS oldest
+            MIN(date(s.at, '+3 hours')) AS oldest,
+            MAX(date(s.at, '+3 hours')) AS newest
        FROM sale_lines sl
        JOIN sales s ON s.id = sl.sale_id
        JOIN items i ON i.id = sl.item_id
-      WHERE s.status = 'completed' AND sl.cost_cents = 0 AND sl.line_total_cents > 0`,
+      WHERE s.status = 'completed' AND sl.cost_cents = 0 AND sl.line_total_cents > 0
+        ${window.sql}`,
+    ...window.params,
   );
   if (!row?.n) return [];
   return [
@@ -662,6 +704,9 @@ function uncostedSales(): Finding[] {
         `products cost today, so changing a cost moves those past days.`,
       fix: "Put the right cost on the deliveries behind them and the figures settle.",
       href: "/landed",
+      // The newest, not the oldest: this is one row standing for a run of
+      // them, and a window has to catch it if any of that run falls inside.
+      at: row.newest ?? undefined,
     },
   ];
 }
@@ -692,7 +737,17 @@ function uncostedSales(): Finding[] {
  * recorded — half, rather than the line itself, so that an opening cost somebody
  * set by hand and ordinary rounding are left alone.
  */
-function soldAtImpossibleCost(): Finding[] {
+function soldAtImpossibleCost(range: DateRange | null = null): Finding[] {
+  /*
+    The window narrows the SALES, never the floor.
+
+    What an item has ever landed at is the whole point of the test — the
+    cheapest delivery on record is what makes a cost provably impossible — so
+    the floor is always computed over every delivery there has been. Narrowing
+    it to the window would let a wrong cost hide behind a window that happens
+    to contain no deliveries.
+  */
+  const window = rangeClause("s.at", range);
   const rows = all<{
     item_id: number;
     name: string;
@@ -727,8 +782,10 @@ function soldAtImpossibleCost(): Finding[] {
         AND sl.cost_cents > 0
         AND f.cheapest > 0
         AND 1000.0 * sl.cost_cents / sl.qty_milli < f.cheapest / 2.0
+        ${window.sql}
       GROUP BY sl.item_id
       ORDER BY short_cents DESC`,
+    ...window.params,
   );
 
   return rows.map((r) => ({
@@ -760,14 +817,37 @@ function soldAtImpossibleCost(): Finding[] {
     */
     href: `/sales?period=custom&from=${r.first}&to=${r.first}&q=${encodeURIComponent(r.name)}`,
     item: r.item_id,
+    at: r.first,
   }));
 }
 
 // ---------------------------------------------------------------- the sweep
 
 export interface HealthReport {
+  /** Everything being shown — dated and standing together, worst first. */
   findings: Finding[];
+  /**
+   * The dated ones, inside the window that was asked for. Something that
+   * HAPPENED: a delivery typed on a day, a sale costed wrong at a time.
+   */
+  dated: Finding[];
+  /**
+   * The ones with no date, which no window can exclude. Something that IS:
+   * a product with no price, two rows one name would reach, a shelf below
+   * zero. They are listed separately rather than mixed in, so that narrowing
+   * to Today never looks as if it has cleared them.
+   */
+  standing: Finding[];
   counts: Record<Severity, number>;
+  /**
+   * How many dated findings the window left out.
+   *
+   * Counted here, off the one sweep, rather than by running the whole check
+   * twice. A screen that narrows has to be able to say what it is hiding —
+   * otherwise a short list reads as a clean shop, and the next real fault gets
+   * filtered past in silence.
+   */
+  outsideWindow: number;
   /** How many things were looked at, so "nothing found" means something. */
   checked: { items: number; deliveries: number };
   /**
@@ -778,13 +858,36 @@ export interface HealthReport {
   setAside: number;
 }
 
-export function checkBooks(): HealthReport {
+/**
+ * The whole sweep, optionally over a window of days.
+ *
+ * WHAT THE WINDOW DOES, AND WHAT IT DELIBERATELY DOES NOT.
+ *
+ * It narrows which EVENTS are reported — deliveries typed in those days, sales
+ * costed wrong in those days. It does not narrow what they are compared
+ * against, and that distinction is the whole correctness of this function. A
+ * delivery is an outlier against every other delivery of that product, not
+ * against the three that happen to share a week with it; a cost is impossible
+ * against the cheapest the shop has EVER paid, not the cheapest it paid in
+ * March. So the history is always read whole and the window is applied to the
+ * findings, except in the three checks that count and total sales, where it
+ * has to go into the SQL or the figures would describe a different period from
+ * the heading above them.
+ *
+ * And it never hides a standing fault. Those come back in `standing` whatever
+ * window is asked for — see `Finding.at`.
+ *
+ * No window at all means everything, which is what every caller but the screen
+ * wants: the support bundle and the tests are asking "what is wrong with this
+ * shop", a question with no dates in it.
+ */
+export function checkBooks(range: DateRange | null = null): HealthReport {
   const lines = deliveryLines();
 
   const findings = [
     ...pricedUnderCost(),
     ...bundleUnderContents(),
-    ...chargedUnderCost(),
+    ...chargedUnderCost(30, range),
     ...oddContainers(lines),
     ...landedAbovePrice(lines),
     ...boughtAboveShelf(lines),
@@ -794,8 +897,8 @@ export function checkBooks(): HealthReport {
     ...soldBelowZero(),
     ...twinNames(),
     ...freeDeliveries(lines),
-    ...uncostedSales(),
-    ...soldAtImpossibleCost(),
+    ...uncostedSales(range),
+    ...soldAtImpossibleCost(range),
   ];
 
   /*
@@ -847,16 +950,34 @@ export function checkBooks(): HealthReport {
     that never reached the screen. A dismissal holds only while the finding goes
     on saying the same thing — see `dismissals.ts`.
   */
-  const shown = undismissed(final);
+  const undis = undismissed(final);
 
-  shown.sort((a, b) => RANK[a.severity] - RANK[b.severity] || a.kind.localeCompare(b.kind));
+  /*
+    The window, applied last.
+
+    Dated findings outside it drop; undated ones never do. Deduplication and
+    dismissal both ran first, on purpose: "I have dealt with this" was said
+    about a row somebody read, and it must go on holding whichever window they
+    are looking through afterwards.
+  */
+  const inWindow = (f: Finding) =>
+    !range || f.at === undefined || (f.at >= range.from && f.at <= range.to);
+  const shown = undis.filter(inWindow);
+  const outsideWindow = undis.length - shown.length;
+
+  const order = (a: Finding, b: Finding) =>
+    RANK[a.severity] - RANK[b.severity] || a.kind.localeCompare(b.kind);
+  shown.sort(order);
 
   const counts: Record<Severity, number> = { high: 0, medium: 0, low: 0 };
   for (const f of shown) counts[f.severity]++;
 
   return {
     findings: shown,
+    dated: shown.filter((f) => f.at !== undefined),
+    standing: shown.filter((f) => f.at === undefined),
     counts,
+    outsideWindow,
     setAside: setAsideCount(),
     checked: {
       items: get<{ n: number }>(`SELECT COUNT(*) AS n FROM items WHERE active = 1`)?.n ?? 0,

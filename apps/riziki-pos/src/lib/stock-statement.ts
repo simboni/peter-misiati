@@ -24,7 +24,7 @@
  */
 
 import { all } from "./db.ts";
-import { periodRange, type DateRange } from "./reports.ts";
+import { periodRange, shiftDays, type DateRange } from "./reports.ts";
 import { packBreakdowns, withLoose, type PackBreakdown } from "./pack-statement.ts";
 
 const MILLI = 1000;
@@ -60,14 +60,6 @@ export const STATEMENT_PERIOD_LABEL: Record<StatementPeriod, string> = {
 
 export function isStatementPeriod(v: string | undefined | null): v is StatementPeriod {
   return !!v && (STATEMENT_PERIODS as readonly string[]).includes(v);
-}
-
-/** Shift a business date by whole days, staying in "YYYY-MM-DD". */
-function shiftDays(date: string, days: number): string {
-  // Midday, so a daylight-saving step can never roll the date over.
-  const d = new Date(`${date}T12:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
 }
 
 export function statementRange(

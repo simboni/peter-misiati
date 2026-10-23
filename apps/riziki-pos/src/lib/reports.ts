@@ -167,8 +167,13 @@ export function isPeriod(v: string | undefined): v is Period {
   return !!v && (PERIODS as readonly string[]).includes(v);
 }
 
-/** Shift a business date by whole days, staying in "YYYY-MM-DD". */
-function shiftDays(date: string, days: number): string {
+/**
+ * Shift a business date by whole days, staying in "YYYY-MM-DD".
+ *
+ * Exported because "the day before" is wanted in three places now and three
+ * copies of a date calculation is three chances to get one of them wrong.
+ */
+export function shiftDays(date: string, days: number): string {
   const d = new Date(`${date}T12:00:00Z`); // midday, so a DST step cannot roll the date
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
