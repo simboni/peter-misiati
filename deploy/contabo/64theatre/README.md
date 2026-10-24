@@ -1663,3 +1663,83 @@ Facebook and WhatsApp cache previews hard, so a URL shared *before* this
 deploy may keep showing the old bare link. Facebook's Sharing Debugger will
 re-scrape a URL on demand; a `?x=1` on the end is the quick way to prove the
 new card works.
+
+
+## Recurring events — a run of dates (patch 0037)
+
+The client asked for recurring events: *"Hadithi Sunday runs every Sunday for
+extended periods… this season starts Sunday Oct 25 to Sunday November 29."*
+
+**No recurring kind of event was added.** The data model already handles a
+season correctly — one event, many performances, and the public listing
+already groups dates under their event. This generates the dates as ordinary
+performances. A performance is what tickets, the gate scanner, the box
+office, check-in, refunds, the hero slider and the share cards all hang off;
+teaching every one of those to expand a recurrence rule means touching all of
+them, and any that is missed quietly sells a ticket to a date that does not
+exist. Generated dates leave all of that untouched, and a date that has to
+move or be cancelled is just a row — which is what an operator wants anyway,
+since one Sunday in six is always the one that changes.
+
+**No migration.** One support class, one Blade file, one Filament relation
+manager, one test file.
+
+### In the admin
+
+Edit the show → **Performances** → **Schedule a run**. Tick the days, give a
+date range, a time, doors-minutes-before and a venue, and optionally pick an
+existing date to copy categories and prices from. Six Sundays at three
+categories is eighteen prices typed by hand, and the eighteenth is where the
+typo is. Nothing sold is carried over — a new date has sold nothing.
+
+Dates the event already has are reported and skipped, so running the same
+pattern twice does not double the season.
+
+**Copy prices to…** on a performance row puts one date's price list onto the
+rest of the run, for a season created before prices were agreed or a category
+added halfway through. Future, uncancelled dates only.
+
+### Two bugs a long run exposed
+
+**Past dates were still selling.** The event page rendered a booking form for
+*every* performance. With one date that was nearly invisible — the event
+drops off the listing once it passes. Over a six-week run, by the fourth
+Sunday the page was offering three Sundays that had already happened,
+immediately above the one that had not.
+
+**Cancelling a date did nothing to the public.** `performances.status` was
+read by the gate screens and by nothing on the website, so a cancelled
+performance kept its booking form up. Survivable with one date — you would
+cancel the event itself. Over six weeks you cancel *one* Sunday, which is
+exactly this case. A cancelled date is now off sale and named on the page, so
+somebody holding a ticket for it is told rather than left wondering where the
+date went.
+
+Only `cancelled` is excluded. **`scheduled` still sells**, because it is the
+default every performance is created with — treating it as "not yet on sale"
+would have pulled every existing date off sale across the whole site.
+
+### How it was tested
+
+Box reconstructed from base `43c49ce`, all 37 patches applied: **161 tests,
+158 pass.** The three failures are pre-existing and unrelated — they fail
+identically without this patch (stale assertions: a raw `0712…` where phones
+are now normalised to `254…`, a missing `method` field on `/gate/sell/new`,
+and a "Phone number" label the event page no longer uses).
+
+Then driven in the real admin rather than trusted from the tests, which is
+what caught the one bug the suite could not see: the price-source dropdown
+filtered with a `HAVING` over a `withCount` alias — a subquery in the SELECT
+list, not an aggregate — and the modal 500'd the instant it opened. Both
+option lists now live in `PerformanceRun` and are covered.
+
+The client's season generated exactly **25 Oct, 1, 8, 15, 22 and 29
+November**, prices copied onto all six, `quantity_sold` zero on every new
+date, and a second identical run reported *"Nothing to add — 6 dates already
+existed."*
+
+### After deploying
+
+Open a show with several dates and check the website lists only the ones
+still to come. Cancel one date in the admin and check it stops selling and
+says so on the page.

@@ -1,0 +1,863 @@
+diff --git a/app/Filament/Resources/Events/RelationManagers/PerformancesRelationManager.php b/app/Filament/Resources/Events/RelationManagers/PerformancesRelationManager.php
+index 5b08ae7..760da28 100644
+--- a/app/Filament/Resources/Events/RelationManagers/PerformancesRelationManager.php
++++ b/app/Filament/Resources/Events/RelationManagers/PerformancesRelationManager.php
+@@ -3,14 +3,22 @@
+ namespace App\Filament\Resources\Events\RelationManagers;
+ 
+ use App\Filament\Forms\Components\VenuePicker;
++use App\Models\Performance;
++use App\Support\PerformanceRun;
++use Filament\Actions\Action;
+ use Filament\Actions\CreateAction;
+ use Filament\Actions\DeleteAction;
+ use Filament\Actions\EditAction;
++use Filament\Forms\Components\CheckboxList;
++use Filament\Forms\Components\DatePicker;
+ use Filament\Forms\Components\DateTimePicker;
+ use Filament\Forms\Components\Repeater;
+ use Filament\Forms\Components\Select;
+ use Filament\Forms\Components\TextInput;
++use Filament\Forms\Components\TimePicker;
+ use Filament\Forms\Components\Toggle;
++use Filament\Notifications\Notification;
++use Filament\Schemas\Components\Text;
+ use Filament\Resources\RelationManagers\RelationManager;
+ use Filament\Schemas\Components\Utilities\Get;
+ use Filament\Schemas\Components\Utilities\Set;
+@@ -203,10 +211,176 @@ public function table(Table $table): Table
+                 CreateAction::make()
+                     ->label('Add performance')
+                     ->modalWidth('4xl'),
++                self::scheduleRunAction(),
+             ])
+             ->recordActions([
+                 EditAction::make()->modalWidth('4xl'),
++                self::copyPricesAction(),
+                 DeleteAction::make(),
+             ]);
+     }
++
++    /**
++     * "Every Sunday from 25 October to 29 November."
++     *
++     * A season is six performances, and six trips through the Add
++     * performance modal is where a date gets typed as the wrong month. This
++     * takes the pattern once and writes the dates.
++     *
++     * It does NOT introduce a recurring kind of event — see
++     * App\Support\PerformanceRun for why the dates are generated as ordinary
++     * performances rather than stored as a rule.
++     */
++    public static function scheduleRunAction(): Action
++    {
++        return Action::make('scheduleRun')
++            ->label('Schedule a run')
++            ->icon('heroicon-o-calendar-days')
++            ->color('gray')
++            ->modalWidth('2xl')
++            ->modalHeading('Schedule a run of dates')
++            ->modalDescription('For a show that repeats — every Sunday for six weeks, Friday and Saturday for a fortnight.')
++            ->modalSubmitActionLabel('Create the dates')
++            ->schema([
++                VenuePicker::make(),
++                CheckboxList::make('weekdays')
++                    ->label('Which days')
++                    ->options(PerformanceRun::weekdayOptions())
++                    ->columns(4)
++                    ->required()
++                    ->helperText('Tick more than one for a run that plays twice a week.'),
++                DatePicker::make('from')
++                    ->label('First date')
++                    ->required()
++                    ->helperText('The run starts on or after this day.'),
++                DatePicker::make('until')
++                    ->label('Last date')
++                    ->required()
++                    ->after('from'),
++                TimePicker::make('time')
++                    ->label('Start time')
++                    ->seconds(false)
++                    ->required()
++                    ->default('18:00'),
++                TextInput::make('doors_minutes')
++                    ->label('Doors open, minutes before')
++                    ->numeric()
++                    ->minValue(0)
++                    ->maxValue(240)
++                    ->helperText('Blank to leave doors unset.'),
++                Select::make('status')
++                    ->options([
++                        'scheduled' => 'Scheduled',
++                        'on_sale' => 'On sale',
++                    ])
++                    ->default('scheduled')
++                    ->required()
++                    // Not "keeps them off sale": the website does not read this
++                    // column, and saying it did would be a promise the app does
++                    // not keep. Cancelling is what takes a date off sale.
++                    ->helperText('Either way the date goes on the website once it has prices. Cancel a date to take it off sale.'),
++                Select::make('copy_tickets_from')
++                    ->label('Copy tickets & prices from')
++                    ->options(fn (RelationManager $livewire): array => PerformanceRun::priceSourceOptions(
++                        $livewire->getOwnerRecord(),
++                    ))
++                    ->placeholder('Don\'t copy — I\'ll set prices myself')
++                    ->helperText('Every new date gets the same categories and prices. Nothing sold is carried over.'),
++                Text::make('A date the event already has is skipped, so running the same pattern twice will not double the season.')
++                    ->color('gray'),
++            ])
++            ->action(function (array $data, RelationManager $livewire): void {
++                $event = $livewire->getOwnerRecord();
++
++                $preview = PerformanceRun::preview(
++                    $event,
++                    $data['from'],
++                    $data['until'],
++                    $data['weekdays'],
++                    $data['time'],
++                );
++
++                if ($preview['dates']->isEmpty()) {
++                    Notification::make()
++                        ->warning()
++                        ->title('No dates in that range')
++                        ->body('Nothing falls on the days you ticked between those two dates.')
++                        ->send();
++
++                    return;
++                }
++
++                $made = PerformanceRun::create(
++                    $event,
++                    $data['from'],
++                    $data['until'],
++                    $data['weekdays'],
++                    $data['time'],
++                    (int) $data['venue_id'],
++                    $data['doors_minutes'] === null || $data['doors_minutes'] === '' ? null : (int) $data['doors_minutes'],
++                    $data['status'],
++                    filled($data['copy_tickets_from'] ?? null)
++                        ? Performance::with('ticketTypes')->find($data['copy_tickets_from'])
++                        : null,
++                );
++
++                $skipped = $preview['existing']->count();
++
++                Notification::make()
++                    ->success()
++                    ->title($made === 0 ? 'Nothing to add' : $made.' '.str('date')->plural($made).' created')
++                    ->body(trim(
++                        ($made > 0 ? $preview['fresh']->map(fn ($d) => $d->format('D j M'))->join(', ', ' and ').'. ' : '').
++                        ($skipped > 0 ? $skipped.' '.str('date')->plural($skipped).' already existed and '.($skipped === 1 ? 'was' : 'were').' left alone.' : '')
++                    ))
++                    ->send();
++            });
++    }
++
++    /**
++     * Put one date's prices onto the rest of the run.
++     *
++     * The companion to scheduling: a season created before anybody decided on
++     * prices, or a category added halfway through, still needs copying across
++     * the remaining Sundays. Only FUTURE dates are offered — rewriting the
++     * price list of a Sunday that has already been sold and played is never
++     * what anybody means.
++     */
++    public static function copyPricesAction(): Action
++    {
++        return Action::make('copyPrices')
++            ->label('Copy prices to…')
++            ->icon('heroicon-o-document-duplicate')
++            ->color('gray')
++            ->visible(fn (Performance $record): bool => $record->ticketTypes()->exists())
++            ->modalWidth('xl')
++            ->modalHeading('Copy tickets & prices to other dates')
++            ->modalSubmitActionLabel('Copy')
++            ->schema([
++                CheckboxList::make('targets')
++                    ->label('Apply to')
++                    ->options(fn (Performance $record): array => PerformanceRun::copyTargetOptions($record))
++                    ->required()
++                    ->bulkToggleable()
++                    ->helperText('Only dates still to come. A category already on a date is left exactly as it is.'),
++            ])
++            ->action(function (array $data, Performance $record): void {
++                $copied = 0;
++                $touched = 0;
++
++                foreach (Performance::whereIn('id', $data['targets'])->get() as $target) {
++                    $n = PerformanceRun::copyTickets($record, $target);
++                    $copied += $n;
++                    $touched += $n > 0 ? 1 : 0;
++                }
++
++                Notification::make()
++                    ->success()
++                    ->title($copied === 0 ? 'Nothing to copy' : $copied.' '.str('category')->plural($copied).' copied')
++                    ->body($copied === 0
++                        ? 'Those dates already have every category this one has.'
++                        : 'Added to '.$touched.' '.str('date')->plural($touched).'. Nothing sold was carried over.')
++                    ->send();
++            });
++    }
+ }
+diff --git a/app/Support/PerformanceRun.php b/app/Support/PerformanceRun.php
+new file mode 100644
+index 0000000..5c925e9
+--- /dev/null
++++ b/app/Support/PerformanceRun.php
+@@ -0,0 +1,240 @@
++<?php
++
++namespace App\Support;
++
++use App\Models\Event;
++use App\Models\Performance;
++use App\Models\TicketType;
++use Carbon\CarbonImmutable;
++use Illuminate\Support\Collection;
++use Illuminate\Support\Facades\DB;
++
++/**
++ * A run of dates — "every Sunday from 25 October to 29 November".
++ *
++ * WHY THIS GENERATES ROWS INSTEAD OF STORING A RULE. The obvious design is a
++ * recurrence rule on the event that the rest of the system expands when it
++ * reads. It is also the wrong one here. A performance is what tickets, the
++ * gate scanner, the box office, check-in, refunds, the hero slider and the
++ * share cards all hang off; teaching every one of those to expand a rule
++ * means touching all of them, and any that is missed quietly sells a ticket
++ * to a date that does not exist. Generating concrete performances leaves
++ * every one of those paths exactly as it is, and a date that needs to move or
++ * be cancelled is just a row — which is what an operator wants anyway, since
++ * one Sunday in six is always the one that changes.
++ *
++ * So "recurring" is a convenience for CREATING dates, not a new kind of
++ * thing. The season is an ordinary event with ordinary performances.
++ */
++class PerformanceRun
++{
++    /**
++     * The dates a pattern produces, in order.
++     *
++     * @param  array<int>  $weekdays  0 = Sunday … 6 = Saturday (Carbon's own numbering)
++     * @return Collection<int, CarbonImmutable>
++     */
++    public static function dates(
++        string $from,
++        string $until,
++        array $weekdays,
++        string $time,
++    ): Collection {
++        $out = collect();
++        if ($weekdays === []) {
++            return $out;
++        }
++
++        $start = CarbonImmutable::parse($from)->startOfDay();
++        $end = CarbonImmutable::parse($until)->endOfDay();
++        if ($end->lt($start)) {
++            return $out;
++        }
++
++        [$h, $m] = array_pad(array_map('intval', explode(':', $time)), 2, 0);
++        $wanted = array_flip(array_map('intval', $weekdays));
++
++        // A season is weeks, not years. The cap stops a mistyped "until" year
++        // from generating four hundred performances before anybody notices.
++        $cursor = $start;
++        $guard = 0;
++        while ($cursor->lte($end) && $guard++ < 400) {
++            if (isset($wanted[$cursor->dayOfWeek])) {
++                $out->push($cursor->setTime($h, $m));
++            }
++            $cursor = $cursor->addDay();
++        }
++
++        return $out;
++    }
++
++    /**
++     * What generating this run would do, without doing it.
++     *
++     * Dates the event already has are reported as `existing` rather than
++     * silently skipped: running the same pattern twice is a normal mistake
++     * and the operator should see that it was caught, not wonder why the
++     * count is lower than the dates they picked.
++     *
++     * @return array{dates: Collection<int, CarbonImmutable>, fresh: Collection<int, CarbonImmutable>, existing: Collection<int, CarbonImmutable>}
++     */
++    public static function preview(
++        Event $event,
++        string $from,
++        string $until,
++        array $weekdays,
++        string $time,
++    ): array {
++        $dates = self::dates($from, $until, $weekdays, $time);
++
++        $taken = $event->performances()
++            ->pluck('starts_at')
++            ->map(fn ($d) => CarbonImmutable::parse($d)->format('Y-m-d H:i'))
++            ->flip();
++
++        $existing = $dates->filter(fn (CarbonImmutable $d) => $taken->has($d->format('Y-m-d H:i')))->values();
++        $fresh = $dates->reject(fn (CarbonImmutable $d) => $taken->has($d->format('Y-m-d H:i')))->values();
++
++        return ['dates' => $dates, 'fresh' => $fresh, 'existing' => $existing];
++    }
++
++    /**
++     * Create the run. Returns how many performances were made.
++     *
++     * `$copyTicketsFrom` is a performance whose categories and prices are
++     * duplicated onto every new date — the reason this exists at all. Six
++     * Sundays with three categories each is eighteen prices typed by hand,
++     * and the eighteenth is where the typo is.
++     */
++    public static function create(
++        Event $event,
++        string $from,
++        string $until,
++        array $weekdays,
++        string $time,
++        int $venueId,
++        ?int $doorsMinutesBefore = null,
++        string $status = 'scheduled',
++        ?Performance $copyTicketsFrom = null,
++    ): int {
++        $fresh = self::preview($event, $from, $until, $weekdays, $time)['fresh'];
++        if ($fresh->isEmpty()) {
++            return 0;
++        }
++
++        return DB::transaction(function () use ($event, $fresh, $venueId, $doorsMinutesBefore, $status, $copyTicketsFrom): int {
++            $made = 0;
++            foreach ($fresh as $date) {
++                $performance = Performance::create([
++                    'event_id' => $event->id,
++                    'venue_id' => $venueId,
++                    'starts_at' => $date,
++                    'doors_open_at' => $doorsMinutesBefore === null ? null : $date->subMinutes($doorsMinutesBefore),
++                    'status' => $status,
++                ]);
++
++                if ($copyTicketsFrom) {
++                    self::copyTickets($copyTicketsFrom, $performance);
++                }
++                $made++;
++            }
++
++            return $made;
++        });
++    }
++
++    /**
++     * Duplicate one performance's categories onto another.
++     *
++     * Everything about the category carries over EXCEPT what has been sold:
++     * `quantity_sold` starts at zero, because a new date has sold nothing.
++     * Copying it would hand the new Sunday last Sunday's sales and quietly
++     * shrink what is left to sell.
++     *
++     * Skips any category whose name is already on the target, so running it
++     * twice does not double the price list.
++     */
++    public static function copyTickets(Performance $from, Performance $to): int
++    {
++        $already = $to->ticketTypes()->pluck('name')->map(fn ($n) => mb_strtolower($n))->flip();
++        $made = 0;
++
++        foreach ($from->ticketTypes as $type) {
++            if ($already->has(mb_strtolower($type->name))) {
++                continue;
++            }
++
++            $copy = $type->replicate([
++                'performance_id',
++                'quantity_sold',
++                'created_at',
++                'updated_at',
++            ]);
++            $copy->performance_id = $to->id;
++            $copy->quantity_sold = 0;
++            $copy->save();
++            $made++;
++        }
++
++        return $made;
++    }
++
++    /**
++     * Dates of this event that have prices set, to copy FROM.
++     *
++     * This lives here rather than inline in the Filament action because an
++     * option list built inside a closure is only reachable through Livewire,
++     * and the first version of it — a HAVING over the withCount alias, which
++     * is a subquery in the SELECT list and not an aggregate — blew the modal
++     * up with a 500 that no test could see.
++     *
++     * @return array<int, string>
++     */
++    public static function priceSourceOptions(Event $event): array
++    {
++        return $event->performances()
++            ->whereHas('ticketTypes')
++            ->withCount('ticketTypes')
++            ->orderBy('starts_at')
++            ->get()
++            ->mapWithKeys(fn (Performance $p): array => [
++                $p->id => $p->starts_at->format('D j M Y · g:i A').' ('.$p->ticket_types_count.' categories)',
++            ])
++            ->all();
++    }
++
++    /**
++     * The other dates of this run that prices can be copied TO.
++     *
++     * Future dates only. Rewriting the price list of a Sunday that has
++     * already been sold and played is never what anybody means.
++     *
++     * @return array<int, string>
++     */
++    public static function copyTargetOptions(Performance $record): array
++    {
++        return $record->event
++            ->performances()
++            ->whereKeyNot($record->getKey())
++            ->where('starts_at', '>', now())
++            // A date that is off is not a date to set prices for.
++            ->where('status', '!=', 'cancelled')
++            ->withCount('ticketTypes')
++            ->orderBy('starts_at')
++            ->get()
++            ->mapWithKeys(fn (Performance $p): array => [
++                $p->id => $p->starts_at->format('D j M Y · g:i A').
++                    ($p->ticket_types_count > 0 ? ' — already has '.$p->ticket_types_count : ''),
++            ])
++            ->all();
++    }
++
++    /** 0–6 as Carbon numbers them, with the names an operator reads. */
++    public static function weekdayOptions(): array
++    {
++        return [
++            1 => 'Monday', 2 => 'Tuesday', 3 => 'Wednesday', 4 => 'Thursday',
++            5 => 'Friday', 6 => 'Saturday', 0 => 'Sunday',
++        ];
++    }
++}
+diff --git a/resources/views/events/show.blade.php b/resources/views/events/show.blade.php
+index 0efa329..2ecf04a 100644
+--- a/resources/views/events/show.blade.php
++++ b/resources/views/events/show.blade.php
+@@ -4,6 +4,45 @@
+ 
+ @php
+     $og = $event->performances->firstWhere('starts_at', '>', now()) ?? $event->performances->first();
++
++    /*
++     * Only dates that have not started are on sale.
++     *
++     * The page used to render a booking form for EVERY performance, past ones
++     * included. With one date that was nearly invisible — the event drops off
++     * the listing once it passes, and only a shared link reached this page at
++     * all. A season changes that completely: "Hadithi Sunday" runs for six
++     * weeks, so by the fourth week this page was offering to sell tickets to
++     * three Sundays that had already happened, immediately above the one that
++     * had not.
++     *
++     * Filtered in memory rather than in the query because the controller's
++     * eager load feeds the share card and the "finished" notice below, and
++     * both need the dates that have passed.
++     */
++    $upcoming = $event->performances
++        ->filter(fn ($p) => $p->starts_at->isFuture())
++        /*
++         * A cancelled date does not sell.
++         *
++         * `status` was read by the gate screens and by nothing on this page,
++         * so cancelling a performance in the admin changed how it looked to
++         * staff and left the booking form up for the public. With one date
++         * that was survivable — you would cancel the event itself. Over a
++         * six-week run you cancel ONE Sunday, which is exactly the case this
++         * missed, and the buyer got a ticket to a show nobody would be at.
++         *
++         * Only `cancelled` is excluded. `scheduled` is the default every
++         * performance is created with, here and on the Add performance form,
++         * so treating it as "not yet on sale" would silently pull every
++         * existing date off sale across the whole site.
++         */
++        ->reject(fn ($p) => $p->status === 'cancelled')
++        ->values();
++    $cancelled = $event->performances
++        ->filter(fn ($p) => $p->starts_at->isFuture() && $p->status === 'cancelled')
++        ->values();
++    $finished = $event->performances->reject(fn ($p) => $p->starts_at->isFuture())->values();
+ @endphp
+ @section('og:title', $event->title.' — 64 Theatre, Eldoret')
+ @section('og:description', ($og ? $og->starts_at->format('D j M Y, g:i A').' · '.($og->venue?->name ?? 'Eldoret').'. ' : '').\Illuminate\Support\Str::limit(strip_tags($event->description ?: 'Live on stage in Eldoret. Tickets by email, pay with M-Pesa.'), 140))
+@@ -131,7 +170,28 @@
+ <div class="wrap">
+     @if ($errors->any())<div class="err">{{ $errors->first() }}</div>@endif
+ 
+-    @foreach ($event->performances as $performance)
++    @if ($upcoming->isEmpty() && $finished->isNotEmpty())
++        <div class="perf perf-done">
++            <div class="perf-head">
++                <span class="when">
++                    @if ($finished->count() > 1)
++                        This run has finished
++                    @else
++                        This performance has finished
++                    @endif
++                </span>
++            </div>
++            <p class="done-note">
++                @if ($last = $finished->last())
++                    The last date was {{ $last->starts_at->format('l j F Y') }}.
++                @endif
++                Nothing is on sale for it at the moment &mdash;
++                <a href="{{ route('events.index') }}">see what else is on</a>.
++            </p>
++        </div>
++    @endif
++
++    @foreach ($upcoming as $performance)
+         <div class="perf">
+             <div class="perf-head">
+                 <span class="when">{{ $performance->starts_at->format('l j F Y · g:i A') }}</span>
+@@ -243,6 +303,22 @@
+             </form>
+         </div>
+     @endforeach
++
++    {{-- Cancelled dates come after the ones still on, so the page reads as
++         "here is what you can buy" first. They are said out loud rather than
++         quietly dropped: somebody holding a ticket for that Sunday, or looking
++         for the date a poster promised, needs to be told it is off. --}}
++    @foreach ($cancelled as $off)
++        <div class="perf perf-done">
++            <div class="perf-head">
++                <span class="when">{{ $off->starts_at->format('l j F Y · g:i A') }} &mdash; cancelled</span>
++            </div>
++            <p class="done-note">
++                This date is not going ahead and is not on sale. If you already hold a ticket for it,
++                reply to your ticket email and we will sort it out.
++            </p>
++        </div>
++    @endforeach
+ </div>
+ 
+ <script>
+diff --git a/tests/Feature/RecurringSeasonTest.php b/tests/Feature/RecurringSeasonTest.php
+new file mode 100644
+index 0000000..d3c6de7
+--- /dev/null
++++ b/tests/Feature/RecurringSeasonTest.php
+@@ -0,0 +1,304 @@
++<?php
++
++namespace Tests\Feature;
++
++use App\Models\Event;
++use App\Models\Organiser;
++use App\Models\Performance;
++use App\Models\TicketType;
++use App\Models\Venue;
++use Illuminate\Foundation\Testing\RefreshDatabase;
++use Tests\TestCase;
++
++/**
++ * A season that runs every week — "Hadithi Sunday", Oct 25 to Nov 29.
++ *
++ * The platform already stores this correctly: one event, one performance per
++ * Sunday. What a long run exposes is everything that quietly assumed an event
++ * has ONE date and is over once it passes.
++ */
++class RecurringSeasonTest extends TestCase
++{
++    use RefreshDatabase;
++
++    private function season(): Event
++    {
++        $organiser = Organiser::firstOrCreate(['slug' => 'test'], ['name' => 'Test']);
++        $venue = Venue::firstOrCreate(['name' => 'Main Hall'], ['organiser_id' => $organiser->id, 'town' => 'Eldoret', 'capacity' => 200]);
++
++        $event = Event::create([
++            'organiser_id' => $organiser->id,
++            'title' => 'Hadithi Sunday',
++            'slug' => 'hadithi-sunday',
++            'description' => 'Storytelling, every Sunday.',
++            'status' => 'published',
++            'is_private' => false,
++        ]);
++
++        // Three Sundays gone, three still to come.
++        foreach ([-21, -14, -7, 7, 14, 21] as $offset) {
++            $p = Performance::create([
++                'event_id' => $event->id,
++                'venue_id' => $venue->id,
++                'starts_at' => now()->addDays($offset)->setTime(18, 0),
++                'status' => 'on_sale',
++            ]);
++            TicketType::create([
++                'performance_id' => $p->id,
++                'name' => 'Regular',
++                'price_cents' => 50000,
++                'quantity_total' => 100,
++            ]);
++        }
++
++        return $event;
++    }
++
++    public function test_a_finished_date_is_not_still_on_sale(): void
++    {
++        $event = $this->season();
++        $past = $event->performances()->where('starts_at', '<', now())->orderBy('starts_at')->first();
++        $future = $event->performances()->where('starts_at', '>', now())->orderBy('starts_at')->first();
++
++        $html = $this->get("/events/{$event->slug}")->assertOk()->getContent();
++
++        // The upcoming Sunday must be buyable.
++        $this->assertStringContainsString(
++            'phone-'.$future->id,
++            $html,
++            'The next Sunday should have a booking form.',
++        );
++
++        // The ones that have already happened must not be.
++        $this->assertStringNotContainsString(
++            'phone-'.$past->id,
++            $html,
++            'A Sunday that has already happened is still selling tickets.',
++        );
++    }
++
++    public function test_every_remaining_date_is_listed(): void
++    {
++        $event = $this->season();
++        $html = $this->get("/events/{$event->slug}")->assertOk()->getContent();
++
++        foreach ($event->performances()->where('starts_at', '>', now())->get() as $p) {
++            $this->assertStringContainsString('phone-'.$p->id, $html);
++        }
++    }
++
++    public function test_cancelling_one_sunday_takes_that_sunday_off_sale(): void
++    {
++        $event = $this->season();
++        $dates = $event->performances()->where('starts_at', '>', now())->orderBy('starts_at')->get();
++        $off = $dates->first();
++        $on = $dates->last();
++
++        $off->update(['status' => 'cancelled']);
++
++        $html = $this->get("/events/{$event->slug}")->assertOk()->getContent();
++
++        $this->assertStringNotContainsString(
++            'phone-'.$off->id,
++            $html,
++            'A cancelled date is still selling tickets.',
++        );
++        $this->assertStringContainsString('cancelled', $html, 'The cancelled date should be named, not just dropped.');
++        $this->assertStringContainsString(
++            'phone-'.$on->id,
++            $html,
++            'Cancelling one Sunday must not take the rest of the run off sale.',
++        );
++    }
++
++    public function test_a_scheduled_date_still_sells(): void
++    {
++        // 'scheduled' is the default every performance is created with, so it
++        // cannot mean "not on sale" — that would empty the whole site.
++        $event = $this->season();
++        $next = $event->performances()->where('starts_at', '>', now())->orderBy('starts_at')->first();
++        $next->update(['status' => 'scheduled']);
++
++        $this->get("/events/{$event->slug}")
++            ->assertOk()
++            ->assertSee('phone-'.$next->id, false);
++    }
++
++    /* ------------------- generating the run ------------------- */
++
++    private function bare(): array
++    {
++        $organiser = Organiser::firstOrCreate(['slug' => 'test'], ['name' => 'Test']);
++        $venue = Venue::firstOrCreate(['name' => 'Main Hall'], ['organiser_id' => $organiser->id, 'town' => 'Eldoret', 'capacity' => 200]);
++        $event = Event::create([
++            'organiser_id' => $organiser->id,
++            'title' => 'Hadithi Sunday',
++            'slug' => 'hadithi-sunday-run',
++            'status' => 'published',
++            'is_private' => false,
++        ]);
++
++        return [$event, $venue];
++    }
++
++    public function test_the_clients_season_produces_exactly_the_right_sundays(): void
++    {
++        // The client's own words: every Sunday, 25 Oct to 29 Nov 2026.
++        $dates = \App\Support\PerformanceRun::dates('2026-10-25', '2026-11-29', [0], '18:00');
++
++        $this->assertSame(
++            ['2026-10-25', '2026-11-01', '2026-11-08', '2026-11-15', '2026-11-22', '2026-11-29'],
++            $dates->map(fn ($d) => $d->format('Y-m-d'))->all(),
++        );
++        $this->assertSame('18:00', $dates->first()->format('H:i'));
++        $this->assertTrue($dates->every(fn ($d) => $d->dayOfWeek === 0), 'Every date must be a Sunday.');
++    }
++
++    public function test_a_run_can_fall_on_more_than_one_weekday(): void
++    {
++        // Friday and Saturday for a fortnight.
++        $dates = \App\Support\PerformanceRun::dates('2026-10-26', '2026-11-08', [5, 6], '19:30');
++        $this->assertSame(
++            ['2026-10-30', '2026-10-31', '2026-11-06', '2026-11-07'],
++            $dates->map(fn ($d) => $d->format('Y-m-d'))->all(),
++        );
++    }
++
++    public function test_an_impossible_range_produces_nothing_rather_than_guessing(): void
++    {
++        $this->assertCount(0, \App\Support\PerformanceRun::dates('2026-11-29', '2026-10-25', [0], '18:00'));
++        $this->assertCount(0, \App\Support\PerformanceRun::dates('2026-10-25', '2026-11-29', [], '18:00'));
++    }
++
++    public function test_generating_the_run_creates_the_performances_and_copies_the_prices(): void
++    {
++        [$event, $venue] = $this->bare();
++
++        // One date, priced by hand — the template for the rest.
++        $first = Performance::create([
++            'event_id' => $event->id,
++            'venue_id' => $venue->id,
++            'starts_at' => '2026-10-25 18:00:00',
++            'status' => 'on_sale',
++        ]);
++        TicketType::create(['performance_id' => $first->id, 'name' => 'Regular', 'price_cents' => 50000, 'quantity_total' => 100, 'quantity_sold' => 37]);
++        TicketType::create(['performance_id' => $first->id, 'name' => 'Student', 'price_cents' => 30000, 'quantity_total' => 40]);
++
++        $made = \App\Support\PerformanceRun::create(
++            $event, '2026-10-25', '2026-11-29', [0], '18:00',
++            $venue->id, doorsMinutesBefore: 30, status: 'on_sale', copyTicketsFrom: $first,
++        );
++
++        // Five, not six: the 25th already existed.
++        $this->assertSame(5, $made);
++        $this->assertSame(6, $event->performances()->count());
++
++        $second = $event->performances()->where('starts_at', '2026-11-01 18:00:00')->firstOrFail();
++        $this->assertSame('2026-11-01 17:30:00', $second->doors_open_at->format('Y-m-d H:i:s'));
++        $this->assertSame('on_sale', $second->status);
++
++        // Prices carried over, sales did NOT.
++        $this->assertSame(['Regular', 'Student'], $second->ticketTypes()->orderBy('name')->pluck('name')->all());
++        $regular = $second->ticketTypes()->where('name', 'Regular')->firstOrFail();
++        $this->assertSame(50000, $regular->price_cents);
++        $this->assertSame(100, $regular->quantity_total);
++        $this->assertSame(0, $regular->quantity_sold, "A new date must not inherit last week's sales.");
++    }
++
++    public function test_running_the_same_pattern_twice_adds_nothing(): void
++    {
++        [$event, $venue] = $this->bare();
++
++        $a = \App\Support\PerformanceRun::create($event, '2026-10-25', '2026-11-29', [0], '18:00', $venue->id);
++        $this->assertSame(6, $a);
++
++        $b = \App\Support\PerformanceRun::create($event->fresh(), '2026-10-25', '2026-11-29', [0], '18:00', $venue->id);
++        $this->assertSame(0, $b, 'Re-running the same season must not double it.');
++        $this->assertSame(6, $event->performances()->count());
++    }
++
++    public function test_the_preview_says_which_dates_are_already_there(): void
++    {
++        [$event, $venue] = $this->bare();
++        Performance::create(['event_id' => $event->id, 'venue_id' => $venue->id, 'starts_at' => '2026-11-08 18:00:00', 'status' => 'scheduled']);
++
++        $p = \App\Support\PerformanceRun::preview($event, '2026-10-25', '2026-11-29', [0], '18:00');
++
++        $this->assertCount(6, $p['dates']);
++        $this->assertCount(5, $p['fresh']);
++        $this->assertSame(['2026-11-08'], $p['existing']->map(fn ($d) => $d->format('Y-m-d'))->all());
++    }
++
++    public function test_copying_prices_twice_does_not_double_the_list(): void
++    {
++        [$event, $venue] = $this->bare();
++        $from = Performance::create(['event_id' => $event->id, 'venue_id' => $venue->id, 'starts_at' => '2026-10-25 18:00:00', 'status' => 'on_sale']);
++        TicketType::create(['performance_id' => $from->id, 'name' => 'Regular', 'price_cents' => 50000, 'quantity_total' => 100]);
++        $to = Performance::create(['event_id' => $event->id, 'venue_id' => $venue->id, 'starts_at' => '2026-11-01 18:00:00', 'status' => 'on_sale']);
++
++        $this->assertSame(1, \App\Support\PerformanceRun::copyTickets($from, $to));
++        $this->assertSame(0, \App\Support\PerformanceRun::copyTickets($from->fresh(), $to->fresh()));
++        $this->assertSame(1, $to->ticketTypes()->count());
++    }
++
++    public function test_a_mistyped_year_cannot_generate_hundreds_of_dates(): void
++    {
++        $dates = \App\Support\PerformanceRun::dates('2026-10-25', '2036-11-29', [0], '18:00');
++        $this->assertLessThanOrEqual(60, $dates->count(), 'The guard should stop a runaway range.');
++    }
++
++    /*
++     * The two option lists the admin modals are built from.
++     *
++     * These are here because they are the part that actually broke. The first
++     * version of the price-source list filtered with a HAVING over the
++     * withCount alias, which is a subquery in the SELECT list and not an
++     * aggregate — valid-looking code that threw the moment the modal opened,
++     * and invisible to every test that only exercised the generator.
++     */
++
++    public function test_only_dates_with_prices_are_offered_as_a_price_source(): void
++    {
++        $event = $this->season();
++        $bare = Performance::create([
++            'event_id' => $event->id,
++            'venue_id' => $event->performances()->first()->venue_id,
++            'starts_at' => now()->addDays(28)->setTime(18, 0),
++            'status' => 'scheduled',
++        ]);
++
++        $options = \App\Support\PerformanceRun::priceSourceOptions($event);
++
++        $this->assertCount(6, $options, 'The six priced dates, and not the bare one.');
++        $this->assertArrayNotHasKey($bare->id, $options);
++        $this->assertStringContainsString('1 categories', reset($options));
++    }
++
++    public function test_prices_can_only_be_copied_onto_dates_still_to_come(): void
++    {
++        $event = $this->season();
++        $source = $event->performances()->where('starts_at', '>', now())->orderBy('starts_at')->first();
++
++        $options = \App\Support\PerformanceRun::copyTargetOptions($source);
++
++        $this->assertCount(2, $options, 'The other two future Sundays — not the three that have played.');
++        $this->assertArrayNotHasKey($source->id, $options, 'A date is not a target for its own prices.');
++        foreach ($event->performances()->where('starts_at', '<', now())->pluck('id') as $goneId) {
++            $this->assertArrayNotHasKey($goneId, $options);
++        }
++    }
++
++    public function test_a_cancelled_date_is_not_offered_as_somewhere_to_copy_prices(): void
++    {
++        $event = $this->season();
++        $dates = $event->performances()->where('starts_at', '>', now())->orderBy('starts_at')->get();
++        $source = $dates->first();
++        $off = $dates->last();
++        $off->update(['status' => 'cancelled']);
++
++        $options = \App\Support\PerformanceRun::copyTargetOptions($source);
++
++        $this->assertArrayNotHasKey($off->id, $options);
++        $this->assertCount(1, $options);
++    }
++}
