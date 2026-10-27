@@ -99,7 +99,20 @@ function thumb(src: string) {
 
 /** Everything else: one image each, name on top, straight through to the case study. */
 function Mosaic() {
-  const rest = projects.filter((p) => !showcaseSlugs.has(p.slug) && p.media[0]);
+  /*
+   * EVERY project that is not in the showcase, screenshot or not.
+   *
+   * This used to require `p.media[0]`, so a project with no screenshots was
+   * silently dropped from the grid — shipped, written up, linked, and then
+   * invisible on the homepage with nothing anywhere to say so. Riziki
+   * Chemicals, a full POS, sat unlisted that way: the only project in the
+   * catalogue without images, and therefore the only one missing.
+   *
+   * A missing picture is a reason to draw the cover instead, which is exactly
+   * what the work page and the project card already do. It is not a reason to
+   * hide the work.
+   */
+  const rest = projects.filter((p) => !showcaseSlugs.has(p.slug));
   if (rest.length === 0) return null;
 
   return (
@@ -116,15 +129,28 @@ function Mosaic() {
           prefetch={false}
           className="group relative block overflow-hidden rounded-xl border border-ink-600 bg-ink-800 transition-all duration-300 hover:-translate-y-1 hover:border-green-400/50"
         >
-          <div className="relative aspect-[16/10] overflow-hidden">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={thumb(p.media[0].src)}
-              alt={p.media[0].alt}
-              loading="lazy"
-              decoding="async"
-              className="absolute inset-0 h-full w-full object-cover object-top transition-transform duration-500 group-hover:scale-105"
-            />
+          <div className={`relative aspect-[16/10] overflow-hidden ${p.media[0] ? "" : `bg-gradient-to-br ${p.cover.from} ${p.cover.to}`}`}>
+            {p.media[0] ? (
+              <>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={thumb(p.media[0].src)}
+                  alt={p.media[0].alt}
+                  loading="lazy"
+                  decoding="async"
+                  className="absolute inset-0 h-full w-full object-cover object-top transition-transform duration-500 group-hover:scale-105"
+                />
+              </>
+            ) : (
+              // No screenshot yet: the branded cover, same as the work page and
+              // the project card draw. The tile still reads as a real project.
+              <>
+                <div className="absolute inset-0 bg-grid opacity-40" />
+                <span className="absolute inset-0 grid place-items-center font-mono text-4xl font-bold tracking-tight text-white/90">
+                  {p.cover.initials}
+                </span>
+              </>
+            )}
             {/* Fixed black scrim — it sits on an image, so it must not follow the theme. */}
             <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/25 to-transparent" />
             <div className="absolute inset-x-0 bottom-0 p-4">

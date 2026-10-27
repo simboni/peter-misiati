@@ -731,19 +731,23 @@ export const projects: Project[] = [
     ],
   },
   {
+    // Slug unchanged on purpose: /work/riziki-chemicals is already linked from
+    // outside and a tidier URL is not worth a dead one. The TITLE leads with
+    // the POS, which is the system that runs the business — the brochure site
+    // is the smaller half and was reading as the headline.
     slug: "riziki-chemicals",
-    title: "Riziki Chemicals",
+    title: "Riziki POS",
     summary:
-      "A company website plus a full mixing, stock and point-of-sale system for an industrial-chemicals business that repacks bulk drums, blends its own formulas, and sells retail and wholesale on credit.",
+      "The point-of-sale, stock and production system an industrial-chemicals business runs on — selling, invoicing, credit, repacking and batch production from versioned formulas — plus the company website alongside it.",
     type: "Client project",
     year: "2026",
     role: "Product design & full-stack engineering",
     stack: ["Next.js 16", "React 19", "TypeScript", "SQLite", "Tailwind CSS v4", "Docker", "Caddy"],
-    tags: ["Web App", "Business", "Client"],
+    tags: ["POS", "Web App", "Business", "Client"],
     featured: true,
-    cover: { from: "from-green-600", to: "to-ink-950", initials: "RC" },
+    cover: { from: "from-green-600", to: "to-ink-950", initials: "RP" },
     category: "Business",
-    links: { live: "https://rizikichemicals.co.ke", extra: { label: "POS system", href: "https://pos.rizikichemicals.co.ke" } },
+    links: { live: "https://pos.rizikichemicals.co.ke", extra: { label: "Company website", href: "https://rizikichemicals.co.ke" } },
     problem:
       "Riziki buys detergent chemicals in bulk drums and bags, repacks them into smaller sizes, and blends finished products from its own recipes — then sells to walk-in retail and to wholesale buyers who take goods on credit. All of it ran on paper. Stock never reconciled, credit was tracked from memory, and the owner's formulas and margins had to stay invisible to counter staff.",
     approach:
