@@ -771,7 +771,24 @@ export const projects: Project[] = [
       { value: "10", label: "Unit-test suites" },
       { value: "Ledger", label: "Append-only stock" },
     ],
-    media: [],
+    media: [
+      {
+        src: "/mockups/riziki-pos-till.webp",
+        alt: "Riziki POS counter — products mixed to order priced by their chemicals, with a running sale and the total to pay",
+      },
+      {
+        src: "/mockups/riziki-pos-dashboard.webp",
+        alt: "Riziki POS dashboard — takings and debtors for the day, and stock movement valued at cost: opening, bought, made, sold, used in mixing and closing",
+      },
+      {
+        src: "/mockups/riziki-pos-sales.webp",
+        alt: "Riziki POS sales history — 1,248 sales with retail and wholesale standing, part-paid balances, and filters for unpaid and on-account",
+      },
+      {
+        src: "/mockups/riziki-pos-signin.webp",
+        alt: "Riziki POS sign-in — each person has their own PIN so every sale is recorded against them",
+      },
+    ],
   },
   {
     slug: "talitha-kum-kenya",
