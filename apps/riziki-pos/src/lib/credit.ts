@@ -859,12 +859,17 @@ export function reminderMessage(name: string, balanceCents: number, oldestAt?: s
   );
 }
 
-export function invoiceMessage(inv: Invoice): string {
-  const no = inv.sale.invoice_no ?? `Sale #${inv.sale.id}`;
-  const who = inv.sale.customer_name ? `Hello ${inv.sale.customer_name}, ` : "";
-  return (
-    `${who}here is invoice ${no} from ${getBusiness().name} dated ${formatDate(inv.sale.at)}. ` +
-    `Total ${formatKes(inv.sale.total_cents)}, paid ${formatKes(inv.sale.paid_cents)}, ` +
-    `balance ${formatKes(inv.balanceCents)}. Asante.`
-  );
-}
+/*
+  There was an `invoiceMessage` here, and it is gone on purpose.
+
+  It wrote the covering message for a shared invoice — "Hello <name>, here is
+  invoice <no> … Total …, paid …, balance …" — and WhatsApp pre-filled it
+  beside the attachment. The shop asked for the PDF on its own. Sending
+  somebody their own invoice should not also type their name and their balance
+  into a chat window, above a document that already says both; what the
+  covering message says is the sender's to decide. The PDF goes on its own now.
+
+  `reminderMessage` below stays, and the difference is the point: chasing a
+  debt IS a message — there is no document attached to it, and the figure is
+  the whole reason for sending.
+*/

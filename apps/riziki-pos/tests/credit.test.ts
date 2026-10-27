@@ -336,7 +336,20 @@ test("an invoice reads its money from the sale_lines snapshot, not from items", 
     ],
   );
   assert.equal(after.balanceCents, toCents(600));
-  assert.ok(credit.invoiceMessage(after).includes("balance KES 600"));
+});
+
+test("sharing an invoice sends the PDF and no covering message", () => {
+  /*
+    The share used to carry a line of text that WhatsApp pre-filled as the
+    message, naming the customer and their balance beside the attachment. The
+    shop asked for the file on its own. This holds the removal: a share text
+    builder is gone, and the button that used it takes no text to pass.
+  */
+  assert.equal(
+    (credit as Record<string, unknown>).invoiceMessage,
+    undefined,
+    "no builder for a covering message on an invoice",
+  );
 });
 
 test("wa.me links normalise Kenyan numbers and encode the message", () => {

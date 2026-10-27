@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { authenticate, createSession, setSessionCookie, currentUser } from "@/lib/auth";
 import { all } from "@/lib/db";
+import { usersOnDemoPin } from "@/lib/users";
 import { seed } from "@/lib/seed";
 import { Card, Field, inputClass, Button, Alert } from "@/components/ui";
 import { logoSrc } from "@/lib/brand";
@@ -39,6 +40,18 @@ export default async function LoginPage(props: {
   );
 
   const logo = logoSrc();
+  /*
+    The starting PINs, printed only while they still open the door.
+
+    This line used to be unconditional, which meant a live shop's sign-in page
+    published the two PINs the system ships with to anybody who loaded it —
+    including the one that reads cost prices, margins and the recipes. It is
+    genuinely useful on the first morning, when nobody has been told a PIN yet
+    and the alternative is a locked-out shop. It is worth nothing the moment
+    somebody sets their own, and `usersOnDemoPin` already knows which of those
+    two days it is.
+  */
+  const stillShipped = usersOnDemoPin().length > 0;
 
   return (
     <div className="mx-auto max-w-sm py-8">
@@ -90,10 +103,13 @@ export default async function LoginPage(props: {
         </form>
       </Card>
 
-      <p className="mt-4 text-center text-xs text-muted">
-        Demo PINs — Owner <span className="font-bold">1234</span>, Attendant{" "}
-        <span className="font-bold">1111</span>. Change these before the shop goes live.
-      </p>
+      {stillShipped ? (
+        <p className="mt-4 text-center text-xs text-muted">
+          Starting PINs — Owner <span className="font-bold">1234</span>, Attendant{" "}
+          <span className="font-bold">1111</span>. Change these under Users and settings; this
+          line goes away by itself once you have.
+        </p>
+      ) : null}
       <p className="mt-3 text-center text-[11px] text-muted">
         System by{" "}
         <a

@@ -18,6 +18,17 @@
  * to fetch from — its PDF is built right there on the phone (see
  * `receiptFromQueued` in the Sell screen) — so this button must not assume a
  * network round trip is how a PDF always arrives.
+ *
+ * IT SHARES THE FILE AND NOTHING ELSE. There used to be a `text` on the share,
+ * and WhatsApp pre-filled it as the message — so sending somebody their invoice
+ * also typed out their name, the invoice number and what they had paid, into a
+ * chat window, above the attachment that already said all of it. The shop asked
+ * for the PDF on its own, and they are right: what goes in the covering message
+ * is the sender's to write, not this button's to decide, and a figure pasted
+ * into a chat is a figure that can be forwarded without the document it came
+ * from. The `title` stays — it names the share sheet and becomes the subject
+ * line in an email client, and it is the invoice number, which is on the file
+ * name anyway.
  */
 
 import { useState } from "react";
@@ -28,14 +39,12 @@ export function PdfShareButton({
   source,
   fileName,
   shareTitle,
-  shareText,
   label = "PDF",
   busyLabel = "Preparing…",
 }: {
   source: PdfSource;
   fileName: string;
   shareTitle: string;
-  shareText?: string;
   label?: string;
   busyLabel?: string;
 }) {
@@ -58,11 +67,11 @@ export function PdfShareButton({
 
       const nav = navigator as Navigator & {
         canShare?: (data: { files: File[] }) => boolean;
-        share?: (data: { files: File[]; title?: string; text?: string }) => Promise<void>;
+        share?: (data: { files: File[]; title?: string }) => Promise<void>;
       };
 
       if (nav.canShare?.({ files: [file] }) && nav.share) {
-        await nav.share({ files: [file], title: shareTitle, text: shareText });
+        await nav.share({ files: [file], title: shareTitle });
         setState("idle");
         return;
       }

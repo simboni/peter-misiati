@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect, notFound } from "next/navigation";
 import { currentUser } from "@/lib/auth";
-import { getInvoice, issueInvoiceNo, invoiceMessage, getBusiness } from "@/lib/credit";
+import { getInvoice, issueInvoiceNo, getBusiness } from "@/lib/credit";
 import { getPrintSettings, receiptFromInvoice } from "@/lib/print-settings";
 import { lineDiscountCents } from "@/lib/sales";
 import { formatKes, formatAmount, formatQty, formatDateTime } from "@/lib/units";
@@ -395,7 +395,6 @@ export default async function InvoicePage(props: {
             source={{ href: `/invoice/${sale.id}/pdf` }}
             fileName={`${sale.invoice_no ?? `sale-${sale.id}`}.pdf`}
             shareTitle={sale.invoice_no ?? `Sale #${sale.id}`}
-            shareText={invoiceMessage(invoice)}
             label="Share on WhatsApp"
             busyLabel="Preparing…"
           />
