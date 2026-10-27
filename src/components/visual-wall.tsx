@@ -1,91 +1,30 @@
 import Link from "next/link";
-import { showcase, showcaseSlugs, type Showcase } from "@/lib/showcase";
+import { showcase, showcaseSlugs } from "@/lib/showcase";
 import { projects } from "@/lib/portfolio";
-import { Screen } from "@/components/screen-frame";
-import { ArrowUpRightIcon, ExternalLinkIcon } from "@/components/icons";
+import { ProjectGallery } from "@/components/project-gallery";
 
 /* ---------------------------------------------------------------------------
    The wall.
 
-   One slab per project that has real captured screens: a big hero shot, the
-   client's name, ONE sentence about what it does for them, a live link, and
-   then the unglamorous screens underneath. The sentence is the whole text
-   budget — anyone who wants the architecture clicks through to the case study,
-   which is unchanged.
+   One GALLERY per project that has real captured screens: the client's name,
+   one sentence about what the system does for them, a live link, and beside it
+   a single frame holding every screen of that project, picked from a strip of
+   thumbnails. The sentence is the whole text budget — anyone who wants the
+   architecture clicks through to the case study, which is unchanged.
 
-   Slabs alternate which side the words sit on, so a long page of screenshots
-   has a rhythm instead of becoming a catalogue.
+   It used to be a pile instead of a frame: a big hero shot, then a grid of two
+   or three more underneath, each in its own box at its own size. Four projects
+   of that is sixteen separate frames of four different shapes running down the
+   home page, and the reader has to work out which pictures belong to which
+   client. One frame per project says it instead of asking.
+
+   Galleries alternate which side the words sit on, so a long page of
+   screenshots has a rhythm instead of becoming a catalogue.
 
    Below the wall, every other project appears as an image in a mosaic. Those
    have mockups rather than captured screens, and padding the wall with them
    would dilute exactly what makes it convincing.
 --------------------------------------------------------------------------- */
-
-function Slab({ item, index }: { item: Showcase; index: number }) {
-  const wordsRight = index % 2 === 1;
-  const caseStudy = `/work/${item.slug}`;
-
-  return (
-    <article className="border-t border-ink-700 py-14 first:border-t-0 sm:py-20">
-      <div className="grid items-center gap-8 lg:grid-cols-12 lg:gap-12">
-        {/* Words */}
-        <div className={`lg:col-span-4 ${wordsRight ? "lg:order-2" : ""}`}>
-          <h3 className="font-display text-3xl font-bold leading-tight tracking-tight text-mist-100 sm:text-4xl">
-            {item.client}
-          </h3>
-          <p className="mt-4 text-lg leading-relaxed text-mist-400 text-pretty">
-            {item.outcome}
-          </p>
-          <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-3">
-            <a
-              href={item.live}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1.5 font-mono text-sm font-semibold text-green-400 underline-offset-4 hover:underline"
-            >
-              {item.liveLabel}
-              <ExternalLinkIcon className="h-3.5 w-3.5" />
-            </a>
-            <Link
-              href={caseStudy}
-              prefetch={false}
-              className="inline-flex items-center gap-1 text-sm font-semibold text-mist-500 underline-offset-4 hover:text-mist-200 hover:underline"
-            >
-              How it was built
-              <ArrowUpRightIcon className="h-3.5 w-3.5" />
-            </Link>
-          </div>
-        </div>
-
-        {/* The hero screen */}
-        <div className={`lg:col-span-8 ${wordsRight ? "lg:order-1" : ""}`}>
-          <Screen shot={item.hero} url={item.liveLabel} priority={index === 0} />
-        </div>
-      </div>
-
-      {/* The screens nobody else shows */}
-      {item.proof.length > 0 && (
-        <div
-          // Two across at most. Three made the admin screens — which are
-          // forms, and dense by nature — read as grey rectangles, and a shot
-          // nobody can read is decoration rather than evidence.
-          className={`mt-8 grid items-start gap-6 ${
-            item.proof.length === 1 ? "sm:grid-cols-1" : "sm:grid-cols-2"
-          }`}
-        >
-          {item.proof.map((shot) => (
-            <Screen
-              key={shot.src}
-              shot={shot}
-              compact
-              className={item.proof.length === 1 ? "sm:items-start" : ""}
-            />
-          ))}
-        </div>
-      )}
-    </article>
-  );
-}
 
 /** The mosaic shows these around 420px wide; the originals are up to 2160px.
     Serving those would be five times the pixels anyone sees, on a page whose
@@ -168,7 +107,7 @@ export function VisualWall() {
   return (
     <>
       {showcase.map((item, i) => (
-        <Slab key={item.slug} item={item} index={i} />
+        <ProjectGallery key={item.slug} item={item} index={i} />
       ))}
       <div className="border-t border-ink-700 pt-14 sm:pt-20">
         <p className="font-mono text-xs uppercase tracking-[0.18em] text-green-400">

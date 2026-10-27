@@ -1,43 +1,61 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { projects, projectTags } from "@/lib/portfolio";
 import { ProjectCard } from "@/components/project-card";
 
 const PAGE_SIZE = 6;
 
+/* ?tag= in the URL picks the filter.
+ *
+ * The services cards on the home page promise a category and used to land
+ * everybody on the same unfiltered fifteen, which asked the visitor to redo
+ * the sorting the card had just offered to do. Now they link to
+ * /work/?tag=Fintech and arrive on that shelf.
+ *
+ * WHY useSyncExternalStore AND NOT THE OBVIOUS TWO. This is a value that
+ * exists in the browser and not in the prerendered HTML, which is the exact
+ * thing this hook is for: the server snapshot is null, the client snapshot is
+ * the query string, and React reconciles them without a hydration mismatch.
+ *
+ * Reading it in an effect and calling setState would work, but it is a second
+ * render pass for something known at first paint, and it is the pattern the
+ * react-hooks lint rule exists to catch.
+ *
+ * `useSearchParams` is the Next answer and is wrong here: under `output:
+ * export` it pushes everything up to the nearest Suspense boundary out of the
+ * prerender, so /work/index.html would ship without the project grid in it —
+ * and that grid is where a search engine reads fifteen project names and
+ * summaries.
+ *
+ * An unknown tag is ignored rather than shown as an empty grid: a stale link
+ * should degrade to the full directory, not to "No projects".
+ */
+const noStore = () => () => {};
+function readTagFromUrl(): string | null {
+  const tag = new URLSearchParams(window.location.search).get("tag");
+  return tag && tag !== "All" && projectTags.includes(tag) ? tag : null;
+}
+
 export function WorkDirectory() {
-  const [active, setActive] = useState("All");
+  const urlTag = useSyncExternalStore(noStore, readTagFromUrl, () => null);
+  const [chosen, setChosen] = useState<string | null>(null);
+  // A pill, once pressed, outranks the URL for the rest of the visit.
+  const active = chosen ?? urlTag ?? "All";
   const [page, setPage] = useState(1);
 
-  /* ?tag= in the URL picks the filter.
-   *
-   * The services cards on the home page promise a category and used to land
-   * everybody on the same unfiltered fifteen, which asked the visitor to redo
-   * the sorting the card had just offered to do. Now they link to
-   * /work/?tag=Fintech and arrive on that shelf.
-   *
-   * Read on mount rather than in the initial state: this is a static export,
-   * so the HTML is prerendered with no query string, and initialising from
-   * location.search during the first render is a hydration mismatch. One
-   * frame shows "all" before the filter applies, which is cheaper than
-   * `useSearchParams` — that forces this whole page into a Suspense
-   * boundary under `output: export`.
-   *
-   * An unknown tag is ignored rather than shown as an empty grid: a stale
-   * link should degrade to the full directory, not to "No projects".
-   */
+  // Land on the filtered grid, the way an #anchor would. The page hero is
+  // most of a screen tall, so arriving at the very top from a card that said
+  // "See 4 projects" shows the same unfiltered-looking heading and gives no
+  // sign the filter took — the pills are below the fold. Once only: pressing
+  // a pill rewrites the URL, and nobody wants the page to jump when they do.
   const top = useRef<HTMLDivElement>(null);
+  const jumped = useRef(false);
   useEffect(() => {
-    const tag = new URLSearchParams(window.location.search).get("tag");
-    if (!tag || tag === "All" || !projectTags.includes(tag)) return;
-    setActive(tag);
-    // Land on the filtered grid, the way an #anchor would. The page hero is
-    // most of a screen tall, so arriving at the very top from a card that
-    // said "See 4 projects" shows the same unfiltered-looking heading and
-    // gives no sign the filter took — the pills are below the fold.
+    if (jumped.current || !urlTag) return;
+    jumped.current = true;
     top.current?.scrollIntoView({ block: "start" });
-  }, []);
+  }, [urlTag]);
 
   const filtered =
     active === "All" ? projects : projects.filter((p) => p.tags.includes(active));
@@ -49,7 +67,7 @@ export function WorkDirectory() {
   const paged = filtered.slice(start, start + PAGE_SIZE);
 
   function selectTag(tag: string) {
-    setActive(tag);
+    setChosen(tag);
     setPage(1);
     // Keep the URL honest, so a filtered view can be copied out of the address
     // bar and sent to somebody. replaceState rather than push: the filter is

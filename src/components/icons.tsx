@@ -230,6 +230,25 @@ export const ChevronDownIcon = (p: IconProps) => (
   </Base>
 );
 
+export const ChevronLeftIcon = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M15 6l-6 6 6 6" />
+  </Base>
+);
+
+export const ChevronRightIcon = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M9 6l6 6-6 6" />
+  </Base>
+);
+
+/** Four arrows pushing outwards — "make this bigger". */
+export const ExpandIcon = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M9 4H4v5M15 4h5v5M15 20h5v-5M9 20H4v-5" />
+  </Base>
+);
+
 export const CheckIcon = (p: IconProps) => (
   <Base {...p}>
     <path d="m5 12 4.5 4.5L19 7" />

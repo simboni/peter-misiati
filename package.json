@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "check:projects": "node scripts/check-projects.mjs",
-    "postbuild": "node scripts/check-projects.mjs"
+    "postbuild": "node scripts/check-projects.mjs",
+    "thumbs:gallery": "node scripts/gallery-thumbs.mjs"
   },
   "dependencies": {
     "next": "16.2.10",
