@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { projects, services, profile, type Project } from "@/lib/portfolio";
+import { projects, services, serviceHref, profile, type Project } from "@/lib/portfolio";
 import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui";
 import { ThemeSwitcher } from "@/components/theme-switcher";
@@ -278,7 +278,7 @@ export function SiteHeader() {
                 {services.map((s) => (
                   <Link
                     key={s.title}
-                    href={s.href}
+                    href={serviceHref(s)}
                     onClick={closeMobile}
                     className="flex items-start gap-3 rounded-md py-2 text-mist-300 hover:text-green-300"
                   >
@@ -461,7 +461,7 @@ function ServicesPanel() {
         {services.map((s) => (
           <Link
             key={s.title}
-            href={s.href}
+            href={serviceHref(s)}
             className="group flex gap-3 rounded-xl border border-transparent p-3 transition-colors hover:border-ink-600 hover:bg-ink-800"
           >
             <span className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-ink-600 bg-ink-900 text-green-400 transition-colors group-hover:border-green-400/50">

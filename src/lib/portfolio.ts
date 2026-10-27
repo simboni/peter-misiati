@@ -26,6 +26,20 @@ export const profile = {
    *  system?" before the visitor leaves. */
   valueProp:
     "I design and build the business systems organisations run on \u2014 microfinance and SACCO platforms, ERP, inventory and point of sale, M-Pesa payments, websites and mobile apps. Nairobi and Bungoma, Kenya, and remote.",
+  /** The home page's <h1>, and the first half of `valueProp`.
+   *
+   *  The home page had no <h1> at all. The screenshots were doing the talking,
+   *  which works on a visitor who already knows what this is \u2014 and on nobody
+   *  else. A search engine saw a page of images, and a screen reader landing
+   *  on it was told the name of a carousel. These two lines are the smallest
+   *  thing that answers "what is this and who is it for" before the pictures
+   *  start, and they are kept as one sentence each so the hero still opens on
+   *  the work rather than on a screen of reading. */
+  headline: "I design and build the business systems organisations run on.",
+  /** The second half of `valueProp`: what "business systems" actually means,
+   *  in the buyer's words rather than in stack names. */
+  headlineSupport:
+    "Microfinance and SACCO platforms, ERP, inventory and point of sale, M-Pesa payments, websites and mobile apps.",
   /** A slightly longer hero support line. */
   tagline:
     "Software engineer and tech consultant from Kenya. I design and build custom software, websites and mobile apps — and help organisations put technology to work.",
@@ -937,17 +951,23 @@ export type Testimonial = {
   source?: string;
 };
 
-export const testimonials: Testimonial[] = [
-  {
-    quote:
-      "Choose SMP for dedication to delivering innovative, tailored solutions that meet your unique needs. With expertise in software development, tech consulting and youth empowerment, he brings a proven track record of impactful results.",
-    author: "Why clients choose SMP",
-    title: "Software development · Tech consulting · Community impact",
-    rating: 5,
-    // link: "https://…",  // add a Google/LinkedIn review URL to make the card clickable
-    // source: "Google",
-  },
-];
+/**
+ * Real quotes from real clients. Empty until there are some.
+ *
+ * WHY THIS IS EMPTY. It held one entry under the heading "What clients say",
+ * five stars, attributed to "Why clients choose SMP" — marketing copy about
+ * myself in the shape of a review. Anyone who reads the attribution line sees
+ * that, and then has reason to doubt the screenshots too, which are the one
+ * thing on this site that cannot be faked. A page with no testimonials makes
+ * no claim; a page with an invented one makes a claim it cannot support.
+ *
+ * The home page renders this section only when the array is non-empty, so
+ * adding a genuine quote here brings it back with nothing else to change.
+ * What each one needs: the quote as they said it, their name, their role and
+ * organisation, and ideally a `link` to where it is published (Google,
+ * LinkedIn, Upwork) so it can be checked.
+ */
+export const testimonials: Testimonial[] = [];
 
 /* ------------------------------- Services ------------------------------- */
 
@@ -956,9 +976,36 @@ export type Service = {
   icon: string;
   title: string;
   blurb: string;
-  /** Where the mega-menu card points. */
-  href: string;
+  /**
+   * The `/work` filter pill that holds the proof for this service, when one
+   * exists. `serviceHref` turns it into a link.
+   *
+   * Five of the six cards used to point at an unfiltered `/work`. Clicking
+   * "Fintech & M-Pesa" and landing on the same fifteen projects as clicking
+   * "Custom websites" makes the section decorative: it asks the visitor to do
+   * the sorting it just promised to do for them.
+   */
+  tag?: string;
+  /** Where the card points when there is no tag to filter on. */
+  href?: string;
 };
+
+/** Where a service card goes: its filtered work view, or its fallback. */
+export function serviceHref(service: Service): string {
+  // Trailing slash: this is a static export, so /work is a directory and
+  // /work?tag=… would redirect through /work/ and drop nothing, but the
+  // redirect costs a round trip on the one site arguing that it is fast.
+  return service.tag
+    ? `/work/?tag=${encodeURIComponent(service.tag)}`
+    : (service.href ?? "/contact");
+}
+
+/** How many projects on this site back a service up. 0 means none yet. */
+export function serviceProofCount(service: Service): number {
+  return service.tag
+    ? projects.filter((p) => p.tags.includes(service.tag!)).length
+    : 0;
+}
 
 /**
  * What SMP does — the capability set shown in the "Services" mega menu.
@@ -969,36 +1016,41 @@ export const services: Service[] = [
     icon: "server",
     title: "Web apps & internal systems",
     blurb: "ERP, microfinance, admin dashboards — the software your organisation runs on.",
-    href: "/work",
+    tag: "Web App",
   },
   {
     icon: "layout",
     title: "Custom websites",
     blurb: "Fast, modern sites for business, NGO, political & personal brands.",
-    href: "/work",
+    tag: "Web",
   },
   {
     icon: "receipt",
     title: "Fintech & M-Pesa",
     blurb: "SACCO systems, payments, savings & investment tools with M-Pesa built in.",
-    href: "/work",
+    tag: "Fintech",
   },
   {
     icon: "chart",
     title: "SaaS & dashboards",
     blurb: "Multi-tenant products and data dashboards, built to scale — like StackUp.",
-    href: "/work/stackup",
+    tag: "SaaS",
   },
   {
+    icon: "clipboard",
+    title: "Inventory & point of sale",
+    blurb: "Stock, tills, receipts and what is still owed — a shop's day, on one screen.",
+    tag: "POS",
+  },
+  {
+    // No tag: there is no e-learning or mobile build written up here yet, so
+    // this card goes to the contact page rather than to a filter that would
+    // return an empty grid. The work is real — e-Learners Academy is on the
+    // client wall — but until it has a case study the honest destination is a
+    // conversation, and the card says as much.
     icon: "cap",
-    title: "E-learning & LMS",
-    blurb: "Online courses, learning platforms and training tools that teach at scale.",
-    href: "/work",
-  },
-  {
-    icon: "code",
-    title: "Mobile apps & consulting",
-    blurb: "Android & iOS apps, plus technology strategy from the first idea to launch.",
+    title: "E-learning, mobile & consulting",
+    blurb: "Learning platforms, Android & iOS apps, and technology strategy from idea to launch.",
     href: "/contact",
   },
 ];

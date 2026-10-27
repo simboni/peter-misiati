@@ -4,8 +4,11 @@ import {
   about,
   skills,
   services,
+  serviceHref,
+  serviceProofCount,
   experience,
   testimonials,
+  projects,
 } from "@/lib/portfolio";
 import { Button, Section, SectionHeading, Eyebrow } from "@/components/ui";
 import { Reveal } from "@/components/reveal";
@@ -38,23 +41,43 @@ export default function HomePage() {
   return (
     <>
       {/* ============================= HERO ============================= */}
-      {/* No headline, no paragraph, no chips, no stat strip. The page used to
-          open on a full screen of reading, on a site whose whole argument is
-          that you can SEE the work — so the work is the hero now, and the only
-          words above the fold are on two buttons.
+      {/* The work is still the hero: one line of who, one line of what, one
+          line of what that means, and then the screens. No chips, no stat
+          strip, no availability line — those are on /about, and here they
+          competed with the sentence that has to land first.
 
-          The availability line and the stats did not move elsewhere; they are
-          gone from here on purpose. Anything worth saying is said by a screen
-          further down, and a visitor who wants the prose has /about. */}
+          It is not wordless any more, though, and that was not a style choice.
+          The page shipped with NO <h1> at all. A visitor who already knows
+          what SMP does reads the screenshots fine; a search engine saw a
+          carousel, and a screen reader landing here was read the name of an
+          image. Three lines fix all of that and still clear the fold. */}
       <section className="relative overflow-hidden border-b border-ink-700 glow-bg">
         <div className="container-page relative py-8 sm:py-12">
-          <div className="overflow-hidden rounded-2xl border border-ink-600 bg-ink-800 shadow-[0_40px_90px_-50px_rgba(0,0,0,0.7)]">
+          <p className="kicker">
+            {profile.name} &middot; {profile.location}
+          </p>
+          <h1 className="mt-3 max-w-4xl font-display text-3xl font-bold leading-tight tracking-tight text-mist-100 text-balance sm:text-4xl lg:text-5xl">
+            {profile.headline}
+          </h1>
+          <p className="mt-4 max-w-2xl text-base leading-relaxed text-mist-400 text-pretty sm:text-lg">
+            {profile.headlineSupport}
+          </p>
+
+          <div className="mt-8 overflow-hidden rounded-2xl border border-ink-600 bg-ink-800 shadow-[0_40px_90px_-50px_rgba(0,0,0,0.7)]">
             <HeroSlider slides={heroSlides} />
           </div>
 
+          {/* One button that is obviously the button.
+              These were `primary` and `outline`, which in the light theme are
+              a grey slab and a grey outline — the same weight, side by side,
+              so neither read as the action. And the first said "Let's talk",
+              the same words as the green button in the header two inches
+              above it: two identical labels, two different styles, for the
+              same destination. The gold variant is the site's one CTA colour
+              and is already what the footer CTA uses. */}
           <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
-            <Button href="/contact" size="lg" withArrow className="w-full sm:w-auto">
-              Let&rsquo;s talk
+            <Button href="/contact" variant="gold" size="lg" withArrow className="w-full sm:w-auto">
+              Start a project
             </Button>
             <Button href="#proof" variant="outline" size="lg" className="w-full sm:w-auto">
               See the work
@@ -96,29 +119,41 @@ export default function HomePage() {
         <SectionHeading
           eyebrow="what I build"
           title="Systems for organisations that have outgrown spreadsheets"
-          intro="Six things I'm hired for. Every one of them is on this site with a case study behind it."
+          intro="Six things I'm hired for. Each card opens the projects on this site that back it up."
         />
         <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {services.map((service, i) => (
-            <Reveal key={service.title} delay={i * 50}>
-              <Link
-                href={service.href}
-                className="group/svc flex h-full flex-col rounded-xl border border-ink-600 bg-ink-800 p-5 transition-colors hover:border-green-400/40"
-              >
-                <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-green-400/10 text-green-400">
-                  <ServiceIcon name={service.icon} className="h-5 w-5" />
-                </span>
-                <h3 className="mt-4 font-display font-semibold text-mist-100">
-                  {service.title}
-                </h3>
-                <p className="mt-2 text-sm leading-relaxed text-mist-400">{service.blurb}</p>
-                <span className="mt-4 inline-flex items-center gap-1.5 text-sm text-green-400 opacity-0 transition-opacity group-hover/svc:opacity-100">
-                  See the work
-                  <ArrowRightIcon className="h-4 w-4" />
-                </span>
-              </Link>
-            </Reveal>
-          ))}
+          {services.map((service, i) => {
+            const count = serviceProofCount(service);
+            return (
+              <Reveal key={service.title} delay={i * 50}>
+                <Link
+                  href={serviceHref(service)}
+                  prefetch={false}
+                  className="group/svc flex h-full flex-col rounded-xl border border-ink-600 bg-ink-800 p-5 transition-colors hover:border-green-400/40"
+                >
+                  <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-green-400/10 text-green-400">
+                    <ServiceIcon name={service.icon} className="h-5 w-5" />
+                  </span>
+                  <h3 className="mt-4 font-display font-semibold text-mist-100">
+                    {service.title}
+                  </h3>
+                  <p className="mt-2 text-sm leading-relaxed text-mist-400">{service.blurb}</p>
+                  {/* The label was "See the work" on all six, and it only
+                      appeared on hover — so on a phone, where there is no
+                      hover, the cards had no visible destination at all. It
+                      is always on now, and it says where it goes: how many
+                      projects are behind the claim, or that this one is a
+                      conversation rather than a case study. */}
+                  <span className="mt-4 inline-flex items-center gap-1.5 text-sm text-green-400 transition-transform group-hover/svc:translate-x-0.5">
+                    {count > 0
+                      ? `See ${count} ${count === 1 ? "project" : "projects"}`
+                      : "Talk to me about it"}
+                    <ArrowRightIcon className="h-4 w-4" />
+                  </span>
+                </Link>
+              </Reveal>
+            );
+          })}
         </div>
       </Section>
 
@@ -132,7 +167,11 @@ export default function HomePage() {
           <SectionHeading
             eyebrow="selected work"
             title="Every project, filterable"
-            intro="Seventeen builds — web apps, sites and internal systems — each with a full case study behind it."
+            // Counted, not typed. This said "Seventeen builds" while the
+            // catalogue held fifteen — a number nobody would check, on the
+            // page where every other number is checkable, next to the links
+            // that let you count them.
+            intro={`${projects.length} builds — web apps, sites and internal systems — each with a full case study behind it.`}
           />
           <Button href="/work" variant="outline" withArrow className="shrink-0">
             all projects

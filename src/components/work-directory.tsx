@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { projects, projectTags } from "@/lib/portfolio";
 import { ProjectCard } from "@/components/project-card";
 
@@ -9,6 +9,35 @@ const PAGE_SIZE = 6;
 export function WorkDirectory() {
   const [active, setActive] = useState("All");
   const [page, setPage] = useState(1);
+
+  /* ?tag= in the URL picks the filter.
+   *
+   * The services cards on the home page promise a category and used to land
+   * everybody on the same unfiltered fifteen, which asked the visitor to redo
+   * the sorting the card had just offered to do. Now they link to
+   * /work/?tag=Fintech and arrive on that shelf.
+   *
+   * Read on mount rather than in the initial state: this is a static export,
+   * so the HTML is prerendered with no query string, and initialising from
+   * location.search during the first render is a hydration mismatch. One
+   * frame shows "all" before the filter applies, which is cheaper than
+   * `useSearchParams` — that forces this whole page into a Suspense
+   * boundary under `output: export`.
+   *
+   * An unknown tag is ignored rather than shown as an empty grid: a stale
+   * link should degrade to the full directory, not to "No projects".
+   */
+  const top = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const tag = new URLSearchParams(window.location.search).get("tag");
+    if (!tag || tag === "All" || !projectTags.includes(tag)) return;
+    setActive(tag);
+    // Land on the filtered grid, the way an #anchor would. The page hero is
+    // most of a screen tall, so arriving at the very top from a card that
+    // said "See 4 projects" shows the same unfiltered-looking heading and
+    // gives no sign the filter took — the pills are below the fold.
+    top.current?.scrollIntoView({ block: "start" });
+  }, []);
 
   const filtered =
     active === "All" ? projects : projects.filter((p) => p.tags.includes(active));
@@ -22,10 +51,21 @@ export function WorkDirectory() {
   function selectTag(tag: string) {
     setActive(tag);
     setPage(1);
+    // Keep the URL honest, so a filtered view can be copied out of the address
+    // bar and sent to somebody. replaceState rather than push: the filter is
+    // not a place, and twelve pills tapped in a row should not mean twelve
+    // presses of the back button to leave the page.
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      if (tag === "All") url.searchParams.delete("tag");
+      else url.searchParams.set("tag", tag);
+      window.history.replaceState(null, "", url.toString());
+    }
   }
 
   return (
-    <div>
+    // scroll-mt clears the sticky header when we jump here from a ?tag= link.
+    <div ref={top} className="scroll-mt-24">
       {/* Filter pills */}
       <div className="flex flex-wrap gap-2 font-mono text-sm">
         {projectTags.map((tag) => {
