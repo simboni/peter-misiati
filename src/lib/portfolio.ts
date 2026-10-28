@@ -760,6 +760,9 @@ export const projects: Project[] = [
     tags: ["POS", "Web App", "Business", "Client"],
     featured: true,
     cover: { from: "from-green-600", to: "to-ink-950", initials: "RP" },
+    // No logo file, so the "worked with" strip draws the name — dark text,
+    // which needs a light chip under it or it vanishes in the dark theme.
+    logoBg: "#ffffff",
     category: "Business",
     links: { live: "https://pos.rizikichemicals.co.ke", extra: { label: "Company website", href: "https://rizikichemicals.co.ke" } },
     problem:
@@ -801,6 +804,124 @@ export const projects: Project[] = [
       {
         src: "/mockups/riziki-pos-signin.webp",
         alt: "Riziki POS sign-in — each person has their own PIN so every sale is recorded against them",
+      },
+    ],
+  },
+  {
+    // Written from the code and the blueprint in simboni/dawapoint, not from
+    // the screenshots alone — every capability below has an implementation
+    // behind it. The screens are the live deployment carrying its training
+    // catalogue (200 products, six suppliers), which is why DawaPoint sits in
+    // the catalogue and not on the home page's wall: that wall is for screens
+    // out of a business trading on the system, and this one has not gone live
+    // with a pharmacy's own stock yet. Promote it when it does.
+    slug: "dawapoint",
+    title: "DawaPoint",
+    summary:
+      "A pharmacy point of sale and stock system for Kenyan chemists — it sells by pack, strip or single tablet, hands out the earliest-expiring stock first, takes M-Pesa at the till, and keeps the controlled-drugs register and insurance claims in the same place.",
+    type: "Client project",
+    year: "2026",
+    role: "Product design & full-stack engineering",
+    stack: ["Next.js 16", "React 19", "TypeScript", "Hono", "PostgreSQL 16", "Drizzle ORM", "Better Auth", "IndexedDB (Dexie)", "Turborepo", "Docker"],
+    tags: ["POS", "Web App", "Business", "Client"],
+    featured: true,
+    cover: { from: "from-green-700", to: "to-ink-950", initials: "DP" },
+    logoBg: "#ffffff", // wordmark chip, as for Riziki POS
+    category: "Business",
+    links: { live: "https://dawapoint.smp.co.ke" },
+    problem:
+      "A Kenyan retail chemist sells the same medicine by the pack, the strip and the single tablet, and most systems model one unit — so staff divide in their heads and the stock count drifts. Expiry quietly eats margin when nobody can see which batch goes off next. M-Pesa is checked on a cashier's own phone, cash variances have no owner, the internet and power both drop, controlled-drug records are what a PPB inspection looks at first, and insurers pay only on itemised, correctly referenced claims.",
+    approach:
+      "I built it as a counter first: scan or type, Enter adds, function keys for tender, hold and recall, and every product priced per unit it is sold in. Behind the counter sits a batch-level stock ledger fed by goods-received notes, so the till can sell first-expiry-first-out; shifts that open with a float and close with a blind count; M-Pesa prompts sent from the till; a prescription and controlled-drugs register; insurance claims raised against receipts; supplier balances and reports. It shipped with a written acceptance script, staff training sheets and an owner's handover pack, not just the software.",
+    architecture: [
+      "A pnpm/Turborepo monorepo: a Next.js 16 back office and point-of-sale terminal (installable PWA), a Hono API, and shared packages for domain logic, the database, auth, Zod contracts and design tokens.",
+      "Domain rules — money, units of measure, access control, first-expiry-first-out allocation, pricing and reordering — live in a package with no I/O at all, tested on their own.",
+      "PostgreSQL row-level security: the API connects as a role that owns nothing, and every tenant table filters on a tenant id set per transaction, so one pharmacy's query cannot read another's rows even by mistake.",
+      "The audit trail is an append-only table whose rows are SHA-256 chained; an endpoint recomputes the chain to prove nothing was edited after the fact.",
+      "The counter keeps selling offline: catalogue and prices cached in IndexedDB, sales held in a durable outbox and synced when the connection returns.",
+      "M-Pesa through Daraja STK Push from the till, confirmed by callback with a status query as the fallback, and a simulator for training without real money.",
+    ],
+    highlights: [
+      "Sells the way a chemist does — by pack, strip or single tablet, each with its own price — while stock is held in base units, so the count still adds up.",
+      "Every supplier delivery creates batches with expiry dates, and the counter hands out the earliest-expiring first.",
+      "Prescription and controlled medicines are flagged on the product; a controlled sale goes into a register that needs a witness.",
+      "Insurance claims raised against the receipt, tracked from draft to paid, and exported for the insurer's portal.",
+      "An audit log that can prove it has not been edited.",
+    ],
+    impact: [
+      { value: "FEFO", label: "Earliest expiry sold first" },
+      { value: "Offline", label: "The counter keeps selling" },
+      { value: "21", label: "Test suites, plus 10 browser specs" },
+    ],
+    media: [
+      {
+        src: "/mockups/dawapoint-counter.webp",
+        alt: "DawaPoint counter — barcode search, the fast-moving medicines priced by capsule, strip and pack, today's receipts on the till, and an empty cart ready to take cash, M-Pesa or card",
+      },
+      {
+        src: "/mockups/dawapoint-products.webp",
+        alt: "DawaPoint product catalogue — each medicine with its units and prices, stock on hand, stock value, earliest expiry date and whether it is over the counter or prescription-only",
+      },
+      {
+        src: "/mockups/dawapoint-receiving.webp",
+        alt: "DawaPoint goods received — notes from six pharmaceutical suppliers, each posted to stock as batches",
+      },
+      {
+        src: "/mockups/dawapoint-claims.webp",
+        alt: "DawaPoint insurance claims — awaiting payment, submitted and rejected totals, and a new claim against a receipt with member number, policy, pre-authorisation code and co-pay",
+      },
+    ],
+  },
+  {
+    // Written from simboni/civora's own README and code. The live instance is
+    // KEYSA's, freshly set up — the screens show the structure and the
+    // workflow, not a year of data, so like DawaPoint it belongs in the
+    // catalogue rather than on the home page wall until it has some.
+    slug: "civora",
+    title: "Civora",
+    summary:
+      "An operations platform for NGOs that follows one activity from the grant and its budget, through the field report and its evidence, to the money spent and the report the donor receives — running for KEYSA.",
+    type: "Product",
+    year: "2026",
+    role: "Product design & full-stack engineering",
+    stack: ["Next.js 16", "React 19", "TypeScript", "PostgreSQL", "Drizzle ORM", "Tailwind CSS 4", "IndexedDB (offline)", "IMAP / SMTP", "Docker"],
+    tags: ["Web App", "SaaS", "Non-profit", "Product"],
+    featured: true,
+    cover: { from: "from-green-700", to: "to-ink-950", initials: "CV" },
+    logoBg: "#ffffff", // wordmark chip, as for Riziki POS
+    category: "NGOs",
+    links: { live: "https://civora.smp.co.ke" },
+    problem:
+      "In most NGOs the activity, the field report that proves it happened, the expense it caused and the budget line it was charged to live in four different places — a spreadsheet, a WhatsApp group, a paper form and an email thread. Approvals leave no record, field staff work where the signal drops, and every donor report is rebuilt by hand from whatever can be found.",
+    approach:
+      "I built one spine rather than a pile of modules: grant → project → budget lines → activity → field report (offline) → supervisor review → M&E validation → indicator results, and alongside it expense request → approval chain → payment → budget position → donor report pack. It is deliberately not an ERP, a payroll engine or a donor CRM. A new organisation registers and gets starter departments, budget categories, approval policies and a report template, so the core workflow runs on the first day.",
+    architecture: [
+      "A Next.js 16 modular monolith (App Router, Server Actions) on PostgreSQL with Drizzle — each area owns its queries, actions and business rules, and the pages stay thin.",
+      "Multi-tenant from the start: every query is scoped by organisation, and project-scoped roles see only their own projects — enforced in server actions and API routes, not just hidden in the interface.",
+      "Field reports work offline: saved on the device first and synced with an idempotent client id, so a retry on a bad connection never files the same report twice.",
+      "Configurable approval policies by amount band, request type, grant and department; nobody approves their own request, and approval is never mistaken for payment.",
+      "Built-in mail: each person connects their own mailbox over IMAP/SMTP, kept live with IMAP IDLE and pushed to the browser over Server-Sent Events, with credentials encrypted (AES-256-GCM) and any email filed against a grant, project or request.",
+      "An append-only audit log with before-and-after snapshots, and every export recorded.",
+    ],
+    highlights: [
+      "One record from plan to proof: a validated field report feeds the indicator results automatically, and an approved expense moves the budget line's live position.",
+      "Reported, reviewed and validated figures are kept separate, so a donor can see which numbers M&E has signed off.",
+      "Present mode turns live figures into board-meeting slides whose titles state the takeaway — no deck to build.",
+      "A per-grant donor report pack: the award, financial summary, results against targets, delivery and evidence for any period.",
+    ],
+    impact: [
+      { value: "15", label: "Modules on one workflow" },
+      { value: "7", label: "Roles tested end to end in a browser" },
+      { value: "Offline", label: "Field reports sync when signal returns" },
+    ],
+    media: [
+      {
+        src: "/mockups/civora-overview.webp",
+        alt: "Civora overview for KEYSA — the eight-step core workflow from team and grant to an approved, paid expense, with delivery, approvals, field reports and payments alongside",
+      },
+      {
+        src: "/mockups/civora-departments.webp",
+        alt: "Civora departments — KEYSA's org chart with Finance, Human Resources & Admin, Monitoring & Evaluation and Programmes, each with its lead, people and projects",
       },
     ],
   },
