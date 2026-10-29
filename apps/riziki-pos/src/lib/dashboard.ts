@@ -478,6 +478,15 @@ export interface NamedThing {
   name: string;
   /** The figure that put it on the list, already in words. */
   said: string;
+  /**
+   * How THIS one gets put right, where the answer differs per thing.
+   *
+   * "Record what it cost on the delivery" is the right answer for a drum of
+   * Ungerol and no answer at all for a product the shop mixes, which has no
+   * delivery and never will. A row that tells somebody to do an impossible
+   * thing is a row that never clears, and they stop believing the panel.
+   */
+  fix?: string;
 }
 
 export interface AttentionDetail {
@@ -496,6 +505,51 @@ export interface AttentionDetail {
 
 const qtyWords = (milli: number, unit: string) =>
   `${(milli / 1000).toLocaleString("en-KE", { maximumFractionDigits: 3 })} ${unit}`;
+
+/**
+ * How a particular product gets a cost price — and whether it can.
+ *
+ * THERE IS NO BOX ANYWHERE THAT SETS ONE BY HAND, deliberately: a cost price
+ * is what the shop paid, and a figure somebody types is a figure nobody can
+ * check. It is written by exactly two things — a priced delivery, or a mixing
+ * batch, which spreads what went in over what came out.
+ *
+ * Which means the advice this panel gave until now — "record what those goods
+ * cost on the delivery" — was simply impossible to follow for a product the
+ * shop MIXES, and impossible for anything that is neither bought nor made. The
+ * owner went to Deliveries, found nothing to record, came back, and the row was
+ * still there. It was never going to go. Saying which of the three cases a
+ * product is in is the difference between a job and a dead end.
+ */
+function howToCost(r: {
+  recipes: number;
+  priced_arrivals: number;
+  arrivals: number;
+}): string {
+  if (r.recipes > 0) {
+    return "made here — record a batch on the mixing board and it takes its cost from what went in";
+  }
+  if (r.arrivals > 0 && r.priced_arrivals === 0) {
+    return "delivered, but with no money against it — correct that delivery's price";
+  }
+  if (r.arrivals > 0) {
+    return "record the next delivery with its price";
+  }
+  return "never delivered and no recipe makes it — it cannot be costed until one or the other exists";
+}
+
+/**
+ * The sentence an attention row is set aside about.
+ *
+ * Here rather than inline on the page so it can be held to its one rule by a
+ * test: it names WHAT is wrong and never HOW MUCH. A dismissal holds only
+ * while the row goes on saying what it said, so a sentence carrying a running
+ * total is a dismissal undone by the next sale — which is what the shop met,
+ * and reasonably read as the button not working.
+ */
+export function namesSaid(things: readonly NamedThing[]): string {
+  return `No cost price on: ${things.map((t) => t.name).join(", ")}`;
+}
 
 export function attentionDetail(asked: DateRange): AttentionDetail {
   const range = clampRange(asked);
@@ -549,11 +603,45 @@ export function attentionDetail(asked: DateRange): AttentionDetail {
     said and not what was happening. Nothing was wrong with the money; the list
     was wrong about the money.
   */
-  const uncostedSales = all<{ id: number; name: string; cents: number; lines: number }>(
-    `SELECT sl.item_id                       AS id,
-            sl.name_snapshot                 AS name,
+  const uncostedSales = all<{
+    id: number;
+    name: string;
+    cents: number;
+    lines: number;
+    sizes: number;
+    recipes: number;
+    priced_arrivals: number;
+    arrivals: number;
+  }>(
+    /*
+      ONE ROW PER PRODUCT, and that is a fix rather than a tidy-up.
+
+      This used to group by `name_snapshot` — the name as it was printed on the
+      receipt — so a product sold loose and in three jerrican sizes arrived on
+      the panel as FOUR rows: "Ocean breeze mild", "— 5 L bundle", "— 500 ml
+      bundle", "— 250 ml bundle". One product, one missing cost price, read by
+      the owner as four separate faults. He fixes it and three of the four were
+      never there. It also contradicted the sentence directly above it in this
+      file: one cost price fixes every sale of that product at once, which is
+      only true if the product is listed once.
+
+      The name is the item's own, not the snapshot, for the same reason: the
+      row is about the product as it stands today, which is the thing that can
+      be costed.
+    */
+    `SELECT i.id                             AS id,
+            i.name                           AS name,
             SUM(sl.line_total_cents)         AS cents,
-            COUNT(*)                         AS lines
+            COUNT(*)                         AS lines,
+            COUNT(DISTINCT sl.name_snapshot) AS sizes,
+            (SELECT COUNT(*) FROM formulas f
+              WHERE f.output_item_id = i.id AND f.active = 1)        AS recipes,
+            (SELECT COUNT(*) FROM purchase_lines pl
+               JOIN purchases p ON p.id = pl.purchase_id AND p.voided_at IS NULL
+              WHERE pl.item_id = i.id AND pl.cost_cents > 0)         AS priced_arrivals,
+            (SELECT COUNT(*) FROM purchase_lines pl
+               JOIN purchases p ON p.id = pl.purchase_id AND p.voided_at IS NULL
+              WHERE pl.item_id = i.id)                               AS arrivals
        FROM sale_lines sl
        JOIN sales s ON s.id = sl.sale_id
        JOIN items i ON i.id = sl.item_id
@@ -562,14 +650,17 @@ export function attentionDetail(asked: DateRange): AttentionDetail {
         AND COALESCE(i.cost_cents, 0) = 0
         AND sl.line_total_cents > 0
         AND date(s.at, '+3 hours') BETWEEN ? AND ?
-      GROUP BY sl.name_snapshot
+      GROUP BY i.id
       ORDER BY cents DESC`,
     range.from,
     range.to,
   ).map((r) => ({
     id: r.id,
     name: r.name,
-    said: `${formatKes(r.cents)} across ${r.lines} ${r.lines === 1 ? "sale" : "sales"}`,
+    said:
+      `${formatKes(r.cents)} across ${r.lines} ${r.lines === 1 ? "sale" : "sales"}` +
+      (r.sizes > 1 ? ` in ${r.sizes} sizes` : ""),
+    fix: howToCost(r),
   }));
 
   /*
@@ -581,12 +672,31 @@ export function attentionDetail(asked: DateRange): AttentionDetail {
     the mix reports a margin better than the shop is making and no figure
     anywhere is out of balance. These are the chemicals doing it.
   */
-  const mixShort = all<{ id: number; name: string; qty: number; unit: string; lines: number }>(
-    `SELECT sl.item_id              AS id,
-            sl.name_snapshot        AS name,
-            SUM(sl.qty_milli)       AS qty,
-            COUNT(*)                AS lines,
-            i.canonical_unit        AS unit
+  const mixShort = all<{
+    id: number;
+    name: string;
+    qty: number;
+    unit: string;
+    lines: number;
+    recipes: number;
+    priced_arrivals: number;
+    arrivals: number;
+  }>(
+    // Grouped by the chemical, like the list above and for the same reason:
+    // one cost price fixes every mix it goes into, so it is one job.
+    `SELECT i.id                     AS id,
+            i.name                   AS name,
+            SUM(sl.qty_milli)        AS qty,
+            COUNT(*)                 AS lines,
+            i.canonical_unit         AS unit,
+            (SELECT COUNT(*) FROM formulas f
+              WHERE f.output_item_id = i.id AND f.active = 1)        AS recipes,
+            (SELECT COUNT(*) FROM purchase_lines pl
+               JOIN purchases p ON p.id = pl.purchase_id AND p.voided_at IS NULL
+              WHERE pl.item_id = i.id AND pl.cost_cents > 0)         AS priced_arrivals,
+            (SELECT COUNT(*) FROM purchase_lines pl
+               JOIN purchases p ON p.id = pl.purchase_id AND p.voided_at IS NULL
+              WHERE pl.item_id = i.id)                               AS arrivals
        FROM sale_lines sl
        JOIN sales s ON s.id = sl.sale_id
        JOIN items i ON i.id = sl.item_id
@@ -596,7 +706,7 @@ export function attentionDetail(asked: DateRange): AttentionDetail {
         AND sl.line_total_cents = 0
         AND sl.cost_cents = 0
         AND date(s.at, '+3 hours') BETWEEN ? AND ?
-      GROUP BY sl.name_snapshot
+      GROUP BY i.id
       ORDER BY qty DESC`,
     range.from,
     range.to,
@@ -604,6 +714,7 @@ export function attentionDetail(asked: DateRange): AttentionDetail {
     id: r.id,
     name: r.name,
     said: `${qtyWords(r.qty, r.unit)} went into mixes with no cost price`,
+    fix: howToCost(r),
   }));
 
   return { owed, low, uncosted, uncostedSales, mixShort };

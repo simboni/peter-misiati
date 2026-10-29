@@ -75,7 +75,7 @@ import {
   type Period,
   type ProductProfit,
 } from "@/lib/reports";
-import { dashboard, change, topCustomers, attentionDetail, type Grain } from "@/lib/dashboard";
+import { dashboard, change, topCustomers, attentionDetail, namesSaid, type Grain } from "@/lib/dashboard";
 import {
   PageTitle,
   Card,
@@ -316,22 +316,40 @@ export default async function ReportsPage(props: {
     href?: string;
     key: string;
     said: string;
-    items?: Array<{ id: number; name: string; said: string }>;
+    items?: Array<{ id: number; name: string; said: string; fix?: string }>;
     body: ReactNode;
   }> = [];
 
   if (d.summary.uncostedSalesCents > 0) {
     watch.push({
       tone: "bad",
-      href: "/purchases",
+      // To the first product, not to Deliveries. Half of these cannot be fixed
+      // on a delivery at all, and the product's own screen says which case it
+      // is in and what its cost has done.
+      href: detail.uncostedSales.length ? `/stock/${detail.uncostedSales[0].id}` : "/purchases",
       key: "attention:uncosted-sales",
-      said: `${formatKes(d.summary.uncostedSalesCents)} of sales with no cost price`,
+      /*
+        THE SENTENCE A DISMISSAL IS TIED TO — the products, not the money.
+
+        It used to be "KES 9,750 of sales with no cost price", and a dismissal
+        holds only while the row goes on saying what it said. That total moves
+        the next time one of those same products is sold, which for a product
+        the shop sells every day is the next morning. So "I have corrected
+        this" was undone by the very next sale, every time, and the shop
+        reasonably concluded the button did nothing.
+
+        Tied to the names instead, it holds while the answer holds and comes
+        back the moment a NEW product goes uncosted — which is the only part
+        of this that is news.
+      */
+      said: namesSaid(detail.uncostedSales),
       items: detail.uncostedSales,
       body: (
         <>
           <strong>{formatKes(d.summary.uncostedSalesCents)} of these sales have no cost price</strong>{" "}
-          — they are counted as pure profit above, which they are not. Record what those goods cost
-          on the delivery, and every profit figure on this page comes right.
+          — they are counted as pure profit above, which they are not. A cost price is never typed
+          in: it is written by a priced delivery, or by a mixing batch for something made here.
+          Open the names below — each says which of those it needs.
         </>
       ),
     });
@@ -351,7 +369,8 @@ export default async function ReportsPage(props: {
       tone: "bad",
       href: "/purchases",
       key: "attention:mix-short",
-      said: `${formatKes(d.summary.mixShortCents)} of mixes costed without all their chemicals`,
+      // The chemicals, not the running total — see the note on the row above.
+      said: namesSaid(detail.mixShort),
       items: detail.mixShort,
       body: (
         <>
@@ -1555,7 +1574,7 @@ function WatchRow({
   href?: string;
   rowKey: string;
   said: string;
-  items?: Array<{ id: number; name: string; said: string }>;
+  items?: Array<{ id: number; name: string; said: string; fix?: string }>;
   canSetAside: boolean;
   children: ReactNode;
 }) {
@@ -1585,15 +1604,21 @@ function WatchRow({
           </summary>
           <ul className="mt-1.5 space-y-1">
             {items.map((it) => (
-              <li key={`${it.id}-${it.name}`} className="flex flex-wrap items-baseline gap-x-2">
-                {it.id ? (
-                  <Link href={`/stock/${it.id}`} className="text-[12px] font-bold text-brand hover:underline">
-                    {it.name}
-                  </Link>
-                ) : (
-                  <span className="text-[12px] font-bold">{it.name}</span>
-                )}
-                <span className="text-[11px] text-muted">{it.said}</span>
+              <li key={`${it.id}-${it.name}`}>
+                <span className="flex flex-wrap items-baseline gap-x-2">
+                  {it.id ? (
+                    <Link href={`/stock/${it.id}`} className="text-[12px] font-bold text-brand hover:underline">
+                      {it.name}
+                    </Link>
+                  ) : (
+                    <span className="text-[12px] font-bold">{it.name}</span>
+                  )}
+                  <span className="text-[11px] text-muted">{it.said}</span>
+                </span>
+                {/* What THIS one needs. The row above says there is a problem;
+                    this is the only part that says what to do about it, and it
+                    differs per product — see `howToCost`. */}
+                {it.fix ? <span className="block text-[11px] text-muted">{it.fix}</span> : null}
               </li>
             ))}
           </ul>
