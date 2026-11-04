@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { refresh } from "next/cache";
 import { currentUser, requireUser } from "@/lib/auth";
 import { markSrc } from "@/lib/brand";
-import { all } from "@/lib/db";
+import { all, audit } from "@/lib/db";
 import {
   authoriseOwnerPin,
   cartTotal,
@@ -59,17 +59,28 @@ async function sellAction(_prev: SellState, payload: SalePayload): Promise<SellS
       }
     }
 
-    /**
-     * Credit beyond what the owner agreed needs the owner, in person.
-     *
-     * This used to be a warning the counter could click past ("Let them take it
-     * anyway"), which is not a control — and it only fired for customers who
-     * had a limit at all, so an unknown name could take any amount in silence.
-     * Now: inside an agreed limit, nobody is asked anything; past it, or with no
-     * limit agreed, the sale does not complete without a PIN.
-     */
+    /*
+      CREDIT NO LONGER STOPS AT THE COUNTER. The shop asked for this plainly.
+
+      It used to demand an owner's PIN whenever a customer had no agreed limit
+      or the sale would push them past one. In a shop where the owner is not
+      always standing there, that did not stop the credit — it stopped the SALE,
+      and what happened instead was the goods going out with nothing recorded
+      against anybody, which is worse than a debt on the books.
+
+      So the credit goes through. What does not change: the sale still has to
+      name who owes it (`recordSale` refuses an unpaid balance with no
+      customer), the debt still lands in the debtors book under that name, and
+      the activity log now carries a line naming the attendant and the state of
+      that account at the moment they allowed it. The control moved from asking
+      permission to keeping a record — which is the control that works when
+      nobody is there to ask.
+
+      Beyond-the-floor PRICES still need the owner's PIN. That is a different
+      question: a discount is money gone, where credit is money owed and named.
+    */
     const customerId = payload.customerId ?? null;
-    if (customerId && !approvedBy) {
+    if (customerId) {
       const totalCents = cartTotal(
         payload.lines.map((l) => ({
           unitPriceCents: l.unitPriceCents,
@@ -86,15 +97,17 @@ async function sellAction(_prev: SellState, payload: SalePayload): Promise<SellS
       if (creditCents > 0) {
         const status = creditStatus(customerId, creditCents);
         if (status?.needsApproval) {
-          return {
-            status: "pin",
-            message: status.noLimitAgreed
-              ? `${status.name} has no credit limit agreed, so ${formatKes(creditCents)} on credit ` +
-                `needs the owner's PIN. (Set a limit in Debts and this stops being asked.)`
-              : `${status.name} owes ${formatKes(status.outstandingCents)} and their limit is ` +
-                `${formatKes(status.limitCents)}. This sale takes them to ${formatKes(status.afterCents)}, ` +
-                `so it needs the owner's PIN.`,
-          };
+          audit(
+            user.id,
+            "credit_beyond_limit",
+            "customer",
+            customerId,
+            status.noLimitAgreed
+              ? `${status.name} took ${formatKes(creditCents)} on credit with no limit agreed — ` +
+                `now owes ${formatKes(status.afterCents)}`
+              : `${status.name} took ${formatKes(creditCents)} on credit past a ` +
+                `${formatKes(status.limitCents)} limit — now owes ${formatKes(status.afterCents)}`,
+          );
         }
       }
     }

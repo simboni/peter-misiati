@@ -2123,8 +2123,9 @@ export default function SellClient({
                   </Button>
                 </div>
                 <p className="mt-2 text-[11px] text-muted">
-                  New customers start with no credit limit, so anything they owe needs the owner’s
-                  PIN until he sets one.
+                  New customers start with no credit limit. They can still take goods on account —
+                  it goes on the debtors book under this name — and setting a limit in Debts is
+                  what makes the till warn you before it is passed.
                 </p>
               </div>
             ) : (
