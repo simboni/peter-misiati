@@ -3,10 +3,23 @@
 #   docker compose up -d          start (or restart after an update)
 #   docker compose logs -f pos    watch the app
 #
-# `caddy` terminates HTTPS on the shop's domain. HTTPS is not cosmetic here:
-# the offline mode (service worker) and "install to home screen" only work on
-# a secure origin, and offline is the feature the counter phone depends on.
-# Put the real domain in deploy/Caddyfile before starting.
+# HTTPS IS NOT THIS PROJECT'S JOB, and that is the point of this file.
+#
+# This stack used to run its own Caddy and bind the host's ports 80 and 443.
+# That was written as if this server held nothing else. It holds fifteen other
+# things — 64theatre, Fit Generations, St Stephen's, Civora, DawaPoint and the
+# rest — and every one of them joins a shared proxy, `edge-caddy`, which owns
+# those two ports and routes by hostname from `/srv/edge/sites/*.caddy`.
+#
+# A port can be bound by exactly one process. So two proxies on one box is a
+# race nobody wins twice: whichever starts first serves everything, the other
+# fails silently, and if this one ever won the race it would take every other
+# site on the server down with it — its Caddyfile knew three hostnames.
+#
+# So: no ports, no proxy here. Both containers expose an internal port and join
+# the `edge` network, exactly as the others do, and the hostnames live in a
+# site file at deploy/edge/rizikichemicals.caddy — see DEPLOY.md for installing
+# it. The only thing this project owns is its own two containers.
 
 services:
   pos:
@@ -18,6 +31,8 @@ services:
       # Everything the shop owns is in this directory. Losing it is losing the
       # business records — see DEPLOY.md for the backup cron.
       - ./data:/app/data
+    networks:
+      - edge
 
   # The public website. Built from source in its own image, so `up -d --build`
   # updates the site and the shop system together — see apps/riziki-web/Dockerfile
@@ -27,21 +42,11 @@ services:
     restart: unless-stopped
     expose:
       - "80"
+    networks:
+      - edge
 
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data
-      - caddy-config:/config
-    depends_on:
-      - pos
-      - web
-
-volumes:
-  caddy-data:
-  caddy-config:
+networks:
+  # Owned by the `edge` project in /srv/edge — we only join it. Declared the
+  # same way every other app on this box declares it.
+  edge:
+    external: true

@@ -34,7 +34,9 @@ if ! docker compose ps >/dev/null 2>&1; then
 fi
 docker compose ps --format '  {{.Service}}\t{{.State}}\t{{.Status}}' 2>/dev/null || docker compose ps
 echo
-for svc in pos web caddy; do
+# `caddy` is deliberately absent: HTTPS is the shared edge's, not this
+# project's. This stack owns two containers and nothing else.
+for svc in pos web; do
   state=$(docker compose ps --status running --services 2>/dev/null | grep -c "^${svc}$")
   if [ "$state" = "1" ]; then ok "$svc is running"; else bad "$svc is NOT running  ->  docker compose up -d"; fi
 done
@@ -53,7 +55,7 @@ if [ -n "$stamp" ]; then
   ok "https://pos.rizikichemicals.co.ke is answering"
   echo "$stamp" | sed 's/^/        /'
 else
-  bad "the public address did not answer  ->  docker compose logs --tail 50 caddy"
+  bad "the public address did not answer  ->  docker logs --tail 50 edge-caddy"
   note "The shop can still sell on the local network if the container is up."
 fi
 

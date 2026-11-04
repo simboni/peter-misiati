@@ -71,9 +71,17 @@ echo
 echo "==> Building and starting: shop system, website, HTTPS"
 docker compose up -d --build
 
-# A Caddyfile edit on its own does not change the caddy container's definition,
-# so compose would leave it running with the old config. Ask it to reload.
-docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile >/dev/null 2>&1 || true
+# HTTPS belongs to `edge-caddy`, the proxy shared by every site on this box —
+# this project does not run one. A hostname change therefore means editing
+# /srv/edge/sites/rizikichemicals.caddy and reloading the edge, which is not
+# something a deploy of ONE app may do on its own: a bad reload there takes
+# all sixteen sites down, not just this one. See DEPLOY.md.
+#
+# Nudging it is still worth doing: the containers have just been recreated, so
+# their addresses on the `edge` network may have moved under the proxy.
+docker exec edge-caddy caddy reload --config /etc/caddy/Caddyfile >/dev/null 2>&1 \
+  && echo "==> Asked the shared edge to re-read its routes" \
+  || echo "==> Could not reach edge-caddy — if the site 404s, reload it by hand (DEPLOY.md)"
 
 echo
 echo "==> Waiting for the containers to answer"

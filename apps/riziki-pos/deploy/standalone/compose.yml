@@ -1,0 +1,49 @@
+# A Caddy of our own — ONLY for a server where nothing else is running.
+#
+# The main compose file deliberately has no proxy and binds no host ports: the
+# production box carries sixteen sites behind one shared `edge-caddy`, and a
+# second proxy there is a race for ports only one process can hold. See
+# DEPLOY.md, "The website and the edge".
+#
+# A box with nothing else on it has no edge to join, and then this stack does
+# need something to terminate HTTPS. That is this file, and it is opt-in:
+#
+#   docker compose -f docker-compose.yml -f deploy/standalone/compose.yml up -d --build
+#
+# Put the hostnames in deploy/standalone/Caddyfile first. Never use this on the
+# shared server.
+
+services:
+  pos:
+    networks:
+      - default
+  web:
+    networks:
+      - default
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/standalone/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - pos
+      - web
+    networks:
+      - default
+
+volumes:
+  caddy-data:
+  caddy-config:
+
+networks:
+  # The overlay replaces the external `edge` with an ordinary private network,
+  # because on a box with no edge there is nothing of that name to join.
+  edge:
+    external: false
+  default:

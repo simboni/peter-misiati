@@ -19,20 +19,23 @@ Caddy fetches a genuine Let's Encrypt certificate for it automatically.
 curl -fsSL https://get.docker.com | sh
 git clone <your-repo> && cd <repo>/apps/riziki-pos
 
-# Put the IP-based hostname in deploy/Caddyfile — with the server's real IP,
-# dots replaced by dashes:
+# Put the IP-based hostname in deploy/standalone/Caddyfile — the server's
+# real IP, dots replaced by dashes:
 #   pos.203-0-113-7.sslip.io {
 #       reverse_proxy pos:3100
 #   }
 
-docker compose up -d --build
+# The standalone overlay adds a Caddy of our own. The plain compose file has
+# none on purpose — the production box has a shared one (see DEPLOY.md), and a
+# second proxy there would fight it for ports 80 and 443.
+docker compose -f docker-compose.yml -f deploy/standalone/compose.yml up -d --build
 ```
 
 Open `https://pos.<your-ip-with-dashes>.sslip.io` on any phone. Stable URL,
 no tunnel, no uptime caveats — this **is** the production stack under a
 temporary name. When the domain arrives: change that one Caddyfile line to
-the real hostname, `docker compose restart caddy`, done. If you want to
-reset the data before going live, stop the app and delete `data/`.
+the real hostname and restart the overlay, done. If you want to reset the
+data before going live, stop the app and delete `data/`.
 
 ## Routes 1 & 2 — no server yet: tunnel from your own machine
 
