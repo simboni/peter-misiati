@@ -3,3 +3,8 @@
 node_modules/
 .next/
 out/
+
+# Written by apps/riziki-pos/deploy/update.sh on the server, per build, so the
+# site can say which commit it is serving. Never committed: a stamp in git
+# would describe whoever built it last rather than this deployment.
+/public/build.txt

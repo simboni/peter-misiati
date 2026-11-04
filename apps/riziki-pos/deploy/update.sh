@@ -49,7 +49,23 @@ cd "$REPO/apps/riziki-pos"
   echo "built=$(date -u '+%Y-%m-%d %H:%M UTC')"
   echo "subject=$(git -C "$REPO" log -1 --pretty=%s)"
 } > public/build.txt
-echo "==> Stamped build: $(git -C "$REPO" rev-parse --short HEAD)"
+
+# And the WEBSITE, stamped the same way and for a sharper reason.
+#
+# The shop system has said what commit it is running for a while; the website
+# has never said anything. So a stale site is invisible from the outside — the
+# pages that existed when it was last built still answer 200, and the only
+# symptom is a 404 on a picture nobody loads on purpose. That is exactly how
+# the site sat months behind with everybody believing the deploy had worked.
+# `public/` is copied into the image, so the stamp travels with the files it
+# describes: if /build.txt is old, everything beside it is old.
+{
+  echo "commit=$(git -C "$REPO" rev-parse --short HEAD)"
+  echo "branch=$BRANCH"
+  echo "built=$(date -u '+%Y-%m-%d %H:%M UTC')"
+  echo "subject=$(git -C "$REPO" log -1 --pretty=%s)"
+} > "$REPO/apps/riziki-web/public/build.txt"
+echo "==> Stamped build: $(git -C "$REPO" rev-parse --short HEAD)  (shop system and website)"
 
 echo
 echo "==> Building and starting: shop system, website, HTTPS"
