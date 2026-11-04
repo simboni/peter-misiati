@@ -34,8 +34,9 @@ if ! docker compose ps >/dev/null 2>&1; then
 fi
 docker compose ps --format '  {{.Service}}\t{{.State}}\t{{.Status}}' 2>/dev/null || docker compose ps
 echo
-# `caddy` is deliberately absent: HTTPS is the shared edge's, not this
-# project's. This stack owns two containers and nothing else.
+# `caddy` is not here: on this server HTTPS belongs to the shared edge, and
+# this project's own proxy is behind the `standalone` profile so it cannot
+# start and fight it. This stack owns two containers.
 for svc in pos web; do
   state=$(docker compose ps --status running --services 2>/dev/null | grep -c "^${svc}$")
   if [ "$state" = "1" ]; then ok "$svc is running"; else bad "$svc is NOT running  ->  docker compose up -d"; fi

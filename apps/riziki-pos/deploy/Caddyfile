@@ -1,0 +1,52 @@
+# Riziki Industrial Chemicals — the whole public face on one server.
+#
+# DO NOT MOVE, RENAME OR DELETE THIS FILE. The shared proxy mounts it.
+#
+# This server carries sixteen sites behind one proxy, `edge-caddy` in
+# /srv/edge, which owns ports 80 and 443. Its config begins:
+#
+#     # The POS project's own Caddyfile is imported read-only straight from
+#     # its repo, so that team keeps control of their sites and nothing here
+#     # needs editing when they change them. Everything else lives in ./sites.
+#     import /etc/caddy/riziki.caddy
+#     import /etc/caddy/sites/*.caddy
+#
+# `/etc/caddy/riziki.caddy` IS THIS FILE, bind-mounted read-only out of the
+# repo. So these blocks are live on the shared edge the moment the edge
+# reloads — this is not a copy of anything and nothing has to be installed.
+#
+# It was moved once, to deploy/edge/rizikichemicals.caddy, on the belief that
+# every app contributed a file to /srv/edge/sites/. That import line had not
+# been read. The mount went dangling, Riziki's three hostnames left the edge's
+# config, the shop system answered 502 and the bare domain fell through to
+# another site on the box. Three certificates and a live till turned on one
+# `git mv`. Put nothing in /srv/edge/sites/ for this project — it is imported
+# from here, and two files claiming one hostname is a config the edge refuses
+# to load AT ALL, which takes every other site with it.
+#
+# Three sites, three certificates, all fetched and renewed by the edge on its
+# own. The only prerequisite is DNS: A records for rizikichemicals.co.ke,
+# www.rizikichemicals.co.ke and pos.rizikichemicals.co.ke, all pointing at
+# this server's IP.
+#
+# The upstreams below are compose SERVICE names. They resolve because the edge
+# is attached to this project's network — check with
+# `docker network inspect <net> --format '{{range .Containers}}{{.Name}} {{end}}'`
+# before changing either of them.
+
+# The marketing site. The pages themselves live in the `web` container, built
+# from apps/riziki-web on every deploy; this block only terminates HTTPS for it.
+rizikichemicals.co.ke {
+	reverse_proxy web:80
+}
+
+# One canonical host: www redirects rather than serving a duplicate site.
+www.rizikichemicals.co.ke {
+	redir https://rizikichemicals.co.ke{uri} permanent
+}
+
+# The shop system.
+pos.rizikichemicals.co.ke {
+	reverse_proxy pos:3100
+	encode zstd gzip
+}

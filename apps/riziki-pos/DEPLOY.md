@@ -28,40 +28,8 @@ offline mode — the feature the counter depends on — will not switch on.
 | `pos.rizikichemicals.co.ke` | A | VPS IP | the shop system |
 
 Set these at the registrar (or better, point the domain's nameservers at a
-free Cloudflare account first and manage DNS there). The shared edge fetches
-all three HTTPS certificates itself once the records resolve.
-
-## The website and the edge
-
-**This project does not serve HTTPS and must never try to.**
-
-The server carries sixteen sites. One of them, `edge-caddy` in `/srv/edge`,
-owns ports 80 and 443 and routes every hostname on the box from
-`/srv/edge/sites/*.caddy`. Every other app — 64theatre, Fit Generations,
-St Stephen's, Civora, DawaPoint — exposes an internal port, joins the `edge`
-network and contributes one site file. This one does the same.
-
-It did not always. It ran a Caddy of its own and claimed 80 and 443 directly,
-which is a race between two proxies for ports only one process can hold. The
-edge won, so this project's proxy never started at all, the website had no
-route, and `rizikichemicals.co.ke` fell through to another site on the server
-— while the shop system kept answering and hid the fault for weeks. The other
-outcome was worse: had this one ever won the race, its Caddyfile knew three
-hostnames and the remaining fifteen sites would have gone dark at once.
-
-So the routes live in `deploy/edge/rizikichemicals.caddy`, and installing them
-is a step of its own, because reloading the edge touches every site on the
-box and is not a thing one app's deploy may do unasked:
-
-```bash
-sudo cp deploy/edge/rizikichemicals.caddy /srv/edge/sites/
-docker exec edge-caddy caddy validate --config /etc/caddy/Caddyfile   # first
-docker exec edge-caddy caddy reload   --config /etc/caddy/Caddyfile
-```
-
-Validate before reloading. A reload with a bad file is refused and the old
-config stays, but validating first is how you find out it was bad while you
-are still looking at the screen.
+free Cloudflare account first and manage DNS there). Caddy fetches all three
+HTTPS certificates itself once the records resolve.
 
 ## First deployment
 
@@ -69,10 +37,10 @@ are still looking at the screen.
 # On the VPS:
 git clone <your-repo> && cd <repo>/apps/riziki-pos
 
-# The two containers. HTTPS is the edge's — see above.
+# Everything — shop system, website, HTTPS:
 docker compose up -d --build
 
-# Watch them come up:
+# Watch it come up:
 docker compose logs -f
 ```
 
@@ -169,14 +137,8 @@ runtime column patches), so an update never needs a migration step by hand.
 
 Its own container (`apps/riziki-web/Dockerfile`): a Node stage runs the static
 export, and the result is copied into a small Caddy image that serves it on
-port 80 inside the `edge` network. The shared edge terminates HTTPS for the
+port 80 inside the compose network. The edge Caddy terminates HTTPS for the
 bare domain and proxies to it; www redirects there.
-
-It stamps itself: `https://rizikichemicals.co.ke/build.txt` says which commit
-the site is serving, and `deploy/smoke.sh` prints it beside the shop system's
-and says so outright when the two disagree. A site with no stamp, or an older
-one, is a site that did not rebuild — the symptom otherwise is a 404 on a
-picture nobody loads on purpose.
 
 To rebuild only the website: `docker compose up -d --build web`.
 

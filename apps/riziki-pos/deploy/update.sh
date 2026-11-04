@@ -71,17 +71,25 @@ echo
 echo "==> Building and starting: shop system, website, HTTPS"
 docker compose up -d --build
 
-# HTTPS belongs to `edge-caddy`, the proxy shared by every site on this box —
-# this project does not run one. A hostname change therefore means editing
-# /srv/edge/sites/rizikichemicals.caddy and reloading the edge, which is not
-# something a deploy of ONE app may do on its own: a bad reload there takes
-# all sixteen sites down, not just this one. See DEPLOY.md.
+# deploy/Caddyfile is mounted read-only INTO THE SHARED EDGE as
+# /etc/caddy/riziki.caddy — see the header of that file. So a hostname change
+# here is live on the edge, but only once the edge re-reads its config.
 #
-# Nudging it is still worth doing: the containers have just been recreated, so
-# their addresses on the `edge` network may have moved under the proxy.
-docker exec edge-caddy caddy reload --config /etc/caddy/Caddyfile >/dev/null 2>&1 \
-  && echo "==> Asked the shared edge to re-read its routes" \
-  || echo "==> Could not reach edge-caddy — if the site 404s, reload it by hand (DEPLOY.md)"
+# Validate first, and never force it. That one config is sixteen sites: a
+# reload it refuses leaves the running config alone, which is the safe
+# outcome, and shouting about it here is better than a deploy that quietly
+# took the server's other fifteen sites with it.
+if docker exec edge-caddy caddy validate --config /etc/caddy/Caddyfile >/dev/null 2>&1; then
+  docker exec edge-caddy caddy reload --config /etc/caddy/Caddyfile >/dev/null 2>&1 \
+    && echo "==> Shared edge reloaded — this project's hostnames are current" \
+    || echo "==> Shared edge would not reload. The old routes are still live; see DEPLOY.md"
+else
+  echo "==> WARNING: the shared edge's config does not validate."
+  echo "    Not reloading it. The routes now live are the last good ones."
+  echo "    Find the bad file before anything else — while it is there, NO site"
+  echo "    on this server can have its routes changed:"
+  echo "      docker exec edge-caddy caddy validate --config /etc/caddy/Caddyfile"
+fi
 
 echo
 echo "==> Waiting for the containers to answer"
