@@ -29,15 +29,27 @@
 # www.rizikichemicals.co.ke and pos.rizikichemicals.co.ke, all pointing at
 # this server's IP.
 #
-# The upstreams below are compose SERVICE names. They resolve because the edge
-# is attached to this project's network — check with
-# `docker network inspect <net> --format '{{range .Containers}}{{.Name}} {{end}}'`
-# before changing either of them.
+# THE UPSTREAMS ARE CONTAINER NAMES, NOT SERVICE NAMES, AND THAT IS THE BUG
+# THIS FILE WAS CARRYING.
+#
+# The marketing site used to point at `web:80`. `web` is a compose service
+# name, and the edge is attached to several projects' networks at once — so
+# from inside the edge, `web` is whatever Docker's DNS feels like returning
+# among every container on those networks answering to that alias. At least
+# one other project on this box runs a website service called `web`, and the
+# shop's own domain spent weeks serving that other client's site. The till
+# never broke, because `pos` happens to be a name nobody else uses.
+#
+# A container name is unique across the whole daemon. `riziki-pos-web-1` can
+# only ever be this project's website. If the compose project directory is
+# ever renamed the container name moves with it, so check it after any such
+# rename:
+#   docker compose ps --format '{{.Name}}'
 
 # The marketing site. The pages themselves live in the `web` container, built
 # from apps/riziki-web on every deploy; this block only terminates HTTPS for it.
 rizikichemicals.co.ke {
-	reverse_proxy web:80
+	reverse_proxy riziki-pos-web-1:80
 }
 
 # One canonical host: www redirects rather than serving a duplicate site.
@@ -47,6 +59,9 @@ www.rizikichemicals.co.ke {
 
 # The shop system.
 pos.rizikichemicals.co.ke {
+	# Left as the service name because it is what is live and working, and a
+	# name no other project here uses. Worth making `riziki-pos-pos-1` the next
+	# time this file is touched with the shop closed.
 	reverse_proxy pos:3100
 	encode zstd gzip
 }
