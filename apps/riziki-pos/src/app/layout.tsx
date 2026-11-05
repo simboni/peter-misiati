@@ -8,6 +8,7 @@ import AppHeader from "@/components/app-header";
 import OfflineNotice from "@/components/offline-notice";
 import RegisterSW from "@/components/register-sw";
 import { signOut } from "@/app/actions/session";
+import { SignOutButton } from "@/components/sign-out-button";
 import { markSrc } from "@/lib/brand";
 
 export const metadata: Metadata = {
@@ -79,14 +80,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                   {user.name} · {user.role === "owner" ? "Owner" : "Attendant"}
                 </div>
               </div>
-              <form action={signOut}>
-                <button
-                  type="submit"
-                  className="flex min-h-11 items-center rounded-full px-3.5 text-[11px] font-bold text-frost ring-1 ring-inset ring-white/30"
-                >
-                  Sign out
-                </button>
-              </form>
+              <SignOutButton action={signOut} />
             </AppHeader>
           ) : null}
 

@@ -107,6 +107,26 @@ self.addEventListener("message", (event) => {
   if (data.type === "SKIP_WAITING") self.skipWaiting();
   // Sent by the app shortly after each load, while online.
   if (data.type === "WARM") event.waitUntil(warmRoutes());
+  /*
+    Sent when somebody signs out. Throws away every saved page.
+
+    The shop runs on one counter phone and two people share it. The warmed
+    pages are whatever the person who was signed in could see — the home
+    screen carries the shelf at cost and the day's gross profit, /sales now
+    prints what each line cost, /stock is valued at cost. Clearing the cookie
+    ended the session but left all of that sitting in Cache Storage, and the
+    next person to sign in and go offline would have been served it. Offline
+    is not an edge case here; it is the feature the counter depends on.
+
+    Everything goes, not just the owner's pages: the service worker cannot
+    see who was signed in, and a cache keyed by nobody is a cache that must
+    be emptied wholesale.
+  */
+  if (data.type === "PURGE") {
+    event.waitUntil(
+      caches.keys().then((names) => Promise.all(names.map((n) => caches.delete(n)))),
+    );
+  }
 });
 
 function isNeverCached(pathname) {

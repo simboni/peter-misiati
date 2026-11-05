@@ -11,6 +11,7 @@ import { cookies } from "next/headers";
 import { randomBytes } from "node:crypto";
 import { get, run, audit, type Role, type User } from "./db.ts";
 import { hashPin, verifyPin } from "./pin.ts";
+import { throttleFor, waitWords, type Throttle } from "./login-guard.ts";
 
 const COOKIE = "riziki_session";
 const SESSION_HOURS = 12;
@@ -138,18 +139,53 @@ export async function isOwner(): Promise<boolean> {
 
 // ------------------------------------------------------------------- login
 
-export function authenticate(userId: number, pin: string): User | null {
+export interface SignIn {
+  user: User | null;
+  /** Set when the account is being made to wait, with the words to say. */
+  waitMessage?: string;
+}
+
+/**
+ * Check a PIN, and count the wrong answers.
+ *
+ * The counting is the point. Four digits is ten thousand possibilities and
+ * this page is on the public internet with every account named in a dropdown,
+ * so without a brake the whole space is a short script. See `login-guard.ts`
+ * for why the brake is a growing delay and never a locked account.
+ *
+ * The throttle is checked BEFORE the PIN is verified, so a blocked account
+ * costs an attacker a request and tells them nothing: the answer is the same
+ * whether they guessed right or wrong.
+ */
+export function signIn(userId: number, pin: string): SignIn {
   const row = get<User & { pin_hash: string }>(
     `SELECT id, name, role, active, pin_hash FROM users WHERE id = ? AND active = 1`,
     userId,
   );
-  if (!row) return null;
+  if (!row) return { user: null };
+
+  const brake: Throttle = throttleFor(row.id);
+  if (brake.blocked) {
+    audit(row.id, "login_throttled", "user", row.id, `${brake.failures} wrong so far`);
+    return {
+      user: null,
+      waitMessage:
+        `Too many wrong PINs. Try again in ${waitWords(brake.retryInSeconds)}. ` +
+        `If this was not you, somebody is guessing — tell the owner.`,
+    };
+  }
+
   if (!verifyPin(pin, row.pin_hash)) {
     audit(row.id, "login_failed", "user", row.id);
-    return null;
+    return { user: null };
   }
   audit(row.id, "login", "user", row.id);
-  return { id: row.id, name: row.name, role: row.role, active: row.active };
+  return { user: { id: row.id, name: row.name, role: row.role, active: row.active } };
+}
+
+/** The old shape, for callers that only ask "is this PIN right". */
+export function authenticate(userId: number, pin: string): User | null {
+  return signIn(userId, pin).user;
 }
 
 export { hashPin, verifyPin };

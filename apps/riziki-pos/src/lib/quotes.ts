@@ -158,15 +158,26 @@ export function listQuotes(status?: QuoteStatus | "open", limit = 50): QuoteRow[
   // "open" is the working set: everything still awaiting a decision or an
   // invoice. It is what the wholesale screen opens on, because a quote nobody
   // has answered is the only kind that needs a person.
+  /*
+    The status is BOUND, not pasted in.
+
+    It used to be `WHERE q.status = '${status}'`. Every caller passes a
+    literal today, so nothing could reach it — but the signature invites a
+    value, the type that narrows it is erased at runtime, and one
+    `listQuotes(searchParams.status)` would have turned the quote list into an
+    injection. A query that is only safe because of who happens to call it is
+    a query waiting for its second caller.
+  */
   const where =
     status === "open"
       ? `WHERE q.status IN ('draft', 'sent', 'approved')`
       : status
-        ? `WHERE q.status = '${status}'`
+        ? `WHERE q.status = ?`
         : "";
+  const args: unknown[] = status && status !== "open" ? [status, limit] : [limit];
   return all<QuoteRow>(
     `SELECT q.*, ${TOTAL_SQL} FROM quotes q ${where} ORDER BY q.created_at DESC, q.id DESC LIMIT ?`,
-    limit,
+    ...args,
   );
 }
 

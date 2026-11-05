@@ -24,6 +24,7 @@ import { all, get, run, tx, postMovement, stockOf, audit, type Item, type PriceB
 import { filledOf, takeFilled, openForLoose, returnFilled } from "./packing.ts";
 import { allowanceOf, refusal, oversellPolicy, type OversellPolicy } from "./borrowing.ts";
 import { verifyPin } from "./pin.ts";
+import { ownerPinThrottle } from "./login-guard.ts";
 import { findBundle } from "./bundles.ts";
 import { mixFor, currentVersion } from "./production.ts";
 import { formatKes, formatQty, MILLI } from "./units.ts";
@@ -1030,12 +1031,30 @@ export function authoriseOwnerPin(pin: string): number | null {
   const candidate = (pin ?? "").trim();
   if (!candidate) return null;
 
+  /*
+    Counted, like the sign-in is.
+
+    Every caller of this is behind a sign-in, which is not the protection it
+    sounds like: an attendant IS signed in, and these four digits are what
+    stand between them and cost prices, margins and the recipes. Unwatched,
+    one logged-in phone can work through ten thousand guesses. See
+    `login-guard.ts` for why the answer is a growing wait and not a lock.
+  */
+  if (ownerPinThrottle().blocked) {
+    audit(null, "owner_pin_throttled", "user", null, "too many wrong owner PINs");
+    return null;
+  }
+
   const owners = all<{ id: number; pin_hash: string }>(
     `SELECT id, pin_hash FROM users WHERE role = 'owner' AND active = 1`,
   );
   for (const o of owners) {
-    if (verifyPin(candidate, o.pin_hash)) return o.id;
+    if (verifyPin(candidate, o.pin_hash)) {
+      audit(o.id, "owner_pin_ok", "user", o.id);
+      return o.id;
+    }
   }
+  audit(null, "owner_pin_failed", "user", null);
   return null;
 }
 

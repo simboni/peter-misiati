@@ -50,6 +50,15 @@
 # from apps/riziki-web on every deploy; this block only terminates HTTPS for it.
 rizikichemicals.co.ke {
 	reverse_proxy riziki-pos-web-1:80
+
+	# Same reasoning as the till below, minus the framing rule: a marketing
+	# page is harmless in a frame and somebody may want to embed it.
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
 }
 
 # One canonical host: www redirects rather than serving a duplicate site.
@@ -64,4 +73,22 @@ pos.rizikichemicals.co.ke {
 	# time this file is touched with the shop closed.
 	reverse_proxy pos:3100
 	encode zstd gzip
+
+	# The headers a browser needs to be told, because it assumes the worst
+	# otherwise. Scoped to this hostname: the other fifteen sites on this box
+	# are not ours to set policy for.
+	header {
+		# Never offer this over plain HTTP again, cached for a year. Safe here:
+		# the till is HTTPS-only already — the offline mode and the
+		# home-screen install both require a secure origin.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		# The shop's figures are not for framing inside somebody else's page.
+		X-Frame-Options "DENY"
+		# No MIME sniffing: an upload that looks like a script must not run.
+		X-Content-Type-Options "nosniff"
+		# Do not leak which screen of the till somebody came from.
+		Referrer-Policy "same-origin"
+		# A server header naming the proxy and its version helps nobody here.
+		-Server
+	}
 }

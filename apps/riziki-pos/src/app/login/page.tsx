@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { authenticate, createSession, setSessionCookie, currentUser } from "@/lib/auth";
+import { signIn, createSession, setSessionCookie, currentUser } from "@/lib/auth";
 import { all } from "@/lib/db";
 import { usersOnDemoPin } from "@/lib/users";
 import { seed } from "@/lib/seed";
@@ -8,13 +8,17 @@ import { logoSrc } from "@/lib/brand";
 
 export const dynamic = "force-dynamic";
 
-async function signIn(formData: FormData) {
+async function signInAction(formData: FormData) {
   "use server";
 
   const userId = Number(formData.get("userId"));
   const pin = String(formData.get("pin") ?? "");
 
-  const user = authenticate(userId, pin);
+  const { user, waitMessage } = signIn(userId, pin);
+  // The wait is said in full, because "wrong PIN" to somebody who typed the
+  // right one is how a counter decides the system is broken and goes looking
+  // for the owner's PIN instead.
+  if (waitMessage) redirect(`/login?wait=${encodeURIComponent(waitMessage)}`);
   if (!user) redirect("/login?error=1");
 
   const token = createSession(user.id);
@@ -23,10 +27,10 @@ async function signIn(formData: FormData) {
 }
 
 export default async function LoginPage(props: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; wait?: string }>;
 }) {
   // `searchParams` is a Promise in Next.js 16 — synchronous access was removed.
-  const { error } = await props.searchParams;
+  const { error, wait } = await props.searchParams;
 
   if (await currentUser()) redirect("/");
 
@@ -72,8 +76,9 @@ export default async function LoginPage(props: {
       </div>
 
       <Card>
-        <form action={signIn} className="space-y-4">
-          {error ? <Alert tone="bad">Wrong PIN. Please try again.</Alert> : null}
+        <form action={signInAction} className="space-y-4">
+          {wait ? <Alert tone="bad">{wait}</Alert> : null}
+          {error && !wait ? <Alert tone="bad">Wrong PIN. Please try again.</Alert> : null}
 
           <Field label="Who are you?">
             <select name="userId" className={inputClass} defaultValue={users[0]?.id}>
