@@ -288,50 +288,62 @@ be redirected off-domain, so change it before the next app build).
 
 ---
 
-## 10 · Email
+## 10 · Email (Brevo)
 
-StackUp sends password resets, invites and notifications through **Resend**.
-Until it is set up, it only writes emails to its log (`EMAIL_PROVIDER=log`).
+StackUp sends password resets, invites and notifications through **Brevo** —
+the same account as Fit Generations ("SMP EVENTURES"), free plan **300 emails
+a day shared between the two**. Until it is set up, StackUp only writes emails
+to its log (`EMAIL_PROVIDER=log`).
 
-**1. Verify the sending domain in Resend** (once; DawaPoint, Civora and the
-rest can then send as the same domain). resend.com → **Domains** → **Add
-domain** → `smp.co.ke`. Resend lists a few DNS records — a DKIM `TXT` on
-`resend._domainkey`, and an `MX` and SPF `TXT` on `send`. Add exactly those in
-the smp.co.ke panel, then press **Verify**. They sit on their own names, so
-they do not touch the website's `A` records or any mailbox's `MX`.
+StackUp posts each email in Resend's JSON shape and cannot speak Brevo's, so a
+tiny adapter runs beside it: `mailer/server.mjs` (the `mailer` service in
+`compose.yml`) — stock `node:22-alpine`, one file, no dependencies, no
+published port, token-protected. Run `node mailer/test.mjs` to see it
+translate, refuse bad tokens and input, and pass Brevo's refusals back.
 
-**2. Create an API key**: resend.com → **API Keys** → **Create**, "Sending
-access", domain `smp.co.ke`. It is shown once.
+**1. Authenticate the domain in Brevo** (once; Fit Generations, DawaPoint and
+the rest can then send as it too). brevo.com → **Senders, Domains & Dedicated
+IPs → Domains → Add a domain** → `smp.co.ke`. Brevo lists DNS records (a
+`brevo-code` TXT, DKIM, DMARC). Add exactly those in the smp.co.ke panel, then
+**Authenticate**. They sit on their own names, so the website's `A` records and
+any mailbox's `MX` are untouched.
+
+**2. Create an API key**: **SMTP & API → API Keys → Generate a new API key**
+(starts `xkeysib-`). An API key, not an SMTP key — they are different things.
 
 **3. Give it to StackUp.** Add to `/srv/stackup/.env` (see `env.example`):
 
 ```bash
 EMAIL_PROVIDER=http
-EMAIL_RELAY_AUTH=Bearer re_...
+BREVO_API_KEY=xkeysib-...
+MAILER_TOKEN=<long random string>
 EMAIL_FROM=StackUp <no-reply@smp.co.ke>
 ```
 
-Then take the updated `compose.yml` (it now passes these through — before,
-the container never saw them) and recreate only the API container:
+Then bring the new files over and start only what changed:
 
 ```bash
 cd /srv/smp-portfolio/repo && git pull
-diff /srv/stackup/compose.yml deploy/contabo/stackup/compose.yml   # only the email/WEB_BASE_URL lines
+diff /srv/stackup/compose.yml deploy/contabo/stackup/compose.yml   # only the email lines and the mailer service
 cp deploy/contabo/stackup/compose.yml /srv/stackup/compose.yml
-cd /srv/stackup && docker compose up -d api
-docker exec stackup-api printenv EMAIL_PROVIDER     # must say: http
+mkdir -p /srv/stackup/mailer && cp deploy/contabo/stackup/mailer/server.mjs /srv/stackup/mailer/
+cd /srv/stackup && docker compose up -d mailer api
+docker exec stackup-api printenv EMAIL_PROVIDER    # must say: http
+docker exec stackup-api node -e "fetch('http://mailer:8080/health').then(r=>r.text()).then(console.log)"
+#   must print {"ok":true,"configured":true}
 ```
 
-**4. Test it** from StackUp's settings (Email → send test), or watch the log:
+**4. Test it** from StackUp's settings (Email → send test), and watch:
 
 ```bash
-docker logs -f stackup-api 2>&1 | grep -i email
+docker logs -f stackup-mailer
 ```
 
-A `relay responded 403` means the domain is not verified yet, or `EMAIL_FROM`
-is on a different domain; `401` means the key is wrong. Resend's free plan has
-a daily limit (100 a day, 3,000 a month at the time of writing) — it was hit
-once in July.
+Each send logs one line. `Brevo refused (400) … sender is not valid` means the
+domain is not authenticated yet or `EMAIL_FROM` is on another domain; `401`
+from Brevo means the key is wrong; `unauthorised` from the adapter means
+`MAILER_TOKEN` differs between the two containers. The free plan stops at
+300 a day across StackUp and Fit Generations together.
 
 ---
 

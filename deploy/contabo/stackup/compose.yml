@@ -57,14 +57,14 @@ services:
       # The address StackUp is served at — used for links StackUp builds
       # itself (sign-in redirects). Falls back to the request's own host.
       WEB_BASE_URL: ${WEB_BASE_URL:-https://stackup.smp.co.ke}
-      # Outbound email (password resets, invites, notifications). These MUST
-      # be named here or the container never sees them, however correct .env
-      # looks — the omission that left StackUp only LOGGING emails after the
-      # move from Fly.io. Unset, EMAIL_PROVIDER is "log": nothing is sent.
-      # StackUp posts Resend's JSON shape, so the relay is Resend's API.
+      # Outbound email (password resets, invites, notifications), sent through
+      # Brevo via the `mailer` adapter below. These MUST be named here or the
+      # container never sees them, however correct .env looks — the omission
+      # that left StackUp only LOGGING emails after the move from Fly.io.
+      # Unset, EMAIL_PROVIDER is "log" and nothing is sent.
       EMAIL_PROVIDER: ${EMAIL_PROVIDER:-log}
-      EMAIL_RELAY_URL: ${EMAIL_RELAY_URL:-https://api.resend.com/emails}
-      EMAIL_RELAY_AUTH: ${EMAIL_RELAY_AUTH:-}
+      EMAIL_RELAY_URL: http://mailer:8080/send
+      EMAIL_RELAY_AUTH: "Bearer ${MAILER_TOKEN:-}"
       EMAIL_FROM: ${EMAIL_FROM:-StackUp <no-reply@smp.co.ke>}
     expose:
       - "3000"
@@ -109,6 +109,31 @@ services:
       timeout: 10s
       retries: 5
       start_period: 40s
+
+  # Brevo adapter. StackUp posts each email in its own (Resend-style) JSON;
+  # Brevo's API wants a different shape. This translates between them — see
+  # mailer/server.mjs — so StackUp's code does not change. Stock Node image,
+  # one file, no dependencies, no published port: only StackUp can reach it,
+  # and it still checks a shared token.
+  mailer:
+    image: node:22-alpine
+    container_name: stackup-mailer
+    restart: unless-stopped
+    command: ["node", "/app/server.mjs"]
+    environment:
+      PORT: "8080"
+      MAILER_TOKEN: ${MAILER_TOKEN:-}
+      BREVO_API_KEY: ${BREVO_API_KEY:-}
+    volumes:
+      - ./mailer/server.mjs:/app/server.mjs:ro
+    networks:
+      - internal   # StackUp reaches it here; it reaches Brevo over the internet
+    mem_limit: 128m
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/health').then(r=>r.json()).then(h=>process.exit(h.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
 volumes:
   # The business data. Backed up nightly — see README.
