@@ -299,7 +299,7 @@ export const projects: Project[] = [
     logo: "/logos/stackup.svg",
     logoBg: "#ffffff",
     category: "Web Apps",
-    links: { live: "https://stackup.co.ke", code: "https://github.com/simboni/smp-planning" },
+    links: { live: "https://stackup.smp.co.ke", code: "https://github.com/simboni/smp-planning" },
     problem:
       "Teams juggle tasks, docs, goals and reporting across half a dozen tools. The all-in-one option (ClickUp) is powerful but closed and pricey. I wanted a clean, open, self-hostable alternative that a team can own — without giving up multi-tenancy, real-time collaboration or security.",
     approach:

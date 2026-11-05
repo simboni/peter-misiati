@@ -244,6 +244,50 @@ Only after a few days of the new deployment behaving:
 
 ---
 
+## 9 · Moving to stackup.smp.co.ke (November 2026)
+
+StackUp's primary address became **stackup.smp.co.ke**. The old address keeps
+working: `stackup.co.ke` and `www.stackup.co.ke` answer with a permanent
+redirect to the same path on the new one, so bookmarks, shared links and links
+in emails already sent still arrive. Keep `stackup.co.ke` registered and
+pointing here for as long as you want those to work.
+
+**1. DNS first.** In the panel that manages `smp.co.ke`, add
+`A  stackup  169.58.127.122`, then check from the box:
+
+```bash
+getent ahostsv4 stackup.smp.co.ke     # must show 169.58.127.122
+```
+
+**2. Move it.**
+
+```bash
+cd /srv/smp-portfolio/repo && git pull
+bash deploy/contabo/stackup/move-domain.sh --check   # shows the new site file; changes nothing
+bash deploy/contabo/stackup/move-domain.sh
+```
+
+It replaces only `/srv/edge/sites/stackup.caddy` (saving the old one in
+`/root`), reloads Caddy gracefully, and puts the old file back by itself if
+Caddy rejects the config or any other site on the box stops answering.
+`--rollback` restores the saved file later if you change your mind.
+
+Nothing in StackUp's code has to change for this — app and API share one
+origin, and share links follow the address the app is opened at. Everybody
+signs in once more on the new address (the browser keeps sign-ins per
+address); accounts and data are untouched.
+
+**Still pointing at the old address, inside StackUp's own code**
+(`simboni/smp-planning`, worth updating in a later release; all of them work
+meanwhile through the redirect): the footer and button links in emails
+(`apps/api/src/comms/email.template.ts`, `email.service.ts`), link previews
+(`metadataBase` in `apps/web/app/layout.tsx`), the share-link fallback
+(`CANONICAL_WEB_ORIGIN` in `apps/web/lib/format.ts`), and the mobile wrapper
+(`mobile/capacitor.config.json` — a native build loading the old address would
+be redirected off-domain, so change it before the next app build).
+
+---
+
 ## Updating later
 
 ```bash

@@ -20,7 +20,9 @@ set -euo pipefail
 # Overridable only so this script can be exercised against stubs off-box.
 # On the server, leave every one of them alone.
 SITE=${SITE:-/srv/edge/sites/stackup.caddy}
-HOST=${HOST:-stackup.co.ke}
+# stackup.smp.co.ke since November 2026 — move-domain.sh moved it from
+# stackup.co.ke, which now redirects here.
+HOST=${HOST:-stackup.smp.co.ke}
 UPSTREAM=${UPSTREAM:-stackup-api:3000}
 ENV_FILE=${ENV_FILE:-/srv/stackup/.env}
 COMPOSE=${COMPOSE:-/srv/stackup/compose.yml}
@@ -162,14 +164,20 @@ done <<< "$before"
 
 # ------------------------------------------------------------------ publish --
 say "WRITING $SITE"
+# A www. alias only if that name points here too — otherwise Caddy would ask
+# Let's Encrypt for a certificate it can never get, again and again.
+WWW_BLOCK=""
+if getent ahostsv4 "www.$HOST" 2>/dev/null | awk '{print $1}' | grep -qx "${me:-none}"; then
+  WWW_BLOCK="www.$HOST {
+	redir https://$HOST{uri} permanent
+}
+"
+fi
 cat > "$SITE" <<EOF
 # $HOST — StackUp. One container serves the API and the web app.
 # Written by deploy/contabo/stackup/publish.sh
 
-www.$HOST {
-	redir https://$HOST{uri} permanent
-}
-
+$WWW_BLOCK
 $HOST {
 	reverse_proxy $UPSTREAM {
 		# Server-Sent Events: never buffer, never time out the stream.
@@ -217,7 +225,7 @@ say "STACKUP"
 # First request triggers certificate issuance; give it a moment.
 sleep 5
 printf '  https://%-30s %s\n' "$HOST" "$(probe "$HOST")"
-printf '  https://www.%-26s %s\n' "$HOST" "$(probe "www.$HOST")"
+[ -n "$WWW_BLOCK" ] && printf '  https://www.%-26s %s\n' "$HOST" "$(probe "www.$HOST")"
 echo
 echo "A 000 on the first try is usually the certificate still being issued."
 echo "Wait 30s and re-probe:  curl -sI https://$HOST | head -3"
