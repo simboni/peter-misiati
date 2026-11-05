@@ -288,6 +288,53 @@ be redirected off-domain, so change it before the next app build).
 
 ---
 
+## 10 · Email
+
+StackUp sends password resets, invites and notifications through **Resend**.
+Until it is set up, it only writes emails to its log (`EMAIL_PROVIDER=log`).
+
+**1. Verify the sending domain in Resend** (once; DawaPoint, Civora and the
+rest can then send as the same domain). resend.com → **Domains** → **Add
+domain** → `smp.co.ke`. Resend lists a few DNS records — a DKIM `TXT` on
+`resend._domainkey`, and an `MX` and SPF `TXT` on `send`. Add exactly those in
+the smp.co.ke panel, then press **Verify**. They sit on their own names, so
+they do not touch the website's `A` records or any mailbox's `MX`.
+
+**2. Create an API key**: resend.com → **API Keys** → **Create**, "Sending
+access", domain `smp.co.ke`. It is shown once.
+
+**3. Give it to StackUp.** Add to `/srv/stackup/.env` (see `env.example`):
+
+```bash
+EMAIL_PROVIDER=http
+EMAIL_RELAY_AUTH=Bearer re_...
+EMAIL_FROM=StackUp <no-reply@smp.co.ke>
+```
+
+Then take the updated `compose.yml` (it now passes these through — before,
+the container never saw them) and recreate only the API container:
+
+```bash
+cd /srv/smp-portfolio/repo && git pull
+diff /srv/stackup/compose.yml deploy/contabo/stackup/compose.yml   # only the email/WEB_BASE_URL lines
+cp deploy/contabo/stackup/compose.yml /srv/stackup/compose.yml
+cd /srv/stackup && docker compose up -d api
+docker exec stackup-api printenv EMAIL_PROVIDER     # must say: http
+```
+
+**4. Test it** from StackUp's settings (Email → send test), or watch the log:
+
+```bash
+docker logs -f stackup-api 2>&1 | grep -i email
+```
+
+A `relay responded 403` means the domain is not verified yet, or `EMAIL_FROM`
+is on a different domain; `401` means the key is wrong. Resend's free plan has
+a daily limit (100 a day, 3,000 a month at the time of writing) — it was hit
+once in July.
+
+---
+
 ## Updating later
 
 ```bash

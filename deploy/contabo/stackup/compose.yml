@@ -54,6 +54,18 @@ services:
       # Optional — omit for the offline heuristic instead of the real AI Brain.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       STACKUP_AI_MODEL: ${STACKUP_AI_MODEL:-}
+      # The address StackUp is served at — used for links StackUp builds
+      # itself (sign-in redirects). Falls back to the request's own host.
+      WEB_BASE_URL: ${WEB_BASE_URL:-https://stackup.smp.co.ke}
+      # Outbound email (password resets, invites, notifications). These MUST
+      # be named here or the container never sees them, however correct .env
+      # looks — the omission that left StackUp only LOGGING emails after the
+      # move from Fly.io. Unset, EMAIL_PROVIDER is "log": nothing is sent.
+      # StackUp posts Resend's JSON shape, so the relay is Resend's API.
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-log}
+      EMAIL_RELAY_URL: ${EMAIL_RELAY_URL:-https://api.resend.com/emails}
+      EMAIL_RELAY_AUTH: ${EMAIL_RELAY_AUTH:-}
+      EMAIL_FROM: ${EMAIL_FROM:-StackUp <no-reply@smp.co.ke>}
     expose:
       - "3000"
     depends_on:
