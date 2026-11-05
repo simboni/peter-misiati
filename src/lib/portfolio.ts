@@ -810,15 +810,17 @@ export const projects: Project[] = [
   {
     // Written from the code and the blueprint in simboni/dawapoint, not from
     // the screenshots alone — every capability below has an implementation
-    // behind it. The screens are the live deployment carrying its training
-    // catalogue (200 products, six suppliers), which is why DawaPoint sits in
-    // the catalogue and not on the home page's wall: that wall is for screens
-    // out of a business trading on the system, and this one has not gone live
-    // with a pharmacy's own stock yet. Promote it when it does.
+    // behind it. The screens are its demo pharmacy (a 200-product catalogue
+    // with 90 days of made-up trading) and the live training deployment,
+    // which is why DawaPoint sits in the catalogue and not on the home page's
+    // wall: that wall is for screens out of a business trading on the system,
+    // and this one has not gone live with a pharmacy's own stock yet. Promote
+    // it when it does. The wholesale screens are left out until they can be
+    // shot on the demo data — the acceptance-test shots carry test names.
     slug: "dawapoint",
     title: "DawaPoint",
     summary:
-      "A pharmacy point of sale and stock system for Kenyan chemists — it sells by pack, strip or single tablet, hands out the earliest-expiring stock first, takes M-Pesa at the till, and keeps the controlled-drugs register and insurance claims in the same place.",
+      "A pharmacy point of sale, stock and wholesale system for Kenyan chemists — it sells by pack, strip or single tablet, hands out the earliest-expiring stock first, takes M-Pesa at the till, runs trade customers from quotation to payment, and keeps the controlled-drugs register and insurance claims in the same place.",
     type: "Client project",
     year: "2026",
     role: "Product design & full-stack engineering",
@@ -826,37 +828,52 @@ export const projects: Project[] = [
     tags: ["POS", "Web App", "Business", "Client"],
     featured: true,
     cover: { from: "from-green-700", to: "to-ink-950", initials: "DP" },
-    logoBg: "#ffffff", // wordmark chip, as for Riziki POS
+    // The product's own lockup (the D with the point at its heart), drawn from
+    // the brand constants in simboni/dawapoint so it matches the app exactly.
+    logo: "/logos/dawapoint.svg",
+    logoBg: "#ffffff",
     category: "Business",
     links: { live: "https://dawapoint.smp.co.ke" },
     problem:
-      "A Kenyan retail chemist sells the same medicine by the pack, the strip and the single tablet, and most systems model one unit — so staff divide in their heads and the stock count drifts. Expiry quietly eats margin when nobody can see which batch goes off next. M-Pesa is checked on a cashier's own phone, cash variances have no owner, the internet and power both drop, controlled-drug records are what a PPB inspection looks at first, and insurers pay only on itemised, correctly referenced claims.",
+      "A Kenyan retail chemist sells the same medicine by the pack, the strip and the single tablet, and most systems model one unit — so staff divide in their heads and the stock count drifts. Expiry quietly eats margin when nobody can see which batch goes off next. M-Pesa is checked on a cashier's own phone, cash variances have no owner, the internet and power both drop, controlled-drug records are what a PPB inspection looks at first, and insurers pay only on itemised, correctly referenced claims. Many chemists also supply clinics and smaller pharmacies on credit, and that side of the business usually lives in a notebook and a WhatsApp chat.",
     approach:
-      "I built it as a counter first: scan or type, Enter adds, function keys for tender, hold and recall, and every product priced per unit it is sold in. Behind the counter sits a batch-level stock ledger fed by goods-received notes, so the till can sell first-expiry-first-out; shifts that open with a float and close with a blind count; M-Pesa prompts sent from the till; a prescription and controlled-drugs register; insurance claims raised against receipts; supplier balances and reports. It shipped with a written acceptance script, staff training sheets and an owner's handover pack, not just the software.",
+      "I built it as a counter first: scan or type, Enter adds, function keys for tender, hold and recall, categories down the side, and every product priced per unit it is sold in. Behind the counter sits a batch-level stock ledger fed by goods-received notes, so the till can sell first-expiry-first-out; shifts that open with a float and close with a blind count; M-Pesa prompts sent from the till and confirmed in seconds; a prescription and controlled-drugs register; insurance claims raised against receipts; supplier balances and reports; and a dashboard that opens on what needs the owner today. A wholesale module then took trade customers from quotation to cash. It shipped with a written acceptance script, staff training sheets and an owner's handover pack, not just the software.",
     architecture: [
       "A pnpm/Turborepo monorepo: a Next.js 16 back office and point-of-sale terminal (installable PWA), a Hono API, and shared packages for domain logic, the database, auth, Zod contracts and design tokens.",
       "Domain rules — money, units of measure, access control, first-expiry-first-out allocation, pricing and reordering — live in a package with no I/O at all, tested on their own.",
       "PostgreSQL row-level security: the API connects as a role that owns nothing, and every tenant table filters on a tenant id set per transaction, so one pharmacy's query cannot read another's rows even by mistake.",
       "The audit trail is an append-only table whose rows are SHA-256 chained; an endpoint recomputes the chain to prove nothing was edited after the fact.",
       "The counter keeps selling offline: catalogue and prices cached in IndexedDB, sales held in a durable outbox and synced when the connection returns.",
-      "M-Pesa through Daraja STK Push from the till, confirmed by callback with a status query as the fallback, and a simulator for training without real money.",
+      "M-Pesa through Daraja STK Push from the till, confirmed by callback with a status query as the fallback, and a simulator for training without real money. Callbacks need a per-pharmacy secret and are checked with Safaricom before money is counted.",
+      "Wholesale on the same stock: one sales order carries a deal from quotation to delivery; each dispatch issues the tax invoice and delivery note together, as real PDFs that can be sent by link or WhatsApp.",
+      "Hardened before launch: a Content-Security-Policy with per-request nonces, till PINs stored as verifiers with sign-in lockout, and dependency scanning in CI that gates deploys.",
     ],
     highlights: [
       "Sells the way a chemist does — by pack, strip or single tablet, each with its own price — while stock is held in base units, so the count still adds up.",
       "Every supplier delivery creates batches with expiry dates, and the counter hands out the earliest-expiring first.",
       "Prescription and controlled medicines are flagged on the product; a controlled sale goes into a register that needs a witness.",
       "Insurance claims raised against the receipt, tracked from draft to paid, and exported for the insurer's portal.",
+      "Wholesale for trade customers: credit limits and terms, customer price lists and volume breaks, picking within each customer's shelf-life rule, proof of delivery with photos and GPS, and receivables with ageing.",
+      "Receipts and trade documents carry the pharmacy's details and can be shared as a link — a voided sale's link stops working.",
       "An audit log that can prove it has not been edited.",
     ],
     impact: [
       { value: "FEFO", label: "Earliest expiry sold first" },
       { value: "Offline", label: "The counter keeps selling" },
-      { value: "21", label: "Test suites, plus 10 browser specs" },
+      { value: "30", label: "Test suites, plus 12 browser specs" },
     ],
     media: [
       {
         src: "/mockups/dawapoint-counter.webp",
-        alt: "DawaPoint counter — barcode search, the fast-moving medicines priced by capsule, strip and pack, today's receipts on the till, and an empty cart ready to take cash, M-Pesa or card",
+        alt: "DawaPoint counter — barcode search, fast movers priced by capsule, strip and pack, 26 medicine categories, the selected item's batches sold earliest expiry first, and a cart ready to pay by cash, M-Pesa or card",
+      },
+      {
+        src: "/mockups/dawapoint-dashboard.webp",
+        alt: "DawaPoint dashboard for a demo pharmacy — today's sales and margin, stock at cost, stock expiring within 90 days and products to reorder, with a list of what needs the owner today",
+      },
+      {
+        src: "/mockups/dawapoint-stock.webp",
+        alt: "DawaPoint stock control — expired stock and stock expiring within 90 days valued at cost, batch by batch, with low stock, adjustments and recalls on their own tabs",
       },
       {
         src: "/mockups/dawapoint-products.webp",
