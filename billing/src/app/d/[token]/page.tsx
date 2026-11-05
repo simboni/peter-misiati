@@ -22,7 +22,7 @@ import type { Metadata } from "next";
 // Public share links always use the TallyPay app domain. (The client-facing
 // link PREVIEW is still fully vendor-branded via the Open Graph metadata below
 // — business name, address, logo and amount — so clients see the vendor, not
-// TallyPay, even though the URL is tallypay.co.ke.)
+// TallyPay, even though the URL is tallypay.smp.co.ke.)
 async function shareBaseFor(_profile?: unknown): Promise<string> {
   return await appBaseUrl();
 }

@@ -4,7 +4,7 @@ import "./globals.css";
 import { RouteProgress } from "@/components/route-progress";
 import { RegisterSW } from "@/components/register-sw";
 
-const SITE_URL = process.env.BETTER_AUTH_URL ?? "https://tallypay.co.ke";
+const SITE_URL = process.env.BETTER_AUTH_URL ?? "https://tallypay.smp.co.ke";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),

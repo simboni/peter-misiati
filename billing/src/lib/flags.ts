@@ -25,7 +25,7 @@ export const SERVER_PDF_ENABLED = false;
  * string is unavoidable.
  */
 export const SUPPORT_EMAIL_USER = "support";
-export const SUPPORT_EMAIL_DOMAIN = "tallypay.co.ke";
+export const SUPPORT_EMAIL_DOMAIN = "smp.co.ke";
 export const supportEmail = () => `${SUPPORT_EMAIL_USER}@${SUPPORT_EMAIL_DOMAIN}`;
 
 /**

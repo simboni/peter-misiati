@@ -3,7 +3,7 @@
   "appName": "TallyPay",
   "webDir": "www",
   "server": {
-    "url": "https://tallypay.co.ke/dashboard",
+    "url": "https://tallypay.smp.co.ke/dashboard",
     "cleartext": false,
     "androidScheme": "https",
     "errorPath": "offline.html"

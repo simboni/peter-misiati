@@ -1,7 +1,7 @@
 # TallyPay — mobile app (Capacitor)
 
 The native app shell for TallyPay, built with **Capacitor**. It wraps the live
-site `https://tallypay.co.ke` in a real native app and is the base we add native
+site `https://tallypay.smp.co.ke` in a real native app and is the base we add native
 features onto (push notifications, biometric unlock, camera, share sheet). Web
 content auto-updates on every website deploy; we only re-release the store build
 when the native shell changes.
@@ -47,7 +47,7 @@ them with `npm ci` + `npx cap sync android` before building, so the committed
 ## Config
 
 - **`capacitor.config.json`** — app id `ke.co.tallypay.app`, name TallyPay,
-  `server.url` → `https://tallypay.co.ke`, emerald splash + status bar.
+  `server.url` → `https://tallypay.smp.co.ke`, emerald splash + status bar.
 - **`www/index.html`** — a branded fallback shown only if the live site is
   unreachable; normally the remote app loads immediately.
 - Launcher icons + splash are branded from the TallyPay mark.

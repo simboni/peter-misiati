@@ -54,7 +54,7 @@ export default function DownloadPage() {
           </ol>
           <p className="mt-4 text-xs text-muted">
             Installing outside Google Play is safe here — the app is our own, and a Google Play
-            listing is on the way. On iPhone, open <b>tallypay.co.ke</b> in Safari →{" "}
+            listing is on the way. On iPhone, open <b>tallypay.smp.co.ke</b> in Safari →{" "}
             <b>Share → Add to Home Screen</b>.
           </p>
         </div>

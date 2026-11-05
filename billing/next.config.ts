@@ -53,16 +53,12 @@ const nextConfig: NextConfig = {
     ];
   },
   experimental: {
-    // Behind a reverse proxy the forwarded host can differ from the request
-    // Origin, which makes Next reject Server Action POSTs (every form submit —
-    // add client, save settings, record payment). Allow the production hosts
-    // so those submissions are accepted. edge-caddy fronts both hostnames.
+    // Behind edge-caddy the forwarded host can differ from the request Origin,
+    // which makes Next reject Server Action POSTs (every form submit — add
+    // client, save settings, record payment). Allow the production host so
+    // those submissions are accepted.
     serverActions: {
-      allowedOrigins: [
-        "tallypay.smp.co.ke",
-        "tallypay.co.ke",
-        "www.tallypay.co.ke",
-      ],
+      allowedOrigins: ["tallypay.smp.co.ke"],
       // Logo + signature are embedded as data URLs in the settings form, which
       // can exceed the default 1MB body limit and make the save silently fail.
       bodySizeLimit: "5mb",

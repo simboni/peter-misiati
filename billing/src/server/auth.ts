@@ -44,14 +44,10 @@ async function buildAuth() {
     secret,
     // Lock CSRF/redirect handling to known hosts rather than relying on the
     // baseURL alone (which collapses to localhost if BETTER_AUTH_URL is unset).
-    // Both hostnames are served by the same deployment: tallypay.smp.co.ke is
-    // the new canonical host, and tallypay.co.ke stays live because the
-    // published Android app is built against it.
-    trustedOrigins: [
-      "https://tallypay.smp.co.ke",
-      "https://tallypay.co.ke",
-      "https://www.tallypay.co.ke",
-    ],
+    // tallypay.smp.co.ke is now the only host. tallypay.co.ke is being retired
+    // with the Cloudflare deployment; the Android app is rebuilt against this
+    // host (versionCode 6) rather than the old one.
+    trustedOrigins: ["https://tallypay.smp.co.ke"],
     // Throttle auth endpoints (sign-in/up/change) to blunt brute-force and
     // enumeration. Self-hosted this is a single process, so the in-memory
     // limiter now covers the whole deployment rather than one isolate.
