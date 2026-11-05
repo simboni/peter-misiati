@@ -1,0 +1,80 @@
+# TallyPay on the Contabo box.
+#
+# One container: the Next.js server, with SQLite on a named volume. No
+# database container — SQLite is a file, and libSQL talks to it in-process.
+#
+# Ports: none published. `edge-caddy` owns 80/443 and reverse-proxies to
+# tallypay:3000 over the shared `edge` network (rule 1 in ADDING-AN-APP.md).
+#
+#   cd /srv/tallypay && docker compose up -d --build
+#
+# Memory is capped so TallyPay can never starve the other nine apps.
+
+name: tallypay
+
+services:
+  app:
+    build:
+      # /srv/tallypay/repo is a clone of simboni/peter-misiati on the
+      # self-hosting branch; the app lives in its billing/ directory.
+      context: ./repo/billing
+    image: tallypay:local
+    container_name: tallypay
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      # The database file lives on the named volume below.
+      DATABASE_URL: file:/data/tallypay.db
+      # Signs session cookies AND derives the key that encrypts each vendor's
+      # stored M-Pesa credentials. Changing it logs everyone out and makes
+      # previously stored payment secrets undecryptable — treat it as permanent.
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set in .env}
+      # Canonical public URL. Share links, PDFs and the M-Pesa callback are all
+      # built from this, so it must be the real https host.
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:?set in .env}
+      OWNER_EMAILS: ${OWNER_EMAILS:-}
+      # Optional — email delivery of documents.
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM: ${RESEND_FROM:-}
+      # Optional — M-Pesa STK push via Kopo Kopo. Omitted, the pay button hides.
+      KOPOKOPO_BASE_URL: ${KOPOKOPO_BASE_URL:-}
+      KOPOKOPO_CLIENT_ID: ${KOPOKOPO_CLIENT_ID:-}
+      KOPOKOPO_CLIENT_SECRET: ${KOPOKOPO_CLIENT_SECRET:-}
+      KOPOKOPO_API_KEY: ${KOPOKOPO_API_KEY:-}
+      KOPOKOPO_TILL_NUMBER: ${KOPOKOPO_TILL_NUMBER:-}
+    expose:
+      - "3000"                  # internal to the edge network only
+    volumes:
+      - tallypay-data:/data
+    networks:
+      - edge
+    mem_limit: 1g
+    # Ask the way a visitor asks. A bare probe sends `Accept: */*`, and an app
+    # that serves HTML only to browsers answers 404 to that — a healthy
+    # container then reads as broken. That mistake cost a day on StackUp, so
+    # the header is not optional here.
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - |
+          fetch('http://127.0.0.1:3000/', { headers: { accept: 'text/html' } })
+            .then(r => process.exit(r.ok ? 0 : 1))
+            .catch(() => process.exit(1));
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      # Migrations run before the server starts; give them room on first boot.
+      start_period: 60s
+
+volumes:
+  # The business data: every invoice, receipt and payment. Back this up —
+  # see README. There are no provider backups on this box.
+  tallypay-data:
+
+networks:
+  # Created and owned by the `edge` project in /srv/edge — we only join it.
+  edge:
+    external: true
