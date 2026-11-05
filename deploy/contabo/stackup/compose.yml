@@ -66,6 +66,10 @@ services:
       EMAIL_RELAY_URL: http://mailer:8080/send
       EMAIL_RELAY_AUTH: "Bearer ${MAILER_TOKEN:-}"
       EMAIL_FROM: ${EMAIL_FROM:-StackUp <no-reply@smp.co.ke>}
+      # Notification emails: most per 24 hours (Brevo's 300 a day is shared
+      # with Fit Generations), and the hour (UTC) of the daily summary.
+      EMAIL_DAILY_CAP: ${EMAIL_DAILY_CAP:-200}
+      EMAIL_DIGEST_HOUR_UTC: ${EMAIL_DIGEST_HOUR_UTC:-4}
     expose:
       - "3000"
     depends_on:

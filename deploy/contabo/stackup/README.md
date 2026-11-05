@@ -345,6 +345,24 @@ from Brevo means the key is wrong; `unauthorised` from the adapter means
 `MAILER_TOKEN` differs between the two containers. The free plan stops at
 300 a day across StackUp and Fit Generations together.
 
+**What StackUp emails**, once this is on:
+
+| When | Who gets it |
+| --- | --- |
+| Someone is added to a workspace | them — a set-your-password link (7 days, once) if they have never signed in, otherwise a link to the app |
+| A task or comment is assigned to someone | the assignee, within a minute (not when you assign yourself) |
+| Someone is @mentioned in a comment | them, with the comment |
+| A reminder comes due | the person who set it |
+| Every morning at 07:00 Nairobi | anyone who chose the daily summary, and anything that did not fit under the cap |
+| Forgot password | the person asking |
+
+Each person picks *as it happens*, *daily summary* or *off* in **Settings →
+Email notifications**. Several updates in the same minute arrive as one
+email; anything already read in the app is not emailed; comments, status
+changes and chat stay in the in-app inbox. The cap (`EMAIL_DAILY_CAP`, 200 a
+day) stops StackUp using the whole Brevo allowance — past it, updates wait
+for the next summary. Invites and password resets are never held back.
+
 ---
 
 ## Updating later
