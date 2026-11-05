@@ -1,9 +1,34 @@
-import { getCloudflareContext } from "@opennextjs/cloudflare";
+// Runtime configuration, read from the process environment.
+//
+// This app used to run on Cloudflare Workers, where configuration arrived as
+// bindings on a per-request context object. Self-hosted it is an ordinary Node
+// server, so everything comes from process.env — but getEnv() stays async so
+// the many `await getEnv()` call sites are unchanged.
+
 import { headers } from "next/headers";
 
-export async function getEnv(): Promise<CloudflareEnv> {
-  const { env } = await getCloudflareContext({ async: true });
-  return env;
+export type AppEnv = {
+  /** libSQL/SQLite connection string, e.g. file:/data/tallypay.db */
+  DATABASE_URL?: string;
+  DATABASE_AUTH_TOKEN?: string;
+  BETTER_AUTH_SECRET?: string;
+  BETTER_AUTH_URL?: string;
+  RESEND_API_KEY?: string;
+  RESEND_FROM?: string;
+  /** Kopo Kopo (M-Pesa STK push) — platform-level for the pilot */
+  KOPOKOPO_BASE_URL?: string;
+  KOPOKOPO_CLIENT_ID?: string;
+  KOPOKOPO_CLIENT_SECRET?: string;
+  KOPOKOPO_API_KEY?: string;
+  KOPOKOPO_TILL_NUMBER?: string;
+  /** Absolute path to a Chromium binary; its presence enables PDF export. */
+  CHROMIUM_PATH?: string;
+  /** Comma-separated emails that bootstrap as platform super-admins on login. */
+  OWNER_EMAILS?: string;
+};
+
+export async function getEnv(): Promise<AppEnv> {
+  return process.env as AppEnv;
 }
 
 export type KopoKopoConfig = {
@@ -64,13 +89,13 @@ export async function appBaseUrl(): Promise<string> {
   } catch {
     // headers() is unavailable outside a request scope — fall through.
   }
-  return configured || "https://tallypay.co.ke";
+  return configured || "https://tallypay.smp.co.ke";
 }
 
-/** Whether the Cloudflare Browser Rendering binding is available (PDF export). */
+/** Whether a Chromium binary is available for server-side PDF export. */
 export async function browserEnabled(): Promise<boolean> {
   const env = await getEnv();
-  return Boolean(env.BROWSER);
+  return Boolean(env.CHROMIUM_PATH);
 }
 
 /**
@@ -94,7 +119,7 @@ export async function appSecret(): Promise<string> {
 /** Emails (lowercased) that bootstrap as platform super-admins on login. */
 export async function ownerEmails(): Promise<string[]> {
   const env = await getEnv();
-  const raw = env.OWNER_EMAILS ?? process.env.OWNER_EMAILS ?? "";
+  const raw = env.OWNER_EMAILS ?? "";
   return raw
     .split(",")
     .map((s) => s.trim().toLowerCase())

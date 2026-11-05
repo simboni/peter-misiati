@@ -2,7 +2,7 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { organization } from "better-auth/plugins/organization";
 import { nextCookies } from "better-auth/next-js";
-import { getCloudflareContext } from "@opennextjs/cloudflare";
+import { getEnv } from "./config";
 import { getDb, schema } from "./db";
 
 // Building a better-auth instance is EXPENSIVE — it compiles every auth route
@@ -27,7 +27,7 @@ export function getAuth() {
 }
 
 async function buildAuth() {
-  const { env } = await getCloudflareContext({ async: true });
+  const env = await getEnv();
   const db = await getDb();
 
   const baseURL = env.BETTER_AUTH_URL ?? "http://localhost:3000";
@@ -44,15 +44,17 @@ async function buildAuth() {
     secret,
     // Lock CSRF/redirect handling to known hosts rather than relying on the
     // baseURL alone (which collapses to localhost if BETTER_AUTH_URL is unset).
+    // Both hostnames are served by the same deployment: tallypay.smp.co.ke is
+    // the new canonical host, and tallypay.co.ke stays live because the
+    // published Android app is built against it.
     trustedOrigins: [
+      "https://tallypay.smp.co.ke",
       "https://tallypay.co.ke",
       "https://www.tallypay.co.ke",
-      "https://billing-platform.misiatipeter.workers.dev",
     ],
     // Throttle auth endpoints (sign-in/up/change) to blunt brute-force and
-    // enumeration. Note: on Workers this in-memory limiter is per-isolate;
-    // Cloudflare WAF rate-limiting rules on /api/auth/* are the production-grade
-    // layer (see docs/security.md).
+    // enumeration. Self-hosted this is a single process, so the in-memory
+    // limiter now covers the whole deployment rather than one isolate.
     rateLimit: { enabled: true, window: 10, max: 50 },
     database: drizzleAdapter(db, {
       provider: "sqlite",

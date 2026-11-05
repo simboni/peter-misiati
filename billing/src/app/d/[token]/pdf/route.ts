@@ -4,13 +4,18 @@ import { getEnv, appBaseUrl } from "@/server/config";
 
 export const dynamic = "force-dynamic";
 
-// Render the shared document to a downloadable A4 PDF via Cloudflare Browser
-// Rendering. The PDF preserves the document's links, so the "Pay online" link
-// stays clickable. Returns 501 when the BROWSER binding isn't configured.
+// Render the shared document to a downloadable A4 PDF with headless Chromium.
+// The PDF preserves the document's links, so the "Pay online" link stays
+// clickable. Returns 501 when no Chromium binary is configured.
+//
+// Chromium is launched per request rather than kept warm: PDF export is
+// occasional, and a long-lived browser that dies leaves every later export
+// broken until the container restarts. The cost is ~1s of start-up.
 export async function GET(_req: Request, ctx: { params: Promise<{ token: string }> }) {
   const { token } = await ctx.params;
   const env = await getEnv();
-  if (!env.BROWSER) {
+  const executablePath = env.CHROMIUM_PATH;
+  if (!executablePath) {
     return new Response("PDF export is not enabled for this deployment.", { status: 501 });
   }
 
@@ -25,12 +30,17 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
   if (!name) return new Response("Not found", { status: 404 });
 
   const base = await appBaseUrl();
-  let browser: Awaited<ReturnType<(typeof import("@cloudflare/puppeteer"))["default"]["launch"]>> | null = null;
+  let browser: Awaited<ReturnType<(typeof import("puppeteer-core"))["default"]["launch"]>> | null = null;
   try {
-    const { default: puppeteer } = await import("@cloudflare/puppeteer");
-    browser = await puppeteer.launch(env.BROWSER);
+    const { default: puppeteer } = await import("puppeteer-core");
+    browser = await puppeteer.launch({
+      executablePath,
+      // The container runs unprivileged with a small /dev/shm; without these
+      // Chromium either refuses to start or crashes on the first page.
+      args: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
+    });
     const page = await browser.newPage();
-    await page.goto(`${base}/d/${token}`, { waitUntil: "networkidle0" });
+    await page.goto(`${base}/d/${token}`, { waitUntil: "networkidle0", timeout: 30_000 });
     const pdf = await page.pdf({
       format: "A4",
       printBackground: true,
