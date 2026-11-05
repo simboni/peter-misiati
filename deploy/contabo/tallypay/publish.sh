@@ -8,25 +8,19 @@
 # /srv/edge/Caddyfile, and never restarts edge-caddy — a reload is a graceful,
 # atomic config swap that drops no connections (rules 4 and 5).
 #
-# TWO HOSTNAMES, PUBLISHED IN TWO STEPS, on purpose:
+# One hostname: tallypay.smp.co.ke. The old tallypay.co.ke is retired with the
+# Cloudflare deployment; the Android app is rebuilt against this host.
 #
-#   tallypay.smp.co.ke   the new canonical host. Published by default.
-#   tallypay.co.ke       the host the PUBLISHED ANDROID APP is built against.
-#                        Only added with --with-legacy-domain, and only once
-#                        its DNS has been moved off Cloudflare to this box.
+# DNS is checked against this box BEFORE the reload. Caddy asks Let's Encrypt
+# on first request for a hostname, and failed validations are rate-limited — so
+# publishing a host that points elsewhere does not just fail, it burns attempts.
 #
-# Publishing a hostname whose DNS still points elsewhere does not merely fail:
-# Caddy asks Let's Encrypt on first request, and failed validations are
-# rate-limited. So each host is checked against this box's IP before it goes in.
-#
-#   bash publish.sh                        publish tallypay.smp.co.ke
-#   bash publish.sh --with-legacy-domain   also serve tallypay.co.ke
-#   bash publish.sh --unpublish            remove the site file and reload
+#   bash publish.sh              do it
+#   bash publish.sh --unpublish  remove the site file and reload
 set -euo pipefail
 
 SITE=${SITE:-/srv/edge/sites/tallypay.caddy}
 HOST=${HOST:-tallypay.smp.co.ke}
-LEGACY_HOST=${LEGACY_HOST:-tallypay.co.ke}
 UPSTREAM=${UPSTREAM:-tallypay:3000}
 COMPOSE=${COMPOSE:-/srv/tallypay/compose.yml}
 
@@ -76,18 +70,6 @@ reload() {
   docker exec edge-caddy caddy reload --config /etc/caddy/Caddyfile >/dev/null
 }
 
-# Refuse a hostname that does not point at this box, before Caddy asks LE.
-check_dns() {
-  local h=$1 ips me
-  ips=$(getent ahostsv4 "$h" 2>/dev/null | awk '{print $1}' | sort -u | tr '\n' ' ')
-  me=$(curl -sS -m 10 https://api.ipify.org 2>/dev/null || true)
-  printf '  %-22s resolves to: %s\n' "$h" "${ips:-<nothing>}"
-  [ -n "$ips" ] || die "$h does not resolve. Point an A record at this box first."
-  if [ -n "$me" ] && ! printf '%s' "$ips" | grep -q "$me"; then
-    die "$h resolves to $ips but this box is $me. Fix DNS first, or Let's Encrypt will rate-limit the failed validations."
-  fi
-}
-
 # ---------------------------------------------------------------- unpublish --
 if [ "${1:-}" = "--unpublish" ]; then
   [ -f "$SITE" ] || die "$SITE does not exist — nothing to unpublish."
@@ -97,27 +79,28 @@ if [ "${1:-}" = "--unpublish" ]; then
   exit 0
 fi
 
-WITH_LEGACY=no
-[ "${1:-}" = "--with-legacy-domain" ] && WITH_LEGACY=yes
-
 # ----------------------------------------------------------------- preflight --
 say "PREFLIGHT"
 docker ps --format '{{.Names}}' | grep -qx edge-caddy || die "edge-caddy is not running."
 [ -f "$SITE" ] && die "$SITE already exists. Edit it by hand, or --unpublish first."
-
-docker ps --format '{{.Names}}' | grep -qx tallypay || die "The tallypay container is not running. 'docker compose -f $COMPOSE up -d --build' first."
+docker ps --format '{{.Names}}' | grep -qx tallypay \
+  || die "The tallypay container is not running. 'docker compose -f $COMPOSE up -d --build' first."
 
 # The upstream must serve HTML. Without the Accept header a healthy Next.js app
 # can answer 404 to curl's default */*, and a silent probe is then
-# indistinguishable from a broken deploy.
+# indistinguishable from a broken deploy. That cost a day on StackUp.
 docker exec edge-caddy wget -qO- --header='Accept: text/html' "http://$UPSTREAM/" 2>/dev/null \
   | grep -qi '<html' \
   || die "TallyPay did not serve HTML on http://$UPSTREAM/. Check: docker compose -f $COMPOSE logs --tail=50 app"
 echo "  upstream $UPSTREAM: serving HTML"
 
-check_dns "$HOST"
-[ "$WITH_LEGACY" = yes ] && check_dns "$LEGACY_HOST"
-[ "$WITH_LEGACY" = no ] && warn "Not publishing $LEGACY_HOST. The Android app still points there — add it with --with-legacy-domain once its DNS moves to this box."
+ips=$(getent ahostsv4 "$HOST" 2>/dev/null | awk '{print $1}' | sort -u | tr '\n' ' ')
+me=$(curl -sS -m 10 https://api.ipify.org 2>/dev/null || true)
+printf '  %-22s resolves to: %s\n' "$HOST" "${ips:-<nothing>}"
+[ -n "$ips" ] || die "$HOST does not resolve. Add an A record for it on the smp.co.ke zone pointing at this box, then run this again."
+if [ -n "$me" ] && ! printf '%s' "$ips" | grep -q "$me"; then
+  die "$HOST resolves to $ips but this box is $me. Fix DNS first, or Let's Encrypt will rate-limit the failed validations."
+fi
 
 say "SITES SERVING NOW  (these must all still answer afterwards)"
 before=$(served_hosts)
@@ -131,27 +114,14 @@ done <<< "$before"
 
 # ------------------------------------------------------------------ publish --
 say "WRITING $SITE"
-{
-  echo "# TallyPay — self-hosted billing platform."
-  echo "# Written by deploy/contabo/tallypay/publish.sh"
-  echo
-  echo "$HOST {"
-  echo "	reverse_proxy $UPSTREAM"
-  echo "}"
-  if [ "$WITH_LEGACY" = yes ]; then
-    echo
-    echo "# The published Android app is built against this host, so it is served"
-    echo "# directly rather than redirected — a redirect would change the cookie"
-    echo "# origin mid-session inside the app's webview."
-    echo "www.$LEGACY_HOST {"
-    echo "	redir https://$LEGACY_HOST{uri} permanent"
-    echo "}"
-    echo
-    echo "$LEGACY_HOST {"
-    echo "	reverse_proxy $UPSTREAM"
-    echo "}"
-  fi
-} > "$SITE"
+cat > "$SITE" <<EOF
+# $HOST — TallyPay, self-hosted billing platform.
+# Written by deploy/contabo/tallypay/publish.sh
+
+$HOST {
+	reverse_proxy $UPSTREAM
+}
+EOF
 cat "$SITE"
 
 if ! reload; then
@@ -188,12 +158,13 @@ fi
 say "TALLYPAY"
 sleep 5   # first request triggers certificate issuance
 printf '  https://%-28s %s\n' "$HOST" "$(probe "$HOST")"
-[ "$WITH_LEGACY" = yes ] && printf '  https://%-28s %s\n' "$LEGACY_HOST" "$(probe "$LEGACY_HOST")"
 echo
 echo "A 000 on the first try is usually the certificate still being issued."
 echo "Wait 30s and re-probe:  curl -sI https://$HOST | head -3"
 echo
 echo "Still to do, in the same sitting:"
 echo "  1. Point Kopo Kopo's webhook at https://$HOST/api/mpesa/kopokopo"
-echo "  2. Add TallyPay to the nightly backup (README step 7) — this is real"
+echo "  2. Upload the rebuilt Android app (versionCode 6) to Play — the"
+echo "     published build still points at the retired tallypay.co.ke."
+echo "  3. Add TallyPay to the nightly backup (README step 9) — this is real"
 echo "     money data on a box with no provider backups."

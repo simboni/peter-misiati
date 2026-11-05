@@ -1,8 +1,12 @@
 # TallyPay on the Contabo box
 
 Moving TallyPay off Cloudflare Workers + D1 onto this server, serving
-`tallypay.smp.co.ke` (new canonical host) and `tallypay.co.ke` (the host the
-published Android app is built against).
+`tallypay.smp.co.ke` as its only host. `tallypay.co.ke` is retired along with
+the Cloudflare deployment — its zone holds nothing but the Worker's
+auto-created placeholder record (no MX, no TXT), so nothing else depends on it.
+
+The one thing that does depend on it is the **published Android app**, which is
+built against the old host. Step 7 rebuilds it.
 
 Follow the steps in order. Nothing shared is touched until step 6, and every
 step before it is reversible.
@@ -12,7 +16,7 @@ step before it is reversible.
 | **App directory** | `/srv/tallypay` |
 | **Container** | `tallypay`, port 3000, `edge` network only |
 | **Data** | SQLite on volume `tallypay_tallypay-data`, file `/data/tallypay.db` |
-| **Hostnames** | `tallypay.smp.co.ke`, later `tallypay.co.ke` |
+| **Hostname** | `tallypay.smp.co.ke` (A record on the smp.co.ke zone → this box) |
 | **Rollback** | the Cloudflare deployment, untouched until you delete it |
 
 > **Read `../ADDING-AN-APP.md` first.** The five rules apply here: no host
@@ -113,9 +117,10 @@ npx -y wrangler d1 execute billing-db --remote --command \
           (select sum(total) from invoice) invoiced;"
 ```
 
-## 6. Publish the new hostname
+## 6. Publish the hostname
 
-Point `tallypay.smp.co.ke` at this box (A record), then:
+Add an A record for `tallypay.smp.co.ke` on the **smp.co.ke** zone pointing at
+this box, then:
 
 ```bash
 bash /srv/tallypay/repo/deploy/contabo/tallypay/publish.sh
@@ -131,24 +136,27 @@ diff <(docker ps --format '{{.Names}}\t{{.Status}}' | grep -v tallypay) \
      <(grep -v tallypay /root/before-tallypay.txt)
 ```
 
-## 7. Cut the Android app's domain over
+## 7. Rebuild and resubmit the Android app
 
-Only when step 6 is verified and you are happy with the new deployment.
+**The app on Play is broken the moment tallypay.co.ke stops answering.** It is
+a Capacitor shell whose `server.url` points at the old host, so retiring that
+domain leaves every installed copy loading nothing. Plan this step before you
+tear anything down.
 
-1. Change `tallypay.co.ke`'s DNS from Cloudflare to this box.
-2. Wait for it to propagate (`getent ahostsv4 tallypay.co.ke`).
-3. Re-publish including it:
+The source change is already committed: `mobile/capacitor.config.json` now
+points at `https://tallypay.smp.co.ke/dashboard`, and `versionCode` is **6**
+(Play rejects a re-used version code).
 
-```bash
-bash publish.sh --unpublish
-bash publish.sh --with-legacy-domain
-```
+1. Build it: Actions → **Build mobile app (Android)** → Run workflow.
+2. Download the signed `.aab` from the run's artifacts.
+3. Play Console → **Production** → create release → upload → roll out.
+4. Wait for review to clear and the update to reach users.
 
-The app is served on `tallypay.co.ke` directly, **not** redirected — a redirect
-would move the cookie origin mid-session inside the app's webview.
+**Keep tallypay.co.ke resolving to the Cloudflare deployment until that update
+has actually rolled out.** Users on the old build have no other way in. Only
+once Play shows the new version adopted should you let the old domain go.
 
-The published Android app keeps working throughout: it points at
-`tallypay.co.ke`, which now resolves here. No Play resubmission is needed.
+That is also why step 10 (decommissioning) is last and deliberately unhurried.
 
 ## 8. Re-point M-Pesa
 
@@ -174,6 +182,27 @@ docker run --rm -v tallypay_tallypay-data:/data -v /root/tallypay-backups:/b \
 
 is a consistent copy even while the app is running (`.backup` is safe on a live
 database; plain `cp` is not).
+
+## 10. Decommission Cloudflare — last, and not soon
+
+Only once **all** of these are true:
+
+- [ ] The new deployment has run clean for a couple of weeks
+- [ ] The data import was verified and nightly backups are running
+- [ ] M-Pesa payments reconcile into receipts on the new host
+- [ ] The rebuilt Android app (versionCode 6) is live on Play **and adopted**
+
+Then, in order:
+
+1. Delete the Worker custom domain for `tallypay.co.ke` (this also removes the
+   auto-created `AAAA 100::` record — the zone's only record).
+2. Delete the `billing-platform` Worker.
+3. **Export D1 one final time and keep the dump offline** before deleting the
+   database. That dump is your last copy of the old-world data.
+4. Let the `tallypay.co.ke` registration lapse, or park it.
+
+Until step 1, the Cloudflare deployment stays as a complete rollback: it still
+has the code, the data as of migration day, and a working domain.
 
 ---
 
