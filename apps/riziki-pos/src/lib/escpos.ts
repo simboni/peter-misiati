@@ -705,16 +705,30 @@ export function renderDeliveryNote(note: DeliveryNote, opts: ReceiptOptions = {}
   push(rule);
 
   /*
-    Item on one line, quantity on the next, indented and right-aligned.
+    THE ITEM AND ITS QUANTITY ON THE SAME LINE.
 
-    Two columns is what a 58 mm roll cannot do here: "Multipurpose Cleaner"
-    leaves eleven characters for "1 (18.5 kg)" and the two collide. The quantity
-    is the number the person counting drums is looking for, so it gets a line of
-    its own and the full width to be unambiguous in.
+    This printed the name on one line and the quantity right-aligned on the
+    next, in the belief that a 58 mm roll could not hold both — "Multipurpose
+    Cleaner" leaving eleven characters for "1 (18.5 kg)". That belief was
+    wrong about what `twoCol` does, and the result was worse than a collision:
+    a column of names down the left and a column of numbers down the right,
+    each number half a line below the thing it belonged to. The shop sent back
+    a printed note with arrows drawn on it in biro, joining each item to its
+    quantity, because that is what reading it took.
+
+    `twoCol` wraps the name into whatever the quantity leaves and puts the
+    quantity on the LAST of those lines, so it is attached whether the name is
+    short or long:
+
+        UNGEROL - 20 kg bundle          1 (20 kg)
+        Sweet Lavender mild -
+        500 ml bundle                  1 (500 ml)
+
+    Nothing collides, because the wrap is computed from the room the quantity
+    leaves rather than from the full width.
   */
   for (const line of note.lines) {
-    pushMany(wrapText(line.name, w));
-    pushMany(twoCol("", line.qty, w));
+    pushMany(twoCol(line.name, line.qty, w));
   }
   push(rule);
 

@@ -97,14 +97,44 @@ test("nothing overruns the roll, on either width", () => {
   }
 });
 
-test("a long product name keeps its quantity readable", () => {
-  // Two columns is what 58 mm cannot do: the name eats the width and the
-  // quantity — the number the person counting drums wants — gets squeezed out.
-  const text = deliveryNoteText({
-    ...NOTE,
-    lines: [{ name: "Dettol-type Disinfectant Concentrate", qty: "1 (18.5 kg)" }],
-  });
-  assert.ok(text.includes("1 (18.5 kg)"), "the quantity survives in full");
+test("every quantity sits on a line with the thing it counts", () => {
+  /*
+    THE ONE THE SHOP SENT BACK WITH ARROWS ON IT.
+
+    The name printed on one line and the quantity right-aligned on the next,
+    so the note was a column of names down the left and a column of numbers
+    down the right, each number half a line below what it belonged to. The
+    shop drew the joins in biro, because that is what reading it took.
+
+    The property that fixes it is not "the quantity is present" — it always
+    was. It is that no quantity is ever alone on a line.
+  */
+  for (const paper of [58, 80] as const) {
+    const lines = deliveryNoteText(NOTE, { paper }).split("\n");
+    for (const item of NOTE.lines) {
+      const on = lines.find((l) => l.includes(item.qty));
+      assert.ok(on, `${item.qty} is on the note at ${paper} mm`);
+      const rest = on!.replace(item.qty, "").trim();
+      assert.notEqual(rest, "", `"${item.qty}" is stranded on its own line at ${paper} mm`);
+      assert.ok(
+        item.name.includes(rest) || rest.includes(item.name) || item.name.startsWith(rest),
+        `"${on!.trim()}" should carry part of "${item.name}"`,
+      );
+    }
+  }
+});
+
+test("a name too long for the roll keeps its quantity attached anyway", () => {
+  // The case the old layout was built for. The name wraps into whatever the
+  // quantity leaves, and the quantity lands on the LAST of those lines —
+  // still beside the name, never adrift under it.
+  const text = deliveryNoteText(
+    { ...NOTE, lines: [{ name: "Dettol-type Disinfectant Concentrate", qty: "1 (18.5 kg)" }] },
+    { paper: 58 },
+  );
+  const row = text.split("\n").find((l) => l.includes("1 (18.5 kg)"))!;
+  assert.ok(row.replace("1 (18.5 kg)", "").trim().length > 0, "not alone on its line");
+  assert.ok(row.length <= 32, "and still inside 58 mm");
 });
 
 test("one line is a line, two are lines", () => {
