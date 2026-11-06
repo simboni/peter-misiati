@@ -679,6 +679,7 @@ export interface PrinterFields {
   autoPrint: boolean;
   /** Whether the paper shows what came off a haggled price. */
   showDiscounts?: boolean;
+  deliverySignature?: boolean;
   /** Whether the shop's logo is burned at the top of every thermal receipt. */
   logo?: boolean;
   /** Where the logo file is, or null when the shop has not supplied one. */
@@ -715,6 +716,7 @@ export function PrinterSettingsForm({
   const [footer, setFooter] = useState(settings.footer);
   const [autoPrint, setAutoPrint] = useState(settings.autoPrint);
   const [showDiscounts, setShowDiscounts] = useState(settings.showDiscounts ?? false);
+  const [deliverySignature, setDeliverySignature] = useState(settings.deliverySignature ?? false);
   const [logo, setLogo] = useState(settings.logo ?? false);
 
   const headerLines = header
@@ -807,6 +809,32 @@ export function PrinterSettingsForm({
             <span className="block text-xs font-normal text-muted">
               Off: the receipt shows only what was paid. What came off is still recorded, and still
               on your Discounts given report.
+            </span>
+          </span>
+        </label>
+
+        {/*
+          Off for this shop, to save roll: it is eight lines on every note.
+
+          Worth saying what it costs, because this one is not cosmetic. A
+          delivery note is the document that answers "those two jerricans
+          never arrived", and it answers it only if somebody signed it. With
+          this off the note says what left the shop, not that anyone received
+          it — fine across the counter, not fine on a run to Narok.
+        */}
+        <label className="flex items-center gap-3 rounded-xl border border-line bg-white px-3.5 py-3">
+          <input
+            type="checkbox"
+            name="delivery_signature"
+            checked={deliverySignature}
+            onChange={(e) => setDeliverySignature(e.target.checked)}
+            className="h-5 w-5"
+          />
+          <span className="text-sm font-semibold">
+            Lines to sign on the delivery note
+            <span className="block text-xs font-normal text-muted">
+              Off saves eight lines of roll on every note. On, the customer signs for the
+              goods — which is the only proof you have if a delivery is ever disputed.
             </span>
           </span>
         </label>

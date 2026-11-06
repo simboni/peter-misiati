@@ -107,6 +107,7 @@ export default async function DeliveryNotePage(props: {
           ? formatQty(l.qty_milli, l.canonical_unit)
           : `${l.units}${l.canonical_unit ? ` (${formatQty(l.qty_milli, l.canonical_unit)})` : ""}`,
     })),
+    signature: printer.deliverySignature,
     note: sale.status === "voided" ? "THIS SALE WAS VOIDED" : null,
     footer: `Goods remain the property of ${business.name} until paid for in full.`,
   };
@@ -251,7 +252,16 @@ export default async function DeliveryNotePage(props: {
           </p>
         )}
 
-        {/* ------------------------------------------------------ the signature */}
+        {/* ------------------------------------------------------ the signature
+
+          Off by default, because the shop asked: it is the tallest block on
+          the note and most deliveries are handed across the counter to
+          somebody already standing there. Switch it on under Receipt printer
+          for the runs where a dispute would be expensive — without it this is
+          a packing list, and a customer who says two jerricans never arrived
+          is answered by a signed note and by nothing else.
+        */}
+        {printer.deliverySignature ? (
         <div className="mt-6 rounded-xl border border-line p-3">
           <p className="text-[12px] font-semibold">
             Received the above goods in good order and condition.
@@ -275,6 +285,7 @@ export default async function DeliveryNotePage(props: {
             </div>
           </div>
         </div>
+        ) : null}
 
         <p className="mt-3 text-[10px] text-muted">
           Goods remain the property of {business.name} until paid for in full. Any shortage or

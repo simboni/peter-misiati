@@ -74,6 +74,7 @@ const KEY = {
   auto: "printer.auto",
   discounts: "printer.discounts",
   logo: "printer.logo",
+  deliverySignature: "printer.delivery_signature",
 } as const;
 
 export interface PrintSettings {
@@ -83,6 +84,20 @@ export interface PrintSettings {
   footer: string;
   /** Print without being asked once a sale is recorded, if a printer is paired. */
   autoPrint: boolean;
+  /**
+   * Whether a delivery note carries lines to sign on.
+   *
+   * OFF for this shop, by their own decision — it is eight lines of roll on
+   * every note, and roll costs money.
+   *
+   * Worth knowing what it buys, because it is not decoration: a delivery note
+   * is the one document that answers "those two jerricans never arrived", and
+   * it answers it only if somebody signed it. With this off the note is a
+   * packing list — it says what left the shop, not that anyone received it.
+   * Turn it back on for the runs where that matters, deliveries out of town
+   * most of all.
+   */
+  deliverySignature: boolean;
   /**
    * Whether the paper shows what came off a haggled price.
    *
@@ -129,6 +144,7 @@ export interface PrintSettingsInput {
   autoPrint?: boolean;
   showDiscounts?: boolean;
   logo?: boolean;
+  deliverySignature?: boolean;
 }
 
 /** At most six header lines — more than that and the receipt is mostly letterhead. */
@@ -165,6 +181,8 @@ export function defaultPrintSettings(): PrintSettings {
       paired simply never fires one.
     */
     autoPrint: true,
+    // The shop asked for this off, to save roll: see the field's own note.
+    deliverySignature: false,
     // The shop asked for this off: see the field's own note above.
     showDiscounts: false,
     // Off until somebody has watched it come out of the actual printer.
@@ -201,6 +219,10 @@ export function getPrintSettings(): PrintSettings {
         ? fallback.showDiscounts
         : getSetting(KEY.discounts) === "1",
     logo: getSetting(KEY.logo) === undefined ? fallback.logo : getSetting(KEY.logo) === "1",
+    deliverySignature:
+      getSetting(KEY.deliverySignature) === undefined
+        ? fallback.deliverySignature
+        : getSetting(KEY.deliverySignature) === "1",
     savedAt: savedAtStamp(),
   };
 }
@@ -232,6 +254,7 @@ export function savePrintSettings(input: PrintSettingsInput, userId?: number | n
   setSetting(KEY.auto, input.autoPrint ? "1" : "0");
   setSetting(KEY.discounts, input.showDiscounts ? "1" : "0");
   setSetting(KEY.logo, input.logo ? "1" : "0");
+  setSetting(KEY.deliverySignature, input.deliverySignature ? "1" : "0");
 
   audit(userId ?? null, "printer_settings_save", "settings", null, `${paper} mm, ${header.length} header line(s)`);
 

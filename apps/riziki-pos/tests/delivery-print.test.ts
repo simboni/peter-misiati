@@ -54,12 +54,36 @@ test("a delivery note says what was handed over, and never what it cost", () => 
   assert.ok(!/KES/.test(text), "no money reaches a delivery note");
 });
 
-test("the signature block is printed, because it is the reason the paper exists", () => {
-  const text = deliveryNoteText(NOTE);
+test("the signature block prints when the shop asks for it", () => {
+  const text = deliveryNoteText({ ...NOTE, signature: true });
   assert.match(text, /Received in good order/);
   assert.match(text, /Name\s+\.{4,}/);
   assert.match(text, /Sign\s+\.{4,}/);
   assert.match(text, /Date\s+\.{4,}/);
+});
+
+test("and is left off otherwise, which is what saves the roll", () => {
+  /*
+    The shop asked for this: eight lines on every note, and most of their
+    deliveries are handed across the counter to somebody already standing
+    there. What it gives up is real — without a signature the note says what
+    LEFT the shop, not that anybody received it — so it is a switch on the
+    printer screen and not a deletion.
+  */
+  const text = deliveryNoteText(NOTE);
+  assert.doesNotMatch(text, /Received in good order/);
+  assert.doesNotMatch(text, /Sign\s+\.{4,}/);
+
+  // Everything that makes it a delivery note is still there.
+  assert.match(text, /DELIVERY NOTE/);
+  assert.match(text, /DN INV-00002/);
+  for (const line of NOTE.lines) assert.ok(text.includes(line.name));
+});
+
+test("turning it off is worth eight lines of roll", () => {
+  const withBlock = deliveryNoteText({ ...NOTE, signature: true }).split("\n").length;
+  const without = deliveryNoteText(NOTE).split("\n").length;
+  assert.equal(withBlock - without, 8, "the saving the shop was promised");
 });
 
 test("nothing overruns the roll, on either width", () => {

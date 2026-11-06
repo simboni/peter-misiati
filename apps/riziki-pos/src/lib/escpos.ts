@@ -640,9 +640,15 @@ export function blocksToBytes(blocks: ReceiptBlock[], opts: ReceiptOptions = {})
  * different question. The invoice says what is owed; this says what was handed
  * over, and it is the one the person receiving the goods signs. A customer in
  * Narok who says two jerricans never arrived is answered by a signed note and
- * by nothing else, so the signature block is not optional furniture: it is the
- * reason the document exists, and it is printed even on a 58 mm roll where
- * space is dear.
+ * by nothing else.
+ *
+ * The signature block is therefore a decision, not decoration, and it is the
+ * shop's to make: eight lines of roll on every note is real money, and most
+ * of their deliveries are handed over the counter to somebody standing there.
+ * `signature` turns it off; the shop has it off by default and turns it on
+ * for the runs where a dispute would be expensive, out of town most of all.
+ * Without it this is a packing list — it says what left the shop, not that
+ * anybody received it.
  */
 export interface DeliveryNote {
   /** Shop name first, then address / phone — the same header a receipt uses. */
@@ -658,6 +664,11 @@ export interface DeliveryNote {
   servedBy?: string | null;
   /** Quantities only. The amount is the invoice's business, not this one's. */
   lines: Array<{ name: string; qty: string }>;
+  /**
+   * Print lines to sign on. See the note above: off saves eight lines of roll
+   * and gives up the only proof the goods were received.
+   */
+  signature?: boolean;
   note?: string | null;
   footer?: string | null;
 }
@@ -710,15 +721,18 @@ export function renderDeliveryNote(note: DeliveryNote, opts: ReceiptOptions = {}
   const count = note.lines.length;
   pushMany(wrapText(`${count} ${count === 1 ? "line" : "lines"} of goods. This note is not a bill.`, w));
 
-  // The point of the document.
-  push("");
-  push("Received in good order:");
-  push("");
-  push("Name  " + ".".repeat(Math.max(4, w - 6)));
-  push("");
-  push("Sign  " + ".".repeat(Math.max(4, w - 6)));
-  push("");
-  push("Date  " + ".".repeat(Math.max(4, w - 6)));
+  // Eight lines of roll, and the only thing that makes this more than a
+  // packing list. The shop chooses — see the note on DeliveryNote.
+  if (note.signature) {
+    push("");
+    push("Received in good order:");
+    push("");
+    push("Name  " + ".".repeat(Math.max(4, w - 6)));
+    push("");
+    push("Sign  " + ".".repeat(Math.max(4, w - 6)));
+    push("");
+    push("Date  " + ".".repeat(Math.max(4, w - 6)));
+  }
 
   if (note.note) {
     push(rule);
