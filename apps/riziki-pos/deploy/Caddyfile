@@ -68,10 +68,17 @@ www.rizikichemicals.co.ke {
 
 # The shop system.
 pos.rizikichemicals.co.ke {
-	# Left as the service name because it is what is live and working, and a
-	# name no other project here uses. Worth making `riziki-pos-pos-1` the next
-	# time this file is touched with the shop closed.
-	reverse_proxy pos:3100
+	# By container name, like the website above.
+	#
+	# This was left as `pos` on the reasoning that it was live and working and
+	# that no other project here uses that name. The first half was true; the
+	# second was luck. `web` was the same kind of luck until somebody else's
+	# compose file also called a service `web`, and then this shop's domain
+	# started serving their site on every other refresh. A till is not a thing
+	# to leave resting on which service names the next project happens to
+	# choose, so it is pinned too — `container_name` in docker-compose.yml
+	# guarantees the name on this end.
+	reverse_proxy riziki-pos-pos-1:3100
 	encode zstd gzip
 
 	# The headers a browser needs to be told, because it assumes the worst

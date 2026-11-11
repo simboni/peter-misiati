@@ -75,8 +75,18 @@ echo "  Website"
 if echo "$web_stamp" | grep -q '^commit='; then
   echo "$web_stamp" | sed 's/^/    /'
 else
-  echo "    (no build stamp — this site was built before stamping, so it is older"
-  echo "     than the stamping itself and is certainly stale)"
+  # Two very different faults look identical from here, and saying only the
+  # milder one cost this shop weeks: the site was serving ANOTHER COMPANY'S
+  # WEBSITE, and the advice on screen said "the site build is stale".
+  echo "    NO BUILD STAMP. Either this site was built before stamping, or —"
+  echo "    check this first — the domain is not reaching our container at all."
+  echo "    Prove which, by asking the proxy what the name resolves to:"
+  echo "      docker exec edge-caddy getent hosts riziki-pos-web-1"
+  echo "      docker exec edge-caddy wget -qO- http://riziki-pos-web-1/build.txt"
+  echo "    If the second prints a commit, the container is fine and the route"
+  echo "    is wrong: the edge is serving a config it loaded before the route"
+  echo "    was corrected. Caddy never re-reads a file on its own —"
+  echo "      docker exec edge-caddy caddy reload --config /etc/caddy/Caddyfile"
   fails=$((fails + 1))
 fi
 
@@ -105,7 +115,9 @@ else
     echo "what a stale image looks like from the outside. Force it:"
     echo "  docker compose build --no-cache web && docker compose up -d web"
   else
-    echo "If the failures are website pages or pictures, the site build is stale:"
+    echo "If the failures are website pages or pictures, either the site build is"
+    echo "stale or the domain is reaching somebody else's container. Check which"
+    echo "way round before rebuilding anything — the stamp section above says how."
     echo "  cd \"\$(dirname \"\$0\")/..\" && docker compose up -d --build web"
   fi
   exit 1

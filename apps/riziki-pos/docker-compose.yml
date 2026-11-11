@@ -11,6 +11,17 @@
 services:
   pos:
     build: .
+    # PINNED, because the shared proxy addresses this container BY NAME.
+    #
+    # Compose otherwise names containers after the directory it is run from,
+    # so renaming or moving this checkout silently renames the container and
+    # the edge's route stops resolving. Worse, the name it derives — `pos` as
+    # a network alias — is a name other projects on this box could also use,
+    # and Docker's DNS answers an ambiguous alias with ALL of the matching
+    # containers, in rotation. That is not theory: the website was addressed
+    # as `web`, several projects here have a service called `web`, and the
+    # shop's own domain served a different company's site on every refresh.
+    container_name: riziki-pos-pos-1
     restart: unless-stopped
     expose:
       - "3100"
@@ -24,6 +35,8 @@ services:
   # for why this is not a mounted directory any more.
   web:
     build: ../riziki-web
+    # Pinned for the same reason, and this is the one it actually happened to.
+    container_name: riziki-pos-web-1
     restart: unless-stopped
     expose:
       - "80"
