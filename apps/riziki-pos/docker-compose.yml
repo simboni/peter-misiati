@@ -23,6 +23,16 @@ services:
     # shop's own domain served a different company's site on every refresh.
     container_name: riziki-pos-pos-1
     restart: unless-stopped
+    # Docker's default log driver writes JSON to disk and NEVER rotates it.
+    # A year of a chatty container is tens of gigabytes, and the first symptom
+    # is a disk with no room for the shop's database to write a transaction.
+    # Thirty megabytes is several days of this app's output, which is longer
+    # than anybody looks back.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     expose:
       - "3100"
     volumes:
@@ -38,6 +48,16 @@ services:
     # Pinned for the same reason, and this is the one it actually happened to.
     container_name: riziki-pos-web-1
     restart: unless-stopped
+    # Docker's default log driver writes JSON to disk and NEVER rotates it.
+    # A year of a chatty container is tens of gigabytes, and the first symptom
+    # is a disk with no room for the shop's database to write a transaction.
+    # Thirty megabytes is several days of this app's output, which is longer
+    # than anybody looks back.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     expose:
       - "80"
 
