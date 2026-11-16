@@ -58,9 +58,35 @@ head2 "Where the space has gone"
 say "  Walking the disk. On a full filesystem this takes a few minutes and"
 say "  prints nothing while it works — it has not hung."
 say ""
-for d in /var/lib/docker /srv /root /home /var/log; do
-  [ -d "$d" ] && du -sh "$d" 2>/dev/null | sed 's/^/  /'
+# Docker is not always in /var/lib/docker, and guessing wrong hides the
+# bulk of the disk. Ask Docker where its data actually lives.
+droot=$(docker info --format '{{.DockerRootDir}}' 2>/dev/null)
+[ -n "$droot" ] || droot=/var/lib/docker
+say "  Docker keeps its data in: $droot"
+say ""
+
+walked=0
+for d in "$droot" /srv /root /home /var/log /var/lib/containerd /opt /var/cache; do
+  [ -d "$d" ] || continue
+  kb=$(du -sxk "$d" 2>/dev/null | cut -f1)
+  [ -n "$kb" ] || continue
+  walked=$((walked + kb))
+  du -sh "$d" 2>/dev/null | sed 's/^/  /'
 done
+say ""
+
+# Every directory above, added up, should come close to what df calls used.
+# When it does not, the missing space is real and is NOT in any of them.
+usedkb=$(df -k / | awk 'NR==2 { print $3 }')
+say "  walked: $((walked / 1024)) MB of the $((usedkb / 1024)) MB df calls used"
+gap=$((usedkb - walked))
+if [ "$gap" -gt 10485760 ]; then
+  warn "$((gap / 1024 / 1024)) GB is used but sits in none of the directories above."
+  warn "Usually that is files already deleted but still held open by a running"
+  warn "process — the space comes back only when the process is restarted."
+  say "  Find them with:  lsof -nP +L1 2>/dev/null | awk '\$NF == 0 || \$(NF-1) == 0'"
+  say "  Or walk the whole root a level at a time:  du -xh --max-depth=1 / | sort -rh | head -20"
+fi
 say ""
 say "  biggest ten directories outside Docker:"
 du -xh --max-depth=3 /srv /root /home 2>/dev/null | sort -rh | head -10 | sed 's/^/    /'
@@ -83,8 +109,15 @@ say "  total in container logs: $(numfmt --to=iec --suffix=B "$total" 2>/dev/nul
 [ "$total" -gt 1073741824 ] && warn "over a gigabyte of logs, and nothing rotates them"
 
 head2 "Memory and CPU, per container"
-docker stats --no-stream --format '  {{.Name}}\t{{.MemUsage}}\t{{.MemPerc}}\t{{.CPUPerc}}' 2>/dev/null \
-  | sort -t'	' -k3 -rh | head -25
+# Sort by megabytes actually held, not by percentage of a limit. A container
+# with no limit is measured against the whole machine, so its percentage is
+# always tiny and it sinks to the bottom of a sorted list — which is exactly
+# the container you need to see.
+docker stats --no-stream --format '{{.Name}}\t{{.MemUsage}}\t{{.MemPerc}}\t{{.CPUPerc}}' 2>/dev/null \
+  | awk -F'\t' '{ split($2, a, " "); v = a[1] + 0;
+      if (a[1] ~ /GiB/) v *= 1024; if (a[1] ~ /KiB/) v /= 1024;
+      printf "%9.1f\t%s\t%s\t%s\t%s\n", v, $1, $2, $3, $4 }' \
+  | sort -rn | cut -f2- | sed 's/^/  /'
 
 head2 "Containers with no memory cap"
 none=0
