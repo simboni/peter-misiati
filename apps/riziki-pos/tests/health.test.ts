@@ -600,3 +600,79 @@ test("sizes of different products are not gathered together", () => {
     `one for the second: ${names.join(" | ")}`,
   );
 });
+
+test("Ungerol: a price change does not put one row on the screen per delivery", () => {
+  /*
+    THE COMPLAINT THIS CLOSES, in the shop's own words: "worth checking brought
+    too many checks, yet they are genuine, they come from a change in price."
+
+    This check reads every delivery a product ever had against the price it is
+    sold for today, which is the comparison that catches a drum bought dearer
+    than it sells for. But the price is one figure and the deliveries are many,
+    so moving the price swings the whole history through the bar at once.
+    Ungerol is a third of this shop's turnover and is delivered constantly —
+    four deliveries, four true findings, one cause.
+
+    Same 25 kg containers throughout, so the container-size check stays quiet
+    and these four lines reach the gathering rather than being spoken for.
+  */
+  const ung = product("UNGEROL SURF", "kg", 25, 395);
+  delivery(ung, 45, 25, 506250, "INV-UNG1"); // 1,125 kg at 450 — 55 over, 61,875 down
+  delivery(ung, 20, 25, 210000, "INV-UNG2"); //   500 kg at 420 — 25 over, 12,500 down
+  delivery(ung, 10, 25, 107500, "INV-UNG3"); //   250 kg at 430 — 35 over,  8,750 down
+  delivery(ung, 8, 25, 82000, "INV-UNG4"); //     200 kg at 410 — 15 over,  3,000 down
+
+  const about = checkBooks().findings.filter((f) => f.title.includes("UNGEROL SURF"));
+  const found = about.filter((f) => f.kind === "Bought for more than it sells for");
+  assert.equal(
+    found.length,
+    1,
+    `four deliveries, one cause, one row — got ${found.length}: ${found.map((f) => f.title).join(" | ")}`,
+  );
+  assert.ok(found[0].title.includes("4 deliveries"), `and it counts them: ${found[0].title}`);
+
+  /*
+    Two rows in total, and the second is not a repeat of the first.
+
+    Buying four loads above the asking price drags the average cost of the
+    shelf above it too, so "costs more than it is sold for" is also true — and
+    it is a different sentence about a different thing. The deliveries are
+    history and cannot be changed; the shelf is losing money on every kilo
+    sold TODAY, which is the one that needs a decision this morning. Four rows
+    collapsing to two is the fix. Two collapsing to one would be hiding.
+  */
+  assert.equal(
+    about.length,
+    2,
+    `the notes and today's shelf, once each: ${about.map((f) => f.title).join(" | ")}`,
+  );
+  assert.ok(
+    about.some((f) => f.kind === "Priced under cost"),
+    "the live loss on the shelf is still said",
+  );
+
+  // Every delivery is still named with its own rate. Nothing was thresholded out.
+  for (const rate of ["450.00", "420.00", "430.00", "410.00"]) {
+    assert.ok(found[0].detail.includes(rate), `${rate} is still listed: ${found[0].detail}`);
+  }
+  // 61,875 + 12,500 + 8,750 + 3,000.
+  assert.ok(found[0].detail.includes("86,125.00"), `and the total: ${found[0].detail}`);
+  // And it points at the one thing that explains all four.
+  assert.ok(found[0].fix?.includes("asking price first"), `aimed at the cause: ${found[0].fix}`);
+  assert.equal(found[0].severity, "high", "money lost is still money lost");
+});
+
+test("one dear delivery still reads exactly as it always did", () => {
+  // The gathering is for the flood. A single delivery keeps its own sentence,
+  // naming the date and the shillings, because there is no cause to generalise.
+  const one = product("LONE DRUM", "kg", 25, 300);
+  delivery(one, 20, 25, 160000, "INV-LD1"); // 500 kg at 320 — 20 over, 10,000 down
+
+  const found = checkBooks()
+    .findings.filter((f) => f.title.includes("LONE DRUM"))
+    .filter((f) => f.kind === "Bought for more than it sells for");
+  assert.equal(found.length, 1);
+  assert.ok(found[0].title.includes("landed at KES 320.00"), found[0].title);
+  assert.ok(found[0].detail.includes("10,000.00"), found[0].detail);
+  assert.ok(!found[0].title.includes("deliveries"), "not gathered: it is one");
+});

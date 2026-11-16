@@ -66,6 +66,25 @@ export interface Finding {
   /** The product this is about, where it is about exactly one. */
   item?: number;
   /**
+   * WHAT A FINDING NEEDS IN ORDER TO BE GATHERED WITH ITS SIBLINGS.
+   *
+   * Some checks read a whole history against ONE present-day figure: every
+   * delivery of a product against the price it is sold for today. Change that
+   * one price and the entire history trips at once — nine deliveries, nine
+   * findings, every one of them arithmetically true and all nine saying the
+   * same thing. The screen fills and stops being read, which is worse than
+   * the nine rows are useful.
+   *
+   * So a check that can flood says who the finding is about (`subject`),
+   * gives one compact line to stand in for itself in a gathered row
+   * (`brief`), and says how much money that line concerns (`stake`). What
+   * gathers them is in `checkBooks`, after the per-line deduplication, so a
+   * line already explained by a more specific check is not swept back in.
+   */
+  subject?: string;
+  brief?: string;
+  stake?: number;
+  /**
    * The shop's date the thing happened — WHERE THERE IS ONE.
    *
    * Half these checks are about an event: a delivery typed on a Tuesday, a sale
@@ -578,6 +597,12 @@ export function landedAbovePrice(lines: LineRow[]): Finding[] {
           fix: "Check the delivery note against the quantity and the total. A wrong container size or a missing zero both land here.",
           href: "/purchases",
           at: day(l.at),
+          item: l.item_id,
+          subject: l.item,
+          brief:
+            `${day(l.at)} at ${kes(rate)} a ${l.unit} — ${(rate / item.price_cents).toFixed(1)} times ` +
+            `the asking price, ${kes(l.cost_cents)} on the note`,
+          stake: l.cost_cents,
         };
       }),
   );
@@ -635,6 +660,12 @@ export function boughtAboveShelf(lines: LineRow[]): Finding[] {
         fix: "Check the delivery note. If the price is right, the asking price has to move before this drum is sold.",
         href: `/stock/${l.item_id}`,
         at: day(l.at),
+        item: l.item_id,
+        subject: l.item,
+        brief:
+          `${day(l.at)} at ${kes(rate)} a ${l.unit} — ${kes(over)} over, ` +
+          `${qty(l.qty_milli, l.unit)} in, ${kes(bleed)} down`,
+        stake: bleed,
       })),
   );
 }
@@ -1000,6 +1031,63 @@ export function checkBooks(range: DateRange | null = null): HealthReport {
   }
 
   /*
+    AND THE HISTORY THAT TRIPPED ALL AT ONCE BECAUSE ONE PRICE MOVED.
+
+    These two checks read every delivery a product ever had against the single
+    price it is sold for TODAY. That is the right comparison and it catches
+    what nothing else can — but it means the present-day figure is a hinge:
+    move it, and the whole history swings through the bar together. Ungerol is
+    a third of this shop's turnover and is delivered constantly, so one price
+    change put nine true findings on the screen with one cause between them,
+    and a screen like that stops being opened.
+
+    Gathered per product, after the per-line deduplication above so a delivery
+    already explained by its container size is not swept back in. Every date,
+    every rate and every shilling is still printed — in one row instead of
+    nine — and the row says what nine-at-once actually means: look at the
+    price before you look for nine delivery notes.
+  */
+  const GATHER: Record<string, string> = {
+    "Bought for more than it sells for": "deliveries landed above the asking price",
+    "Delivery dearer than the selling price": "deliveries landed far above the asking price",
+  };
+  const gathered: Finding[] = [];
+  const sameCause = new Map<string, Finding[]>();
+  for (const f of deduped) {
+    if (!GATHER[f.kind] || f.item === undefined || !f.brief) {
+      gathered.push(f);
+      continue;
+    }
+    const key = `${f.kind}:${f.item}`;
+    const list = sameCause.get(key);
+    if (list) list.push(f);
+    else sameCause.set(key, [f]);
+  }
+  for (const [, group] of sameCause) {
+    if (group.length === 1) {
+      gathered.push(group[0]);
+      continue;
+    }
+    group.sort((a, b) => (b.at ?? "").localeCompare(a.at ?? ""));
+    const first = group[0];
+    const total = group.reduce((sum, f) => sum + (f.stake ?? 0), 0);
+    gathered.push({
+      ...first,
+      id: `gathered:${first.kind.replace(/[^a-z]+/gi, "-")}:${first.item}`,
+      title: `${first.subject} — ${group.length} ${GATHER[first.kind]}`,
+      detail:
+        `Every one of these landed above what the shop asks for it. When a whole history ` +
+        `trips at once it is usually the asking price that moved, not ${group.length} delivery ` +
+        `notes — ${kes(total)} is at stake across them:\n` +
+        group.map((f) => `· ${f.brief}`).join("\n"),
+      fix:
+        "Check the asking price first, under Products and prices: one price explains all of " +
+        "these at once. If the price is right, then each of these deliveries needs its note checked.",
+      at: first.at,
+    });
+  }
+
+  /*
     A wrong bundle price and the sale it produced are one mistake.
 
     "Sold for less than it holds" is the trap — a size sitting on the till at a
@@ -1009,9 +1097,9 @@ export function checkBooks(range: DateRange | null = null): HealthReport {
     stops the next one.
   */
   const trapped = new Set(
-    deduped.filter((f) => f.id.startsWith("bundle") && f.item).map((f) => f.item!),
+    gathered.filter((f) => f.id.startsWith("bundle") && f.item).map((f) => f.item!),
   );
-  const final = deduped.filter((f) => !(f.id.startsWith("charged:") && f.item && trapped.has(f.item)));
+  const final = gathered.filter((f) => !(f.id.startsWith("charged:") && f.item && trapped.has(f.item)));
 
   /*
     An item priced under its own cost explains every size of it at once.
