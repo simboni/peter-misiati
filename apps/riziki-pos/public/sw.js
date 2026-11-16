@@ -74,6 +74,25 @@ const WARM_ROUTES = [
 
 /** How long the network gets when we already hold a usable copy. */
 const SLOW_NETWORK_MS = 2500;
+
+/**
+ * Screens where a stale copy is worse than a slow one.
+ *
+ * Everywhere else, the trade in `networkFirst` is right: a cached screen after
+ * 2.5 seconds beats a spinner, and the figures on it are a few minutes old at
+ * worst. The till is not like that. What it shows is not information, it is
+ * the price the customer is charged — and a cached till goes on charging the
+ * old price after the owner has changed it, with nothing on the screen to say
+ * so. That was reported as "the prices don't change at the counter", and it
+ * reproduces exactly: raise a price, reload the till on a slow link, and the
+ * old one is still there.
+ *
+ * So these wait for the real answer while the browser believes it is online.
+ * They still fall back to the cache when the request genuinely fails or the
+ * connection is gone — a till that will not open is worse than a till showing
+ * yesterday's prices, and that is the case the offline mode exists for.
+ */
+const MUST_BE_FRESH = ["/sell"];
 /** And when we hold nothing, so waiting is the only option worth taking. */
 const NO_FALLBACK_MS = 12000;
 
@@ -229,8 +248,20 @@ async function networkFirst(request, url) {
   // how a navigation used to take a minute to reach the same answer.
   if (!self.navigator.onLine && cached) return cached;
 
+  /*
+    How long to wait before giving up and serving the saved copy.
+
+    A cached screen normally buys the short budget: 2.5 seconds, then show
+    what we have. The till does not get that shortcut — see MUST_BE_FRESH. On
+    a slow link it waits, because the alternative is charging the wrong money.
+  */
+  const fresh = MUST_BE_FRESH.some(
+    (path) => url.pathname === path || url.pathname.startsWith(`${path}/`),
+  );
+  const budget = cached && !fresh ? SLOW_NETWORK_MS : NO_FALLBACK_MS;
+
   try {
-    const response = await fetchWithTimeout(request, cached ? SLOW_NETWORK_MS : NO_FALLBACK_MS);
+    const response = await fetchWithTimeout(request, budget);
     if (storable(request, response)) cache.put(key, response.clone());
     return response;
   } catch {

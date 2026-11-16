@@ -53,6 +53,7 @@ export function EditFormulaForm({
   name: nameInitial = "",
   batchUnit: batchUnitInitial = "L",
   batchPrice: batchPriceInitial = "",
+  soldAs = null,
   chemicals,
   refLitres: refLitresInitial,
   steps,
@@ -70,6 +71,15 @@ export function EditFormulaForm({
   batchUnit?: string;
   /** What a whole batch of it sells for, in shillings. Empty if never priced. */
   batchPrice?: string;
+  /**
+   * The product this recipe is mixed in advance to make, when it is one.
+   *
+   * Its presence changes what a price here MEANS, which is why the form has
+   * to know: a recipe with an output product is not sold from the counter at
+   * all — the product is — so a batch price typed here governs nothing. See
+   * the field below.
+   */
+  soldAs?: { id: number; name: string } | null;
   chemicals: ChemicalOption[];
   refLitres: string;
   steps: string;
@@ -206,10 +216,38 @@ export function EditFormulaForm({
           </Field>
         </div>
 
-        {/* Under the quantity, because it is a price FOR that quantity. The
-            counter charges this for a batch and takes the chemicals off the
-            shelf in the amounts below, which appear on the receipt as amounts
-            with no money against them. */}
+        {/*
+          THE PRICE BOX IS NOT SHOWN WHEN THE RECIPE MAKES A PRODUCT.
+
+          A recipe mixed in advance is never offered at the counter — the till
+          filters it out, because its ingredients left the shelf when the batch
+          was mixed and billing it again would take them twice. What the
+          customer buys is the PRODUCT, at the product's price.
+
+          So a price typed here would be written, saved, confirmed, and used by
+          nothing. The owner reported exactly that: changed the price on the
+          recipe, changed it on the product, and the counter did not move. The
+          box is replaced by the one sentence that was missing, and a link to
+          the screen that does set the price.
+        */}
+        {soldAs ? (
+          <div className="rounded-xl border border-line bg-wash px-3.5 py-3 text-[13px]">
+            <span className="font-semibold">
+              Mixed in advance, so the counter sells {soldAs.name} — not this recipe.
+            </span>{" "}
+            <span className="text-muted">
+              Its price and sizes are set on {soldAs.name} under Products &amp; prices. A price
+              typed here would change nothing at the till.
+            </span>{" "}
+            <a href={`/items#item-${soldAs.id}`} className="font-bold text-brand hover:underline">
+              Set the price on {soldAs.name} →
+            </a>
+          </div>
+        ) : (
+        /* Under the quantity, because it is a price FOR that quantity. The
+           counter charges this for a batch and takes the chemicals off the
+           shelf in the amounts below, which appear on the receipt as amounts
+           with no money against them. */
         <Field
           label={batchQty > 0 ? `Price for ${refLitres} ${batchUnit}` : "Price for a batch"}
           hint="What the shop charges for a whole batch of it. Leave empty if this one is only ever mixed to order."
@@ -228,6 +266,7 @@ export function EditFormulaForm({
             placeholder="3200"
           />
         </Field>
+        )}
 
         {perUnit > 0 ? (
           <p className="-mt-1 text-[12px] font-bold text-brand-dark tnum">

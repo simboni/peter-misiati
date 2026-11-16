@@ -92,12 +92,23 @@ async function saveFormula(_prev: SaveState, formData: FormData): Promise<SaveSt
       userId: owner.id,
     });
 
-    // The batch price, from the box under the quantity it is a price for.
-    // Merged with any other sizes rather than replacing them — see `batchSizes`.
-    saveBundles(
-      { formulaId },
-      batchSizes(formulaBundles(formulaId), refLitres, formData.get("batchPrice")),
-    );
+    /*
+      The batch price, from the box under the quantity it is a price for.
+      Merged with any other sizes rather than replacing them — see `batchSizes`.
+
+      Skipped entirely when the recipe makes a product. The counter never
+      offers such a recipe — it sells the product — so a price written here
+      would govern nothing, and writing it anyway is how the owner came to
+      believe the till was ignoring them. The form does not show the box in
+      that case either; this is the server refusing to take it on a hand-made
+      POST, which is the half that actually enforces anything.
+    */
+    if (formulaById(formulaId)?.output_item_id == null) {
+      saveBundles(
+        { formulaId },
+        batchSizes(formulaBundles(formulaId), refLitres, formData.get("batchPrice")),
+      );
+    }
   } catch (err) {
     if (err instanceof BundleError) return { error: err.message };
     return { error: err instanceof Error ? err.message : "Could not save the formula." };
@@ -105,6 +116,9 @@ async function saveFormula(_prev: SaveState, formData: FormData): Promise<SaveSt
 
   revalidatePath(`/formulas/${formulaId}`);
   revalidatePath("/formulas");
+  // The till too. Every other screen that can move a price says this; this one
+  // did not, and a recipe's sizes are prices the counter charges.
+  revalidatePath("/sell");
   // Outside the catch: redirect works by throwing, and swallowing it would
   // leave the owner staring at a form that had already saved.
   redirect(
@@ -235,6 +249,11 @@ export default async function FormulaDetailPage(props: {
           batchUnit={shown.ref_unit}
           // Seeded from the size that matches the batch, so the box under the
           // quantity shows the price it is already selling at rather than blank.
+          soldAs={
+            formula.output_item_id !== null && outputName
+              ? { id: formula.output_item_id, name: outputName }
+              : null
+          }
           batchPrice={(() => {
             const at = formulaBundles(formulaId).find(
               (b) => b.sizeMilli === shown.ref_size_milli,
