@@ -83,7 +83,7 @@ function Row({ f }: { f: Finding }) {
       </div>
 
       <h2 className="mt-1 text-base font-bold leading-snug">{f.title}</h2>
-      <p className="mt-1 text-sm text-muted">{f.detail}</p>
+      <p className="mt-1 whitespace-pre-line text-sm text-muted">{f.detail}</p>
 
       {f.fix ? (
         <p className="mt-1.5 text-sm">

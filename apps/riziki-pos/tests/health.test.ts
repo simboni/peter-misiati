@@ -538,3 +538,65 @@ test("a recipe size that pays for itself is left alone", () => {
     0,
   );
 });
+
+test("a cost that moved fills one row, not one per size", () => {
+  /*
+    THE FLOOD THIS CLOSES.
+
+    The real complaint: a price change brought so many findings that the screen
+    stopped being worth opening, and every one of them was true. One chemical
+    carries four sizes, the cost moves under all four at once, and four
+    identical conclusions arrive with one cause between them.
+
+    Loose asks 400 and costs 365, so the item itself is fine and nothing here
+    is about the counter price. The sizes were set when the chemical cost 300.
+  */
+  const soda = product("SODA ASH DENSE", "kg", 50, 400);
+  delivery(soda, 10, 50, 182500, "INV-SA1"); // 365/kg
+
+  bundle(soda, 50, 17000); // 340/kg
+  bundle(soda, 25, 8600); //  344/kg
+  bundle(soda, 10, 3500); //  350/kg
+  bundle(soda, 5, 1800); //   360/kg — all four under the 365 cost
+
+  const found = checkBooks().findings.filter((f) => f.title.includes("SODA ASH DENSE"));
+  assert.equal(found.length, 1, `one cause, one row, got: ${found.map((f) => f.title).join(" | ")}`);
+  assert.ok(found[0].title.includes("4 sizes"), `and it says how many: ${found[0].title}`);
+
+  // Nothing is thresholded away: every size is still named with its own figures.
+  for (const size of ["50 kg", "25 kg", "10 kg", "5 kg"]) {
+    assert.ok(found[0].detail.includes(size), `${size} is still listed: ${found[0].detail}`);
+  }
+  // 50 kg holds 18,250 and fetches 17,000: 1,250 short on that one alone.
+  assert.ok(found[0].detail.includes("1,250.00"), `with its own loss: ${found[0].detail}`);
+  // 1,250 + 525 + 150 + 25 across one of each.
+  assert.ok(found[0].detail.includes("1,950.00"), `and the total: ${found[0].detail}`);
+  assert.equal(found[0].severity, "high", "a loss is still a loss");
+});
+
+test("sizes of different products are not gathered together", () => {
+  // The gathering is per parent. Two products going wrong at once is two
+  // things to fix and must read as two.
+  const a = product("CAUSTIC PEARL", "kg", 25, 300);
+  delivery(a, 10, 25, 70000, "INV-CP1"); // 280/kg
+  bundle(a, 25, 6500);
+  bundle(a, 10, 2600);
+
+  const b = product("SLES PASTE", "kg", 50, 420);
+  delivery(b, 4, 50, 80000, "INV-SL1"); // 400/kg
+  bundle(b, 50, 19000);
+  bundle(b, 20, 7600);
+
+  const found = checkBooks().findings.filter((f) => f.kind === "Sold for less than it holds");
+  const names = found.map((f) => f.title);
+  assert.equal(
+    names.filter((t) => t.includes("CAUSTIC PEARL")).length,
+    1,
+    `one row for the first: ${names.join(" | ")}`,
+  );
+  assert.equal(
+    names.filter((t) => t.includes("SLES PASTE")).length,
+    1,
+    `one for the second: ${names.join(" | ")}`,
+  );
+});

@@ -280,7 +280,30 @@ function twinNames(): Finding[] {
  * recipe with an ingredient nothing is stocked for, is not evidence of anything.
  */
 export function bundleUnderContents(): Finding[] {
-  const out: Finding[] = [];
+  /*
+    ONE ROW PER MISTAKE, NOT ONE PER SIZE.
+
+    A cost moves on one chemical and every size of it falls under its contents
+    in the same instant — the 1 kg, the 5, the 20, the 45. Four findings, all
+    true, all the same thing to put right. That is how a list worth reading
+    becomes a list that is scrolled past, and it is the reason a single price
+    change was able to fill this screen.
+
+    So the sizes belonging to one parent are gathered into one finding that
+    names each of them. The arithmetic is untouched: nothing is suppressed,
+    nothing is thresholded away, and the figures for every size are still
+    printed. Only the row count changes.
+
+    A parent with one bad size keeps the sentence it always had, word for word.
+    The gathering is for the flood, and a flood of one is not a flood.
+  */
+  const rows: {
+    parent: string;
+    name: string;
+    loss: number;
+    line: string;
+    finding: Finding;
+  }[] = [];
 
   for (const b of all<{
     id: number;
@@ -295,22 +318,29 @@ export function bundleUnderContents(): Finding[] {
             i.id AS item_id, i.name, i.canonical_unit AS unit, i.cost_cents
        FROM bundles b
        JOIN items i ON i.id = b.item_id
-      WHERE b.active = 1 AND i.active = 1 AND b.price_cents > 0 AND i.cost_cents > 0`,
+      WHERE b.active = 1 AND i.active = 1 AND b.price_cents > 0 AND i.cost_cents > 0
+      ORDER BY b.size_milli DESC`,
   )) {
     const inside = Math.round((b.cost_cents * b.size_milli) / MILLI);
     if (b.price_cents > inside) continue;
-    out.push({
-      id: `bundle:${b.id}`,
-      severity: "high",
-      kind: "Sold for less than it holds",
-      title: `${b.name} — ${qty(b.size_milli, b.unit)} is on the till at ${kes(b.price_cents)}`,
-      detail:
-        `The ${qty(b.size_milli, b.unit)} inside it cost ${kes(inside)} at ${kes(b.cost_cents)} a ` +
-        `${b.unit}, so every one sold loses ${kes(inside - b.price_cents)}. Loose, the shop ` +
-        `charges ${kes(Math.round((priceOfItem(b.item_id) * b.size_milli) / MILLI))} for the same amount.`,
-      fix: "Fix the price on this size under Products and prices. Until it is changed, the next person to tap it sells another one.",
-      href: `/items/${b.item_id}`,
-      item: b.item_id,
+    rows.push({
+      parent: `item:${b.item_id}`,
+      name: b.name,
+      loss: inside - b.price_cents,
+      line: `${qty(b.size_milli, b.unit)} at ${kes(b.price_cents)} holds ${kes(inside)} — loses ${kes(inside - b.price_cents)} each`,
+      finding: {
+        id: `bundle:${b.id}`,
+        severity: "high",
+        kind: "Sold for less than it holds",
+        title: `${b.name} — ${qty(b.size_milli, b.unit)} is on the till at ${kes(b.price_cents)}`,
+        detail:
+          `The ${qty(b.size_milli, b.unit)} inside it cost ${kes(inside)} at ${kes(b.cost_cents)} a ` +
+          `${b.unit}, so every one sold loses ${kes(inside - b.price_cents)}. Loose, the shop ` +
+          `charges ${kes(Math.round((priceOfItem(b.item_id) * b.size_milli) / MILLI))} for the same amount.`,
+        fix: "Fix the price on this size under Products and prices. Until it is changed, the next person to tap it sells another one.",
+        href: `/items/${b.item_id}`,
+        item: b.item_id,
+      },
     });
   }
 
@@ -324,7 +354,8 @@ export function bundleUnderContents(): Finding[] {
     `SELECT b.id, b.size_milli, b.price_cents, f.id AS formula_id, f.name
        FROM bundles b
        JOIN formulas f ON f.id = b.formula_id
-      WHERE b.active = 1 AND b.price_cents > 0`,
+      WHERE b.active = 1 AND b.price_cents > 0
+      ORDER BY b.size_milli DESC`,
   )) {
     const version = currentVersion(b.formula_id);
     if (!version) continue;
@@ -341,16 +372,56 @@ export function bundleUnderContents(): Finding[] {
     }
     if (!known || inside === 0 || b.price_cents > inside) continue;
 
+    rows.push({
+      parent: `formula:${b.formula_id}`,
+      name: b.name,
+      loss: inside - b.price_cents,
+      line: `${qty(b.size_milli, version.ref_unit)} at ${kes(b.price_cents)} takes ${kes(inside)} of chemicals — loses ${kes(inside - b.price_cents)} each`,
+      finding: {
+        id: `bundle:${b.id}`,
+        severity: "high",
+        kind: "Sold for less than it holds",
+        title: `${b.name} — ${qty(b.size_milli, version.ref_unit)} is on the till at ${kes(b.price_cents)}`,
+        detail:
+          `The chemicals the recipe takes for that size cost ${kes(inside)}, so every one mixed ` +
+          `loses ${kes(inside - b.price_cents)} before anybody is paid for mixing it.`,
+        fix: "Either the size's price is too low or an ingredient's cost is wrong. Check the last delivery of each ingredient before moving the price.",
+        href: `/formulas/${b.formula_id}`,
+      },
+    });
+  }
+
+  const byParent = new Map<string, typeof rows>();
+  for (const r of rows) {
+    const list = byParent.get(r.parent);
+    if (list) list.push(r);
+    else byParent.set(r.parent, [r]);
+  }
+
+  const out: Finding[] = [];
+  for (const [parent, group] of byParent) {
+    if (group.length === 1) {
+      out.push(group[0].finding);
+      continue;
+    }
+    const worst = group[0].finding;
+    const total = group.reduce((sum, r) => sum + r.loss, 0);
     out.push({
-      id: `bundle:${b.id}`,
-      severity: "high",
-      kind: "Sold for less than it holds",
-      title: `${b.name} — ${qty(b.size_milli, version.ref_unit)} is on the till at ${kes(b.price_cents)}`,
+      ...worst,
+      id: `bundle-group:${parent}`,
+      title: `${group[0].name} — ${group.length} sizes are on the till below what they hold`,
+      /*
+        The sizes are listed one to a line. `/check` renders this with
+        whitespace-pre-line for that reason; anywhere that does not will read
+        it as one sentence, which is longer but not wrong.
+      */
       detail:
-        `The chemicals the recipe takes for that size cost ${kes(inside)}, so every one mixed ` +
-        `loses ${kes(inside - b.price_cents)} before anybody is paid for mixing it.`,
-      fix: "Either the size's price is too low or an ingredient's cost is wrong. Check the last delivery of each ingredient before moving the price.",
-      href: `/formulas/${b.formula_id}`,
+        `Every one of these loses money the moment it is tapped, and they share a single cause — ` +
+        `one cost or one price, not ${group.length} of them. ${kes(total)} is lost on one of each:\n` +
+        group.map((r) => `· ${r.line}`).join("\n"),
+      fix: parent.startsWith("item:")
+        ? "Check the cost first, under Suppliers and purchases — when every size falls at once it is usually the cost that moved, not the prices. If the cost is right, the sizes need repricing under Products and prices."
+        : "Check the ingredient costs first — when every size falls at once it is usually one ingredient that moved. If the costs are right, the sizes need repricing on the recipe.",
     });
   }
 
@@ -938,9 +1009,36 @@ export function checkBooks(range: DateRange | null = null): HealthReport {
     stops the next one.
   */
   const trapped = new Set(
-    deduped.filter((f) => f.id.startsWith("bundle:") && f.item).map((f) => f.item!),
+    deduped.filter((f) => f.id.startsWith("bundle") && f.item).map((f) => f.item!),
   );
   const final = deduped.filter((f) => !(f.id.startsWith("charged:") && f.item && trapped.has(f.item)));
+
+  /*
+    An item priced under its own cost explains every size of it at once.
+
+    "Priced under cost" reads the loose price against the cost. When that is
+    upside down, every bundle of that item is under its contents too, by the
+    same arithmetic and for the same reason — so listing the sizes separately
+    says one mistake twice. The item row is the cause and survives; it carries
+    a note of how many sizes went with it, so nothing is silently dropped.
+  */
+  const causeOfItem = new Map<number, Finding>();
+  for (const f of final) {
+    const m = /^under-cost:(\d+)$/.exec(f.id);
+    if (m) causeOfItem.set(Number(m[1]), f);
+  }
+  const folded: Finding[] = [];
+  for (const f of final) {
+    const sizes = f.id.startsWith("bundle") && f.item ? causeOfItem.get(f.item) : undefined;
+    if (!sizes) {
+      folded.push(f);
+      continue;
+    }
+    const n = /(\d+) sizes/.exec(f.title);
+    sizes.detail += n
+      ? ` All ${n[1]} of its bundled sizes are under cost with it, for the same reason, and go when this does.`
+      : ` Its bundled size is under cost with it, for the same reason, and goes when this does.`;
+  }
 
   /*
     And the ones the owner has already answered.
@@ -950,7 +1048,7 @@ export function checkBooks(range: DateRange | null = null): HealthReport {
     that never reached the screen. A dismissal holds only while the finding goes
     on saying the same thing — see `dismissals.ts`.
   */
-  const undis = undismissed(final);
+  const undis = undismissed(folded);
 
   /*
     The window, applied last.
