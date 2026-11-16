@@ -56,24 +56,31 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             <AppHeader
               menu={<MenuDrawer isOwner={user.role === "owner"} granted={grantedTo(user)} />}
               status={<OfflineStatus />}
+              home={
+                <Link
+                  href="/"
+                  className="flex h-full w-full items-center"
+                  aria-label="Home"
+                  title="Home"
+                >
+                  {logo ? (
+                    /* A light plate behind it: the emblem's flask is drawn in
+                       white with a dark outline, and on this dark green header
+                       the glass would disappear into the background. */
+                    <img
+                      src={logo}
+                      alt=""
+                      aria-hidden="true"
+                      className="h-full w-full rounded-xl bg-white object-contain p-1"
+                    />
+                  ) : (
+                    <span className="flex h-full w-full items-center justify-center rounded-xl bg-white/10 text-xs font-extrabold tracking-wide text-white ring-1 ring-inset ring-white/25">
+                      RZ
+                    </span>
+                  )}
+                </Link>
+              }
             >
-              <Link href="/" className="flex shrink-0 items-center" aria-label="Home">
-                {logo ? (
-                  /* A light plate behind it: the emblem's flask is drawn in
-                     white with a dark outline, and on this dark green header
-                     the glass would disappear into the background. */
-                  <img
-                    src={logo}
-                    alt=""
-                    aria-hidden="true"
-                    className="h-10 w-10 rounded-xl bg-white object-contain p-1"
-                  />
-                ) : (
-                  <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/10 text-sm font-extrabold tracking-wide text-white ring-1 ring-inset ring-white/25">
-                    RZ
-                  </span>
-                )}
-              </Link>
               <div className="flex-1 leading-tight">
                 <div className="text-sm font-bold">Riziki Industrial Chemicals</div>
                 <div className="text-[11px] font-medium text-frost">

@@ -11,13 +11,18 @@ import { useSyncExternalStore } from "react";
  * held is needed while selling: the name does not change, the attendant knows
  * who they are, and Sign out is wanted once a day.
  *
- * So it collapses to a 34px strip and pulls back down when asked. Two things
+ * So it collapses to a 34px strip and pulls back down when asked. Three things
  * stay visible in the strip regardless, because they are the exceptions:
  *
- *   - the menu, which is the way off this screen; and
+ *   - the menu, which is the way off this screen;
  *   - the connection light, because an attendant who cannot see that the till
  *     has gone offline is an attendant who does not know their sales are
- *     queuing. That one is not a decoration to be folded away.
+ *     queuing. That one is not a decoration to be folded away; and
+ *   - the mark, which is the way HOME. It began inside the folding part, which
+ *     made it the only route to the dashboard and then folded that route away
+ *     along with the banner. The shop asked where its logo had gone and asked
+ *     for a way back to the home page in the same breath — one fault wearing
+ *     two faces. It is smaller in the strip, and it is always there.
  *
  * The choice is remembered per device, so a counter that wants the band can
  * keep it and everyone else gets the space back.
@@ -47,12 +52,15 @@ function headerOpen(): boolean {
 export default function AppHeader({
   menu,
   status,
+  home,
   children,
 }: {
   /** The hamburger. Stays in the strip when collapsed. */
   menu: React.ReactNode;
   /** The online/offline light. Also stays. */
   status: React.ReactNode;
+  /** The shop's mark, linked to the dashboard. Stays, and shrinks. */
+  home: React.ReactNode;
   /** Name, user and Sign out — the part that folds. */
   children: React.ReactNode;
 }) {
@@ -94,6 +102,12 @@ export default function AppHeader({
       }`}
     >
       {menu}
+
+      {/* Sized here rather than by the caller, because only the header knows
+          whether it is folded. 40px open, 28px in the strip. */}
+      <div className={`shrink-0 transition-all duration-200 ${open ? "h-10 w-10" : "h-7 w-7"}`}>
+        {home}
+      </div>
 
       {open ? children : null}
 

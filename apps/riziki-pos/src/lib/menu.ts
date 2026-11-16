@@ -49,6 +49,15 @@ export const MORE_GROUPS: MenuGroup[] = [
     // for the day close is looking for a job, not for a category.
     label: "Every day",
     links: [
+      /*
+        A HOME ROW, because an emblem is not a label.
+
+        The mark in the header goes to the dashboard and now stays visible
+        whether the band is folded or not, but nobody is obliged to guess that
+        a picture is a button. The menu is where this app says where its
+        screens are, so the dashboard is named in it like everything else.
+      */
+      { href: "/", label: "Today" },
       { href: "/day-close", label: "Day close" },
       { href: "/expenses", label: "Expenses" },
       // Open to attendants on purpose: the person who opens the shop is the
