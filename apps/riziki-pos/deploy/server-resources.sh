@@ -66,14 +66,30 @@ say "  Docker keeps its data in: $droot"
 say ""
 
 walked=0
+errs=$(mktemp)
 for d in "$droot" /srv /root /home /var/log /var/lib/containerd /opt /var/cache; do
   [ -d "$d" ] || continue
-  kb=$(du -sxk "$d" 2>/dev/null | cut -f1)
+  # Do NOT discard du's complaints. A directory it cannot read is simply
+  # absent from its total, so a silenced error becomes a wrong number that
+  # looks like a right one -- which is how a 19 GB reading was once taken
+  # from a directory that had 39 GB of cache in it.
+  kb=$(du -sxk "$d" 2>>"$errs" | cut -f1)
   [ -n "$kb" ] || continue
   walked=$((walked + kb))
-  du -sh "$d" 2>/dev/null | sed 's/^/  /'
+  printf '  %s\t%s\n' "$(awk -v k="$kb" 'BEGIN {
+      if (k >= 1048576) printf "%.1fG", k / 1048576;
+      else if (k >= 1024) printf "%dM", k / 1024;
+      else printf "%dK", k }')" "$d"
 done
 say ""
+
+skipped=$(wc -l < "$errs" | tr -d ' ')
+if [ "$skipped" -gt 0 ]; then
+  warn "du could not read $skipped director(ies), so the sizes above are FLOORS,"
+  warn "not totals -- the real figures are larger by an unknown amount:"
+  sort -u "$errs" | head -5 | sed 's/^/     /'
+fi
+rm -f "$errs"
 
 # Every directory above, added up, should come close to what df calls used.
 # When it does not, the missing space is real and is NOT in any of them.
@@ -81,9 +97,11 @@ usedkb=$(df -k / | awk 'NR==2 { print $3 }')
 say "  walked: $((walked / 1024)) MB of the $((usedkb / 1024)) MB df calls used"
 gap=$((usedkb - walked))
 if [ "$gap" -gt 10485760 ]; then
-  warn "$((gap / 1024 / 1024)) GB is used but sits in none of the directories above."
-  warn "Usually that is files already deleted but still held open by a running"
-  warn "process — the space comes back only when the process is restarted."
+  warn "$((gap / 1024 / 1024)) GB is used but was not found in the directories above."
+  warn "Check the du warnings first, if any: an unreadable directory explains a"
+  warn "gap without anything being wrong. If du read everything cleanly, then the"
+  warn "space is genuinely elsewhere — most often files already deleted but still"
+  warn "held open by a running process, which only restarting it returns."
   say "  Find them with:  lsof -nP +L1 2>/dev/null | awk '\$NF == 0 || \$(NF-1) == 0'"
   say "  Or walk the whole root a level at a time:  du -xh --max-depth=1 / | sort -rh | head -20"
 fi
