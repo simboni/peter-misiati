@@ -26,6 +26,17 @@ warn() { printf '  !! %s\n' "$*"; }
 
 head2 "Load and memory"
 uptime 2>/dev/null | sed 's/^/  /'
+# A load average means nothing without the core count: 3.0 is half idle on
+# eight cores and a queue on two.
+cores=$(nproc 2>/dev/null || echo "?")
+say "  cores: $cores"
+if [ "$cores" != "?" ]; then
+  five=$(uptime | sed 's/.*load average: *//' | cut -d, -f2 | tr -d ' ')
+  busy=$(awk -v l="$five" -v c="$cores" 'BEGIN { printf "%.2f", l / c }' 2>/dev/null)
+  say "  five-minute load per core: $busy  (around 1.00 is fully busy)"
+  over=$(awk -v b="$busy" 'BEGIN { print (b > 1.5) ? 1 : 0 }' 2>/dev/null)
+  [ "$over" = "1" ] && warn "work is queueing — everything on this box is waiting on everything else"
+fi
 say ""
 free -h 2>/dev/null | sed 's/^/  /'
 swaps=$(free -m 2>/dev/null | awk '/^Swap:/ {print $2}')
@@ -39,16 +50,20 @@ df -i / 2>/dev/null | sed 's/^/    /'
 use=$(df --output=pcent / 2>/dev/null | tail -1 | tr -dc '0-9')
 [ -n "${use:-}" ] && [ "$use" -ge 80 ] && warn "root filesystem is ${use}% full"
 
+head2 "Docker's own accounting"
+# First, because it is instant and usually answers the question on its own.
+docker system df 2>/dev/null | sed 's/^/  /'
+
 head2 "Where the space has gone"
+say "  Walking the disk. On a full filesystem this takes a few minutes and"
+say "  prints nothing while it works — it has not hung."
+say ""
 for d in /var/lib/docker /srv /root /home /var/log; do
   [ -d "$d" ] && du -sh "$d" 2>/dev/null | sed 's/^/  /'
 done
 say ""
-say "  biggest ten directories under /srv and /root:"
-du -xh /srv /root 2>/dev/null | sort -rh | head -10 | sed 's/^/    /'
-
-head2 "Docker's own accounting"
-docker system df 2>/dev/null | sed 's/^/  /'
+say "  biggest ten directories outside Docker:"
+du -xh --max-depth=3 /srv /root /home 2>/dev/null | sort -rh | head -10 | sed 's/^/    /'
 
 head2 "Container logs — the ones that never rotate"
 total=0
