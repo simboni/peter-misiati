@@ -37,7 +37,7 @@ export function EnquiryForm() {
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const href = whatsappHref(message);
+    const href = whatsappHref(message, "contact-form");
     // Popup blockers can refuse the new tab; falling back keeps the enquiry alive.
     const opened = window.open(href, "_blank", "noopener,noreferrer");
     if (!opened) window.location.href = href;

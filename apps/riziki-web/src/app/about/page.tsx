@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { BUSINESS, telHref, WA_GENERAL } from "@/lib/business";
+import { BUSINESS, telHref, waGeneral } from "@/lib/business";
 import {
   Card,
   Container,
@@ -246,7 +246,7 @@ export default function AboutPage() {
             wasted batch.
           </p>
           <div className="mt-7 flex flex-wrap justify-center gap-3">
-            <CtaLink href={WA_GENERAL} tone="whatsapp">
+            <CtaLink href={waGeneral("about")} tone="whatsapp">
               <WhatsAppIcon />
               Ask on WhatsApp
             </CtaLink>

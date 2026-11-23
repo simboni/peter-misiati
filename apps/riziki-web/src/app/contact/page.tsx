@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { BUSINESS, telHref, WA_GENERAL, WA_PRICE_LIST } from "@/lib/business";
+import { BUSINESS, telHref, waGeneral, waPriceList } from "@/lib/business";
 import {
   Card,
   Container,
@@ -90,7 +90,7 @@ export default function ContactPage() {
               </p>
               <div className="mt-4 flex flex-wrap gap-2">
                 <a
-                  href={WA_GENERAL}
+                  href={waGeneral("contact-chat")}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-2 rounded-xl bg-leaf-strong px-4 py-2.5 text-sm font-bold text-white hover:brightness-95"
@@ -99,7 +99,7 @@ export default function ContactPage() {
                   Start a chat
                 </a>
                 <a
-                  href={WA_PRICE_LIST}
+                  href={waPriceList("contact-prices")}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-2 rounded-xl border border-line px-4 py-2.5 text-sm font-bold text-ink hover:bg-surface-2"

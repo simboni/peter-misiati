@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BUSINESS, telHref, WA_GENERAL } from "@/lib/business";
+import { BUSINESS, telHref, waGeneral } from "@/lib/business";
 import { Container, PhoneIcon, WhatsAppIcon } from "@/components/ui";
 
 const YEAR = new Date().getFullYear();
@@ -59,7 +59,7 @@ export function SiteFooter() {
               </li>
               <li>
                 <a
-                  href={WA_GENERAL}
+                  href={waGeneral("footer")}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-2 hover:text-accent"

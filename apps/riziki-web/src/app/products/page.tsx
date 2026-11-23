@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { BUSINESS, SITE_URL, telHref, WA_MIX_KIT, WA_PRICE_LIST } from "@/lib/business";
+import { BUSINESS, SITE_URL, telHref, waMixKit, waPriceList } from "@/lib/business";
 import { CATEGORIES, ITEMS } from "@/lib/catalogue";
 import {
   Card,
@@ -92,7 +92,7 @@ export default function ProductsPage() {
         lead={`${ITEMS.length} products across chemicals, finished cleaners and mix kits. Search by the name you know it by — we have listed the local names alongside the chemical ones — or by the product you are trying to make.`}
       >
         <div className="mt-6 flex flex-wrap gap-3">
-          <CtaLink href={WA_PRICE_LIST} tone="whatsapp">
+          <CtaLink href={waPriceList("products-prices")} tone="whatsapp">
             <WhatsAppIcon />
             Ask for today&rsquo;s prices
           </CtaLink>
@@ -207,7 +207,7 @@ export default function ProductsPage() {
             disinfectant, toilet cleaner, degreaser and carwash shampoo. Batch sizes and prices
             depend on what you are making, so tell us the product and the quantity.
           </p>
-          <CtaLink href={WA_MIX_KIT} tone="whatsapp" className="mt-4">
+          <CtaLink href={waMixKit("products-mixkit")} tone="whatsapp" className="mt-4">
             <WhatsAppIcon />
             Ask for a mix kit
           </CtaLink>

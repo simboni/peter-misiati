@@ -119,7 +119,7 @@ export function Catalogue() {
             still not here, send us the name and we will tell you whether we have it.
           </p>
           <a
-            href={whatsappForItem(query.trim() || "a chemical not on your list")}
+            href={whatsappForItem(query.trim() || "a chemical not on your list", "search-miss")}
             target="_blank"
             rel="noopener noreferrer"
             className="mt-4 inline-flex items-center gap-2 rounded-xl bg-leaf-strong px-4 py-2.5 text-sm font-bold text-white hover:brightness-95"
@@ -168,7 +168,7 @@ export function Catalogue() {
                 </div>
 
                 <a
-                  href={whatsappForItem(item.name)}
+                  href={whatsappForItem(item.name, `card/${item.slug}`)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="mt-4 inline-flex items-center gap-2 text-sm font-bold text-accent hover:underline"

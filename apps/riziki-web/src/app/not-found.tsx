@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { BUSINESS, telHref, WA_GENERAL } from "@/lib/business";
+import { BUSINESS, telHref, waGeneral } from "@/lib/business";
 import { Container, CtaLink, PhoneIcon, WhatsAppIcon } from "@/components/ui";
 
 export const metadata: Metadata = {
@@ -28,7 +28,7 @@ export default function NotFound() {
         <CtaLink href="/products/" tone="brand">
           Go to the catalogue
         </CtaLink>
-        <CtaLink href={WA_GENERAL} tone="whatsapp">
+        <CtaLink href={waGeneral("404")} tone="whatsapp">
           <WhatsAppIcon />
           WhatsApp us
         </CtaLink>

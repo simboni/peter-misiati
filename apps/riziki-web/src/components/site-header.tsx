@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BUSINESS, telHref, WA_GENERAL } from "@/lib/business";
+import { BUSINESS, telHref, waGeneral } from "@/lib/business";
 import { SiteNav } from "@/components/site-nav";
 import { PhoneIcon, WhatsAppIcon } from "@/components/ui";
 import { markSrc } from "@/lib/brand";
@@ -61,7 +61,7 @@ export function SiteHeader() {
             <PhoneIcon className="h-5 w-5" />
           </a>
           <a
-            href={WA_GENERAL}
+            href={waGeneral("header")}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-2 rounded-xl bg-leaf-strong px-3 py-2.5 text-sm font-bold text-white hover:brightness-95"

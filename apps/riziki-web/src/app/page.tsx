@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { BUSINESS, telHref, WA_GENERAL, WA_PRICE_LIST } from "@/lib/business";
+import { BUSINESS, telHref, waGeneral, waPriceList } from "@/lib/business";
 import { HeroSlider, type Slide } from "@/components/hero-slider";
 import { itemsBySlug, POPULAR_SLUGS } from "@/lib/catalogue";
 import {
@@ -111,7 +111,7 @@ export default function HomePage() {
         }
         actions={
           <>
-            <CtaLink href={WA_GENERAL} tone="whatsapp">
+            <CtaLink href={waGeneral("home-hero")} tone="whatsapp">
               <WhatsAppIcon />
               Order on WhatsApp
             </CtaLink>
@@ -208,7 +208,7 @@ export default function HomePage() {
           <CtaLink href="/products/" tone="brand">
             See all products
           </CtaLink>
-          <CtaLink href={WA_PRICE_LIST} tone="outline">
+          <CtaLink href={waPriceList("home-prices")} tone="outline">
             <WhatsAppIcon />
             Ask for today&rsquo;s prices
           </CtaLink>
@@ -251,7 +251,7 @@ export default function HomePage() {
             One number for orders, prices and advice — the same number on WhatsApp.
           </p>
           <div className="mt-7 flex flex-wrap justify-center gap-3">
-            <CtaLink href={WA_GENERAL} tone="whatsapp">
+            <CtaLink href={waGeneral("home-foot")} tone="whatsapp">
               <WhatsAppIcon />
               Message us on WhatsApp
             </CtaLink>
