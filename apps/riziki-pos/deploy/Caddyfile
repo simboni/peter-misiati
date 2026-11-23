@@ -99,3 +99,39 @@ pos.rizikichemicals.co.ke {
 		-Server
 	}
 }
+
+# Visitor measurement for the marketing site.
+#
+# ORDER MATTERS, and getting it wrong is the one thing here that can hurt
+# somebody else's site:
+#
+#   1. Create the DNS A record for insights.rizikichemicals.co.ke, pointing
+#      at this server, and wait for it to resolve. Without it the edge cannot
+#      fetch a certificate and will retry in a loop — harmless to the other
+#      fifteen sites, but noisy, and nothing will load here.
+#   2. Fill in .env and start the stack:
+#        cp deploy/analytics.env.example .env   # then edit it
+#        docker compose --profile analytics up -d
+#   3. Check this file still parses BEFORE asking the edge to read it. A
+#      syntax error in here is not a local problem: the edge imports it, and
+#      a config it cannot parse is a config it refuses ENTIRELY, which takes
+#      every site on the box down at once.
+#        docker exec edge-caddy caddy validate --config /etc/caddy/Caddyfile
+#   4. Only then:
+#        docker exec edge-caddy caddy reload --config /etc/caddy/Caddyfile
+#
+# Until step 2 the upstream simply is not there and this host answers 502,
+# which affects nothing but this host.
+insights.rizikichemicals.co.ke {
+	reverse_proxy riziki-analytics:3000
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		# The dashboard is the shop's own figures. Not for framing, and not
+		# for leaking a referrer to anybody.
+		X-Frame-Options "DENY"
+		Referrer-Policy "same-origin"
+		-Server
+	}
+}

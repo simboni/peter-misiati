@@ -44,7 +44,13 @@ services:
   # updates the site and the shop system together — see apps/riziki-web/Dockerfile
   # for why this is not a mounted directory any more.
   web:
-    build: ../riziki-web
+    build:
+      context: ../riziki-web
+      args:
+        # Empty unless set in .env, which produces a site with no tracking
+        # rather than one with a broken script tag. See deploy/analytics.env.example.
+        NEXT_PUBLIC_ANALYTICS_SRC: ${NEXT_PUBLIC_ANALYTICS_SRC:-}
+        NEXT_PUBLIC_ANALYTICS_ID: ${NEXT_PUBLIC_ANALYTICS_ID:-}
     # Pinned for the same reason, and this is the one it actually happened to.
     container_name: riziki-pos-web-1
     restart: unless-stopped
@@ -92,6 +98,63 @@ services:
       - pos
       - web
 
+  # ------------------------------------------------------------------ #
+  # Visitor measurement. OFF unless asked for, like the proxy above.
+  #
+  #   docker compose --profile analytics up -d
+  #
+  # Nothing about the shop system or the website depends on these. They are
+  # behind a profile so that a plain `docker compose up -d` — which is what
+  # deploy/update.sh runs, on a box carrying fifteen other clients' sites —
+  # behaves exactly as it did before this was added. A half-configured
+  # analytics stack must never be able to hold up a till deploy.
+  # ------------------------------------------------------------------ #
+  analytics:
+    image: ${ANALYTICS_IMAGE:-ghcr.io/umami-software/umami:postgresql-latest}
+    container_name: riziki-analytics
+    profiles: ["analytics"]
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    expose:
+      - "3000"
+    environment:
+      DATABASE_TYPE: postgresql
+      DATABASE_URL: postgresql://umami:${ANALYTICS_DB_PASSWORD:-}@riziki-analytics-db:5432/umami
+      APP_SECRET: ${ANALYTICS_APP_SECRET:-}
+      # Renamed from the default so a blunt ad-blocker rule does not silently
+      # delete half the shop's traffic figures.
+      TRACKER_SCRIPT_NAME: s
+    depends_on:
+      analytics-db:
+        condition: service_healthy
+
+  analytics-db:
+    image: postgres:16-alpine
+    container_name: riziki-analytics-db
+    profiles: ["analytics"]
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    environment:
+      POSTGRES_DB: umami
+      POSTGRES_USER: umami
+      POSTGRES_PASSWORD: ${ANALYTICS_DB_PASSWORD:-}
+    volumes:
+      - analytics-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U umami -d umami"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
 volumes:
   caddy-data:
   caddy-config:
+  analytics-db:

@@ -5,6 +5,7 @@ import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { LocalBusinessJsonLd } from "@/components/structured-data";
 import { openGraphFor, twitterFor } from "@/lib/seo";
+import { ANALYTICS, analyticsOn } from "@/lib/analytics";
 
 const HOME_OG_TITLE = `${BUSINESS.name} — ${BUSINESS.tagline}`;
 const HOME_OG_DESCRIPTION =
@@ -60,6 +61,13 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en-KE">
+      <head>
+        {/* Deferred, and absent entirely when unconfigured: a page must never
+            wait on, or break because of, the thing counting its visitors. */}
+        {analyticsOn ? (
+          <script defer src={ANALYTICS.src} data-website-id={ANALYTICS.websiteId} />
+        ) : null}
+      </head>
       <body className="flex min-h-dvh flex-col">
         <LocalBusinessJsonLd />
         <a href="#main" className="skip-link rounded-lg bg-brand px-4 py-2 text-sm font-bold text-white">

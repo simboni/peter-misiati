@@ -17,6 +17,15 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
+
+# Analytics, baked in at build time because the site is a static export and
+# has no server to read configuration from. Both empty by default, which
+# produces a site with no tracking rather than a broken script tag.
+ARG NEXT_PUBLIC_ANALYTICS_SRC=""
+ARG NEXT_PUBLIC_ANALYTICS_ID=""
+ENV NEXT_PUBLIC_ANALYTICS_SRC=$NEXT_PUBLIC_ANALYTICS_SRC \
+    NEXT_PUBLIC_ANALYTICS_ID=$NEXT_PUBLIC_ANALYTICS_ID
+
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npx next build
 
