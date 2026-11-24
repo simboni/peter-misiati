@@ -32,6 +32,7 @@ export function InvoiceDetail({
   payments,
   error,
   sent,
+  paidToken,
   pdfEnabled,
   pro,
   issuer,
@@ -42,10 +43,14 @@ export function InvoiceDetail({
   payments: Payment[];
   error?: string;
   sent?: boolean;
+  /** Share token of a receipt just created, from ?paid=… */
+  paidToken?: string;
   pdfEnabled?: boolean;
   pro?: boolean;
   issuer: PdfIssuer;
 }) {
+  // The receipt the ?paid= token refers to, so the banner can name it.
+  const receiptJustMade = paidToken ? payments.find((p) => p.shareToken === paidToken) ?? null : null;
   const isQuote = invoice.type === "quotation";
   const cur = invoice.currency;
   const base = isQuote ? "quotations" : "invoices";
@@ -131,6 +136,44 @@ export function InvoiceDetail({
         <p className="rounded-lg bg-brand-50 px-3 py-2 text-sm text-brand-700">
           Emailed to {client?.email ?? "the client"}.
         </p>
+      )}
+
+      {/* Payment recorded. Previously this view was never reached: the action
+          redirected to the receipt's public page, which has no way back into
+          the app. The receipt is now one tap away and you are still here. */}
+      {paidToken && (
+        <div className="card border-brand-200 bg-brand-50 p-4">
+          <p className="text-sm font-semibold text-brand-900">
+            Payment recorded{receiptJustMade ? ` — receipt ${receiptJustMade.number} created` : ""}.
+          </p>
+          <p className="mt-0.5 text-xs text-brand-800">
+            {invoice.balanceDue > 0
+              ? `${formatMoney(invoice.balanceDue, cur)} still outstanding on this invoice.`
+              : "This invoice is now fully paid."}
+          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <a
+              href={`/d/${paidToken}`}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-bold text-white"
+            >
+              View receipt
+            </a>
+            {client?.phone && (
+              <WhatsAppShareButton
+                path={`/d/${paidToken}`}
+                label={`Receipt ${receiptJustMade?.number ?? ""}`.trim()}
+                phone={client.phone}
+                amountText={formatMoney(receiptJustMade?.amount ?? 0, cur)}
+                size="sm"
+              />
+            )}
+            <Link href="/receipts" className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-brand-800 hover:bg-brand-100">
+              All receipts
+            </Link>
+          </div>
+        </div>
       )}
       {error === "no-email" && (
         <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">

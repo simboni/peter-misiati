@@ -3,6 +3,7 @@
 import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { SubmitButton } from "./submit-button";
+import { QuantityInput } from "./quantity-input";
 import { saveInvoiceAction, type FormState } from "@/server/actions/invoices";
 import { calcTotals } from "@/server/totals";
 import { parseAmount, parseQty, parseRate, formatMoney } from "@/server/money";
@@ -535,8 +536,7 @@ export function InvoiceEditor({
 
                   <div className="mt-3 grid grid-cols-3 gap-2">
                     <Field label="Qty">
-                      <input className="input text-right" inputMode="decimal" value={l.quantity}
-                        onChange={(e) => updateLine(l.key, { quantity: e.target.value })} />
+                      <QuantityInput value={l.quantity} onChange={(v) => updateLine(l.key, { quantity: v })} />
                     </Field>
                     <Field label={`Rate (${cur})`}>
                       <input className="input text-right" inputMode="decimal" placeholder="0.00" value={l.unitPrice}

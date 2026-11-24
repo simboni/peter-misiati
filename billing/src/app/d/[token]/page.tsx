@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 import { notFound } from "next/navigation";
 import { and, eq, lt } from "drizzle-orm";
 import { getDb, schema } from "@/server/db";
-import { getOrg, getOrgProfile } from "@/server/org";
+import { getOrg, getOrgProfile, getSession } from "@/server/org";
 import { browserEnabled, appBaseUrl } from "@/server/config";
 import { kopokopoConfigForOrg } from "@/server/payments-config";
 import { MPESA_PAYMENTS_ENABLED, SERVER_PDF_ENABLED } from "@/lib/flags";
@@ -97,6 +97,12 @@ export default async function PublicDocumentPage({
   const db = await getDb();
   const pdfHref = SERVER_PDF_ENABLED && (await browserEnabled()) ? `/d/${token}/pdf` : null;
 
+  // This page is client-facing and stays public — the session is read ONLY to
+  // decide whether to offer a way back into the app. A vendor who lands here
+  // from inside TallyPay would otherwise have no route out but the browser's
+  // back button. Clients see no such control, and nothing else changes.
+  const signedIn = Boolean((await getSession())?.user);
+
   // 1) Invoice or quotation
   const invRows = await db
     .select()
@@ -126,6 +132,7 @@ export default async function PublicDocumentPage({
     return (
       <>
         <PrintBar
+          showBack={signedIn}
           docLabel={`${invoice.type === "quotation" ? "Quotation" : "Invoice"} ${invoice.number}`}
           clientEmail={client?.email}
           clientPhone={client?.phone}
@@ -182,6 +189,7 @@ export default async function PublicDocumentPage({
     return (
       <>
         <PrintBar
+          showBack={signedIn}
           docLabel={`Receipt ${payment.number}`}
           clientEmail={client?.email}
           clientPhone={client?.phone}
@@ -229,6 +237,7 @@ export default async function PublicDocumentPage({
     return (
       <>
         <PrintBar
+          showBack={signedIn}
           docLabel={`Delivery Note ${note.number}`}
           clientEmail={client?.email}
           clientPhone={client?.phone}
@@ -271,6 +280,7 @@ export default async function PublicDocumentPage({
     return (
       <>
         <PrintBar
+          showBack={signedIn}
           docLabel={`Credit Note ${cn.number}`}
           clientEmail={client?.email}
           clientPhone={client?.phone}

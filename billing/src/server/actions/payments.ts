@@ -69,8 +69,16 @@ export async function recordPaymentAction(_prev: FormState, fd: FormData): Promi
   revalidatePath(`/invoices/${invoiceId}`);
   revalidatePath("/invoices");
   revalidatePath("/receipts");
-  // Close the loop: land on the receipt's share page so the vendor can send it.
-  redirect(`/d/${shareToken}`);
+  // Land back on the INVOICE, not on the receipt's public share page.
+  //
+  // That page is the client-facing view: no sidebar, no header, not a single
+  // link. Redirecting a signed-in vendor there stranded them — the only way
+  // back into TallyPay was the browser's back button. Recording a payment is
+  // a routine act done many times a day, and each one was a dead end.
+  //
+  // The invoice already lists its receipts, so nothing is lost; the banner
+  // below carries the receipt's token so it can be viewed or sent in one tap.
+  redirect(`/invoices/${invoiceId}?paid=${shareToken}`);
 }
 
 export async function deletePaymentAction(fd: FormData): Promise<void> {

@@ -3,6 +3,7 @@
 import { useActionState, useState } from "react";
 import Link from "next/link";
 import { SubmitButton } from "./submit-button";
+import { QuantityInput } from "./quantity-input";
 import { saveDeliveryNoteAction, type FormState } from "@/server/actions/delivery-notes";
 import type { Client, Item, DeliveryNote } from "@/server/db/schema";
 
@@ -145,11 +146,9 @@ export function DeliveryNoteEditor({
                     />
                   </td>
                   <td className="td">
-                    <input
-                      className="input text-right"
-                      inputMode="decimal"
+                    <QuantityInput
                       value={r.quantity}
-                      onChange={(e) => update(r.key, { quantity: e.target.value })}
+                      onChange={(v) => update(r.key, { quantity: v })}
                     />
                   </td>
                   <td className="td">

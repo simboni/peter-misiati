@@ -30,10 +30,10 @@ export default async function InvoicePage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ error?: string; sent?: string }>;
+  searchParams: Promise<{ error?: string; sent?: string; paid?: string }>;
 }) {
   const { id } = await params;
-  const { error, sent } = await searchParams;
+  const { error, sent, paid } = await searchParams;
   const { db, organizationId } = await requireOrg();
   const [doc, org, profile] = await Promise.all([
     loadInvoice(db, organizationId, id),
@@ -50,6 +50,7 @@ export default async function InvoicePage({
       payments={doc.payments}
       error={error}
       sent={sent === "1"}
+      paidToken={paid}
       pdfEnabled={SERVER_PDF_ENABLED && (await browserEnabled())}
       pro={isPro(profile?.plan)}
       issuer={pdfIssuer(org?.name ?? "Business", profile)}

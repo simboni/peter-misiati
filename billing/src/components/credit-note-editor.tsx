@@ -3,6 +3,7 @@
 import { useActionState, useMemo, useState } from "react";
 import Link from "next/link";
 import { SubmitButton } from "./submit-button";
+import { QuantityInput } from "./quantity-input";
 import { saveCreditNoteAction, type FormState } from "@/server/actions/credit-notes";
 import { calcTotals } from "@/server/totals";
 import { parseAmount, parseQty, parseRate, formatMoney } from "@/server/money";
@@ -211,7 +212,7 @@ export function CreditNoteEditor({
                     onChange={(v) => updateLine(l.key, { description: v })} />
                   <div className="mt-3 grid grid-cols-3 gap-2">
                     <Field label="Qty">
-                      <input className="input text-right" inputMode="decimal" value={l.quantity} onChange={(e) => updateLine(l.key, { quantity: e.target.value })} />
+                      <QuantityInput value={l.quantity} onChange={(v) => updateLine(l.key, { quantity: v })} />
                     </Field>
                     <Field label={`Rate (${currency})`}>
                       <input className="input text-right" inputMode="decimal" placeholder="0.00" value={l.unitPrice} onChange={(e) => updateLine(l.key, { unitPrice: e.target.value })} />
