@@ -122,6 +122,11 @@ fi
 
 # -------------------------------------------------------------------- build --
 say "PULL AND REBUILD"
+branch=$(git -C "$REPO" rev-parse --abbrev-ref HEAD)
+echo "  branch: $branch"
+if [ -n "${EXPECT_BRANCH:-}" ] && [ "$branch" != "$EXPECT_BRANCH" ]; then
+  die "Clone is on '$branch' but EXPECT_BRANCH is '$EXPECT_BRANCH'. Refusing to deploy the wrong branch."
+fi
 git -C "$REPO" pull --ff-only
 echo "  now at: $(git -C "$REPO" log --oneline -1)"
 docker compose -f "$COMPOSE" up -d --build
@@ -148,7 +153,7 @@ applied=$(sqlite_ro "select count(*) from d1_migrations;")
 echo "  migrations applied: $applied"
 sqlite_ro "select name from d1_migrations order by id desc limit 2;" | sed 's/^/    /'
 
-for col in reminders_enabled reminder_schedule reminder_max_age; do
+for col in reminders_enabled reminder_schedule reminder_max_age default_due_days; do
   n=$(sqlite_ro "select count(*) from pragma_table_info('org_profile') where name='$col';")
   [ "$n" = "1" ] || die "Column org_profile.$col is missing — the migration did not apply. Roll back."
   ok "org_profile.$col present"
@@ -186,6 +191,10 @@ say "DONE"
 cat <<EOF
   Backup:   $BK
   Rollback: bash deploy/upgrade.sh --rollback
+
+  New invoices now default to 30-day terms (Settings -> Payment reminders).
+  Existing invoices are untouched; ones with no due date still cannot be
+  chased, which is expected.
 
   Reminders are OFF for every existing workspace. Each vendor turns them on in
   Settings, where the form tells them how many overdue invoices will be chased.
