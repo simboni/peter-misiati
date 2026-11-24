@@ -174,6 +174,21 @@ export function whatsappCopy(input: CopyInput): string {
   return `Hi ${clientName}, invoice ${invoiceNumber} for ${amountText} is now ${step} days overdue. Please pay here: ${payUrl} — ${businessName}. If you've already paid, kindly ignore.`;
 }
 
+/**
+ * Whether an invoice is too far gone for AUTOMATIC chasing.
+ *
+ * A bill most of a year late is not an automation problem — it needs a phone
+ * call, a payment plan or a lawyer, and a templated "14 days overdue" nudge
+ * reads as incompetence. This also protects the first sweep after a vendor
+ * switches reminders on: without a cap, every ancient unpaid invoice on file
+ * would be mailed at once, including the many settled in cash and never marked
+ * paid. `maxAge` of 0 means no cap.
+ */
+export function isTooOldToAutoChase(daysOverdue: number, maxAge: number): boolean {
+  if (maxAge <= 0) return false;
+  return daysOverdue > maxAge;
+}
+
 /** Statuses that can still be chased — paid, void and drafts never are. */
 export const CHASEABLE_STATUSES = ["sent", "partial", "overdue"] as const;
 

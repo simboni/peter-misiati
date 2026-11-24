@@ -28,16 +28,21 @@ export function ReminderSettingsForm({
   reminderTone,
   reminderAutoEmail,
   reminderMinAmount,
+  reminderMaxAge,
   currency,
   emailReady,
+  backlogCount,
 }: {
   remindersEnabled: boolean;
   reminderSchedule: string;
   reminderTone: string;
   reminderAutoEmail: boolean;
   reminderMinAmount: number;
+  reminderMaxAge: number;
   currency: string;
   emailReady: boolean;
+  /** Unpaid invoices already past due — what switching on would chase. */
+  backlogCount: number;
 }) {
   const [state, formAction] = useActionState<FormState, FormData>(saveReminderSettingsAction, {});
   const [on, setOn] = useState(remindersEnabled);
@@ -70,6 +75,17 @@ export function ReminderSettingsForm({
         />
         Remind clients about unpaid invoices
       </label>
+
+      {/* Switching on for a workspace with history is the one genuinely risky
+          moment in this feature, so say plainly what will happen. */}
+      {on && !remindersEnabled && backlogCount > 0 && (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          <b>Before you save:</b> you have {backlogCount} unpaid invoice
+          {backlogCount === 1 ? "" : "s"} already past due. Once this is on, those clients will be
+          chased. If any were settled in cash, mark them paid first — or raise the “stop chasing
+          after” limit below so only recent invoices are touched.
+        </p>
+      )}
 
       <fieldset disabled={!on} className="space-y-5 disabled:opacity-50">
         <div>
@@ -135,6 +151,24 @@ export function ReminderSettingsForm({
             />
             <p className="mt-1 text-xs text-muted">
               Leave blank to chase every unpaid invoice, however small.
+            </p>
+          </div>
+
+          <div>
+            <label className="label" htmlFor="reminderMaxAge">
+              Stop chasing after (days overdue)
+            </label>
+            <input
+              id="reminderMaxAge"
+              name="reminderMaxAge"
+              className="input"
+              inputMode="numeric"
+              defaultValue={reminderMaxAge}
+              placeholder="90"
+            />
+            <p className="mt-1 text-xs text-muted">
+              A very old debt needs a phone call, not another email. These stay in your queue to
+              send by hand. Use 0 for no limit.
             </p>
           </div>
         </div>

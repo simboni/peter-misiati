@@ -83,6 +83,8 @@ before(async () => {
     inv("opted-out", { clientId: "c2" }),
     inv("no-email", { clientId: "c3" }),
     inv("not-due-yet", { dueDate: new Date("2026-04-30T09:00:00Z") }),
+    // ~200 days past due: beyond the 90-day auto-chase cap.
+    inv("ancient", { dueDate: new Date("2025-09-01T09:00:00Z") }),
     // All of the following must stay OUT of the queue entirely.
     inv("still-draft", { status: "draft" }),
     inv("settled", { status: "paid", amountPaid: 50_000, balanceDue: 0 }),
@@ -102,6 +104,7 @@ test("the queue holds only chaseable invoices for this org", async () => {
   const { rows } = await loadChaseQueue(db, ORG, NOW);
   const ids = rows.map((r) => r.id).sort();
   assert.deepEqual(ids, [
+    "ancient",
     "chase-me",
     "no-email",
     "not-due-yet",
@@ -143,6 +146,16 @@ test("blocked rows stay in the queue but say why", async () => {
   // No email is not a scheduling block — the step is due, it just can't be
   // emailed, which is what puts it in front of the vendor to send by hand.
   assert.equal(by("no-email").step, 7);
+});
+
+test("a debt past the age cap is listed but never auto-chased", async () => {
+  const { rows } = await loadChaseQueue(db, ORG, NOW);
+  const r = rows.find((x) => x.id === "ancient")!;
+  assert.ok(r.daysOverdue > 90, `expected >90 days, got ${r.daysOverdue}`);
+  assert.equal(r.blocked, "too-old");
+  assert.equal(r.step, null, "no step may be due past the cap");
+  // Still present, so the vendor can see it and chase it by hand.
+  assert.ok(r.balanceDue > 0);
 });
 
 test("an invoice not yet due is listed with nothing to send", async () => {

@@ -30,12 +30,13 @@ export type QueueRow = {
   lastFailed: boolean;
   shareToken: string;
   remindersPaused: boolean;
-  blocked: "paused" | "client-opted-out" | "no-email" | "below-minimum" | null;
+  blocked: "paused" | "client-opted-out" | "too-old" | "no-email" | "below-minimum" | null;
 };
 
 const BLOCKED_LABEL: Record<string, string> = {
   paused: "Reminders paused",
   "client-opted-out": "Client opted out",
+  "too-old": "Too old to auto-chase",
   "no-email": "No email on file",
   "below-minimum": "Below your minimum",
 };

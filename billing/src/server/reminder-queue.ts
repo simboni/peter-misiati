@@ -10,7 +10,7 @@
  * (invoice_id, step) makes the claim the thing that settles the race.
  */
 
-import { and, eq, gt, inArray, isNotNull } from "drizzle-orm";
+import { and, count, eq, gt, inArray, isNotNull, lt } from "drizzle-orm";
 import { schema, type DB } from "./db";
 import { sendEmail, documentEmailHtml } from "./resend";
 import { platformResendConfig } from "./platform";
@@ -21,6 +21,7 @@ import {
   dueStep,
   daysBetween,
   isChaseable,
+  isTooOldToAutoChase,
   parseSchedule,
   reminderCopy,
   toneForStep,
@@ -33,6 +34,8 @@ export type ReminderSettings = {
   tone: Tone;
   autoEmail: boolean;
   minAmount: number;
+  /** Days past due after which automatic chasing stops. 0 = no cap. */
+  maxAge: number;
 };
 
 const DEFAULTS: ReminderSettings = {
@@ -41,6 +44,7 @@ const DEFAULTS: ReminderSettings = {
   tone: "friendly",
   autoEmail: true,
   minAmount: 0,
+  maxAge: 90,
 };
 
 /**
@@ -63,6 +67,7 @@ async function orgContext(
         reminderTone: schema.orgProfile.reminderTone,
         reminderAutoEmail: schema.orgProfile.reminderAutoEmail,
         reminderMinAmount: schema.orgProfile.reminderMinAmount,
+        reminderMaxAge: schema.orgProfile.reminderMaxAge,
         email: schema.orgProfile.email,
         invoiceFooter: schema.orgProfile.invoiceFooter,
       })
@@ -85,6 +90,7 @@ async function orgContext(
           tone: (["friendly", "firm", "final"].includes(p.reminderTone) ? p.reminderTone : "friendly") as Tone,
           autoEmail: p.reminderAutoEmail,
           minAmount: p.reminderMinAmount,
+          maxAge: p.reminderMaxAge,
         }
       : DEFAULTS,
     businessName: orgs[0]?.name ?? "Your business",
@@ -99,7 +105,13 @@ export async function reminderSettings(db: DB, organizationId: string): Promise<
 }
 
 /** Why an invoice is sitting in the queue without being chased. */
-export type BlockedReason = "paused" | "client-opted-out" | "no-email" | "below-minimum" | null;
+export type BlockedReason =
+  | "paused"
+  | "client-opted-out"
+  | "too-old"
+  | "no-email"
+  | "below-minimum"
+  | null;
 
 export type ChaseRow = {
   id: string;
@@ -210,19 +222,25 @@ export async function loadChaseQueue(
       settings.minAmount,
     );
 
-    const step = chaseable
-      ? dueStep({ dueDate, now, schedule: settings.schedule, sent: sentSteps, lastSentAt: latest })
-      : null;
+    const age = daysBetween(dueDate, now);
+    const tooOld = isTooOldToAutoChase(age, settings.maxAge);
+
+    const step =
+      chaseable && !tooOld
+        ? dueStep({ dueDate, now, schedule: settings.schedule, sent: sentSteps, lastSentAt: latest })
+        : null;
 
     const blocked: BlockedReason = inv.remindersPaused
       ? "paused"
       : inv.clientOptedOut
         ? "client-opted-out"
-        : inv.balanceDue < settings.minAmount
-          ? "below-minimum"
-          : !inv.clientEmail
-            ? "no-email"
-            : null;
+        : tooOld
+          ? "too-old"
+          : inv.balanceDue < settings.minAmount
+            ? "below-minimum"
+            : !inv.clientEmail
+              ? "no-email"
+              : null;
 
     return {
       id: inv.id,
@@ -235,7 +253,7 @@ export async function loadChaseQueue(
       balanceDue: inv.balanceDue,
       dueDate,
       dueDateText: fmtDate(dueDate),
-      daysOverdue: daysBetween(dueDate, now),
+      daysOverdue: age,
       step,
       tone: toneForStep(step ?? Math.max(0, daysBetween(dueDate, now)), settings.tone),
       sentSteps,
@@ -471,6 +489,31 @@ export async function runDueReminders(
     }
   }
   return sent;
+}
+
+/**
+ * How many unpaid invoices are already past due — what switching reminders on
+ * would start chasing. Counted in SQL because Settings only needs the number.
+ */
+export async function countOverdueBacklog(
+  db: DB,
+  organizationId: string,
+  now: Date = new Date(),
+): Promise<number> {
+  const rows = await db
+    .select({ n: count() })
+    .from(schema.invoice)
+    .where(
+      and(
+        eq(schema.invoice.organizationId, organizationId),
+        eq(schema.invoice.type, "invoice"),
+        inArray(schema.invoice.status, [...CHASEABLE_STATUSES]),
+        isNotNull(schema.invoice.dueDate),
+        gt(schema.invoice.balanceDue, 0),
+        lt(schema.invoice.dueDate, now),
+      ),
+    );
+  return rows[0]?.n ?? 0;
 }
 
 export type ChaseSummary = {

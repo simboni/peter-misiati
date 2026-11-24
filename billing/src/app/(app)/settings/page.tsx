@@ -4,6 +4,7 @@ import { platformKopokopoConfig, platformResendConfig } from "@/server/platform"
 import { isPro } from "@/lib/plan";
 import { PageHeader } from "@/components/page-header";
 import { SettingsForm } from "@/components/settings-form";
+import { countOverdueBacklog } from "@/server/reminder-queue";
 import { ReminderSettingsForm } from "@/components/reminder-settings-form";
 import { PaymentSettingsForm } from "@/components/payment-settings-form";
 import { DangerZone } from "@/components/danger-zone";
@@ -13,11 +14,12 @@ export const metadata = { title: "Settings" };
 
 export default async function SettingsPage() {
   const { db, organizationId, role } = await requireOrg();
-  const [org, profile, platformCfg, mail] = await Promise.all([
+  const [org, profile, platformCfg, mail, backlog] = await Promise.all([
     getOrg(db, organizationId),
     getOrgProfile(db, organizationId),
     platformKopokopoConfig(db),
     platformResendConfig(await getDb()),
+    countOverdueBacklog(db, organizationId),
   ]);
 
   if (!profile) {
@@ -47,8 +49,10 @@ export default async function SettingsPage() {
         reminderTone={profile.reminderTone}
         reminderAutoEmail={profile.reminderAutoEmail}
         reminderMinAmount={profile.reminderMinAmount}
+        reminderMaxAge={profile.reminderMaxAge}
         currency={profile.currency ?? "KES"}
         emailReady={mail !== null}
+        backlogCount={backlog}
       />
       <PaymentSettingsForm
         enabled={profile.kopokopoEnabled}

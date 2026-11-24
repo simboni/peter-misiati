@@ -185,6 +185,12 @@ export const orgProfile = sqliteTable("org_profile", {
   reminderAutoEmail: integer("reminder_auto_email", { mode: "boolean" }).notNull().default(true),
   // Don't chase trivial balances (minor units). 0 = chase everything.
   reminderMinAmount: integer("reminder_min_amount").notNull().default(0),
+  // Stop AUTOMATIC chasing once an invoice is this far past due. A debt most of
+  // a year old needs a phone call, not a templated nudge — and without this cap
+  // the first sweep after switching reminders on would mail a vendor's whole
+  // back catalogue, including invoices long settled in cash and never marked
+  // paid. Such rows stay visible in the queue and can still be sent by hand.
+  reminderMaxAge: integer("reminder_max_age").notNull().default(90),
   // Per-vendor M-Pesa (Kopo Kopo). Secrets are stored AES-GCM encrypted.
   // When disabled/empty, the platform-level env credentials are used instead.
   kopokopoEnabled: integer("kopokopo_enabled", { mode: "boolean" }).notNull().default(false),

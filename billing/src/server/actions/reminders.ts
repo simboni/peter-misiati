@@ -125,6 +125,12 @@ export async function saveReminderSettingsAction(_prev: FormState, fd: FormData)
 
   const minAmount = Math.max(0, parseAmount(fd.get("reminderMinAmount") ?? "0"));
 
+  // 0 means "no cap"; anything else is clamped to a year so a typo can't turn
+  // the safety net off by accident.
+  const maxAgeRaw = String(fd.get("reminderMaxAge") ?? "90").trim();
+  const maxAgeNum = maxAgeRaw === "" ? 90 : parseInt(maxAgeRaw, 10);
+  const maxAge = Number.isFinite(maxAgeNum) ? Math.max(0, Math.min(365, maxAgeNum)) : 90;
+
   await db
     .update(schema.orgProfile)
     .set({
@@ -133,6 +139,7 @@ export async function saveReminderSettingsAction(_prev: FormState, fd: FormData)
       reminderTone: tone,
       reminderSchedule: schedule.join(","),
       reminderMinAmount: minAmount,
+      reminderMaxAge: maxAge,
     })
     .where(eq(schema.orgProfile.organizationId, organizationId));
 

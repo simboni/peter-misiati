@@ -8,6 +8,7 @@ import {
   reminderCopy,
   whatsappCopy,
   isChaseable,
+  isTooOldToAutoChase,
 } from "../src/server/reminders";
 
 const d = (s: string) => new Date(s + "T09:00:00Z");
@@ -129,4 +130,16 @@ test("isChaseable refuses the cases that would embarrass us", () => {
   assert.equal(isChaseable({ ...candidate, clientOptedOut: true }), false);
   assert.equal(isChaseable(candidate, 100_000), false, "below the minimum worth chasing");
   assert.equal(isChaseable({ ...candidate, status: "partial" }), true, "part-paid still owes");
+});
+
+test("ancient debts are not chased automatically", () => {
+  assert.equal(isTooOldToAutoChase(89, 90), false);
+  assert.equal(isTooOldToAutoChase(90, 90), false, "the cap itself is still chaseable");
+  assert.equal(isTooOldToAutoChase(91, 90), true);
+  assert.equal(isTooOldToAutoChase(400, 90), true);
+  // Not-yet-due and recently-due invoices are never "too old".
+  assert.equal(isTooOldToAutoChase(-5, 90), false);
+  assert.equal(isTooOldToAutoChase(0, 90), false);
+  // 0 disables the cap for vendors who really do want to chase forever.
+  assert.equal(isTooOldToAutoChase(5000, 0), false);
 });
