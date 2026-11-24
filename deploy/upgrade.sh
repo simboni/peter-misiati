@@ -28,17 +28,34 @@ DB=${DB:-/data/tallypay.db}
 HOST=${HOST:-tallypay.smp.co.ke}
 BACKUPS=${BACKUPS:-/root/tallypay-backups}
 STAMP=$(date -u +%F_%H%M%S)
+# The app container's own database path (compose sets it); used for snapshots.
+DATABASE_URL_IN_CONTAINER=${DATABASE_URL_IN_CONTAINER:-file:/data/tallypay.db}
 
 say()  { printf '\n\033[1;32m== %s\033[0m\n' "$1"; }
 warn() { printf '  \033[1;33m!\033[0m %s\n' "$1"; }
 ok()   { printf '  \033[1;32m+\033[0m %s\n' "$1"; }
 die()  { printf '\n\033[1;31m×  %s\033[0m\n' "$1" >&2; exit 1; }
 
-# Run sqlite against the live volume from a throwaway container, so the box
-# needs no sqlite3 installed and the app keeps running throughout.
+# Query the live database THROUGH THE RUNNING CONTAINER.
+#
+# This used to start a throwaway alpine and `apk add sqlite` for every single
+# query — an image pull and a package install, over the network, half a dozen
+# times per deploy. On a box running ten apps that is slow at best, and it hung
+# outright when another project's build had the daemon busy. The deploy then
+# stalled in preflight having done nothing at all.
+#
+# The app container already has node and @libsql/client (the entrypoint runs
+# scripts/migrate.mjs with them), so `docker exec` needs no network, no pull
+# and no new container. Reads only.
 sqlite_ro() {
-  docker run --rm -v "$VOLUME":/data alpine:3 sh -c \
-    "apk add --no-cache sqlite >/dev/null 2>&1; sqlite3 -noheader $DB \"$1\""
+  docker exec tallypay node -e '
+    import("@libsql/client").then(async ({ createClient }) => {
+      const c = createClient({ url: process.env.DATABASE_URL });
+      const r = await c.execute(process.argv[1]);
+      for (const row of r.rows) console.log(Object.values(row).join("|"));
+      process.exit(0);
+    }).catch((e) => { console.error(e.message); process.exit(1); });
+  ' "$1" 2>/dev/null
 }
 
 # ------------------------------------------------------------------ rollback --
@@ -66,6 +83,18 @@ docker ps --format '{{.Names}}' | grep -qx tallypay \
   || die "The tallypay container is not running. Start it first, then upgrade."
 ok "container running, compose and .env present"
 
+# Prove we can read the database through the container BEFORE depending on it.
+# Every check and the backup itself go through this path, so if it is broken
+# the deploy should say so in one second rather than stall with no output.
+probe=$(sqlite_ro "select 1" 2>/dev/null || true)
+if [ "$probe" != "1" ]; then
+  die "Cannot query the database via 'docker exec tallypay node'.
+     Try it by hand to see the error:
+       docker exec tallypay node -e 'import(\"@libsql/client\").then(()=>console.log(\"ok\"))'
+     Nothing has been changed."
+fi
+ok "database reachable through the container"
+
 mkdir -p "$BACKUPS"
 
 before_invoices=$(sqlite_ro "select count(*) from invoice;")
@@ -79,13 +108,34 @@ ok "live data: $before_orgs orgs, $before_invoices invoices, $before_payments pa
 # a plain cp of an open SQLite file is not.
 say "BACKUP"
 BK="$BACKUPS/pre-upgrade-$STAMP.db"
-docker run --rm -v "$VOLUME":/data -v "$BACKUPS":/b alpine:3 sh -c \
-  "apk add --no-cache sqlite >/dev/null 2>&1; sqlite3 $DB \".backup /b/pre-upgrade-$STAMP.db\""
+SNAP="/data/pre-upgrade-$STAMP.db"
+
+# VACUUM INTO is a consistent snapshot of a live database — the same guarantee
+# sqlite3 .backup gives — and needs nothing installed. Taken inside the volume,
+# verified there, then copied out.
+node_in_container() {
+  docker exec tallypay node -e '
+    import("@libsql/client").then(async ({ createClient }) => {
+      const c = createClient({ url: process.argv[1] });
+      const r = await c.execute(process.argv[2]);
+      for (const row of r.rows) console.log(Object.values(row).join("|"));
+      process.exit(0);
+    }).catch((e) => { console.error(e.message); process.exit(1); });
+  ' "$1" "$2"
+}
+
+node_in_container "$DATABASE_URL_IN_CONTAINER" "VACUUM INTO '$SNAP'" >/dev/null \
+  || die "Could not snapshot the database. Nothing has been changed."
+
+# A file that exists is not a backup: read it back while it is still inside
+# the volume, before trusting it enough to proceed.
+bk_invoices=$(node_in_container "file:$SNAP" "select count(*) from invoice")
+
+docker cp "tallypay:$SNAP" "$BK" >/dev/null \
+  || die "Snapshot taken but could not be copied out. Nothing has been changed."
+docker exec tallypay rm -f "$SNAP" >/dev/null 2>&1 || true
 [ -s "$BK" ] || die "Backup file is empty or missing. STOPPING — nothing has been changed."
 
-# A file that exists is not a backup. Read it back before trusting it.
-bk_invoices=$(docker run --rm -v "$BACKUPS":/b alpine:3 sh -c \
-  "apk add --no-cache sqlite >/dev/null 2>&1; sqlite3 -noheader /b/pre-upgrade-$STAMP.db 'select count(*) from invoice;'")
 [ "$bk_invoices" = "$before_invoices" ] \
   || die "Backup has $bk_invoices invoices but live has $before_invoices. STOPPING — nothing changed."
 ok "$BK ($(du -h "$BK" | cut -f1)) verified: $bk_invoices invoices readable"
