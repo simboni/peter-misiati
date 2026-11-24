@@ -29,6 +29,7 @@ export function ReminderSettingsForm({
   reminderAutoEmail,
   reminderMinAmount,
   reminderMaxAge,
+  defaultDueDays,
   currency,
   emailReady,
   backlogCount,
@@ -39,6 +40,7 @@ export function ReminderSettingsForm({
   reminderAutoEmail: boolean;
   reminderMinAmount: number;
   reminderMaxAge: number;
+  defaultDueDays: number;
   currency: string;
   emailReady: boolean;
   /** Unpaid invoices already past due — what switching on would chase. */
@@ -64,6 +66,25 @@ export function ReminderSettingsForm({
       {state.ok && (
         <p className="rounded-lg border border-brand-200 bg-brand-50 px-3 py-2 text-sm text-brand-700">{state.ok}</p>
       )}
+
+      <div className="sm:max-w-xs">
+        <label className="label" htmlFor="defaultDueDays">
+          Default payment terms (days)
+        </label>
+        <input
+          id="defaultDueDays"
+          name="defaultDueDays"
+          className="input"
+          inputMode="numeric"
+          defaultValue={defaultDueDays}
+          placeholder="30"
+        />
+        <p className="mt-1 text-xs text-muted">
+          New invoices fall due this many days after they&apos;re issued. Use 0 for due on
+          receipt. An invoice with no due date can never be chased, so this is what lets
+          reminders work at all.
+        </p>
+      </div>
 
       <label className="flex items-center gap-2 text-sm text-ink">
         <input

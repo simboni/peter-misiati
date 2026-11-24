@@ -131,6 +131,12 @@ export async function saveReminderSettingsAction(_prev: FormState, fd: FormData)
   const maxAgeNum = maxAgeRaw === "" ? 90 : parseInt(maxAgeRaw, 10);
   const maxAge = Number.isFinite(maxAgeNum) ? Math.max(0, Math.min(365, maxAgeNum)) : 90;
 
+  // Payment terms. An invoice with no due date can never be chased, so this
+  // is what makes reminders work at all for invoices created the normal way.
+  const termsRaw = String(fd.get("defaultDueDays") ?? "30").trim();
+  const termsNum = termsRaw === "" ? 30 : parseInt(termsRaw, 10);
+  const defaultDueDays = Number.isFinite(termsNum) ? Math.max(0, Math.min(365, termsNum)) : 30;
+
   await db
     .update(schema.orgProfile)
     .set({
@@ -140,6 +146,7 @@ export async function saveReminderSettingsAction(_prev: FormState, fd: FormData)
       reminderSchedule: schedule.join(","),
       reminderMinAmount: minAmount,
       reminderMaxAge: maxAge,
+      defaultDueDays,
     })
     .where(eq(schema.orgProfile.organizationId, organizationId));
 

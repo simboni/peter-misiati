@@ -32,6 +32,7 @@ export async function loadEditorData({ db, organizationId }: OrgContext) {
     defaultCurrency: profile?.currency ?? "KES",
     defaultVatRateBps,
     defaultTerms: profile?.invoiceFooter ?? "",
+    defaultDueDays: profile?.defaultDueDays ?? 30,
   };
 }
 

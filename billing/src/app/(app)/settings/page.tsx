@@ -50,6 +50,7 @@ export default async function SettingsPage() {
         reminderAutoEmail={profile.reminderAutoEmail}
         reminderMinAmount={profile.reminderMinAmount}
         reminderMaxAge={profile.reminderMaxAge}
+        defaultDueDays={profile.defaultDueDays}
         currency={profile.currency ?? "KES"}
         emailReady={mail !== null}
         backlogCount={backlog}

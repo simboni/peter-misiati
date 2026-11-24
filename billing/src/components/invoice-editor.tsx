@@ -43,6 +43,14 @@ const emptyLine = (): EditorLine => ({
   taxRate: "",
 });
 
+/** yyyy-mm-dd `base` plus n days, in local time. */
+function addDays(base: string, n: number): string {
+  const d = base ? new Date(base + "T00:00:00") : new Date();
+  if (isNaN(d.getTime())) return "";
+  d.setDate(d.getDate() + n);
+  return toDateInput(d);
+}
+
 function toDateInput(d?: Date | null): string {
   if (!d) return "";
   return new Date(d).toISOString().slice(0, 10);
@@ -55,6 +63,7 @@ export function InvoiceEditor({
   defaultCurrency,
   defaultVatRateBps,
   defaultTerms,
+  defaultDueDays = 30,
   invoice,
   lines: existingLines,
 }: {
@@ -64,6 +73,8 @@ export function InvoiceEditor({
   defaultCurrency: string;
   defaultVatRateBps: number;
   defaultTerms: string;
+  /** Payment terms: a new invoice falls due this many days after issue. */
+  defaultDueDays?: number;
   invoice?: Invoice;
   lines?: InvoiceLine[];
 }) {
@@ -102,6 +113,14 @@ export function InvoiceEditor({
         : "",
   );
   const [currency, setCurrency] = useState<string>(invoice?.currency ?? defaultCurrency);
+  // Dates are controlled so the quick-term chips can drive them, and so a new
+  // invoice starts with a real due date instead of none at all.
+  const [issueDate, setIssueDate] = useState<string>(
+    toDateInput(invoice?.issueDate) || toDateInput(new Date()),
+  );
+  const [dueDate, setDueDate] = useState<string>(
+    invoice ? toDateInput(invoice.dueDate) : addDays(toDateInput(new Date()), defaultDueDays),
+  );
   const [clientId, setClientId] = useState<string>(invoice?.clientId ?? "");
   const [showMore, setShowMore] = useState<boolean>(
     Boolean(invoice?.discountType) || (invoice?.depositType && invoice.depositType !== "none") || Boolean(invoice?.notes) || Boolean(invoice?.terms),
@@ -194,10 +213,16 @@ export function InvoiceEditor({
     setDepositType(d.depositType);
     setDepositValue(d.depositValue);
     setShowMore(d.showMore);
-    // The uncontrolled inputs have to be written directly.
+    // The dates are controlled, so they must go through state — writing
+    // el.value would be wiped by the next render.
+    if (typeof d.fields.issueDate === "string") setIssueDate(d.fields.issueDate);
+    if (typeof d.fields.dueDate === "string") setDueDate(d.fields.dueDate);
+    // Notes and terms are uncontrolled and have to be written directly.
     const f = formRef.current;
     if (f) {
-      for (const [n, v] of Object.entries(d.fields)) {
+      for (const n of ["notes", "terms"]) {
+        const v = d.fields[n];
+        if (typeof v !== "string") continue;
         const el = f.elements.namedItem(n) as HTMLInputElement | HTMLTextAreaElement | null;
         if (el) el.value = v;
       }
@@ -243,7 +268,7 @@ export function InvoiceEditor({
       if (okSave) setSavedAt(Date.now());
     }, 500);
     return () => clearTimeout(t);
-  }, [lines, clientId, currency, discountType, discountValue, depositType, depositValue, showMore, submitted, DKEY]);
+  }, [lines, clientId, currency, discountType, discountValue, depositType, depositValue, showMore, issueDate, dueDate, submitted, DKEY]);
 
   // A successful save redirects, unmounting this component with no error set.
   // That is the only reliable "it worked" signal a Server Action gives us.
@@ -463,12 +488,43 @@ export function InvoiceEditor({
               <div>
                 <label className="label" htmlFor="issueDate">Issue date</label>
                 <input id="issueDate" name="issueDate" type="date" className="input"
-                  defaultValue={toDateInput(invoice?.issueDate) || toDateInput(new Date())} />
+                  value={issueDate} onChange={(e) => setIssueDate(e.target.value)} />
               </div>
               {type === "invoice" && (
                 <div>
                   <label className="label" htmlFor="dueDate">Due date</label>
-                  <input id="dueDate" name="dueDate" type="date" className="input" defaultValue={toDateInput(invoice?.dueDate)} />
+                  <input id="dueDate" name="dueDate" type="date" className="input"
+                    value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+                  {/* Quick terms. Typing a date on a phone keypad is the worst
+                      input in the form, and the due date is the field the
+                      whole reminders engine depends on. */}
+                  <div className="mt-1.5 flex flex-wrap gap-1">
+                    {[
+                      { label: "On receipt", days: 0 },
+                      { label: "7d", days: 7 },
+                      { label: "14d", days: 14 },
+                      { label: "30d", days: 30 },
+                    ].map((t) => {
+                      const on = dueDate === addDays(issueDate, t.days);
+                      return (
+                        <button
+                          key={t.label}
+                          type="button"
+                          onClick={() => setDueDate(addDays(issueDate, t.days))}
+                          className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                            on ? "border-brand-500 bg-brand-50 text-brand-700" : "border-line text-muted hover:text-ink"
+                          }`}
+                        >
+                          {t.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {!dueDate && (
+                    <p className="mt-1 text-[11px] text-amber-700">
+                      Without a due date this invoice can&apos;t be chased automatically.
+                    </p>
+                  )}
                 </div>
               )}
               <div>

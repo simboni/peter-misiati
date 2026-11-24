@@ -185,6 +185,11 @@ export const orgProfile = sqliteTable("org_profile", {
   reminderAutoEmail: integer("reminder_auto_email", { mode: "boolean" }).notNull().default(true),
   // Don't chase trivial balances (minor units). 0 = chase everything.
   reminderMinAmount: integer("reminder_min_amount").notNull().default(0),
+  // Default payment terms: a new invoice is due this many days after it is
+  // issued. 0 means due on receipt. This exists because a new invoice used to
+  // have NO due date at all, and an invoice with no due date can never be
+  // chased (see isChaseable) — the reminders engine was inert by default.
+  defaultDueDays: integer("default_due_days").notNull().default(30),
   // Stop AUTOMATIC chasing once an invoice is this far past due. A debt most of
   // a year old needs a phone call, not a templated nudge — and without this cap
   // the first sweep after switching reminders on would mail a vendor's whole
