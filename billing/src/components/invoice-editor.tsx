@@ -458,7 +458,9 @@ export function InvoiceEditor({
           <section className="card p-5 sm:p-6">
             <div className="mb-4 flex items-center justify-between">
               <label className="label mb-0" htmlFor="clientSel">Bill to</label>
-              <Link href="/clients/new" className="text-xs font-semibold text-brand-700 hover:underline">
+              {/* Padded to a real tap target: a 16px-tall link is a miss
+                  waiting to happen on a phone. */}
+              <Link href="/clients/new" className="tap-target -mr-2 inline-flex min-h-9 items-center justify-center rounded-lg px-2 py-2 text-xs font-semibold text-brand-700 hover:bg-brand-50">
                 ＋ New client
               </Link>
             </div>
@@ -511,7 +513,7 @@ export function InvoiceEditor({
                           key={t.label}
                           type="button"
                           onClick={() => setDueDate(addDays(issueDate, t.days))}
-                          className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                          className={`tap-target min-h-9 rounded-full border px-3.5 py-2 text-xs font-semibold transition-colors ${
                             on ? "border-brand-500 bg-brand-50 text-brand-700" : "border-line text-muted hover:text-ink"
                           }`}
                         >
@@ -590,8 +592,11 @@ export function InvoiceEditor({
                   <AutoTextarea className="input mt-2 text-sm" placeholder="Description — press Enter for a new line" value={l.description}
                     onChange={(v) => updateLine(l.key, { description: v })} />
 
-                  <div className="mt-3 grid grid-cols-3 gap-2">
-                    <Field label="Qty">
+                  {/* Qty takes a full row on a phone: with the -/+ buttons in
+                      place, a third of a 390px screen left the number clipped
+                      to about 25px and unreadable. */}
+                  <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    <Field label="Qty" className="col-span-2 sm:col-span-1">
                       <QuantityInput value={l.quantity} onChange={(v) => updateLine(l.key, { quantity: v })} />
                     </Field>
                     <Field label={`Rate (${cur})`}>
@@ -745,9 +750,9 @@ function Kbd({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, children, className = "" }: { label: string; children: React.ReactNode; className?: string }) {
   return (
-    <label className="block">
+    <label className={`block ${className}`}>
       <span className="mb-1 block text-[11px] font-medium text-muted">{label}</span>
       {children}
     </label>

@@ -360,3 +360,37 @@ button[data-pending="true"] {
     padding: 1.25rem;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Finger-sized controls on touch devices.
+
+   .btn-sm is px-3 py-1.5, about 28px tall. That is fine under a mouse and a
+   miss waiting to happen under a thumb — and the people using TallyPay are
+   invoicing from a phone. Measured on a Pixel 7 viewport, the primary actions
+   on an invoice ("Send on WhatsApp", "Email PDF to client") came out 30px.
+
+   Keyed on (pointer: coarse) rather than a width breakpoint, so it follows the
+   INPUT DEVICE: a touch laptop gets the bigger targets, a narrow desktop
+   window does not, and the dense mouse-driven UI is left exactly as it was.
+   44px is the Apple HIG minimum and the number most accessibility guidance
+   converges on.
+--------------------------------------------------------------------------- */
+@media (pointer: coarse) {
+  .btn-primary,
+  .btn-ghost,
+  .btn-sm,
+  .btn-danger {
+    min-height: 2.75rem;
+  }
+  /* Icon-only controls need width as well as height. */
+  .tap-target {
+    min-height: 2.75rem;
+    min-width: 2.75rem;
+  }
+  /* A grown target must keep its label centred rather than top-aligned. */
+  .tap-target {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+}

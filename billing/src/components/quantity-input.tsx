@@ -50,8 +50,10 @@ export function QuantityInput({
     onChange(tidy(next));
   };
 
+  // tap-target lifts these to 44x44 on touch devices (see globals.css); they
+  // stay a compact 36px under a mouse.
   const btn =
-    "grid h-9 w-9 flex-none place-items-center rounded-lg border border-line bg-canvas text-ink " +
+    "tap-target grid h-9 w-9 flex-none place-items-center rounded-lg border border-line bg-canvas text-ink " +
     "transition-transform active:scale-90 disabled:opacity-40 disabled:active:scale-100 " +
     "hover:bg-surface-2 select-none";
 

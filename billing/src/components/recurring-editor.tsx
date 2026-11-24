@@ -268,8 +268,11 @@ export function RecurringEditor({
                     onChange={(e) => updateLine(l.key, { title: e.target.value, itemId: "" })} />
                   <AutoTextarea className="input mt-2 text-sm" placeholder="Description — press Enter for a new line" value={l.description}
                     onChange={(v) => updateLine(l.key, { description: v })} />
-                  <div className="mt-3 grid grid-cols-3 gap-2">
-                    <Field label="Qty">
+                  {/* Qty takes a full row on a phone: with the -/+ buttons in
+                      place, a third of a 390px screen left the number clipped
+                      to about 25px and unreadable. */}
+                  <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    <Field label="Qty" className="col-span-2 sm:col-span-1">
                       <QuantityInput value={l.quantity} onChange={(v) => updateLine(l.key, { quantity: v })} />
                     </Field>
                     <Field label={`Rate (${currency})`}>
@@ -391,9 +394,9 @@ export function RecurringEditor({
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, children, className = "" }: { label: string; children: React.ReactNode; className?: string }) {
   return (
-    <label className="block">
+    <label className={`block ${className}`}>
       <span className="mb-1 block text-[11px] font-medium text-muted">{label}</span>
       {children}
     </label>
