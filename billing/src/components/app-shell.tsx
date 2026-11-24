@@ -10,6 +10,8 @@ import { ANDROID_APK_URL } from "@/lib/flags";
 import { NativeAppChrome } from "./native-app-chrome";
 import { PullToRefresh } from "./pull-to-refresh";
 import { PushRegistration } from "./push-registration";
+import { CommandPalette, PaletteButton } from "./command-palette";
+import { KeyboardShortcuts } from "./keyboard-shortcuts";
 
 /** Small spinner shown on a nav item while its route is loading. */
 function NavPending({ collapsed }: { collapsed: boolean }) {
@@ -214,7 +216,10 @@ export function AppShell({
           </svg>
         </button>
         <Brand href="/dashboard" />
-        <ThemeToggle className="ml-auto" />
+        <div className="ml-auto flex items-center gap-2">
+          <PaletteButton />
+          <ThemeToggle />
+        </div>
       </header>
 
       {/* ---------- Mobile drawer ---------- */}
@@ -276,6 +281,8 @@ export function AppShell({
       <NativeAppChrome orgName={orgName} userEmail={userEmail} pro={pro} isAdmin={isAdmin} signOut={signOut} />
       <PullToRefresh />
       <PushRegistration />
+      <CommandPalette />
+      <KeyboardShortcuts />
     </div>
   );
 }

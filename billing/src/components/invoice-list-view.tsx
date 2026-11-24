@@ -22,8 +22,14 @@ type Row = {
 
 type Filters = { q: string; status: string; client: string; sort: string };
 
-const STATUSES = ["all", "draft", "sent", "partial", "paid", "overdue", "void"];
-const STATUS_LABELS: Record<string, string> = { all: "All statuses", partial: "Part-paid" };
+// "unpaid" is a pseudo-status spanning sent/partial/overdue with a balance
+// still owed — the question a vendor actually asks. Resolved server-side.
+const STATUSES = ["all", "unpaid", "draft", "sent", "partial", "paid", "overdue", "void"];
+const STATUS_LABELS: Record<string, string> = {
+  all: "All statuses",
+  unpaid: "Unpaid (any)",
+  partial: "Part-paid",
+};
 
 export function InvoiceListView({
   rows,

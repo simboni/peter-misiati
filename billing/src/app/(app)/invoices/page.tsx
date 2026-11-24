@@ -1,4 +1,4 @@
-import { and, eq, or, like, desc, asc, count, sql } from "drizzle-orm";
+import { and, eq, or, like, desc, asc, count, gt, inArray, sql } from "drizzle-orm";
 import { requireOrg } from "@/server/org";
 import { schema } from "@/server/db";
 import { PageHeader, EmptyState } from "@/components/page-header";
@@ -36,7 +36,15 @@ export default async function InvoicesPage({
     eq(schema.invoice.organizationId, organizationId),
     eq(schema.invoice.type, "invoice"),
   ];
-  if (status) filters.push(eq(schema.invoice.status, status));
+  // "unpaid" is not a stored status — it spans sent/partial/overdue, i.e. money
+  // still owed on a document the client has actually seen. Drafts and voids are
+  // excluded because nobody owes anything on them.
+  if (status === "unpaid") {
+    filters.push(inArray(schema.invoice.status, ["sent", "partial", "overdue"]));
+    filters.push(gt(schema.invoice.balanceDue, 0));
+  } else if (status) {
+    filters.push(eq(schema.invoice.status, status));
+  }
   if (clientId) filters.push(eq(schema.invoice.clientId, clientId));
   if (q) {
     const needle = `%${q}%`;
