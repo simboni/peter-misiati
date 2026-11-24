@@ -37,6 +37,17 @@ SQLITE_DBS=(
   "64theatre:/var/www/html/storage/app/database.sqlite"
 )
 
+# SQLite databases that live on a Docker VOLUME, as "label|volume|path".
+#
+# Kept separate from SQLITE_DBS because that path runs VACUUM INTO *inside* the
+# app container via php, which only works for the Laravel images. TallyPay is a
+# Node image with no php and no sqlite binary. Mounting the volume into a
+# throwaway container instead makes the backup independent of whatever the app
+# image happens to contain — and works even when the app is stopped.
+SQLITE_VOLUMES=(
+  "tallypay|tallypay_tallypay-data|/data/tallypay.db"
+)
+
 bold() { printf '\n\033[1;32m== %s\033[0m\n' "$1"; }
 warn() { printf '  \033[1;33m!\033[0m %s\n' "$1"; }
 ok()   { printf '  \033[1;32m✓\033[0m %s\n' "$1"; }
@@ -96,6 +107,22 @@ discover() {
       warn "$c: no SQLite file at $p — skipped"
     fi
   done
+
+  # Volume-backed SQLite. Checked by inspecting the VOLUME, not a container,
+  # so a stopped app is still backed up rather than silently skipped.
+  local label vol
+  for entry in "${SQLITE_VOLUMES[@]}"; do
+    IFS='|' read -r label vol p <<< "$entry"
+    if ! docker volume inspect "$vol" >/dev/null 2>&1; then
+      warn "$label: volume $vol does not exist — skipped"
+      continue
+    fi
+    if docker run --rm -v "$vol":/v alpine:3 test -f "/v/${p#/data/}" 2>/dev/null; then
+      PLAN+=("sqlitevol|$label|$vol|$p")
+    else
+      warn "$label: no SQLite file at $p in volume $vol — skipped"
+    fi
+  done
 }
 
 # --- backup actions --------------------------------------------------------
@@ -128,6 +155,20 @@ do_sqlite() {
   gzip -9f "$dest" 2>>"$LOG"
 }
 
+do_sqlite_volume() {
+  local vol=$1 path=$2 dest=$3
+  # Same reasoning as do_sqlite — VACUUM INTO, not a file copy, because
+  # copying a live SQLite file can capture a half-written page that restores
+  # as a corrupt database which still opens. The difference is where it runs:
+  # a throwaway alpine with the volume mounted, so this works whatever the app
+  # image contains and whether or not the app is running.
+  docker run --rm -v "$vol":/v -v "$(dirname "$dest")":/out alpine:3 sh -c \
+    "apk add --no-cache sqlite >/dev/null 2>&1 && \
+     sqlite3 /v/$(basename "$path") \"VACUUM INTO '/out/$(basename "$dest")'\"" \
+    2>>"$LOG" || return 1
+  gzip -9f "$dest" 2>>"$LOG"
+}
+
 # A dump that cannot be read back is not a backup. Check the format, not just
 # the byte count — a truncated pg_dump is often still a plausible size.
 verify() {
@@ -137,7 +178,7 @@ verify() {
     pg)     docker run --rm -v "$(dirname "$f")":/b:ro postgres:16-alpine \
               pg_restore --list "/b/$(basename "$f")" >/dev/null 2>&1 \
               || { bad "$(basename "$f"): pg_restore cannot read it"; return 1; } ;;
-    my|sqlite) gzip -t "$f" 2>/dev/null \
+    my|sqlite|sqlitevol) gzip -t "$f" 2>/dev/null \
               || { bad "$(basename "$f"): not a valid gzip stream"; return 1; } ;;
   esac
 }
@@ -181,6 +222,7 @@ if [ "$MODE" = "--list" ] || [ "$MODE" = "--dry-run" ]; then
         pg)     echo "  docker exec $c pg_dump -U $su -Fc --no-owner --no-privileges $tgt > $OUT_DIR/$c/${tgt}-$STAMP.dump" ;;
         my)     echo "  docker exec $c mysqldump -u root --all-databases --single-transaction | gzip > $OUT_DIR/$c/all-$STAMP.sql.gz" ;;
         sqlite) echo "  docker exec $c php -r \"VACUUM INTO ...\" ; docker cp ; gzip  -> $OUT_DIR/$c/$(basename "$tgt")-$STAMP.gz" ;;
+        sqlitevol) echo "  docker run --rm -v $su:/v alpine sqlite3 ... \"VACUUM INTO ...\" ; gzip  -> $OUT_DIR/$c/$(basename "$tgt")-$STAMP.gz" ;;
       esac
     done
   fi
@@ -210,6 +252,7 @@ for p in "${PLAN[@]}"; do
     pg)     dest="$OUT_DIR/$c/${tgt}-$STAMP.dump" ; do_pg "$c" "$su" "$tgt" "$dest" ;;
     my)     dest="$OUT_DIR/$c/all-$STAMP.sql.gz" ; do_my "$c" "$dest" ;;
     sqlite) dest="$OUT_DIR/$c/$(basename "$tgt")-$STAMP" ; do_sqlite "$c" "$tgt" "$dest" && dest="$dest.gz" ;;
+    sqlitevol) dest="$OUT_DIR/$c/$(basename "$tgt")-$STAMP" ; do_sqlite_volume "$su" "$tgt" "$dest" && dest="$dest.gz" ;;
   esac
   rc=$?
   if [ $rc -ne 0 ]; then
