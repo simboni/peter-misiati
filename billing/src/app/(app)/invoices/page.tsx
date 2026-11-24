@@ -4,6 +4,7 @@ import { schema } from "@/server/db";
 import { PageHeader, EmptyState } from "@/components/page-header";
 import { InvoiceListView } from "@/components/invoice-list-view";
 import { fmtDate } from "@/server/queries";
+import { deriveInvoiceStatus } from "@/server/totals";
 
 export const metadata = { title: "Invoices" };
 
@@ -28,6 +29,7 @@ export default async function InvoicesPage({
   const status = sp.status && sp.status !== "all" ? sp.status : "";
   const clientId = sp.client && sp.client !== "all" ? sp.client : "";
   const sort: SortKey = (sp.sort && sp.sort in SORTS ? sp.sort : "newest") as SortKey;
+  const now = new Date();
   const page = Math.max(1, Number(sp.page) || 1);
 
   // Build the filter once; reused by the page, count and total queries so all
@@ -59,6 +61,7 @@ export default async function InvoicesPage({
         number: schema.invoice.number,
         status: schema.invoice.status,
         issueDate: schema.invoice.issueDate,
+        dueDate: schema.invoice.dueDate,
         total: schema.invoice.total,
         balanceDue: schema.invoice.balanceDue,
         amountPaid: schema.invoice.amountPaid,
@@ -100,7 +103,17 @@ export default async function InvoicesPage({
     number: r.number,
     client: r.clientName ?? "—",
     date: fmtDate(r.issueDate),
-    status: r.status,
+    // Derived at READ time. "overdue" is a function of today's date, and
+    // nothing writes to an invoice as it quietly passes its due date — so a
+    // stored status showed "part-paid" on a bill 124 days late.
+    status: deriveInvoiceStatus({
+      type: "invoice",
+      currentStatus: r.status,
+      total: r.total,
+      amountPaid: r.amountPaid,
+      dueDate: r.dueDate,
+      now,
+    }),
     total: r.total,
     balance: r.balanceDue,
     received: r.amountPaid,

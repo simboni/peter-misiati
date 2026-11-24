@@ -28,10 +28,7 @@ export const SUPPORT_EMAIL_USER = "support";
 export const SUPPORT_EMAIL_DOMAIN = "smp.co.ke";
 export const supportEmail = () => `${SUPPORT_EMAIL_USER}@${SUPPORT_EMAIL_DOMAIN}`;
 
-/**
- * Public, stable download URL for the Android app. The "Build mobile app
- * (Android)" workflow publishes the installable APK to a GitHub Release under
- * the fixed `android` tag, so this link always points at the latest build.
- */
-export const ANDROID_APK_URL =
-  "https://github.com/simboni/peter-misiati/releases/download/android/tallypay.apk";
+// The Android APK download was removed in Nov 2026. TallyPay is web-only: an
+// APK sideloaded from a GitHub release makes Android show an "unsafe app"
+// warning, which costs more trust than the install is worth. If a native
+// listing is wanted later it should go through Google Play, not a direct link.

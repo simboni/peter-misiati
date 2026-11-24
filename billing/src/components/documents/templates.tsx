@@ -259,7 +259,7 @@ export function StatementDocument({
               <tr key={i} className="border-b border-line">
                 <td className="whitespace-nowrap px-3 py-2 text-muted">{fmtDate(e.date)}</td>
                 <td className="px-3 py-2">{e.doc}</td>
-                <td className="px-3 py-2 text-muted">{e.description}</td>
+                <td className="whitespace-pre-line break-words px-3 py-2 text-muted">{e.description}</td>
                 <td className="px-3 py-2 text-right tabular-nums">{e.debit ? formatMoney(e.debit, currency) : "—"}</td>
                 <td className="px-3 py-2 text-right tabular-nums">{e.credit ? formatMoney(e.credit, currency) : "—"}</td>
                 <td className="px-3 py-2 text-right font-medium tabular-nums">{formatMoney(e.balance, currency)}</td>
@@ -330,9 +330,15 @@ export function CreditNoteDocument({
         <tbody>
           {lines.map((l) => (
             <tr key={l.id} className="border-b border-line align-top">
-              <td className="px-3 py-2">
-                <div className="font-medium text-ink">{l.title || l.description}</div>
-                {l.title && l.description && <div className="whitespace-pre-line text-xs text-muted">{l.description}</div>}
+              {/* w-full so the description column takes the slack rather than
+                  the numeric ones; break-words wraps long words at the edge,
+                  where overflow-wrap:anywhere would split ordinary words
+                  mid-letter and made these read as broken sentences. */}
+              <td className="w-full px-3 py-2">
+                <div className="whitespace-pre-line break-words font-medium text-ink">{l.title || l.description}</div>
+                {l.title && l.description && (
+                  <div className="mt-0.5 whitespace-pre-line break-words text-xs text-muted">{l.description}</div>
+                )}
               </td>
               <td className="px-3 py-2 text-right tabular-nums">{formatQty(l.quantityMilli)}</td>
               <td className="px-3 py-2 text-right tabular-nums">{formatMoney(l.unitPrice, cur)}</td>
@@ -419,7 +425,7 @@ export function DeliveryNoteDocument({
           <tbody>
             {lines.map((l) => (
               <tr key={l.id} className="border-b border-line">
-                <td className="px-3 py-2 [overflow-wrap:anywhere]">{l.description}</td>
+                <td className="w-full whitespace-pre-line break-words px-3 py-2">{l.description}</td>
                 <td className="px-3 py-2 text-right tabular-nums">{formatQty(l.quantityMilli)}</td>
                 <td className="px-3 py-2">{l.unit}</td>
               </tr>

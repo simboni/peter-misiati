@@ -4,6 +4,7 @@ import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { SubmitButton } from "./submit-button";
 import { QuantityInput } from "./quantity-input";
+import { useModKey } from "@/lib/use-mod-key";
 import { saveInvoiceAction, type FormState } from "@/server/actions/invoices";
 import { calcTotals } from "@/server/totals";
 import { parseAmount, parseQty, parseRate, formatMoney } from "@/server/money";
@@ -174,6 +175,7 @@ export function InvoiceEditor({
 
   const formRef = useRef<HTMLFormElement>(null);
   const titleRef = useRef<HTMLInputElement>(null);
+  const mod = useModKey();
 
   // ---------------------------------------------------------------- drafts --
   // Everything typed here lived only in React state, so a dropped network took
@@ -625,9 +627,9 @@ export function InvoiceEditor({
 
             {/* A shortcut nobody knows about may as well not exist. */}
             <p className="hidden items-center justify-center gap-3 text-[11px] text-muted lg:flex">
-              <span><Kbd>⌘</Kbd><Kbd>I</Kbd> add item</span>
-              <span><Kbd>⌘</Kbd><Kbd>D</Kbd> duplicate</span>
-              <span><Kbd>⌘</Kbd><Kbd>↵</Kbd> save</span>
+              <span><Kbd>{mod}</Kbd><Kbd>I</Kbd> add item</span>
+              <span><Kbd>{mod}</Kbd><Kbd>D</Kbd> duplicate</span>
+              <span><Kbd>{mod}</Kbd><Kbd>↵</Kbd> save</span>
             </p>
 
             {/* Say it plainly. Someone who has lost work once needs to see

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatMoney } from "@/server/money";
 import { SMART_QUERIES, type Hit } from "@/lib/search";
+import { useModKey } from "@/lib/use-mod-key";
 
 /**
  * ⌘K command palette. Hand-rolled rather than pulling in cmdk: the behaviour
@@ -385,10 +386,7 @@ export function CommandPalette() {
 
 /** The header button that opens the palette — discoverability for the mouse. */
 export function PaletteButton() {
-  const [mac, setMac] = useState(false);
-  useEffect(() => {
-    setMac(/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent));
-  }, []);
+  const mod = useModKey();
   return (
     <button
       type="button"
@@ -402,7 +400,7 @@ export function PaletteButton() {
       </svg>
       <span className="hidden sm:inline">Search</span>
       <kbd className="hidden rounded border border-line px-1 py-0.5 text-[10px] font-semibold sm:inline">
-        {mac ? "⌘" : "Ctrl "}K
+        {mod === "⌘" ? "⌘" : "Ctrl "}K
       </kbd>
     </button>
   );

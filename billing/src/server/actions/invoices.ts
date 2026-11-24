@@ -93,6 +93,17 @@ export async function saveInvoiceAction(_prev: FormState, fd: FormData): Promise
     depositValue,
   });
 
+  // A zero-total document is almost always a mistake — a line typed with no
+  // price, or a saved-and-forgotten shell. It cannot be paid, it cannot be
+  // chased, and once issued it burns a number in a sequence the KRA expects
+  // to be unbroken. QUO-0001 sat in production at KES 0.00 for months.
+  if (t.total <= 0) {
+    return {
+      error:
+        "This document totals 0.00, so there is nothing to charge. Add a price to at least one line before saving.",
+    };
+  }
+
   const currency = String(fd.get("currency") ?? "KES").trim() || "KES";
   const issueDate = parseDate(fd.get("issueDate"));
   const dueRaw = String(fd.get("dueDate") ?? "").trim();

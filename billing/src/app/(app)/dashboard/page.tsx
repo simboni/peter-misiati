@@ -59,6 +59,7 @@ export default async function DashboardPage() {
     overdue,
     overdueCount,
     openCount,
+    draftCount,
     monthRevenue,
     monthExpenses,
     monthNet,
@@ -101,10 +102,31 @@ export default async function DashboardPage() {
     },
   ];
 
+  // Three jobs, not three more numbers. The cards above already show
+  // "Received this month" and "Net this month"; this row used to repeat them,
+  // so it cost space and told you nothing you had not just read.
   const chips = [
-    { label: "Received", sub: "this month", value: monthRevenue, tone: "accent" as const },
-    { label: "Invoiced", sub: "all time", value: totalInvoiced, tone: "ink" as const },
-    { label: "Net", sub: "this month", value: monthNet, tone: monthNet >= 0 ? ("accent" as const) : ("danger" as const) },
+    {
+      label: "To send",
+      sub: draftCount === 1 ? "draft invoice" : "draft invoices",
+      value: draftCount,
+      href: "/invoices?status=draft",
+      tone: draftCount > 0 ? ("ink" as const) : ("muted" as const),
+    },
+    {
+      label: "To chase",
+      sub: overdueCount === 1 ? "overdue invoice" : "overdue invoices",
+      value: overdueCount,
+      href: "/reminders",
+      tone: overdueCount > 0 ? ("danger" as const) : ("muted" as const),
+    },
+    {
+      label: "Unpaid",
+      sub: openCount === 1 ? "invoice owing" : "invoices owing",
+      value: openCount,
+      href: "/invoices?status=unpaid",
+      tone: openCount > 0 ? ("accent" as const) : ("muted" as const),
+    },
   ];
 
   const actions: { href: string; label: string; icon: keyof typeof ICN; primary?: boolean }[] = [
@@ -150,17 +172,17 @@ export default async function DashboardPage() {
       {/* Quick stat chips */}
       <div className="grid grid-cols-3 gap-3">
         {chips.map((c) => (
-          <div key={c.label} className="card p-3.5">
+          <Link key={c.label} href={c.href} className="card p-3.5 transition-transform active:scale-[0.98]">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">{c.label}</p>
             <p
-              className={`mt-1 truncate text-[15px] font-bold tabular-nums ${
-                c.tone === "accent" ? "text-brand-700" : c.tone === "danger" ? "text-red-600" : "text-ink"
+              className={`mt-1 truncate text-[22px] font-bold tabular-nums ${
+                c.tone === "accent" ? "text-brand-700" : c.tone === "danger" ? "text-red-600" : c.tone === "muted" ? "text-muted" : "text-ink"
               }`}
             >
-              {whole(c.value)}
+              {c.value}
             </p>
             <p className="text-[11px] text-muted">{c.sub}</p>
-          </div>
+          </Link>
         ))}
       </div>
 

@@ -113,8 +113,23 @@ export function RecordPaymentForm({
           <input id="paidAt" name="paidAt" type="date" className="input" defaultValue={new Date().toISOString().slice(0, 10)} />
         </div>
         <div>
-          <label className="label" htmlFor="reference">Reference <span className="font-normal text-muted">(optional)</span></label>
-          <input id="reference" name="reference" className="input" placeholder="M-Pesa code, cheque no…" />
+          <label className="label" htmlFor="reference">
+            {method === "mpesa" ? "M-Pesa code" : "Reference"}{" "}
+            <span className="font-normal text-muted">{method === "mpesa" ? "(required)" : "(optional)"}</span>
+          </label>
+          <input
+            id="reference"
+            name="reference"
+            className="input"
+            required={method === "mpesa"}
+            autoCapitalize="characters"
+            placeholder={method === "mpesa" ? "e.g. SHJ4X2YZ01" : "Cheque no, bank ref…"}
+          />
+          {method === "mpesa" && (
+            <p className="mt-1 text-xs text-muted">
+              From the M-Pesa confirmation SMS. It goes on the receipt and lets you trace the payment later.
+            </p>
+          )}
         </div>
       </div>
 

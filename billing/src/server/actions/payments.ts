@@ -36,6 +36,13 @@ export async function recordPaymentAction(_prev: FormState, fd: FormData): Promi
     ? methodRaw
     : "cash";
   const reference = String(fd.get("reference") ?? "").trim() || null;
+
+  // An M-Pesa payment without its transaction code cannot be reconciled
+  // against a statement later, and a receipt that omits it is worth little to
+  // the client. Every other method keeps the reference optional.
+  if (method === "mpesa" && !reference) {
+    return { error: "Enter the M-Pesa transaction code (e.g. SHJ4X2YZ01) so this payment can be traced." };
+  }
   const note = String(fd.get("note") ?? "").trim() || null;
   const paidRaw = String(fd.get("paidAt") ?? "").trim();
   const paidAt = paidRaw ? new Date(paidRaw) : new Date();

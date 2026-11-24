@@ -31,6 +31,8 @@ export async function loadDashboard(db: DB, organizationId: string, now: Date = 
         overdue: sql<number>`COALESCE(SUM(CASE WHEN ${MONEY_INVOICE_SQL} AND ${schema.invoice.balanceDue} > 0 AND ${schema.invoice.dueDate} IS NOT NULL AND ${schema.invoice.dueDate} < ${nowMs} THEN ${schema.invoice.balanceDue} ELSE 0 END), 0)`,
         overdueCount: sql<number>`SUM(CASE WHEN ${MONEY_INVOICE_SQL} AND ${schema.invoice.balanceDue} > 0 AND ${schema.invoice.dueDate} IS NOT NULL AND ${schema.invoice.dueDate} < ${nowMs} THEN 1 ELSE 0 END)`,
         openCount: sql<number>`SUM(CASE WHEN ${MONEY_INVOICE_SQL} AND ${schema.invoice.balanceDue} > 0 THEN 1 ELSE 0 END)`,
+        // Drafts: not money, but a job — invoices written and never sent.
+        draftCount: sql<number>`SUM(CASE WHEN ${schema.invoice.status} = 'draft' THEN 1 ELSE 0 END)`,
         allCount: count(),
       })
       .from(schema.invoice)
@@ -98,6 +100,7 @@ export async function loadDashboard(db: DB, organizationId: string, now: Date = 
     monthNet: monthRevenue - monthExpenses,
     recent,
     topClients: topClients.map((c) => ({ id: c.id, name: c.name ?? "—", total: Number(c.total) })),
+    draftCount: Number(inv?.draftCount ?? 0),
     noData: Number(inv?.allCount ?? 0) === 0 && Number(pay?.cnt ?? 0) === 0,
   };
 }
