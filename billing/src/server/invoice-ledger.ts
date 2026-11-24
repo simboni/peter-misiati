@@ -1,6 +1,32 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, notInArray, sql } from "drizzle-orm";
 import { schema, type DB } from "./db";
 import { deriveInvoiceStatus } from "./totals";
+
+/**
+ * WHAT COUNTS AS MONEY.
+ *
+ * A draft has not been sent to anybody, so nobody owes it. A void invoice has
+ * been cancelled. Neither belongs in "you're owed", "invoiced", profit,
+ * receivables ageing or an overdue count.
+ *
+ * This existed in three places with two different definitions, which is how a
+ * dashboard came to claim KES 124,250 owed when the real figure was 46,500:
+ * `totalInvoiced` excluded drafts while `outstanding` beside it did not, and
+ * Reports excluded neither. An invoicing tool that miscounts is worthless, so
+ * every money figure now reads its definition from here.
+ *
+ * Reminders already agreed with this (see CHASEABLE_STATUSES in reminders.ts),
+ * which is why the chase queue was the only screen telling the truth.
+ */
+export const NON_MONEY_STATUSES = ["draft", "void"] as const;
+
+/** Drizzle filter for the money-bearing invoices of any query. */
+export function moneyInvoicesFilter() {
+  return notInArray(schema.invoice.status, [...NON_MONEY_STATUSES]);
+}
+
+/** The same rule as a SQL fragment, for use inside aggregate CASE expressions. */
+export const MONEY_INVOICE_SQL = sql`${schema.invoice.status} NOT IN ('draft','void')`;
 
 /**
  * Recompute an invoice's amountPaid / creditedAmount / balanceDue / status from

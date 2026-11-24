@@ -1,5 +1,6 @@
 import { and, eq, desc, sql, count, notInArray } from "drizzle-orm";
 import { schema, type DB } from "./db";
+import { MONEY_INVOICE_SQL } from "./invoice-ledger";
 
 /**
  * All the numbers the dashboard shows — computed with SQL aggregates so the
@@ -22,11 +23,14 @@ export async function loadDashboard(db: DB, organizationId: string, now: Date = 
     // One pass over the org's invoices → all invoice-derived figures.
     db
       .select({
-        totalInvoiced: sql<number>`COALESCE(SUM(CASE WHEN ${schema.invoice.status} NOT IN ('draft','void') THEN ${schema.invoice.total} ELSE 0 END), 0)`,
-        outstanding: sql<number>`COALESCE(SUM(CASE WHEN ${schema.invoice.status} <> 'void' THEN ${schema.invoice.balanceDue} ELSE 0 END), 0)`,
-        overdue: sql<number>`COALESCE(SUM(CASE WHEN ${schema.invoice.status} <> 'void' AND ${schema.invoice.balanceDue} > 0 AND ${schema.invoice.dueDate} IS NOT NULL AND ${schema.invoice.dueDate} < ${nowMs} THEN ${schema.invoice.balanceDue} ELSE 0 END), 0)`,
-        overdueCount: sql<number>`SUM(CASE WHEN ${schema.invoice.status} <> 'void' AND ${schema.invoice.balanceDue} > 0 AND ${schema.invoice.dueDate} IS NOT NULL AND ${schema.invoice.dueDate} < ${nowMs} THEN 1 ELSE 0 END)`,
-        openCount: sql<number>`SUM(CASE WHEN ${schema.invoice.status} <> 'void' AND ${schema.invoice.balanceDue} > 0 THEN 1 ELSE 0 END)`,
+        // Every figure below is gated on the SAME rule (MONEY_INVOICE_SQL).
+        // These used to differ: totalInvoiced excluded drafts, the rest only
+        // excluded voids, so the card claimed money owed that nobody owed.
+        totalInvoiced: sql<number>`COALESCE(SUM(CASE WHEN ${MONEY_INVOICE_SQL} THEN ${schema.invoice.total} ELSE 0 END), 0)`,
+        outstanding: sql<number>`COALESCE(SUM(CASE WHEN ${MONEY_INVOICE_SQL} THEN ${schema.invoice.balanceDue} ELSE 0 END), 0)`,
+        overdue: sql<number>`COALESCE(SUM(CASE WHEN ${MONEY_INVOICE_SQL} AND ${schema.invoice.balanceDue} > 0 AND ${schema.invoice.dueDate} IS NOT NULL AND ${schema.invoice.dueDate} < ${nowMs} THEN ${schema.invoice.balanceDue} ELSE 0 END), 0)`,
+        overdueCount: sql<number>`SUM(CASE WHEN ${MONEY_INVOICE_SQL} AND ${schema.invoice.balanceDue} > 0 AND ${schema.invoice.dueDate} IS NOT NULL AND ${schema.invoice.dueDate} < ${nowMs} THEN 1 ELSE 0 END)`,
+        openCount: sql<number>`SUM(CASE WHEN ${MONEY_INVOICE_SQL} AND ${schema.invoice.balanceDue} > 0 THEN 1 ELSE 0 END)`,
         allCount: count(),
       })
       .from(schema.invoice)

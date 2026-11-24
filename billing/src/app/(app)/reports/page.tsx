@@ -3,6 +3,7 @@ import Link from "next/link";
 import { and, eq, ne } from "drizzle-orm";
 import { requireOrg, getOrgProfile } from "@/server/org";
 import { schema } from "@/server/db";
+import { moneyInvoicesFilter } from "@/server/invoice-ledger";
 import { PageHeader } from "@/components/page-header";
 import { formatMoney } from "@/server/money";
 
@@ -40,7 +41,10 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
       })
       .from(schema.invoice)
       .leftJoin(schema.client, eq(schema.client.id, schema.invoice.clientId))
-      .where(and(eq(schema.invoice.organizationId, organizationId), eq(schema.invoice.type, "invoice"), ne(schema.invoice.status, "void"))),
+      // Drafts are not money: they have never been sent, so nobody owes them.
+      // Reports used to include them while the dashboard did not, which is why
+      // "Invoiced" differed between the two screens by the value of the drafts.
+      .where(and(eq(schema.invoice.organizationId, organizationId), eq(schema.invoice.type, "invoice"), moneyInvoicesFilter())),
     db.select({ amount: schema.payment.amount, paidAt: schema.payment.paidAt }).from(schema.payment).where(eq(schema.payment.organizationId, organizationId)),
     db.select({ amount: schema.expense.amount, taxAmount: schema.expense.taxAmount, category: schema.expense.category, date: schema.expense.expenseDate }).from(schema.expense).where(eq(schema.expense.organizationId, organizationId)),
     getOrgProfile(db, organizationId),
