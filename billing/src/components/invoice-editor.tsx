@@ -7,6 +7,16 @@ import { saveInvoiceAction, type FormState } from "@/server/actions/invoices";
 import { calcTotals } from "@/server/totals";
 import { parseAmount, parseQty, parseRate, formatMoney } from "@/server/money";
 import { AutoTextarea } from "./auto-textarea";
+import {
+  clearDraft,
+  draftAgo,
+  draftHasContent,
+  draftKey,
+  draftTime,
+  loadDraft,
+  saveDraft,
+  type Draft,
+} from "@/lib/draft";
 import type { Client, Item, Invoice, InvoiceLine } from "@/server/db/schema";
 
 type EditorLine = {
@@ -145,6 +155,126 @@ export function InvoiceEditor({
   const formRef = useRef<HTMLFormElement>(null);
   const titleRef = useRef<HTMLInputElement>(null);
 
+  // ---------------------------------------------------------------- drafts --
+  // Everything typed here lived only in React state, so a dropped network took
+  // the whole document with it. Now every change is mirrored to this device.
+  const DKEY = draftKey(type, invoice?.id);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [offer, setOffer] = useState<Draft | null>(null);
+  const [restored, setRestored] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [offline, setOffline] = useState(false);
+  // Suppresses the autosave until the restore decision is made, so a pristine
+  // form cannot overwrite the draft it is about to offer back.
+  const ready = useRef(false);
+
+  /** Read the four uncontrolled inputs straight off the form. */
+  const readFields = (): Record<string, string> => {
+    const f = formRef.current;
+    if (!f) return {};
+    const out: Record<string, string> = {};
+    for (const n of ["issueDate", "dueDate", "notes", "terms"]) {
+      const el = f.elements.namedItem(n) as HTMLInputElement | HTMLTextAreaElement | null;
+      if (el) out[n] = el.value;
+    }
+    return out;
+  };
+
+  const applyDraft = (d: Draft) => {
+    setLines(
+      d.lines.length
+        ? d.lines.map((l) => ({ ...l, key: newKey() }))
+        : [emptyLine()],
+    );
+    setClientId(d.clientId);
+    setCurrency(d.currency);
+    setDiscountType(d.discountType);
+    setDiscountValue(d.discountValue);
+    setDepositType(d.depositType);
+    setDepositValue(d.depositValue);
+    setShowMore(d.showMore);
+    // The uncontrolled inputs have to be written directly.
+    const f = formRef.current;
+    if (f) {
+      for (const [n, v] of Object.entries(d.fields)) {
+        const el = f.elements.namedItem(n) as HTMLInputElement | HTMLTextAreaElement | null;
+        if (el) el.value = v;
+      }
+    }
+    setRestored(true);
+    setOffer(null);
+    ready.current = true;
+  };
+
+  // On mount: a new document restores silently (there is nothing to lose and
+  // getting the work straight back is the point). Editing an EXISTING document
+  // only offers, because the saved version may have moved on and silently
+  // overwriting someone's real invoice with a stale draft is unforgivable.
+  useEffect(() => {
+    const d = loadDraft(DKEY);
+    if (d && draftHasContent(d)) {
+      if (invoice) setOffer(d);
+      else {
+        applyDraft(d);
+        return;
+      }
+    }
+    ready.current = true;
+    // Mount only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Autosave, debounced. Cheap enough to run on every keystroke's settle.
+  useEffect(() => {
+    if (!ready.current || submitted) return;
+    const t = setTimeout(() => {
+      const okSave = saveDraft(DKEY, {
+        clientId,
+        currency,
+        discountType,
+        discountValue,
+        depositType,
+        depositValue,
+        showMore,
+        lines: lines.map(({ key: _k, ...rest }) => rest),
+        fields: readFields(),
+      });
+      if (okSave) setSavedAt(Date.now());
+    }, 500);
+    return () => clearTimeout(t);
+  }, [lines, clientId, currency, discountType, discountValue, depositType, depositValue, showMore, submitted, DKEY]);
+
+  // A successful save redirects, unmounting this component with no error set.
+  // That is the only reliable "it worked" signal a Server Action gives us.
+  useEffect(() => {
+    return () => {
+      if (submitted && !state.error) clearDraft(DKEY);
+    };
+  }, [submitted, state.error, DKEY]);
+
+  // Tell them the truth about the network, rather than letting a submit fail
+  // mysteriously the way it did before.
+  useEffect(() => {
+    const sync = () => setOffline(!navigator.onLine);
+    sync();
+    window.addEventListener("online", sync);
+    window.addEventListener("offline", sync);
+    return () => {
+      window.removeEventListener("online", sync);
+      window.removeEventListener("offline", sync);
+    };
+  }, []);
+
+  // Last line of defence for a tab closed mid-edit.
+  useEffect(() => {
+    const warn = (e: BeforeUnloadEvent) => {
+      if (submitted || !savedAt) return;
+      e.preventDefault();
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [submitted, savedAt]);
+
   useEffect(() => {
     if (!focusNewLine) return;
     titleRef.current?.focus();
@@ -217,7 +347,74 @@ export function InvoiceEditor({
   const money = (n: number) => formatMoney(n, cur);
 
   return (
-    <form ref={formRef} action={formAction} className="pb-24 lg:pb-0">
+    <form
+      ref={formRef}
+      action={formAction}
+      onSubmit={() => setSubmitted(true)}
+      className="pb-24 lg:pb-0"
+    >
+      {/* Unsaved work found on this device, for a document that already
+          exists. Never applied without a click — the stored version may be
+          newer than this draft. */}
+      {offer && (
+        <div className="card mb-4 border-amber-200 bg-amber-50 p-4">
+          <p className="text-sm font-semibold text-amber-900">
+            You have unsaved changes from {draftAgo(offer.savedAt)}
+          </p>
+          <p className="mt-0.5 text-xs text-amber-800">
+            {`They were kept on this device when the ${noun.toLowerCase()} wasn't saved — a lost connection, or a closed tab. Restoring replaces what you see now.`}
+          </p>
+          <div className="mt-3 flex gap-2">
+            <button
+              type="button"
+              onClick={() => applyDraft(offer)}
+              className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-bold text-white"
+            >
+              Restore them
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                clearDraft(DKEY);
+                setOffer(null);
+                ready.current = true;
+              }}
+              className="rounded-lg px-3 py-1.5 text-xs font-medium text-amber-900 hover:bg-amber-100"
+            >
+              Discard
+            </button>
+          </div>
+        </div>
+      )}
+
+      {restored && (
+        <div className="card mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 border-brand-200 bg-brand-50 p-3">
+          <span className="text-sm font-semibold text-brand-900">Restored your unsaved work.</span>
+          <span className="text-xs text-brand-800">
+            {`This ${noun.toLowerCase()} wasn't saved last time, so we kept it on this device.`}
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              clearDraft(DKEY);
+              setLines([emptyLine()]);
+              setClientId("");
+              setRestored(false);
+            }}
+            className="ml-auto rounded-lg px-2.5 py-1 text-xs font-medium text-brand-800 hover:bg-brand-100"
+          >
+            Start blank instead
+          </button>
+        </div>
+      )}
+
+      {offline && (
+        <div className="card mb-4 border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          <b>You&apos;re offline.</b> Keep typing — everything is being kept on this device, and
+          nothing will be lost. Save once your connection is back.
+        </div>
+      )}
+
       <input type="hidden" name="type" value={type} />
       {invoice && <input type="hidden" name="id" value={invoice.id} />}
       <input type="hidden" name="lines" value={linesJson} />
@@ -371,6 +568,18 @@ export function InvoiceEditor({
               <span><Kbd>⌘</Kbd><Kbd>D</Kbd> duplicate</span>
               <span><Kbd>⌘</Kbd><Kbd>↵</Kbd> save</span>
             </p>
+
+            {/* Say it plainly. Someone who has lost work once needs to see
+                that it is being kept, not be asked to trust that it is. */}
+            {savedAt && !submitted && (
+              <p className="flex items-center justify-center gap-1.5 text-[11px] text-muted">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+                  className="h-3 w-3 text-brand-600" aria-hidden>
+                  <path d="M20 6L9 17l-5-5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                Kept on this device at {draftTime(savedAt)} — safe if your connection drops
+              </p>
+            )}
           </section>
 
           {/* More options (progressive disclosure) */}
