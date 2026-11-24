@@ -171,6 +171,20 @@ export const orgProfile = sqliteTable("org_profile", {
   // Admin-controlled account state. A suspended workspace is blocked from the app.
   suspended: integer("suspended", { mode: "boolean" }).notNull().default(false),
   adminNote: text("admin_note"),
+  // Payment reminders ("chasing"). Offsets are DAYS RELATIVE TO THE DUE DATE,
+  // negative meaning before it: "-3,0,3,7,14" nudges three days early, once on
+  // the day, then chases at 3, 7 and 14 days overdue. Stored as CSV rather
+  // than a child table because it is a short per-org setting edited as one
+  // field.
+  remindersEnabled: integer("reminders_enabled", { mode: "boolean" }).notNull().default(true),
+  reminderSchedule: text("reminder_schedule").notNull().default("-3,0,3,7,14"),
+  reminderTone: text("reminder_tone").notNull().default("friendly"), // friendly | firm | final
+  // Send automatically by email when the client has one. WhatsApp stays
+  // one-tap: wa.me cannot be sent server-side, and the Business API needs
+  // Meta approval and per-message fees.
+  reminderAutoEmail: integer("reminder_auto_email", { mode: "boolean" }).notNull().default(true),
+  // Don't chase trivial balances (minor units). 0 = chase everything.
+  reminderMinAmount: integer("reminder_min_amount").notNull().default(0),
   // Per-vendor M-Pesa (Kopo Kopo). Secrets are stored AES-GCM encrypted.
   // When disabled/empty, the platform-level env credentials are used instead.
   kopokopoEnabled: integer("kopokopo_enabled", { mode: "boolean" }).notNull().default(false),
@@ -216,6 +230,9 @@ export const client = sqliteTable(
     country: text("country"),
     currency: text("currency").notNull().default("KES"),
     notes: text("notes"),
+    // Never chase this client automatically — some relationships are handled
+    // by phone, and an unwanted reminder costs more than a late payment.
+    remindersOptOut: integer("reminders_opt_out", { mode: "boolean" }).notNull().default(false),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -280,6 +297,9 @@ export const invoice = sqliteTable(
     shareToken: text("share_token").notNull().unique(),
     convertedFromId: text("converted_from_id"), // quotation this invoice was created from
     sentAt: integer("sent_at", { mode: "timestamp_ms" }),
+    // Stop chasing this one specific invoice without opting the client out of
+    // reminders entirely — e.g. a payment plan was agreed by phone.
+    remindersPaused: integer("reminders_paused", { mode: "boolean" }).notNull().default(false),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -315,6 +335,43 @@ export const invoiceLine = sqliteTable(
     sortOrder: integer("sort_order").notNull().default(0),
   },
   (t) => [index("invoice_line_invoice_idx").on(t.invoiceId)],
+);
+
+/**
+ * One row per payment reminder, whoever sent it and however it went out.
+ *
+ * This is the record that stops the same chase going twice, and it is also the
+ * answer to "have we actually asked them?" — a question that is awkward to
+ * answer from memory and embarrassing to get wrong with a client.
+ *
+ * `step` is the schedule offset in days that triggered it (see
+ * orgProfile.reminderSchedule), so a row is identifiable as "the 7-days-overdue
+ * one" rather than just the third message.
+ */
+export const invoiceReminder = sqliteTable(
+  "invoice_reminder",
+  {
+    id: id(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    invoiceId: text("invoice_id")
+      .notNull()
+      .references(() => invoice.id, { onDelete: "cascade" }),
+    step: integer("step").notNull(), // schedule offset in days, e.g. -3, 0, 7
+    channel: text("channel").notNull(), // email | whatsapp | sms | manual
+    status: text("status").notNull().default("sent"), // sent | failed | skipped
+    tone: text("tone"), // friendly | firm | final
+    detail: text("detail"), // failure reason, or a note for a manual chase
+    sentAt: integer("sent_at", { mode: "timestamp_ms" }).$defaultFn(() => new Date()).notNull(),
+  },
+  (t) => [
+    index("invoice_reminder_invoice_idx").on(t.invoiceId),
+    index("invoice_reminder_org_sent_idx").on(t.organizationId, t.sentAt),
+    // One send per step per invoice. The engine checks before sending, but a
+    // double-submit or a retry should not be able to chase a client twice.
+    uniqueIndex("invoice_reminder_invoice_step_idx").on(t.invoiceId, t.step),
+  ],
 );
 
 export const payment = sqliteTable(

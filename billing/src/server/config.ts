@@ -25,6 +25,8 @@ export type AppEnv = {
   CHROMIUM_PATH?: string;
   /** Comma-separated emails that bootstrap as platform super-admins on login. */
   OWNER_EMAILS?: string;
+  /** Bearer token guarding /api/cron/* — the nightly reminder sweep. */
+  CRON_SECRET?: string;
 };
 
 export async function getEnv(): Promise<AppEnv> {

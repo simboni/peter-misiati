@@ -8,6 +8,8 @@ import { EmptyState } from "@/components/page-header";
 import { Accordion } from "@/components/accordion";
 import { HeroCarousel, type HeroCard } from "@/components/hero-carousel";
 import { runDueRecurring } from "@/server/recurring";
+import { chaseSummary } from "@/server/reminder-queue";
+import { appBaseUrl } from "@/server/config";
 
 export const metadata = { title: "Dashboard" };
 
@@ -21,6 +23,7 @@ const ICN = {
   box: "M21 8l-9-5-9 5 9 5 9-5zM3 8v8l9 5 9-5V8M12 13v8",
   receipt: "M5 3h14v18l-2.5-1.6L14 21l-2-1.4L10 21l-2.5-1.6L5 21zM8.5 8h7M8.5 12h7",
   chart: "M3 3v18h18M8 15v3M13 10v8M18 6v12",
+  bell: "M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0",
 } as const;
 
 function DIcon({ d, className = "h-6 w-6" }: { d: string; className?: string }) {
@@ -40,9 +43,12 @@ export default async function DashboardPage() {
   const now = new Date();
   // All figures come back pre-aggregated from SQL (a handful of rows), plus the
   // org profile — fetched together so it's one round-trip's worth of latency.
-  const [profile, d] = await Promise.all([
+  // chaseSummary also SENDS any reminders that have come due, which is what
+  // keeps the feature working for vendors who never set up a cron.
+  const [profile, d, chase] = await Promise.all([
     getOrgProfile(db, organizationId),
     loadDashboard(db, organizationId, now),
+    chaseSummary(db, organizationId, await appBaseUrl(), now),
   ]);
   const cur = profile?.currency ?? "KES";
 
@@ -117,6 +123,29 @@ export default async function DashboardPage() {
       {/* Greeting + swipeable money cards */}
       <p className="px-1 text-sm font-medium text-muted">{greeting} 👋</p>
       <HeroCarousel cards={heroCards} />
+
+      {/* Needs chasing — the one thing on this page that is a job, not a figure. */}
+      {chase.needsYou > 0 && (
+        <Link
+          href="/reminders"
+          className="card flex items-center gap-3 border-amber-200 bg-amber-50 p-4 transition-transform active:scale-[0.99]"
+        >
+          <span className="grid h-10 w-10 flex-none place-items-center rounded-xl bg-amber-100 text-amber-700">
+            <DIcon d={ICN.bell} className="h-5 w-5" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-bold text-amber-900">
+              {chase.needsYou} invoice{chase.needsYou === 1 ? "" : "s"} need{chase.needsYou === 1 ? "s" : ""} chasing
+            </span>
+            <span className="block truncate text-xs text-amber-800">
+              {chase.overdue > 0
+                ? `${chase.overdue} overdue · ${whole(chase.owed)} outstanding`
+                : `${whole(chase.owed)} outstanding`}
+            </span>
+          </span>
+          <span className="flex-none text-xs font-semibold text-amber-900">Open queue →</span>
+        </Link>
+      )}
 
       {/* Quick stat chips */}
       <div className="grid grid-cols-3 gap-3">

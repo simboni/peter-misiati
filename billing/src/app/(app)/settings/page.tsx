@@ -1,8 +1,10 @@
 import { requireOrg, getOrg, getOrgProfile } from "@/server/org";
-import { platformKopokopoConfig } from "@/server/platform";
+import { getDb } from "@/server/db";
+import { platformKopokopoConfig, platformResendConfig } from "@/server/platform";
 import { isPro } from "@/lib/plan";
 import { PageHeader } from "@/components/page-header";
 import { SettingsForm } from "@/components/settings-form";
+import { ReminderSettingsForm } from "@/components/reminder-settings-form";
 import { PaymentSettingsForm } from "@/components/payment-settings-form";
 import { DangerZone } from "@/components/danger-zone";
 import { DeleteAccount } from "@/components/delete-account";
@@ -11,10 +13,11 @@ export const metadata = { title: "Settings" };
 
 export default async function SettingsPage() {
   const { db, organizationId, role } = await requireOrg();
-  const [org, profile, platformCfg] = await Promise.all([
+  const [org, profile, platformCfg, mail] = await Promise.all([
     getOrg(db, organizationId),
     getOrgProfile(db, organizationId),
     platformKopokopoConfig(db),
+    platformResendConfig(await getDb()),
   ]);
 
   if (!profile) {
@@ -37,6 +40,15 @@ export default async function SettingsPage() {
         // PaymentSettingsForm via boolean flags).
         profile={{ ...profile, kopokopoClientSecretEnc: null, kopokopoApiKeyEnc: null }}
         pro={isPro(profile.plan)}
+      />
+      <ReminderSettingsForm
+        remindersEnabled={profile.remindersEnabled}
+        reminderSchedule={profile.reminderSchedule}
+        reminderTone={profile.reminderTone}
+        reminderAutoEmail={profile.reminderAutoEmail}
+        reminderMinAmount={profile.reminderMinAmount}
+        currency={profile.currency ?? "KES"}
+        emailReady={mail !== null}
       />
       <PaymentSettingsForm
         enabled={profile.kopokopoEnabled}
