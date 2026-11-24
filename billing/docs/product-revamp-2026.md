@@ -211,24 +211,105 @@ part of the whole plan.
 - **Global search** across invoice numbers, client names, amounts, line text.
 - **Command-line-grade empty states** that teach the shortcut, not just the button.
 
-### 3.4 Mobile and offline — the Kenyan reality
+### 3.4 PWA — the web *is* the app
 
-The Android app is a Capacitor shell around the website, and the service worker
-deliberately caches nothing but an offline screen. That is a correct, honest
-starting point, but it means **TallyPay is useless without signal**, and signal
-is not a given at a client site, a market, or a construction yard.
+**Decision (Nov 2026): web only. No native Android work.** The PWA carries the
+whole mobile story, which means the offline work below stops being a nice
+finishing touch and becomes the thing that decides whether TallyPay is usable
+at a client site, in a market, or on a construction yard where signal is not a
+given.
 
-Target: **compose offline, sync on reconnect.**
+#### What a PWA can and cannot do, checked rather than assumed
 
-- Cache the app shell and the user's own working set (clients, items, recent
-  invoices) in IndexedDB
-- Queue writes locally; replay on reconnect against the same server actions
-- An explicit, visible sync state — "3 invoices waiting to sync" — never a
-  silent lie. For money, ambiguity is worse than being offline.
-- Conflict policy: server wins on numbering (the sequence is authoritative),
-  local wins on content, and anything genuinely conflicting surfaces for the
-  human.
-- Native camera capture for receipts, feeding the AI expense path below.
+Android/Chromium is permissive. **iOS is the constraint that shapes the
+architecture**, and the sources are consistent on these points
+([openpwa](https://openpwa.net/news/pwas-on-iphone-what-works-and-what-does-not-october-2026/),
+[iOS web push 2026](https://relaybell.com/blog/ios-web-push-2026),
+[iOS PWA limitations](https://tappwa.com/blog/ios-pwa-limitations-2026)):
+
+| Capability | Android / Chromium | iOS Safari |
+|---|---|---|
+| Install | Automatic prompt (`beforeinstallprompt`) | **Share sheet only — no prompt** |
+| Web Push | Yes, from a tab | **Only after Add to Home Screen** (iOS 16.4+) |
+| Badging (count on icon) | Yes | Yes, Home Screen apps, numeric only |
+| **Background Sync** | Yes | **No. Also no Periodic Sync, no Background Fetch** |
+| Web Share Target | Yes | No |
+| Camera (`getUserMedia`) | Yes | Yes |
+
+Three consequences, each of which is a design decision rather than a detail:
+
+1. **Background Sync cannot be the sync mechanism.** It is Chromium-only — not
+   Safari, not Firefox. A **sync-on-focus fallback is mandatory**, firing on
+   `visibilitychange`, `online`, and app launch. Background Sync becomes an
+   optimisation where it happens to exist, never the contract.
+2. **On iOS, push requires installation first.** So the order is: earn the
+   install, *then* ask for notification permission. Asking first simply fails.
+   And Safari revokes push permission if you send a push without showing a
+   notification — so no silent pushes, ever.
+3. **Installation needs teaching on iOS.** No prompt exists. A dismissible,
+   once-only coach mark showing the share-sheet route, triggered on second or
+   third visit from an iOS browser — not on first load, which people reflexively
+   dismiss.
+
+#### The offline architecture
+
+The field has converged on three layers
+([LogRocket](https://blog.logrocket.com/offline-first-frontend-apps-2025-indexeddb-sqlite/),
+[production patterns](https://letsbuildsolutions.com/blog/web-engineering/building-offline-first-web-applications-service-workers-indexeddb-and-sync-strategies-in-production/),
+[conflict algorithms](https://www.browser-storage.com/offline-sync-strategies-background-workflows/conflict-resolution-algorithms/)):
+
+**1. Local store** — IndexedDB (Dexie or `idb`) holding the app shell plus the
+user's working set: their clients, items, and recent invoices. Not the whole
+database; the working set.
+
+**2. Durable mutation queue** — writes are recorded locally and replayed in
+order on reconnect, with exponential backoff and a dead-letter path for
+anything that fails repeatedly. Order matters here more than in most apps: an
+invoice must exist before its payment.
+
+> **An IndexedDB gotcha worth knowing before it bites:** a transaction stays
+> alive only while it has pending requests. The moment the event loop yields
+> with none outstanding, it commits and closes. So resolve a merge in memory
+> first, then open a *fresh* readwrite transaction for the read-verify-write.
+> Doing the merge inside the transaction silently loses the write.
+
+**3. Conflict policy** — add `updated_at` to every synced row, return **409** on
+conflict, and have the client mark the record as conflicted rather than
+guessing. Start with **last-write-wins**; add anything cleverer only if real
+data loss actually shows up. The consensus advice is explicit about not
+reaching for CRDTs prematurely.
+
+For TallyPay specifically, LWW is wrong in one place and right everywhere else:
+
+- **Invoice numbering is server-authoritative, always.** Two people offline must
+  never mint `INV-0042`. Offline drafts carry a local id and receive their real
+  number at sync.
+- **Money rows never silently merge.** A conflicted payment surfaces for a
+  human. Getting this wrong means quietly losing a receipt, which is worse than
+  any amount of downtime.
+- Content fields (descriptions, client details) can take last-write-wins.
+
+**4. Honest sync state** — a persistent, visible indicator: *"3 invoices waiting
+to sync."* Never a spinner that implies saved when it means queued. For money,
+ambiguity is worse than being offline.
+
+#### Other PWA wins worth taking
+
+- **Badging API** — overdue invoice count on the home-screen icon. Works on both
+  platforms, costs almost nothing, and puts "you are owed money" in the user's
+  peripheral vision every day.
+- **Camera capture** for receipts, feeding the AI expense path below. No native
+  code needed.
+- **Web Share** for sending invoice links — already in use via the WhatsApp
+  button.
+
+#### The existing Android app
+
+One operational note, then I'll leave it alone as asked: there is a published
+Play app wrapping `tallypay.co.ke`, and real users are on it. Deprioritising
+Android does not make them disappear — it means **`tallypay.co.ke` must keep
+resolving to a working deployment** until they are migrated to the PWA, or they
+simply lose the product. Worth a deliberate decision later, not a drift.
 
 ### 3.5 The AI layer
 
@@ -312,13 +393,15 @@ disproportionate effect on perception.
 **Phase 3 — eTIMS (3–4 weeks, plus KRA onboarding time).** The compliance wedge.
 Start the KRA paperwork early; integration is rarely the slow part.
 
-**Phase 4 — AI layer + credits (3–4 weeks).** Invoice-from-a-sentence and
-receipt capture first; the ledger, caps and audit logging alongside. Ship the
-feature already advertised.
+**Phase 4 — PWA offline-first (3–4 weeks).** Promoted from last place by the
+web-only decision: with no native app, this *is* the mobile product. Local
+store, mutation queue, sync-on-focus, honest sync state, install coaching,
+badging. Hardest phase, and no longer optional.
 
-**Phase 5 — Offline-first (3–4 weeks).** The hardest and least visible, which is
-why it is last — but it is what makes the Android app genuinely good rather than
-a website in a box.
+**Phase 5 — AI layer + credits (3–4 weeks).** Invoice-from-a-sentence and
+receipt capture first; the ledger, caps and audit logging alongside. Ship the
+feature already advertised. Deliberately after offline, because an AI that only
+works with signal is a demo, not a tool.
 
 ---
 
@@ -337,9 +420,12 @@ invoices/year). Your uncapped free tier plus compliance is a sharper wedge than
 any feature. Monetise AI, white-label and payment margin — never the invoice
 itself.
 
-**The Android app is the weak link in the "tier-one" story.** It is a webview
-pointing at a URL. Phase 5 fixes the substance; but until then, be careful about
-positioning it as a native app in investor or Play Store materials.
+**Going web-only raises the bar on the PWA rather than lowering it.** Dropping
+native Android removes a build pipeline and a review queue, which is a real
+saving. But it also removes the fallback: if the PWA is slow or useless
+offline, there is no second mobile experience to hide behind. Phase 4 is now
+load-bearing, and the iOS limits above mean it cannot be done by installing a
+service-worker library and hoping.
 
 ---
 
