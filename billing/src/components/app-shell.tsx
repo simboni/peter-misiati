@@ -5,6 +5,7 @@ import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
 import { Brand, BrandMark } from "./brand";
 import { ThemeToggle } from "./theme-toggle";
+import { DensityToggle } from "./density-toggle";
 import { isNativeApp } from "@/lib/native";
 import { ANDROID_APK_URL } from "@/lib/flags";
 import { NativeAppChrome } from "./native-app-chrome";
@@ -164,6 +165,10 @@ export function AppShell({
         <div className="mt-3 flex items-center justify-between">
           <span className="text-xs font-medium text-muted">Theme</span>
           <ThemeToggle />
+        </div>
+        <div className="mt-2 flex items-center justify-between">
+          <span className="text-xs font-medium text-muted">Density</span>
+          <DensityToggle />
         </div>
         <form action={signOut} className="mt-2">
           <button className="btn-ghost btn-sm w-full">Sign out</button>

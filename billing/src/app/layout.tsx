@@ -58,7 +58,7 @@ export default function RootLayout({
         <script
           dangerouslySetInnerHTML={{
             __html:
-              "try{var t=localStorage.getItem('tp:theme');if(t&&t!=='light')document.documentElement.setAttribute('data-theme',t);}catch(e){}",
+              "try{var t=localStorage.getItem('tp:theme');if(t&&t!=='light')document.documentElement.setAttribute('data-theme',t);var d=localStorage.getItem('tp:density');if(d==='compact')document.documentElement.setAttribute('data-density',d);}catch(e){}",
           }}
         />
         {/* Inside the native app, mark the document early so the bottom-tab app
