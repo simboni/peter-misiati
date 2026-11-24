@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useMemo, useState } from "react";
+import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { SubmitButton } from "./submit-button";
 import { saveInvoiceAction, type FormState } from "@/server/actions/invoices";
@@ -113,10 +113,16 @@ export function InvoiceEditor({
       taxRate: String(it.taxRateBps / 100),
     });
   }
+  // Set when a line is added or duplicated, so the effect below can put the
+  // caret in the new line's name field — both a courtesy and a necessity,
+  // since a keyboard user has nowhere to type otherwise.
+  const [focusNewLine, setFocusNewLine] = useState(false);
+
   const addLine = () => {
     const l = emptyLine();
     setLines((ls) => [...ls, l]);
     setExpandedKey(l.key);
+    setFocusNewLine(true);
   };
   const removeLine = (key: string) =>
     setLines((ls) => {
@@ -125,6 +131,60 @@ export function InvoiceEditor({
       if (key === expandedKey) setExpandedKey(next[next.length - 1].key);
       return next;
     });
+
+  /** Copy a line in place — the fastest way to bill five similar things. */
+  const duplicateLine = (key: string) => {
+    const i = lines.findIndex((l) => l.key === key);
+    if (i === -1) return;
+    const copy = { ...lines[i], key: newKey() };
+    setLines([...lines.slice(0, i + 1), copy, ...lines.slice(i + 1)]);
+    setExpandedKey(copy.key);
+    setFocusNewLine(true);
+  };
+
+  const formRef = useRef<HTMLFormElement>(null);
+  const titleRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!focusNewLine) return;
+    titleRef.current?.focus();
+    titleRef.current?.select();
+    setFocusNewLine(false);
+  }, [focusNewLine]);
+
+  /**
+   * Keyboard shortcuts for someone invoicing all day.
+   *
+   * Bound to the window, NOT to the form. A form-scoped handler only sees keys
+   * that bubble from a focused descendant, and duplicating a line unmounts the
+   * input you were in — focus falls to <body> and every subsequent shortcut is
+   * silently swallowed. The shortcuts would work exactly once.
+   *
+   * All three preventDefault, since the browser claims ⌘D (bookmark) and ⌘I.
+   * The palette renders a [role=dialog]; while that is open it owns the
+   * keyboard and this handler stands down.
+   */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+      if (document.querySelector('[role="dialog"]')) return;
+      const key = e.key.toLowerCase();
+      if (key === "enter") {
+        e.preventDefault();
+        formRef.current?.requestSubmit();
+      } else if (key === "d") {
+        e.preventDefault();
+        if (expandedKey) duplicateLine(expandedKey);
+      } else if (key === "i") {
+        e.preventDefault();
+        addLine();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // `lines` and `expandedKey` are read inside, so the closure must be fresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lines, expandedKey]);
 
   const totals = useMemo(
     () =>
@@ -157,7 +217,7 @@ export function InvoiceEditor({
   const money = (n: number) => formatMoney(n, cur);
 
   return (
-    <form action={formAction} className="pb-24 lg:pb-0">
+    <form ref={formRef} action={formAction} className="pb-24 lg:pb-0">
       <input type="hidden" name="type" value={type} />
       {invoice && <input type="hidden" name="id" value={invoice.id} />}
       <input type="hidden" name="lines" value={linesJson} />
@@ -254,8 +314,12 @@ export function InvoiceEditor({
                 <div key={l.key} className="card p-4 ring-1 ring-brand-100">
                   <div className="mb-3 flex items-center justify-between">
                     <span className="grid h-6 w-6 place-items-center rounded-full bg-brand-600 text-xs font-bold text-white">{idx + 1}</span>
-                    <button type="button" onClick={() => removeLine(l.key)} disabled={lines.length === 1}
-                      className="text-xs font-medium text-muted hover:text-red-600 disabled:opacity-40">Remove</button>
+                    <div className="flex items-center gap-1">
+                      <button type="button" onClick={() => duplicateLine(l.key)} title="Duplicate this line (⌘D)"
+                        className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-canvas hover:text-ink">Duplicate</button>
+                      <button type="button" onClick={() => removeLine(l.key)} disabled={lines.length === 1}
+                        className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:text-red-600 disabled:opacity-40">Remove</button>
+                    </div>
                   </div>
 
                   {items.length > 0 && (
@@ -267,7 +331,7 @@ export function InvoiceEditor({
                     </select>
                   )}
 
-                  <input className="input font-medium" placeholder="Product / service name *" value={l.title}
+                  <input className="input font-medium" ref={titleRef} placeholder="Product / service name *" value={l.title}
                     onChange={(e) => updateLine(l.key, { title: e.target.value, itemId: "" })} />
                   <AutoTextarea className="input mt-2 text-sm" placeholder="Description — press Enter for a new line" value={l.description}
                     onChange={(v) => updateLine(l.key, { description: v })} />
@@ -300,6 +364,13 @@ export function InvoiceEditor({
               className="w-full rounded-xl border-2 border-dashed border-line py-3 text-sm font-semibold text-brand-700 transition-colors hover:border-brand-300 hover:bg-brand-50">
               ＋ Add another item
             </button>
+
+            {/* A shortcut nobody knows about may as well not exist. */}
+            <p className="hidden items-center justify-center gap-3 text-[11px] text-muted lg:flex">
+              <span><Kbd>⌘</Kbd><Kbd>I</Kbd> add item</span>
+              <span><Kbd>⌘</Kbd><Kbd>D</Kbd> duplicate</span>
+              <span><Kbd>⌘</Kbd><Kbd>↵</Kbd> save</span>
+            </p>
           </section>
 
           {/* More options (progressive disclosure) */}
@@ -398,6 +469,14 @@ export function InvoiceEditor({
         </div>
       </div>
     </form>
+  );
+}
+
+function Kbd({ children }: { children: React.ReactNode }) {
+  return (
+    <kbd className="mx-0.5 rounded border border-line px-1 py-0.5 font-sans text-[10px] font-semibold text-ink">
+      {children}
+    </kbd>
   );
 }
 
