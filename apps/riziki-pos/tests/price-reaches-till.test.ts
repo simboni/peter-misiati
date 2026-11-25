@@ -166,3 +166,45 @@ test("but a dead line still opens the till, without waiting out the long budget"
     "offline short-circuits ahead of the network budget",
   );
 });
+
+test("every screen that sets or shows a price refuses a stale copy", () => {
+  /*
+    THE HALF-FIX THIS CLOSES.
+
+    "The prices don't change at the counter" was fixed at the counter, and the
+    shop came back twice more saying they still were not changing — pointing,
+    the second time, at the Recipes screen. The arithmetic there was never
+    wrong: it reads cost_cents straight out of items on every load. What was
+    wrong is that the screen itself could be answered out of the cache saved
+    before the price was touched.
+
+    That is worse on these screens than on the till. On the till a stale price
+    is at least charged consistently; here, somebody has just changed a number
+    and opened the page specifically to watch it move, so the one figure being
+    served stale is the one figure being stared at.
+  */
+  const list = SW.match(/const MUST_BE_FRESH = \[([^\]]*)\]/s);
+  assert.ok(list, "MUST_BE_FRESH exists");
+  for (const route of ["/sell", "/items", "/formulas", "/mix", "/prices", "/landed", "/check"]) {
+    assert.match(list![1], new RegExp(`"${route}"`), `${route} must not be served stale`);
+  }
+});
+
+test("the screens worth having offline are still allowed the fast cached copy", () => {
+  // The fix must not become "nothing is cached", which would take the offline
+  // mode with it. Stock levels, customers and past sales are consulted, not
+  // acted on to the shilling, and having them on a dead line is the point.
+  const list = SW.match(/const MUST_BE_FRESH = \[([^\]]*)\]/s);
+  for (const route of ["/stock", "/customers", "/sales", "/more"]) {
+    assert.doesNotMatch(list![1], new RegExp(`"${route}"`), `${route} stays available offline`);
+  }
+});
+
+test("a child route of a fresh screen is fresh too", () => {
+  // /formulas/12 is the screen the shop was actually looking at, not /formulas.
+  assert.match(
+    SW,
+    /url\.pathname === path \|\| url\.pathname\.startsWith\(`\$\{path\}\/`\)/,
+    "the match covers a path and everything under it",
+  );
+});

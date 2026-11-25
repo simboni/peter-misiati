@@ -91,8 +91,34 @@ const SLOW_NETWORK_MS = 2500;
  * They still fall back to the cache when the request genuinely fails or the
  * connection is gone — a till that will not open is worse than a till showing
  * yesterday's prices, and that is the case the offline mode exists for.
+ *
+ * THE LIST WAS ONCE JUST THE TILL, AND THAT WAS HALF A FIX.
+ *
+ * The report was "the prices don't change at the counter", so the counter is
+ * what got fixed. But the owner does not only read prices at the counter — he
+ * changes them on Products & prices and then opens Recipes to see the effect,
+ * and both of those screens were still allowed to answer from a copy saved
+ * before the change. The same fault, on the screens where somebody is
+ * deliberately watching for a number to move, which is the worst possible
+ * place for it: the figure he is checking is the figure being served stale.
+ * It came back twice more as "they are still not changing" before the cache
+ * was suspected rather than the arithmetic.
+ *
+ * The rule is now the whole class, not the one screen that was reported:
+ * anywhere a price or a cost is set, or read in order to act on it, waits for
+ * the real answer. Screens that are merely useful to consult — stock levels,
+ * customers, past sales — keep the fast cached copy, because being a few
+ * minutes old there costs nothing and having them offline is the point.
  */
-const MUST_BE_FRESH = ["/sell"];
+const MUST_BE_FRESH = [
+  "/sell", // the till: what the customer is charged
+  "/items", // Products & prices: where a price is changed in the first place
+  "/formulas", // Recipes: ingredient costs and the sizes they sell in
+  "/mix", // the mixing board: values a batch at today's costs, into the ledger
+  "/prices", // price history: the record of what moved and when
+  "/landed", // landed cost: what a delivery really cost once carriage is in
+  "/check", // worth checking: every finding on it is a figure
+];
 /** And when we hold nothing, so waiting is the only option worth taking. */
 const NO_FALLBACK_MS = 12000;
 
