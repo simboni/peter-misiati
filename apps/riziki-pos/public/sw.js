@@ -40,7 +40,19 @@
  *    paint instantly on a dead connection.
  */
 
-const VERSION = "riziki-v2";
+/*
+ * Bumped when a saved page must not survive the update.
+ *
+ * `activate` deletes every cache whose name does not carry the current
+ * version, so changing this empties the shop's devices of pages saved by the
+ * old worker. v3 goes with widening MUST_BE_FRESH: without the bump the new
+ * rules would be in force but the copies of Products & prices and Recipes
+ * saved BEFORE the fix would still be sitting on the counter's phone, ready
+ * to be served the next time the line drops — and this is the third time the
+ * shop has reported these figures not moving. The cost is that the offline
+ * pages re-warm on the next few loads, which is a minute of being online.
+ */
+const VERSION = "riziki-v3";
 const SHELL_CACHE = `shell-${VERSION}`;
 const ASSET_CACHE = `assets-${VERSION}`;
 
